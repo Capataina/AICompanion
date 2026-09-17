@@ -269,6 +269,15 @@ public static class ShotOutcomes
         record.ItemByBuff[buffType] = itemType;
     }
 
+    /// <summary>Every body's buff authorship, copied, for the snapshot: which item added which buff.</summary>
+    public static Dictionary<int, Dictionary<int, int>> ExportAddedBy()
+    {
+        var copy = new Dictionary<int, Dictionary<int, int>>(addedBy.Count);
+        foreach (var (slot, record) in addedBy)
+            copy[slot] = new Dictionary<int, int>(record.ItemByBuff);
+        return copy;
+    }
+
     public static void Clear()
     {
         open.Clear();

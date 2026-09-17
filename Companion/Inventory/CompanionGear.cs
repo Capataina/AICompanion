@@ -137,7 +137,27 @@ public sealed class CompanionGear
         }
         if (item.shoot > 0)
         {
-            if (!ContentSamples.ProjectilesByType.TryGetValue(item.shoot, out Projectile? projectile))
+            // An ammo weapon fires its ammo, not its own placeholder: a Boomstick's own shoot names a powder
+            // it never fires, so asking after the placeholder refuses every gun headless, where the powder was
+            // never registered, while passing them in game for the wrong reason. The checks below read what
+            // leaves the muzzle.
+            int shot = item.shoot;
+            if (item.useAmmo != 0)
+            {
+                Item? ammo = DefaultAmmo(item);
+                if (ammo == null)
+                {
+                    reason = "no free ammo of its class";
+                    return false;
+                }
+                if (ammo.shoot <= 0)
+                {
+                    reason = "its ammo fires nothing";
+                    return false;
+                }
+                shot = ammo.shoot;
+            }
+            if (!ContentSamples.ProjectilesByType.TryGetValue(shot, out Projectile? projectile))
             {
                 reason = "fires a projectile the game has not loaded";
                 return false;
@@ -145,7 +165,7 @@ public sealed class CompanionGear
             // A projectile the arc learner cannot fit — a bubble that rises, a shot that homes — is still
             // fired, at the intercept, and valued by what its uses achieve: the refusal used to sit here and
             // phase B removed it, because the residual learner already prices outcomes the geometry cannot see.
-            if (ProjectileID.Sets.IsAWhip[item.shoot] || projectile.aiStyle is ProjAIStyleID.Flail or ProjAIStyleID.Spear or ProjAIStyleID.Yoyo or ProjAIStyleID.Whip)
+            if (ProjectileID.Sets.IsAWhip[shot] || projectile.aiStyle is ProjAIStyleID.Flail or ProjAIStyleID.Spear or ProjAIStyleID.Yoyo or ProjAIStyleID.Whip)
             {
                 reason = "held weapons are steered by the player";
                 return false;
@@ -153,11 +173,6 @@ public sealed class CompanionGear
             if (item.channel && HasOwnFiringHook(item))
             {
                 reason = "a channelled item with its own firing code";
-                return false;
-            }
-            if (item.useAmmo != 0 && DefaultAmmo(item) == null)
-            {
-                reason = "no free ammo of its class";
                 return false;
             }
             reason = "";

@@ -73,6 +73,10 @@ public sealed class CompanionMana
         ticksSinceSpend = 0;
     }
 
+    /// <summary>Restore the pool a snapshot carried, after <see cref="Sync"/> sets the maximum: the
+    /// audit replays the same mana share. Regeneration never runs between, so the delay is untouched.</summary>
+    public void Assume(float current) => Current = Math.Clamp(current, 0f, Max);
+
     /// <summary>Once per tick: wait out the delay after a spend, then refill at a fixed rate.</summary>
     public void Tick()
     {

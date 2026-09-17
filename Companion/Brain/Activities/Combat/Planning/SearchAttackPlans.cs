@@ -26,7 +26,8 @@ namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 public static class SearchAttackPlans
 {
     public sealed record SearchResult(AttackPlan? Plan, OfferEligibility Eligibility, string Reason, int FrontSize,
-        IReadOnlyList<RejectedPlan> Rejected, IReadOnlyList<AssessedStand> Assessed, int CandidatesEvaluated, int SimulationsSpent);
+        IReadOnlyList<RejectedPlan> Rejected, IReadOnlyList<AssessedStand> Assessed, int CandidatesEvaluated, int SimulationsSpent,
+        IReadOnlyList<AttackPlan> Front);
 
     /// <summary>
     /// The audit's replay seam: proposals and verdicts from a snapshot in place of the live generators and
@@ -41,7 +42,7 @@ public static class SearchAttackPlans
         IReadOnlyList<StandVerdict>? Verdicts = null);
 
     private static SearchResult Empty(AttackPlan? plan, OfferEligibility eligibility, string reason, int frontSize)
-        => new(plan, eligibility, reason, frontSize, Array.Empty<RejectedPlan>(), Array.Empty<AssessedStand>(), 0, 0);
+        => new(plan, eligibility, reason, frontSize, Array.Empty<RejectedPlan>(), Array.Empty<AssessedStand>(), 0, 0, Array.Empty<AttackPlan>());
 
     public static SearchResult SearchDepthOne(in ActionContext ctx, CompanionCombat combat, Positioner positioner,
         Func<Vector2, bool> inAllowance, CombatWeights weights, int planId, ref PlanningBudget budget,
@@ -97,15 +98,15 @@ public static class SearchAttackPlans
                 candidates.Add(plan);
             if (budget.Cut)
                 return new SearchResult(null, OfferEligibility.Unresolved, "budget-cut", candidates.Count,
-                    Array.Empty<RejectedPlan>(), assessed, candidates.Count, budget.Simulations);
+                    Array.Empty<RejectedPlan>(), assessed, candidates.Count, budget.Simulations, Array.Empty<AttackPlan>());
         }
         if (!sawReachable)
         {
             if (sawUndecided)
                 return new SearchResult(null, OfferEligibility.Unresolved, "stands-undecided", 0,
-                    Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations);
+                    Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>());
             return new SearchResult(null, OfferEligibility.KnownUnusable, "no-reachable-stand", 0,
-                Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations);
+                Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>());
         }
         if (candidates.Count == 0)
         {
@@ -113,9 +114,9 @@ public static class SearchAttackPlans
             // answering unusable would report an unanswered search as a proven absence.
             if (sawUndecided)
                 return new SearchResult(null, OfferEligibility.Unresolved, "stands-undecided", 0,
-                    Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations);
+                    Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>());
             return new SearchResult(null, OfferEligibility.KnownUnusable, "no-use-reaches-target", 0,
-                Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations);
+                Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>());
         }
         (List<AttackPlan> front, List<(AttackPlan Plan, AttackPlan Dominator, int LostOn)> drops) =
             KeepOnlyUndominated.FilterWithDrops(candidates, plan => plan.Outcome);
@@ -127,7 +128,7 @@ public static class SearchAttackPlans
             if (plan.Weighted > best.Weighted)
                 best = plan;
         return new SearchResult(best, OfferEligibility.Usable, "planned-attack", front.Count,
-            BestRejected(front, drops, best, weights), assessed, candidates.Count, budget.Simulations);
+            BestRejected(front, drops, best, weights), assessed, candidates.Count, budget.Simulations, front);
     }
 
     /// <summary>

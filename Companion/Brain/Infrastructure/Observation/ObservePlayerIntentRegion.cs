@@ -209,6 +209,18 @@ public sealed class PlayerIntentRegionSense
     private Rectangle sideBounds, growingBounds;
     private Point? playerCorner;
 
+    /// <summary>
+    /// Install the region a snapshot carried, in place of whatever the next update would compute: the audit
+    /// restores the decision's input rather than re-deriving it from a history it does not have. The
+    /// inside latch and the way-to-player floods are untouched — combat neither reads them nor prices them.
+    /// </summary>
+    public void AssumeRegion(PlayerIntentRegion region)
+    {
+        Region = region;
+        lead = region.Lead;
+        hasRegion = true;
+    }
+
     public void Update(NPC companion, PlayerSense player)
     {
         Update(companion.Center, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples,

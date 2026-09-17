@@ -55,6 +55,27 @@ public sealed class CommitAttackPlan
 
     public void Bind(NPC companion) => bound = companion;
 
+    /// <summary>
+    /// Bodies a stalled plan defers, with ticks remaining rather than absolute waits: the audit restores
+    /// into its own tick space, where the live absolute tick is meaningless. Terrain is not carried — the
+    /// audit's world is unedited since the restore, so an imported deferral is stamped current.
+    /// </summary>
+    public IReadOnlyDictionary<(int Slot, int Generation), (int Remaining, Vector2 Target, Vector2 Body)> ExportDeferred(int nowTick)
+    {
+        var copy = new Dictionary<(int Slot, int Generation), (int Remaining, Vector2 Target, Vector2 Body)>(deferred.Count);
+        foreach (var (key, failure) in deferred)
+            copy[key] = (failure.Until - nowTick, failure.Target, failure.Body);
+        return copy;
+    }
+
+    /// <summary>Bodies a planned hit has landed on under the committed plan: killed by the plan.</summary>
+    public IReadOnlyCollection<(int Slot, int Generation)> ExportHits() => hitByPlan;
+
+    public void AssumeDeferred(int slot, int generation, int remaining, Vector2 target, Vector2 body, int nowTick, int terrain)
+        => deferred[(slot, generation)] = (nowTick + remaining, target, body, terrain);
+
+    public void AssumeHit(int slot, int generation) => hitByPlan.Add((slot, generation));
+
     public void Commit(AttackPlan plan)
     {
         Committed = plan;

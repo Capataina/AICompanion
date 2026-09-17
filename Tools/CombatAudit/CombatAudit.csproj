@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TModLoaderRoot>$(HOME)/Library/Application Support/Steam/steamapps/common/tModLoader</TModLoaderRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../AICompanion.csproj" Aliases="live" AdditionalProperties="BuildMod=false" />
+    <Compile Include="../Ledger/EmitLedgerRows.cs" />
+    <Compile Include="../SessionReport/Read/ReadGodsEyeEvents.cs" />
+    <Compile Include="../SessionReport/Session.cs" />
+    <Reference Include="tModLoader"><HintPath>$(TModLoaderRoot)/tModLoader.dll</HintPath></Reference>
+    <Reference Include="TerrariaHooks"><HintPath>$(TModLoaderRoot)/Libraries/TerrariaHooks/0.0.0.0/TerrariaHooks.dll</HintPath></Reference>
+    <Reference Include="FNA"><HintPath>$(TModLoaderRoot)/Libraries/FNA/1.0.0/FNA.dll</HintPath></Reference>
+    <Reference Include="ReLogic"><HintPath>$(TModLoaderRoot)/Libraries/ReLogic/1.0.0/ReLogic.dll</HintPath></Reference>
+    <Reference Include="log4net"><HintPath>$(TModLoaderRoot)/Libraries/log4net/2.0.8.0/log4net.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

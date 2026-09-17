@@ -60,6 +60,16 @@ public abstract class CompanionAction
         return allowed;
     }
 
+    /// <summary>The radius <see cref="AllowsTarget"/> tests against for this job: the continuation radius
+    /// once the job is admitted, the discovery radius before. The combat snapshot carries it so the audit
+    /// replays the same allowance the decision was admitted against.</summary>
+    public float AllowanceRadius(object? identity = null)
+    {
+        var preferences = PlayerIntegration.CompanionPreferences.Current;
+        bool sameJob = admittedIdentity != null && Equals(admittedIdentity, identity ?? ActivityIdentity);
+        return sameJob ? preferences.ActiveActivityRadius : preferences.NewActivityRadius;
+    }
+
     public void AdmitActivity() => admittedIdentity = ActivityIdentity;
     protected void ReleaseActivity() => admittedIdentity = null;
     internal void ReleaseAdmission() => admittedIdentity = null;

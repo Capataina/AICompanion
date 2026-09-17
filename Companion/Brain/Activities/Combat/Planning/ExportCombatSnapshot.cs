@@ -41,14 +41,20 @@ public static class ExportCombatSnapshot
         float MaxFall, float Water, float Lava, float Honey, float Shimmer, bool NoGravity, bool NoTileCollide,
         bool Wet, bool LavaWet, bool HoneyWet, bool ShimmerWet, float MeanError, int ErrorSamples);
     public sealed record BuffDto(string Name, int Time);
+    public sealed record AddedByDto(string Buff, string Item);
+    /// <summary>The threat sense's post-update memory for the slot: the peak speed urgencies divide by and the
+    /// two reachability answers. Null on snapshots written before the audit restored it; the replay then runs
+    /// the fresh-memory update and the verdict says the memory was missing.</summary>
+    public sealed record ThreatDto(float PeakSpeed, bool CanReachPlayer, bool CanReachCompanion);
     public sealed record NpcDto(int Slot, string Type, Vec Position, Vec Velocity, int Life, int LifeMax,
         int Defense, int Damage, float KnockbackResist, int Width, int Height, List<BuffDto> Buffs, bool OnFire,
-        bool NoGravity, bool NoTileCollide, TrackDto? Track);
+        bool NoGravity, bool NoTileCollide, TrackDto? Track, List<AddedByDto> AddedBy, ThreatDto? Threat = null);
+    public sealed record DeferredDto(int Slot, int Generation, int Remaining, Vec Target, Vec Body);
     public sealed record ProjectileDto(int Slot, string Type, Vec Position, Vec Velocity, int Width, int Height,
         int Damage, int ExtraUpdates);
     public sealed record RegionDto(Vec Centre, Vec Half, Vec Lead, Vec Heading, Vec Velocity, bool Travelling);
-    public sealed record PlayerDto(Vec Centre, Vec Velocity, int Life, int LifeMax, bool Dead, RegionDto Region,
-        float PlayerDanger, float CompanionDanger);
+    public sealed record PlayerDto(Vec Centre, Vec Velocity, int Life, int LifeMax, bool Dead, int ManaMax,
+        RegionDto Region, float PlayerDanger, float CompanionDanger);
     public sealed record BodyDto(Vec Centre, Vec Velocity, int Life, int LifeMax, float Mana, float ManaMax,
         int ExtraProjectiles, int AddedPierce);
     public sealed record TerrainDto(int X, int Y, int Width, int Height, int Clipped, string Glyphs,
@@ -67,10 +73,11 @@ public static class ExportCombatSnapshot
         PersistWeaponKnowledge.Bundle Knowledge, List<NpcDto> Npcs, List<ProjectileDto> Projectiles,
         PlayerDto Player, TerrainDto Terrain, List<VerdictDto> Verdicts, float AllowanceMs, int Simulations,
         bool Cut, int Candidates, int FrontSize, float[] Weights, PlanDto? Plan, List<RejectedDto> Rejected,
-        bool Explored);
+        bool Explored, int Cooldown, List<DeferredDto> Deferred, List<int[]> Hits, float AllowanceRadius);
 
     public static string Build(in ActionContext ctx, CompanionCombat combat, AttackPlan? plan,
-        SearchAttackPlans.SearchResult? search, CombatWeights weights, PlanningBudget budget)
+        SearchAttackPlans.SearchResult? search, CombatWeights weights, PlanningBudget budget,
+        float allowanceRadius)
     {
         var identity = new WeaponIdentity();
         NPC body = ctx.Npc;
@@ -91,6 +98,7 @@ public static class ExportCombatSnapshot
         var npcs = new List<NpcDto>();
         var npcTypes = new List<int>();
         var bounds = new Bounds(body.Center);
+        Dictionary<int, Dictionary<int, int>> addedBy = ShotOutcomes.ExportAddedBy();
         foreach (ThreatRecord threat in ctx.Senses.Threats.Threats)
         {
             NPC npc = threat.Npc;
@@ -98,18 +106,26 @@ public static class ExportCombatSnapshot
                 continue;
             npcTypes.Add(npc.type);
             bounds.Add(npc.Center);
+            bounds.AddGroundSeek(npc.Bottom);
             var buffs = new List<BuffDto>();
             for (int i = 0; i < npc.buffType.Length && i < npc.buffTime.Length; i++)
                 if (npc.buffTime[i] > 0)
                     buffs.Add(new BuffDto(identity.NameOfBuff(npc.buffType[i]), npc.buffTime[i]));
+            var authors = new List<AddedByDto>();
+            if (addedBy.TryGetValue(npc.whoAmI, out Dictionary<int, int>? authorship))
+                foreach ((int buff, int item) in authorship)
+                    authors.Add(new AddedByDto(identity.NameOfBuff(buff), identity.NameOfItem(item)));
             PredictObservedMotion.ExportedTrack? track = PredictObservedMotion.ExportTrack(npc.whoAmI);
+            ThreatDto? memory = ctx.Senses.Threats.TryExportMemory(npc.whoAmI, out float peak, out bool canP, out bool canC)
+                ? new ThreatDto(peak, canP, canC) : null;
             npcs.Add(new NpcDto(npc.whoAmI, identity.NameOfNpc(npc.type),
                 V(npc.position), V(npc.velocity), npc.life, npc.lifeMax, npc.defense, npc.damage,
                 npc.knockBackResist, npc.width, npc.height, buffs, npc.onFire2, npc.noGravity, npc.noTileCollide,
                 track == null ? null : new TrackDto(track.Tick, V(track.Position), V(track.Velocity),
                     V(track.Acceleration), track.Gravity, track.MaxFallSpeed, track.WaterSpeed, track.LavaSpeed,
                     track.HoneySpeed, track.ShimmerSpeed, track.NoGravity, track.NoTileCollide, track.Wet,
-                    track.LavaWet, track.HoneyWet, track.ShimmerWet, track.MeanError, track.ErrorSamples)));
+                    track.LavaWet, track.HoneyWet, track.ShimmerWet, track.MeanError, track.ErrorSamples),
+                authors, memory));
         }
 
         var projectiles = new List<ProjectileDto>();
@@ -131,6 +147,12 @@ public static class ExportCombatSnapshot
             }
 
         PlayerIntentRegion region = ctx.Senses.Intent.Region;
+        var deferred = new List<DeferredDto>();
+        foreach (var (key, wait) in combat.Planner.ExportDeferred(ctx.Senses.Tick))
+            deferred.Add(new DeferredDto(key.Slot, key.Generation, wait.Remaining, V(wait.Target), V(wait.Body)));
+        var hits = new List<int[]>();
+        foreach ((int slot, int generation) in combat.Planner.ExportHits())
+            hits.Add(new[] { slot, generation });
         var snapshot = new SnapshotDto(SchemaVersion, ctx.Senses.Tick, Main.GameUpdateCount,
             new BodyDto(V(body.Center), V(body.velocity), body.life, body.lifeMax,
                 ctx.Companion.Mana.Current, ctx.Companion.Mana.Max,
@@ -139,6 +161,7 @@ public static class ExportCombatSnapshot
             PersistWeaponKnowledge.ExportBundle(weaponItems, npcTypes, identity),
             npcs, projectiles,
             new PlayerDto(V(player.Center), V(player.velocity), player.statLife, player.statLifeMax2, player.dead,
+                player.statManaMax2,
                 new RegionDto(V(region.Centre), V(region.HalfSize), V(region.Lead), V(region.Heading),
                     V(region.Velocity), region.IsTravelling),
                 ctx.Senses.Threats.PlayerDanger, ctx.Senses.Threats.CompanionDanger),
@@ -150,7 +173,8 @@ public static class ExportCombatSnapshot
                 weights.PushDanger, weights.CompanyGap, weights.TimeToFirstDamage, weights.Mana },
             plan == null ? null : ExportPlan(plan),
             ExportRejected(search?.Rejected),
-            ForecastUses.Explore(ctx));
+            ForecastUses.Explore(ctx),
+            combat.CooldownTicks, deferred, hits, allowanceRadius);
         return JsonSerializer.Serialize(snapshot, Json);
     }
 
@@ -209,6 +233,7 @@ public static class ExportCombatSnapshot
     private sealed class Bounds
     {
         private float minX, minY, maxX, maxY;
+        private readonly List<(int X, int Y)> groundSeeks = new();
 
         public Bounds(Vector2 seed)
         {
@@ -224,13 +249,32 @@ public static class ExportCombatSnapshot
             maxY = MathF.Max(maxY, point.Y);
         }
 
+        /// <summary>One body whose predicted fall the window must contain: the forecast lands it.</summary>
+        public void AddGroundSeek(Vector2 feet) => groundSeeks.Add(((int)(feet.X / 16f), (int)(feet.Y / 16f)));
+
         public (int X, int Y, int Width, int Height) Tiles()
         {
-            const int pad = 8, cap = 200;
+            const int pad = 24, cap = 200;
             int x = Math.Max(0, (int)(minX / 16f) - pad);
             int y = Math.Max(0, (int)(minY / 16f) - pad);
             int width = Math.Min(Main.maxTilesX - x, (int)(maxX / 16f) + pad - x);
             int height = Math.Min(Main.maxTilesY - y, (int)(maxY / 16f) + pad - y);
+            // The pad is a walker's whole forecast: 180 ticks at 2 pixels is 23 tiles, so a thinner
+            // window lets a forecast walk out of recorded terrain into the audit's solid margin and
+            // land or stop on rock the live world never had. Falls reach further down than sideways,
+            // so each body's column extends to the first ground below it.
+            foreach ((int seekX, int seekY) in groundSeeks)
+                for (int ty = seekY + 1; ty <= seekY + 60 && ty < Main.maxTilesY; ty++)
+                {
+                    if (seekX < 0 || seekX >= Main.maxTilesX)
+                        break;
+                    Tile tile = Main.tile[seekX, ty];
+                    if (tile.HasTile && (Main.tileSolid[tile.TileType] || Main.tileSolidTop[tile.TileType]))
+                    {
+                        height = Math.Max(height, ty - y + 2);
+                        break;
+                    }
+                }
             // Clamped, because a long-range weapon's stands can span half the world and the window
             // prices in tiles: past the cap the audit reads the near field exactly and the far field
             // not at all, which the clipped count does not say and the window's own bounds do.

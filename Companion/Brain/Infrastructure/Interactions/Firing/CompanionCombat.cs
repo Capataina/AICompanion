@@ -112,6 +112,9 @@ public sealed class CompanionCombat
 
     internal int Cooldown { get => cooldown; set => cooldown = value; }
 
+    /// <summary>Restore the cooldown a snapshot carried: the audit's replay prices the same ready tick.</summary>
+    public void AssumeCooldown(int ticks) => cooldown = ticks;
+
     /// <summary>The tick's enemy forecast, built once and read by every forecast, so every weapon and target in one decision meets the same enemies.</summary>
     private int forecastTick = int.MinValue;
     private IReadOnlyList<EnemyForecast> forecastEnemies = Array.Empty<EnemyForecast>();

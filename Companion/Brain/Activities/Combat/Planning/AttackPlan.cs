@@ -18,6 +18,8 @@ public enum StandReason
     GuardAnchor,
     /// <summary>Today's hunt stand: the positioner's line-of-fire resolution toward the target.</summary>
     HuntApproach,
+    /// <summary>One cell of the audit's exhaustive grid: never proposed live, only ever re-searched.</summary>
+    AuditGrid,
 }
 
 /// <summary>Why a segment ends: its targets died, the next segment is worth more, or the horizon ran out.</summary>

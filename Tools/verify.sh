@@ -128,7 +128,7 @@ record_exit() {
   fi
 }
 
-for project in Tools/Ledger Tools/NavReplay Tools/SessionReport; do
+for project in Tools/Ledger Tools/NavReplay Tools/SessionReport Tools/CombatAudit; do
   test_log=$(mktemp)
   dotnet run --project "$project" -- --self-test >"$test_log" 2>&1
   status=$?
@@ -139,6 +139,7 @@ for project in Tools/Ledger Tools/NavReplay Tools/SessionReport; do
     Tools/Ledger) record_exit "ledger" "$status" ;;
     Tools/NavReplay) record_exit "nav-replay" "$status" ;;
     Tools/SessionReport) record_exit "session-report" "$status" ;;
+    Tools/CombatAudit) record_exit "combat-audit" "$status" ;;
   esac
 done
 
@@ -218,6 +219,7 @@ if [ "$rerun" -gt 0 ]; then
         ledger) project="Tools/Ledger"; arguments="--self-test" ;;
         nav-replay) project="Tools/NavReplay"; arguments="--self-test" ;;
         session-report) project="Tools/SessionReport"; arguments="--self-test" ;;
+        combat-audit) project="Tools/CombatAudit"; arguments="--self-test" ;;
         # The world run's inputs are paths with spaces in them on this machine, so they cannot
         # travel through the unquoted $arguments the other instruments use; the loop below quotes
         # them itself for this one instrument. A red scenario row is rerun through the recorded

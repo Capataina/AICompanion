@@ -26,6 +26,9 @@ public sealed class ThreatSense
         public int Type;
         public int Generation = -1;
         public float PeakSpeed;
+        /// <summary>One-shot: the audit stamped post-update values and the next update builds its
+        /// records from them without decaying, invalidating or refreshing. Consumed by that update.</summary>
+        public bool Trusted;
         public bool CanReachPlayer = true;
         public bool CanReachCompanion = true;
         public Point From, PlayerTarget, CompanionTarget;
@@ -73,6 +76,37 @@ public sealed class ThreatSense
     public ThreatRecord? MostUrgent { get; private set; }
     public ThreatRecord? MostUrgentToCompanion { get; private set; }
 
+    /// <summary>
+    /// One slot's post-update memory in plain values, for the combat snapshot: the peak speed and the two
+    /// reachability answers are the whole of what the record half reads from memory, so they are the whole
+    /// of what the audit restores. The type, generation, positions, world and refresh tick live only in the
+    /// skipped half — the reset, invalidation and refresh the trusted update does not run — and are not carried.
+    /// </summary>
+    public bool TryExportMemory(int slot, out float peakSpeed, out bool canReachPlayer, out bool canReachCompanion)
+    {
+        Memory? mem = (uint)slot < (uint)memory.Length ? memory[slot] : null;
+        peakSpeed = mem?.PeakSpeed ?? 1f;
+        canReachPlayer = mem?.CanReachPlayer ?? true;
+        canReachCompanion = mem?.CanReachCompanion ?? true;
+        return mem != null;
+    }
+
+    /// <summary>
+    /// Install one slot's memory read back from a snapshot. The next update consumes the trust: it builds
+    /// its records from these values without decaying, invalidating or refreshing, so its records are the
+    /// live tick's records. One-shot, because a refresh the live tick ran stays run.
+    /// </summary>
+    public void AssumeThreatMemory(int slot, float peakSpeed, bool canReachPlayer, bool canReachCompanion)
+    {
+        if ((uint)slot >= (uint)memory.Length)
+            return;
+        Memory mem = memory[slot] ??= new Memory();
+        mem.PeakSpeed = peakSpeed;
+        mem.CanReachPlayer = canReachPlayer;
+        mem.CanReachCompanion = canReachCompanion;
+        mem.Trusted = true;
+    }
+
     public void Update(Player player, NPC companion)
     {
         tick++;
@@ -100,7 +134,13 @@ public sealed class ThreatSense
 
             PredictObservedMotion.Observe(npc);
             Memory mem = memory[npc.whoAmI] ??= new Memory();
-            if (mem.Type != npc.type || mem.Generation != HostileAttackSources.Generation(npc))
+            // A trusted slot carries the live tick's post-update memory, stamped by the audit: the records
+            // below read its peak speed and reachability as they stand, and none of the decay, invalidation
+            // or refresh that produced them runs again. The motion observe above still runs — its early
+            // return is the tripwire that the restored body stands where the snapshot said it did.
+            bool trusted = mem.Trusted;
+            mem.Trusted = false;
+            if (!trusted && (mem.Type != npc.type || mem.Generation != HostileAttackSources.Generation(npc)))
             {
                 mem.Generation = HostileAttackSources.Generation(npc);
                 mem.Type = npc.type;
@@ -113,7 +153,8 @@ public sealed class ThreatSense
 
             // A walker's approach speed is horizontal; its fall speed after a hop is not how fast it closes.
             float speed = cls == MovementClass.Walker ? MathF.Abs(npc.velocity.X) : npc.velocity.Length();
-            mem.PeakSpeed = MathF.Max(mem.PeakSpeed * SpeedDecay, speed);
+            if (!trusted)
+                mem.PeakSpeed = MathF.Max(mem.PeakSpeed * SpeedDecay, speed);
 
             Point from = cls == MovementClass.Walker ? MovementQueries.FeetTile(npc.Bottom) : npc.Center.ToTileCoordinates();
             Point playerTarget = cls == MovementClass.Walker ? playerFeet : player.Center.ToTileCoordinates();
@@ -122,28 +163,31 @@ public sealed class ThreatSense
             // drifting body read as reachable by every walker on almost every tick; the floor under it holds still.
             Point companionTarget = cls == MovementClass.Walker
                 ? EstimateEnemyReach.Landing(MovementQueries.World, companionFeet) : companion.Center.ToTileCoordinates();
-            bool sourceChanged = mem.From != from || mem.World != MovementQueries.World
-                || mem.Revision != MovementQueries.World.Revision || mem.Class != cls;
-            // A negative result only describes the positions and terrain that were searched.
-            // Treat changed inputs as unknown (potential danger) until the budgeted refresh.
-            if (sourceChanged || mem.PlayerTarget != playerTarget) mem.CanReachPlayer = true;
-            if (sourceChanged || mem.CompanionTarget != companionTarget) mem.CanReachCompanion = true;
-            mem.From = from;
-            mem.PlayerTarget = playerTarget;
-            mem.CompanionTarget = companionTarget;
-            mem.World = MovementQueries.World;
-            mem.Revision = MovementQueries.World.Revision;
-            mem.Class = cls;
-            if (cls != MovementClass.Phaser && tick - mem.ReachableCheckedAt >= ReachabilityRefreshTicks && (tick + npc.whoAmI) % 4 == 0)
+            if (!trusted)
             {
-                mem.CanReachPlayer = cls == MovementClass.Walker
-                    ? MovementQueries.WalkerCanReach(from, playerTarget)
-                    : MovementQueries.FlyerCanReach(from, playerTarget);
-                mem.CanReachCompanion = playerTarget == companionTarget ? mem.CanReachPlayer
-                    : cls == MovementClass.Walker
-                        ? MovementQueries.WalkerCanReach(from, companionTarget)
-                        : MovementQueries.FlyerCanReach(from, companionTarget);
-                mem.ReachableCheckedAt = tick;
+                bool sourceChanged = mem.From != from || mem.World != MovementQueries.World
+                    || mem.Revision != MovementQueries.World.Revision || mem.Class != cls;
+                // A negative result only describes the positions and terrain that were searched.
+                // Treat changed inputs as unknown (potential danger) until the budgeted refresh.
+                if (sourceChanged || mem.PlayerTarget != playerTarget) mem.CanReachPlayer = true;
+                if (sourceChanged || mem.CompanionTarget != companionTarget) mem.CanReachCompanion = true;
+                mem.From = from;
+                mem.PlayerTarget = playerTarget;
+                mem.CompanionTarget = companionTarget;
+                mem.World = MovementQueries.World;
+                mem.Revision = MovementQueries.World.Revision;
+                mem.Class = cls;
+                if (cls != MovementClass.Phaser && tick - mem.ReachableCheckedAt >= ReachabilityRefreshTicks && (tick + npc.whoAmI) % 4 == 0)
+                {
+                    mem.CanReachPlayer = cls == MovementClass.Walker
+                        ? MovementQueries.WalkerCanReach(from, playerTarget)
+                        : MovementQueries.FlyerCanReach(from, playerTarget);
+                    mem.CanReachCompanion = playerTarget == companionTarget ? mem.CanReachPlayer
+                        : cls == MovementClass.Walker
+                            ? MovementQueries.WalkerCanReach(from, companionTarget)
+                            : MovementQueries.FlyerCanReach(from, companionTarget);
+                    mem.ReachableCheckedAt = tick;
+                }
             }
 
             var rec = new ThreatRecord
