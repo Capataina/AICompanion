@@ -136,6 +136,16 @@ public static class LearnHitResponses
         return MathF.Sqrt(dx * dx + dy * dy);
     }
 
+    /// <summary>Every learned hit response by projectile type, for the persistence codec to read.</summary>
+    public static IReadOnlyDictionary<int, HitResponse> Responses => responses;
+
+    /// <summary>Install a hit response read back from a save or a snapshot, replacing whatever the type held.</summary>
+    public static void AssumeResponse(HitResponse response)
+    {
+        responses[response.ProjectileType] = response;
+        KnowledgeRevision.Bump();
+    }
+
     public static void Reset()
     {
         responses.Clear();

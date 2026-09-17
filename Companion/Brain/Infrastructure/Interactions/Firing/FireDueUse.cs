@@ -10,6 +10,7 @@ using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
@@ -273,9 +274,20 @@ public sealed class FireDueUse
         }
         // A swing files the same shot record with no projectile slot, so the log reads a swing beside a shot
         // in one vocabulary; a landed swing is counted from the strike itself, since no projectile hit will follow.
+        // The predicted hits with their ticks and damage, and the simulation's cache identity, pair the
+        // prediction with the shot-event records that follow it in the knowledge audit.
+        var predicted = new System.Text.StringBuilder();
+        foreach (SimHit hit in aimed.Use.Hits)
+        {
+            if (predicted.Length > 0)
+                predicted.Append('+');
+            predicted.Append(FormattableString.Invariant($"{hit.Slot}@{hit.Tick}:{hit.Damage:0.0}"));
+        }
+        Point muzzleTile = MovementQueries.Tile(muzzle);
+        string sim = FormattableString.Invariant($"m={muzzleTile.X},{muzzleTile.Y}:a={(int)(aimed.Aim.AimPoint.X / 8f)},{(int)(aimed.Aim.AimPoint.Y / 8f)}:k={KnowledgeRevision.Current}:t={TerrainChanges.Revision}");
         GodsEyeEvents.RecordShot(ctx.Npc, target, result.ProjectileSlot, muzzle, launch, aimed.Aim.AimPoint, weapon.Name,
             aimed.Use.ImpactTick, plan.Weighted, plan.TargetKillTicks?.Length ?? 0, plan.Outcome.PlayerHarmPrevented,
-            plan.Id, Array.IndexOf(plan.Segments, segment), useIndex);
+            plan.Id, Array.IndexOf(plan.Segments, segment), useIndex, predicted.ToString(), sim);
         if (result.IsShot)
         {
             // The arc watch for each spawn opened inside Fire, beside its trace; what the hand adds here is

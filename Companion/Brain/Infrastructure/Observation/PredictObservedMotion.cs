@@ -154,4 +154,64 @@ public static class PredictObservedMotion
     }
 
     public static int ErrorSamples(NPC npc) { Observe(npc); return tracks[npc.whoAmI].ErrorSamples; }
+
+    /// <summary>
+    /// One body's motion track in plain values, for the combat snapshot: the audit restores these so its
+    /// forecasts extend the same history the live decision read. The forecast centres are recomputed, never
+    /// stored — they follow from the position, velocity, acceleration and physics below.
+    /// </summary>
+    public sealed record ExportedTrack(int Slot, int Type, ulong Tick, Vector2 Position, Vector2 Velocity,
+        Vector2 Acceleration, float Gravity, float MaxFallSpeed, float WaterSpeed, float LavaSpeed,
+        float HoneySpeed, float ShimmerSpeed, bool NoGravity, bool NoTileCollide, bool Wet, bool LavaWet,
+        bool HoneyWet, bool ShimmerWet, float MeanError, int ErrorSamples);
+
+    /// <summary>Every tracked body, for the snapshot to carry the forecast history with the forecast.</summary>
+    public static IReadOnlyCollection<int> TrackedSlots => tracks.Keys;
+
+    public static ExportedTrack? ExportTrack(int slot)
+    {
+        if (!tracks.TryGetValue(slot, out Track? track))
+            return null;
+        return new ExportedTrack(slot, track.Type, track.Tick, track.Position, track.Velocity, track.Acceleration,
+            track.Gravity, track.MaxFallSpeed, track.WaterMovementSpeed, track.LavaMovementSpeed,
+            track.HoneyMovementSpeed, track.ShimmerMovementSpeed, track.NoGravity, track.NoTileCollide,
+            track.Wet, track.LavaWet, track.HoneyWet, track.ShimmerWet, track.MeanError, track.ErrorSamples);
+    }
+
+    /// <summary>
+    /// Install a track read back from a snapshot. The live body it extends must already stand at the
+    /// snapshot's position with the snapshot's velocity: the next <see cref="Predict"/> call re-observes,
+    /// sees the same position and velocity at the restored game tick, and extends this history rather than
+    /// starting a new one — which is what makes the audit's forecasts the live decision's forecasts.
+    /// </summary>
+    public static void AssumeTrack(NPC subject, ExportedTrack exported)
+    {
+        var track = new Track
+        {
+            Subject = subject,
+            Type = exported.Type,
+            Tick = exported.Tick,
+            Position = exported.Position,
+            Velocity = exported.Velocity,
+            Acceleration = exported.Acceleration,
+            Gravity = exported.Gravity,
+            MaxFallSpeed = exported.MaxFallSpeed,
+            WaterMovementSpeed = exported.WaterSpeed,
+            LavaMovementSpeed = exported.LavaSpeed,
+            HoneyMovementSpeed = exported.HoneySpeed,
+            ShimmerMovementSpeed = exported.ShimmerSpeed,
+            NoGravity = exported.NoGravity,
+            NoTileCollide = exported.NoTileCollide,
+            Wet = exported.Wet,
+            LavaWet = exported.LavaWet,
+            HoneyWet = exported.HoneyWet,
+            ShimmerWet = exported.ShimmerWet,
+            MeanError = exported.MeanError,
+            ErrorSamples = exported.ErrorSamples,
+        };
+        track.ForecastPosition = exported.Position;
+        track.ForecastVelocity = exported.Velocity;
+        track.Centres.Add(subject.Center);
+        tracks[exported.Slot] = track;
+    }
 }

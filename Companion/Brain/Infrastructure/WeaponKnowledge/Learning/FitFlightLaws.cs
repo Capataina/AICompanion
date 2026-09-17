@@ -67,6 +67,9 @@ public static class FitFlightLaws
     public static FlightLaw LawFor(int projectileType)
         => laws.TryGetValue(projectileType, out FlightLaw? law) ? law : FlightLaw.Default(projectileType);
 
+    /// <summary>Every fitted law by projectile type, for the persistence codec to read.</summary>
+    public static IReadOnlyDictionary<int, FlightLaw> Laws => laws;
+
     /// <summary>One trace closed: refit its type unless the trace is a child or spawned under a modifier.</summary>
     public static void Notice(Recording.FlightTrace trace)
     {

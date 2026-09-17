@@ -211,10 +211,10 @@ public static class GodsEyeEvents
     public static void RecordNpcDeath(NPC npc) => Write("npc-death", Stable(npcGenerations, npc.whoAmI), npc.type.ToString(CultureInfo.InvariantCulture), npc.TypeName, "", npc.Center, npc.velocity, Vector2.Zero, npc.life, "");
 
     public static void RecordShot(NPC shooter, NPC? target, int projectileIndex, Vector2 muzzle, Vector2 launchVelocity, Vector2 expectedImpact, string weapon, int impactTicks = -1, float attackValue = 0f, int expectedKills = 0, float preventedHarm = 0f,
-        int planId = -1, int planSegment = -1, int planUse = -1)
+        int planId = -1, int planSegment = -1, int planUse = -1, string predicted = "", string sim = "")
     {
         int projectile = Stable(projectileGenerations, projectileIndex);
-        Write("shot", Stable(npcGenerations, shooter.whoAmI), target == null ? "" : Stable(npcGenerations, target.whoAmI).ToString(CultureInfo.InvariantCulture), weapon, $"projectile={projectile}", muzzle, launchVelocity, expectedImpact, 0, FormattableString.Invariant($"expected-flight-ticks={impactTicks};sequence-value={attackValue:0.000};sequence-kills={expectedKills};sequence-prevented-harm={preventedHarm:0.000};plan={planId};segment={planSegment};use={planUse}"));
+        Write("shot", Stable(npcGenerations, shooter.whoAmI), target == null ? "" : Stable(npcGenerations, target.whoAmI).ToString(CultureInfo.InvariantCulture), weapon, $"projectile={projectile}", muzzle, launchVelocity, expectedImpact, 0, FormattableString.Invariant($"expected-flight-ticks={impactTicks};sequence-value={attackValue:0.000};sequence-kills={expectedKills};sequence-prevented-harm={preventedHarm:0.000};plan={planId};segment={planSegment};use={planUse};predicted={predicted};sim={sim}"));
     }
 
     /// <summary>
@@ -257,6 +257,33 @@ public static class GodsEyeEvents
         Write("flight-law", 0, revision.ToString(CultureInfo.InvariantCulture), projectileType.ToString(CultureInfo.InvariantCulture),
             predictable ? "predictable" : "unpredictable", Vector2.Zero, Vector2.Zero, Vector2.Zero, evidence,
             FormattableString.Invariant($"residual={residual:0.0000};evidence={evidence};terms={terms}"));
+    }
+
+    /// <summary>
+    /// One attack plan's life event: committed, advanced to its next segment, or invalidated. The detail is
+    /// <c>DescribeAttackPlan</c>'s semicolon form — segments, vector, weighted value, front size, the three best
+    /// rejected plans with dominated-or-weights and the objective each lost on, the budget cut and the
+    /// invalidation reason — built by the caller, because the headless tools compile this file on its own.
+    /// </summary>
+    public static void RecordCombatPlan(NPC companion, int planId, string phase, Vector2 stand, int frontSize, string detail)
+    {
+        if (!Accepting()) return;
+        Write("combat-plan", Stable(npcGenerations, companion.whoAmI), "", $"plan-{planId}", phase,
+            stand, Vector2.Zero, Vector2.Zero, frontSize, detail);
+    }
+
+    /// <summary>
+    /// One combat decision's complete input as a JSON document: the body, gear and knowledge, the enemy
+    /// forecast with its motion history, hostile projectiles, the player and his intent region, the terrain
+    /// window, the stand verdicts, the budget, the weights and the committed plan. Written on every commit,
+    /// at a bounded rate while a plan is committed, and on the inspector's mark key; the audit replays the
+    /// decision from this alone. Built by the caller, for the same standalone reason as above.
+    /// </summary>
+    public static void RecordCombatSnapshot(NPC companion, int planId, string trigger, string json)
+    {
+        if (!Accepting()) return;
+        Write("combat-snapshot", Stable(npcGenerations, companion.whoAmI), "", $"plan-{planId}", trigger,
+            Vector2.Zero, Vector2.Zero, Vector2.Zero, json.Length, json);
     }
 
     public static void RecordProjectileOutcome(Projectile projectile, NPC? hit, string outcome)

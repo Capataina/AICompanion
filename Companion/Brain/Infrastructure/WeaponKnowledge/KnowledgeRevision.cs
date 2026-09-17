@@ -14,4 +14,7 @@ public static class KnowledgeRevision
     public static void Bump() => Current++;
 
     public static void Reset() => Current = 0;
+
+    /// <summary>Restore the revision a bundle was exported at, so a replayed decision reads the same belief age.</summary>
+    public static void Restore(int revision) => Current = revision;
 }

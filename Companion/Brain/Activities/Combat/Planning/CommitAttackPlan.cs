@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Activities;
+using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Position;
@@ -43,18 +44,39 @@ public sealed class CommitAttackPlan
     /// </summary>
     private int progressTick;
 
+    /// <summary>
+    /// The body the commitment records against, bound from the body's own defaults: every release writes the
+    /// plan's invalidated event, wherever the release came from. Unbound headless, where no writer is open.
+    /// </summary>
+    private NPC? bound;
+
+    /// <summary>The segment the record last saw: a validation on a later one writes the advanced event.</summary>
+    private int recordedSegment = -1;
+
+    public void Bind(NPC companion) => bound = companion;
+
     public void Commit(AttackPlan plan)
     {
         Committed = plan;
         hitByPlan.Clear();
         progressTick = plan.Validity.LastProgressTick;
+        recordedSegment = -1;
         // LastInvalidation is untouched: it names why the last plan ended, and a fresh commitment
         // overwriting it would hide the segment-complete or stall the record is owed for the old one.
+        // The committed event is the committer's to write: it holds the search's front and rejected
+        // plans, which this commitment never sees.
     }
 
-    /// <summary>Ends the commitment with the reason the record reads.</summary>
+    /// <summary>Ends the commitment with the reason the record reads, writing the plan's invalidated event first.</summary>
     public void Release(string reason)
     {
+        if (Committed != null && bound != null)
+        {
+            AttackPlan ending = Committed;
+            int segment = Math.Clamp(recordedSegment, 0, ending.Segments.Length - 1);
+            GodsEyeEvents.RecordCombatPlan(bound, ending.Id, "invalidated", ending.Segments[segment].Stand.Stand, -1,
+                DescribeAttackPlan.Detail(ending, Array.Empty<RejectedPlan>(), -1, reason));
+        }
         Committed = null;
         LastInvalidation = reason;
     }
@@ -112,6 +134,11 @@ public sealed class CommitAttackPlan
             Release(reason);
             return false;
         }
+        int segment = Array.IndexOf(plan.Segments, plan.Current(ctx.Senses.Tick));
+        if (bound != null && recordedSegment >= 0 && segment != recordedSegment)
+            GodsEyeEvents.RecordCombatPlan(bound, plan.Id, "advanced", plan.Segments[segment].Stand.Stand, -1,
+                DescribeAttackPlan.Detail(plan, Array.Empty<RejectedPlan>(), -1, "none"));
+        recordedSegment = segment;
         return true;
     }
 

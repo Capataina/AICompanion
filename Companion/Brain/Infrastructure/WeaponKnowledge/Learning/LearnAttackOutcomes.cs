@@ -139,6 +139,14 @@ public static class AttackLearning
     /// <summary>Advances whenever anything learned changes.</summary>
     public static int Revision { get; private set; }
 
+    /// <summary>
+    /// Read every factor at the posterior mean however the caller asks: the audit's replay seam. A live search in
+    /// the calm draws Thompson samples the snapshot cannot carry, so no replay can reproduce their noise; the means
+    /// are what the search knew, which is what the audit grades. Never set live; the audit sets and clears it around
+    /// each replay, and <see cref="Reset"/> clears it with everything else.
+    /// </summary>
+    public static bool ForceMeans { get; set; }
+
     /// <summary>The last factor a forecast took, sampled and at the posterior mean, for the record and the overlay.</summary>
     public static float LastSampledFactor { get; private set; } = 1f;
     public static float LastMeanFactor { get; private set; } = 1f;
@@ -173,6 +181,7 @@ public static class AttackLearning
     /// </summary>
     public static float Factor(int itemType, int npcType, ReadOnlySpan<float> x, bool explore, int tick)
     {
+        explore &= !ForceMeans;
         if (!models.TryGetValue(itemType, out Model? model) || model.Evidence == 0)
             return 1f;
         model.Types.TryGetValue(npcType, out TypeBias? bias);
@@ -310,6 +319,77 @@ public static class AttackLearning
     public static int DebuffTicks(int itemType, int npcType)
         => debuffs.TryGetValue((itemType, npcType), out DebuffRecord? r) && r.Applied > 0 ? (int)(r.AppliedTicks / r.Applied) : 0;
 
+    /// <summary>One weapon's posterior in plain arrays, for the persistence codec. The Cholesky factor and the
+    /// tick's draws are recomputed, never stored: a restored model predicts from its mean and covariance.</summary>
+    public sealed record ExportedModel(double[] Mean, double[] Covariance, int Evidence, double[] Centre, int Seen,
+        double TypePriorMean, double TypePriorVariance, List<(int NpcType, double Precision, double Weighted, double[] Centre, double MeanOutcome, int Seen)> Types);
+
+    /// <summary>Every weapon with a posterior, for the persistence codec to enumerate.</summary>
+    public static IReadOnlyCollection<int> LearnedItems => models.Keys;
+
+    /// <summary>One weapon's posterior copied out, or null when the weapon never taught one.</summary>
+    public static ExportedModel? ExportModel(int itemType)
+    {
+        if (!models.TryGetValue(itemType, out Model? model))
+            return null;
+        var covariance = new double[FeatureCount * FeatureCount];
+        for (int i = 0; i < FeatureCount; i++)
+            for (int j = 0; j < FeatureCount; j++)
+                covariance[i * FeatureCount + j] = model.Covariance[i, j];
+        var types = new List<(int NpcType, double Precision, double Weighted, double[] Centre, double MeanOutcome, int Seen)>();
+        foreach ((int npcType, TypeBias bias) in model.Types)
+            types.Add((npcType, bias.Precision, bias.Weighted, (double[])bias.Centre.Clone(), bias.MeanOutcome, bias.Seen));
+        return new ExportedModel((double[])model.Mean.Clone(), covariance, model.Evidence,
+            (double[])model.Centre.Clone(), model.Seen, model.TypePriorMean, model.TypePriorVariance, types);
+    }
+
+    /// <summary>Install a posterior read back from a save or a snapshot, replacing whatever the weapon held.</summary>
+    public static void AssumeModel(int itemType, ExportedModel exported)
+    {
+        var model = new Model
+        {
+            Evidence = exported.Evidence,
+            Seen = exported.Seen,
+            TypePriorMean = exported.TypePriorMean,
+            TypePriorVariance = exported.TypePriorVariance,
+        };
+        Array.Copy(exported.Mean, model.Mean, Math.Min(exported.Mean.Length, FeatureCount));
+        Array.Copy(exported.Centre, model.Centre, Math.Min(exported.Centre.Length, FeatureCount));
+        for (int i = 0; i < FeatureCount; i++)
+            for (int j = 0; j < FeatureCount; j++)
+            {
+                int flat = i * FeatureCount + j;
+                model.Covariance[i, j] = flat < exported.Covariance.Length ? exported.Covariance[flat] : 0.0;
+            }
+        foreach ((int npcType, double precision, double weighted, double[] centre, double meanOutcome, int seen) in exported.Types)
+        {
+            var bias = new TypeBias(model) { Precision = precision, Weighted = weighted, MeanOutcome = meanOutcome, Seen = seen };
+            Array.Copy(centre, bias.Centre, Math.Min(centre.Length, FeatureCount));
+            model.Types[npcType] = bias;
+        }
+        models[itemType] = model;
+        Revision++;
+    }
+
+    /// <summary>Every debuff record's counts, copied, for the persistence codec to read.</summary>
+    public static IReadOnlyDictionary<(int Item, int Npc), (int Struck, int Applied, long Ticks)> ExportDebuffs()
+    {
+        var copy = new Dictionary<(int Item, int Npc), (int Struck, int Applied, long Ticks)>(debuffs.Count);
+        foreach (var (pair, record) in debuffs)
+            copy[pair] = (record.Struck, record.Applied, record.AppliedTicks);
+        return copy;
+    }
+
+    /// <summary>Install a debuff record read back from a save or a snapshot, replacing whatever the pair held.</summary>
+    public static void AssumeDebuff(int itemType, int npcType, int struck, int applied, long ticks)
+    {
+        debuffs[(itemType, npcType)] = new DebuffRecord { Struck = struck, Applied = applied, AppliedTicks = ticks };
+        Revision++;
+    }
+
+    /// <summary>Restore the revision a bundle was exported at, so a replayed decision reads the same belief age.</summary>
+    public static void RestoreRevision(int revision) => Revision = revision;
+
     /// <summary>Seed the sampler and forget the tick's draws, so a fixture's draws are reproducible.</summary>
     public static void Seed(int seed)
     {
@@ -328,6 +408,7 @@ public static class AttackLearning
         debuffs.Clear();
         random = new Random(0);
         LastSampledFactor = LastMeanFactor = 1f;
+        ForceMeans = false;
         Revision++;
     }
 

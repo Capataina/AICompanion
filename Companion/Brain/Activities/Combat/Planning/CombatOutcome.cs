@@ -56,4 +56,17 @@ public readonly record struct CombatOutcome(
 
     /// <summary>Whether a larger value is better on the objective at this index; the first three maximise, the rest minimise.</summary>
     public static bool HigherIsBetter(int index) => index <= 2;
+
+    /// <summary>The objective's short name by index, for the record's rejected plans and the audit's regret.</summary>
+    public static string Name(int index) => index switch
+    {
+        0 => "damage",
+        1 => "threat-removed",
+        2 => "player-harm-prevented",
+        3 => "companion-harm",
+        4 => "push-danger",
+        5 => "company-gap",
+        6 => "time-to-first-damage",
+        _ => "mana",
+    };
 }

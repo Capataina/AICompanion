@@ -135,6 +135,16 @@ public static class LearnWallResponses
         return n % 2 == 1 ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) / 2f;
     }
 
+    /// <summary>Every learned wall response by projectile type, for the persistence codec to read.</summary>
+    public static IReadOnlyDictionary<int, WallResponse> Responses => responses;
+
+    /// <summary>Install a wall response read back from a save or a snapshot, replacing whatever the type held.</summary>
+    public static void AssumeResponse(WallResponse response)
+    {
+        responses[response.ProjectileType] = response;
+        KnowledgeRevision.Bump();
+    }
+
     public static void Reset()
     {
         responses.Clear();

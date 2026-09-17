@@ -25,6 +25,10 @@ public sealed class PlanningBudget
     /// <summary>How many uses were simulated under this budget, for the cost strip.</summary>
     public int Simulations { get; private set; }
 
+    /// <summary>The allowance in milliseconds, for the snapshot: the audit replays the decision under the same budget.</summary>
+    public float AllowanceMilliseconds => allowanceTicks == long.MaxValue ? float.PositiveInfinity
+        : allowanceTicks * 1000f / System.TimeSpan.TicksPerMillisecond;
+
     public static PlanningBudget Unbounded() => new(long.MaxValue);
 
     public static PlanningBudget FromMilliseconds(float milliseconds)

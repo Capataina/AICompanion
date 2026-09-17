@@ -110,6 +110,7 @@ public class CompanionNPC : ModNPC
 
     public override void SetDefaults()
     {
+        Combat.Planner.Bind(NPC);
         // The engine's box is the contact circle's diameter on both sides: it is what enemies and
         // projectiles hit, and a box a different size from the circle is hit where the body is not.
         NPC.width = (int)CircleContact.Diameter;

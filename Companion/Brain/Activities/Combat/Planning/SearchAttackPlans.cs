@@ -25,22 +25,39 @@ namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 /// </summary>
 public static class SearchAttackPlans
 {
-    public sealed record SearchResult(AttackPlan? Plan, OfferEligibility Eligibility, string Reason, int FrontSize);
+    public sealed record SearchResult(AttackPlan? Plan, OfferEligibility Eligibility, string Reason, int FrontSize,
+        IReadOnlyList<RejectedPlan> Rejected, IReadOnlyList<AssessedStand> Assessed, int CandidatesEvaluated, int SimulationsSpent);
+
+    /// <summary>
+    /// The audit's replay seam: proposals and verdicts from a snapshot in place of the live generators and
+    /// the live flood. Proposals alone re-assess the snapshot's stands against the restored world; verdicts
+    /// alone are meaningless without their proposals and read as a missing replay. Both null is the live
+    /// search. The verdict replay is what makes the snapshot's decision reproducible at all — the reach
+    /// flood is incremental history no snapshot carries, so a replayed assessment would answer NotYet
+    /// where the live flood had finished, and row A1's mutation (a snapshot without verdicts) fails
+    /// exactly there.
+    /// </summary>
+    public sealed record SearchOptions(IReadOnlyList<StandProposal>? Proposals = null,
+        IReadOnlyList<StandVerdict>? Verdicts = null);
+
+    private static SearchResult Empty(AttackPlan? plan, OfferEligibility eligibility, string reason, int frontSize)
+        => new(plan, eligibility, reason, frontSize, Array.Empty<RejectedPlan>(), Array.Empty<AssessedStand>(), 0, 0);
 
     public static SearchResult SearchDepthOne(in ActionContext ctx, CompanionCombat combat, Positioner positioner,
-        Func<Vector2, bool> inAllowance, CombatWeights weights, int planId, ref PlanningBudget budget)
+        Func<Vector2, bool> inAllowance, CombatWeights weights, int planId, ref PlanningBudget budget,
+        SearchOptions? options = null)
     {
         int tick = ctx.Senses.Tick;
         var weapons = combat.Weapons;
         if (weapons.Count == 0)
-            return new SearchResult(null, OfferEligibility.NoOpportunity, "no-weapon", 0);
+            return Empty(null, OfferEligibility.NoOpportunity, "no-weapon", 0);
         IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);
         List<ThreatRecord> targets = ProposalTargets(ctx, combat, inAllowance, out int deferredExcluded);
         if (targets.Count == 0)
         {
             if (deferredExcluded > 0)
-                return new SearchResult(null, OfferEligibility.KnownUnusable, "engagement-deferred-no-progress", 0);
-            return new SearchResult(null, OfferEligibility.NoOpportunity, "no-eligible-target", 0);
+                return Empty(null, OfferEligibility.KnownUnusable, "engagement-deferred-no-progress", 0);
+            return Empty(null, OfferEligibility.NoOpportunity, "no-eligible-target", 0);
         }
 
         // The approach resolve needs a flight profile or the positioner refuses the request: the
@@ -50,15 +67,22 @@ public static class SearchAttackPlans
         foreach (CompanionWeapon weapon in weapons)
             if (approachProfile == null || weapon.Model.Reach > approachProfile.Value.Reach)
                 approachProfile = weapon.Model;
-        List<StandProposal> proposals = ProposeToday(ctx, combat, positioner, targets, approachProfile);
+        IReadOnlyList<StandProposal> proposals = options?.Proposals
+            ?? ProposeToday(ctx, combat, positioner, targets, approachProfile);
+        IReadOnlyList<StandVerdict>? replayed = options?.Proposals != null ? options.Verdicts : null;
+        if (replayed != null && replayed.Count != proposals.Count)
+            throw new ArgumentException($"a verdict replay needs one verdict per proposal, not {replayed.Count} for {proposals.Count}");
         if (proposals.Count == 0)
-            return new SearchResult(null, OfferEligibility.NoOpportunity, "no-eligible-target", 0);
+            return Empty(null, OfferEligibility.NoOpportunity, "no-eligible-target", 0);
 
+        var assessed = new List<AssessedStand>(proposals.Count);
         var candidates = new List<AttackPlan>();
         bool sawReachable = false, sawUndecided = false;
-        foreach (StandProposal proposal in proposals)
+        for (int p = 0; p < proposals.Count; p++)
         {
-            StandVerdict verdict = Assess(ctx, positioner, inAllowance, proposal);
+            StandProposal proposal = proposals[p];
+            StandVerdict verdict = replayed?[p] ?? Assess(ctx, positioner, inAllowance, proposal);
+            assessed.Add(new AssessedStand(proposal, verdict));
             if (verdict.Reach == ReachVerdict.Unreachable)
                 continue;
             if (verdict.Reach == ReachVerdict.NotYet)
@@ -72,23 +96,29 @@ public static class SearchAttackPlans
             if (plan != null)
                 candidates.Add(plan);
             if (budget.Cut)
-                return new SearchResult(null, OfferEligibility.Unresolved, "budget-cut", candidates.Count);
+                return new SearchResult(null, OfferEligibility.Unresolved, "budget-cut", candidates.Count,
+                    Array.Empty<RejectedPlan>(), assessed, candidates.Count, budget.Simulations);
         }
         if (!sawReachable)
         {
             if (sawUndecided)
-                return new SearchResult(null, OfferEligibility.Unresolved, "stands-undecided", 0);
-            return new SearchResult(null, OfferEligibility.KnownUnusable, "no-reachable-stand", 0);
+                return new SearchResult(null, OfferEligibility.Unresolved, "stands-undecided", 0,
+                    Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations);
+            return new SearchResult(null, OfferEligibility.KnownUnusable, "no-reachable-stand", 0,
+                Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations);
         }
         if (candidates.Count == 0)
         {
             // A reachable stand with no solving use settles nothing about the stands still undecided:
             // answering unusable would report an unanswered search as a proven absence.
             if (sawUndecided)
-                return new SearchResult(null, OfferEligibility.Unresolved, "stands-undecided", 0);
-            return new SearchResult(null, OfferEligibility.KnownUnusable, "no-use-reaches-target", 0);
+                return new SearchResult(null, OfferEligibility.Unresolved, "stands-undecided", 0,
+                    Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations);
+            return new SearchResult(null, OfferEligibility.KnownUnusable, "no-use-reaches-target", 0,
+                Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations);
         }
-        List<AttackPlan> front = KeepOnlyUndominated.Filter(candidates, plan => plan.Outcome);
+        (List<AttackPlan> front, List<(AttackPlan Plan, AttackPlan Dominator, int LostOn)> drops) =
+            KeepOnlyUndominated.FilterWithDrops(candidates, plan => plan.Outcome);
         if (System.Environment.GetEnvironmentVariable("AIC_DEBUG_PLAN") == "1")
             foreach (AttackPlan c in candidates)
                 System.Console.WriteLine($"  DEBUG cand primary={c.PrimaryTarget} stand={c.Segments[0].Stand.Stand.X:0},{c.Segments[0].Stand.Stand.Y:0} weighted={c.Weighted:0.00} kills={c.TargetKillTicks?.Length ?? 0} travel={c.Segments[0].Verdict.TravelTicks:0} outcome={c.Outcome}");
@@ -96,7 +126,49 @@ public static class SearchAttackPlans
         foreach (AttackPlan plan in front)
             if (plan.Weighted > best.Weighted)
                 best = plan;
-        return new SearchResult(best, OfferEligibility.Usable, "planned-attack", front.Count);
+        return new SearchResult(best, OfferEligibility.Usable, "planned-attack", front.Count,
+            BestRejected(front, drops, best, weights), assessed, candidates.Count, budget.Simulations);
+    }
+
+    /// <summary>
+    /// The three best plans the search turned down, by weighted value: drops named with their dominator's
+    /// widest win, front survivors the argmax passed over named with the weighted gap's largest term — the
+    /// objective where the weight decision turned. The record carries these, not the whole front.
+    /// </summary>
+    private static IReadOnlyList<RejectedPlan> BestRejected(List<AttackPlan> front,
+        List<(AttackPlan Plan, AttackPlan Dominator, int LostOn)> drops, AttackPlan best, CombatWeights weights)
+    {
+        var rejected = new List<RejectedPlan>(drops.Count + front.Count);
+        foreach ((AttackPlan plan, _, int lostOn) in drops)
+            rejected.Add(new RejectedPlan(plan, "dominated", CombatOutcome.Name(lostOn)));
+        foreach (AttackPlan plan in front)
+        {
+            if (ReferenceEquals(plan, best))
+                continue;
+            rejected.Add(new RejectedPlan(plan, "weights", CombatOutcome.Name(WeightedGapTerm(best, plan, weights))));
+        }
+        rejected.Sort((a, b) => b.Plan.Weighted.CompareTo(a.Plan.Weighted));
+        if (rejected.Count > 3)
+            rejected.RemoveRange(3, rejected.Count - 3);
+        return rejected;
+    }
+
+    private static int WeightedGapTerm(AttackPlan best, AttackPlan plan, CombatWeights weights)
+    {
+        int term = 0;
+        float widest = float.NegativeInfinity;
+        for (int i = 0; i < CombatOutcome.Count; i++)
+        {
+            float gap = CombatOutcome.HigherIsBetter(i)
+                ? weights[i] * (best.Outcome[i] - plan.Outcome[i])
+                : weights[i] * (plan.Outcome[i] - best.Outcome[i]);
+            if (gap > widest)
+            {
+                widest = gap;
+                term = i;
+            }
+        }
+        return term;
     }
 
     /// <summary>

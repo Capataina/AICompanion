@@ -21,7 +21,13 @@ public partial class CompanionPlayer
         bool toggle = BrainOverlay.ToggleKey?.JustPressed == true;
         if (toggle && DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.EnableBrainInspector)
         {
-            BrainOverlay.ToggleMenu();
+            // The inspector's key with shift held marks the moment instead of opening the menu: the next
+            // combat preparation writes a snapshot under the mark trigger, so the owner can point at a
+            // decision during a test and find it in the report. Without shift the key toggles as before.
+            if (Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift))
+                Brain.Activities.Combat.Planning.ExportCombatSnapshot.MarkRequested = true;
+            else
+                BrainOverlay.ToggleMenu();
         }
     }
 

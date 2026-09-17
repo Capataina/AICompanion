@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Activities.Combat.Planning;
+using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
@@ -81,6 +82,10 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     private bool ServesPlayer;
     private float preparedValue;
     private AttackPlan? preparedPlan;
+    private SearchAttackPlans.SearchResult? preparedSearch;
+    private SearchAttackPlans.SearchResult? lastSearch;
+    private int lastSnapshotTick = -120;
+    private int snapshotForPlan = -1;
 
     private const string StageDeferred = "engagement-deferred";
     private const string StageAllowance = "activity-allowance";
@@ -114,6 +119,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         ActionContext captured = ctx;
         Func<Vector2, bool> allows = point => AllowsTarget(captured, point);
         IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);
+        MaybeSnapshot(ctx, combat);
 
         if (!PlayerIntegration.CompanionPreferences.Current.Combat)
         {
@@ -161,6 +167,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         {
             ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "no-eligible-target");
             preparedPlan = null;
+            preparedSearch = null;
             Classify(OfferEligibility.NoOpportunity, "no-eligible-target");
             return;
         }
@@ -190,28 +197,34 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
                 OfferFromPlan(ctx, preparedPlan, fresh.Value, weights, frontSize: 1, cut: false);
                 if (running)
                 {
-                    combat.Planner.Commit(preparedPlan);
+                    CommitAndRecord(ctx, combat, preparedPlan, preparedSearch, null, weights);
                     preparedPlan = null;
+                    preparedSearch = null;
                 }
                 return;
             }
             preparedPlan = null;
+            preparedSearch = null;
         }
         PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds);
         SearchAttackPlans.SearchResult result = SearchAttackPlans.SearchDepthOne(ctx, combat, positioner, allows,
             weights, combat.NextPlanId++, ref budget);
+        lastSearch = result;
         if (result.Plan != null)
         {
             preparedPlan = result.Plan;
+            preparedSearch = result;
             OfferFromPlan(ctx, result.Plan, result.Plan.Outcome, weights, result.FrontSize, cut: false);
             if (running)
             {
-                combat.Planner.Commit(result.Plan);
+                CommitAndRecord(ctx, combat, result.Plan, result, budget, weights);
                 preparedPlan = null;
+                preparedSearch = null;
             }
             return;
         }
         preparedPlan = null;
+        preparedSearch = null;
         OfferedFrontSize = result.FrontSize;
         OfferedCut = result.Reason == "budget-cut";
         if (result.Eligibility != OfferEligibility.Unresolved)
@@ -286,6 +299,55 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             else
                 combat.Planner.Release(refusal);
         }
+    }
+
+    /// <summary>
+    /// Commit with the record the audit replays from: the plan's committed event carrying the search's front
+    /// and rejected plans, then the decision's snapshot. A prepared plan committed ticks after its search
+    /// carries that search's verdicts — what it was decided on — with a fresh budget, because the spent one
+    /// priced a tick that has passed; the snapshot says so by its rescore trigger.
+    /// </summary>
+    private void CommitAndRecord(in ActionContext ctx, CompanionCombat combat, AttackPlan plan,
+        SearchAttackPlans.SearchResult? search, PlanningBudget? spent, CombatWeights weights)
+    {
+        combat.Planner.Commit(plan);
+        lastSnapshotTick = ctx.Senses.Tick;
+        snapshotForPlan = plan.Id;
+        if (!GodsEyeEvents.Active)
+            return;
+        int front = search?.FrontSize ?? 1;
+        IReadOnlyList<RejectedPlan> rejected = search?.Rejected ?? Array.Empty<RejectedPlan>();
+        GodsEyeEvents.RecordCombatPlan(ctx.Npc, plan.Id, "committed", plan.Segments[0].Stand.Stand, front,
+            DescribeAttackPlan.Detail(plan, rejected, front, "none"));
+        PlanningBudget budget = spent ?? PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds);
+        GodsEyeEvents.RecordCombatSnapshot(ctx.Npc, plan.Id, spent == null ? "rescore" : "commit",
+            ExportCombatSnapshot.Build(ctx, combat, plan, search, weights, budget));
+    }
+
+    /// <summary>
+    /// The bounded-rate snapshot while a plan is committed, and the inspector's mark: every 120 ticks the
+    /// decision's input with the plan it still holds, so the audit grades the hold as well as the search.
+    /// A mark writes even with no plan committed, because "that moment" is also why no fight was offered.
+    /// Verdicts are the latest search's — what the brain knew when it last asked — because no search runs
+    /// on the rescore tick itself; the commit's own snapshot carries the committing search.
+    /// </summary>
+    private void MaybeSnapshot(in ActionContext ctx, CompanionCombat combat)
+    {
+        bool mark = ExportCombatSnapshot.MarkRequested;
+        if (mark)
+            ExportCombatSnapshot.MarkRequested = false;
+        if (!GodsEyeEvents.Active)
+            return;
+        AttackPlan? committed = combat.Planner.Committed;
+        if (committed != null && committed.Id != snapshotForPlan)
+            snapshotForPlan = committed.Id;
+        if (!mark && (committed == null || ctx.Senses.Tick - lastSnapshotTick < 120))
+            return;
+        CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
+        PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds);
+        GodsEyeEvents.RecordCombatSnapshot(ctx.Npc, committed?.Id ?? -1, mark ? "mark" : "rescore",
+            ExportCombatSnapshot.Build(ctx, combat, committed, lastSearch, weights, budget));
+        lastSnapshotTick = ctx.Senses.Tick;
     }
 
     /// <summary>
@@ -384,8 +446,10 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     {
         if (ctx.Companion.Combat.Planner.Committed == null && preparedPlan != null)
         {
-            ctx.Companion.Combat.Planner.Commit(preparedPlan);
+            CommitAndRecord(ctx, ctx.Companion.Combat, preparedPlan, preparedSearch, null,
+                WeighCombatObjectives.ForSenses(ctx));
             preparedPlan = null;
+            preparedSearch = null;
         }
     }
 
@@ -393,6 +457,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     {
         ctx.Companion.Combat.Planner.Release("activity-exited");
         preparedPlan = null;
+        preparedSearch = null;
         base.Exit(ctx);
     }
 

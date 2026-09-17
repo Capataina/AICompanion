@@ -236,6 +236,29 @@ public static class WeaponEffects
         return n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2f;
     }
 
+    /// <summary>Every learned pair's samples, copied, for the persistence codec to read.</summary>
+    public static IReadOnlyDictionary<(int Item, int Npc), (float[] Push, float[] Damage)> ExportRecords()
+    {
+        var copy = new Dictionary<(int Item, int Npc), (float[] Push, float[] Damage)>(records.Count);
+        foreach (var (pair, record) in records)
+            copy[pair] = (record.Push.ToArray(), record.Damage.ToArray());
+        return copy;
+    }
+
+    /// <summary>Install a pair's samples read back from a save or a snapshot, replacing whatever the pair held.</summary>
+    public static void AssumeRecord(int itemType, int npcType, float[] push, float[] damage)
+    {
+        var record = new Record();
+        record.Push.AddRange(push);
+        record.Damage.AddRange(damage);
+        records[(itemType, npcType)] = record;
+        Revision++;
+        KnowledgeRevision.Bump();
+    }
+
+    /// <summary>Restore the revision a bundle was exported at, so a replayed decision reads the same belief age.</summary>
+    public static void RestoreRevision(int revision) => Revision = revision;
+
     /// <summary>Forget everything learned, so a fixture measures the prior and the learning rather than the previous case's.</summary>
     public static void Reset()
     {

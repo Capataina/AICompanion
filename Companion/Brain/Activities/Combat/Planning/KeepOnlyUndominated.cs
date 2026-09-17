@@ -39,6 +39,54 @@ public static class KeepOnlyUndominated
         return survivors;
     }
 
+    /// <summary>
+    /// The survivors with the drops beside them: each drop's dominator and the objective it lost on — the
+    /// beyond-tolerance win with the widest tolerance-normalised gap, which is where the two plans most differ.
+    /// The record's rejected plans come from here, so a decision names what it turned down and where.
+    /// </summary>
+    public static (List<T> Survivors, List<(T Plan, T Dominator, int LostOn)> Drops) FilterWithDrops<T>(
+        IReadOnlyList<T> plans, Func<T, CombatOutcome> outcome)
+    {
+        var survivors = new List<T>(plans.Count);
+        var drops = new List<(T Plan, T Dominator, int LostOn)>();
+        CombatOutcome tolerances = CombatOutcome.Tolerances;
+        for (int i = 0; i < plans.Count; i++)
+        {
+            bool dominated = false;
+            for (int j = 0; j < plans.Count; j++)
+            {
+                if (i != j && Dominates(outcome(plans[j]), outcome(plans[i]), tolerances))
+                {
+                    dominated = true;
+                    drops.Add((plans[i], plans[j], LostObjective(outcome(plans[j]), outcome(plans[i]), tolerances)));
+                    break;
+                }
+            }
+            if (!dominated)
+                survivors.Add(plans[i]);
+        }
+        return (survivors, drops);
+    }
+
+    private static int LostObjective(CombatOutcome dominator, CombatOutcome dropped, CombatOutcome tolerances)
+    {
+        int lost = 0;
+        float widest = float.NegativeInfinity;
+        for (int i = 0; i < CombatOutcome.Count; i++)
+        {
+            float tol = MathF.Max(float.Epsilon, tolerances[i]);
+            float gap = CombatOutcome.HigherIsBetter(i)
+                ? (dominator[i] - dropped[i]) / tol
+                : (dropped[i] - dominator[i]) / tol;
+            if (gap > widest)
+            {
+                widest = gap;
+                lost = i;
+            }
+        }
+        return lost;
+    }
+
     /// <summary>Whether <paramref name="a"/> dominates <paramref name="b"/>: at least as good within tolerance everywhere, better beyond it somewhere.</summary>
     public static bool Dominates(CombatOutcome a, CombatOutcome b, CombatOutcome tolerances)
     {

@@ -455,6 +455,16 @@ public static class LearnVolleyShapes
         return measured;
     }
 
+    /// <summary>Every learned shape by item, for the persistence codec to read; mutate through <see cref="Learn"/> or <see cref="AssumeShape"/>.</summary>
+    public static IReadOnlyDictionary<int, VolleyShape> Shapes => shapes;
+
+    /// <summary>Install a shape read back from a save or a snapshot, replacing whatever the item held.</summary>
+    public static void AssumeShape(int itemType, VolleyShape shape)
+    {
+        shapes[itemType] = shape;
+        KnowledgeRevision.Bump();
+    }
+
     /// <summary>Forget every shape, so a fixture measures learning rather than the previous case's.</summary>
     public static void Reset()
     {

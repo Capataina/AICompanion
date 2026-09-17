@@ -74,6 +74,16 @@ public static class LearnChildSpawns
         }
     }
 
+    /// <summary>Every learned child list by parent type, for the persistence codec to read.</summary>
+    public static IReadOnlyDictionary<int, List<ChildModel>> Children => children;
+
+    /// <summary>Install a child list read back from a save or a snapshot, replacing whatever the parent held.</summary>
+    public static void AssumeChildren(int parentType, List<ChildModel> models)
+    {
+        children[parentType] = models;
+        KnowledgeRevision.Bump();
+    }
+
     public static void Reset()
     {
         children.Clear();

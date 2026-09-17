@@ -89,3 +89,15 @@ public sealed record AttackPlan(int Id, AttackSegment[] Segments, CombatOutcome 
     /// <summary>The plan's primary target: the first segment's first use's target, or -1 with no uses.</summary>
     public int PrimaryTarget => Segments.Length > 0 && Segments[0].Uses.Length > 0 ? Segments[0].Uses[0].TargetSlot : -1;
 }
+
+/// <summary>One proposal with the verdict the search read: the snapshot carries the whole assessed set,
+/// so the audit replays the decision against the same reach answers rather than a fresh flood.</summary>
+public readonly record struct AssessedStand(StandProposal Proposal, Infrastructure.Position.StandVerdict Verdict);
+
+/// <summary>
+/// One plan the search turned down: whether the dominance filter dropped it or the weights did, and the
+/// objective it lost on — the dominator's widest win for a drop, the weighted gap's largest term for a
+/// front survivor the argmax passed over. The record carries the three best, so a decision names its
+/// nearest alternatives rather than only its winner.
+/// </summary>
+public sealed record RejectedPlan(AttackPlan Plan, string Reason, string LostOn);
