@@ -649,6 +649,195 @@ internal static class VerifyAttackPlanning
     }
 
     /// <summary>
+    /// P7: an above stand for the area use, then a flank pierce timed to the explosion. Two tough
+    /// slimes hold adjacent on the floor; the grenade drops from above and bursts on a planted
+    /// sixty-tick fuse, wounding both, and the pierce starts at the burst — not at arrival — to
+    /// finish both through. Starting at arrival only, the file-8 mutation, fires into full life.
+    /// </summary>
+    public static int AGrenadeThenPierceIsTimedToTheExplosion()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 5; x < 95; x++)
+        {
+            Tile tile = Main.tile[x, 60];
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+            tile.Slope = 0;
+            tile.IsHalfBlock = false;
+            tile.LiquidAmount = 0;
+        }
+        StandUpDamage();
+        var pierce = new HitResponse { ProjectileType = ProjectileID.WoodenArrowFriendly };
+        pierce.PierceRatio.Add(2f);
+        LearnHits.AssumeResponse(pierce);
+        Laws.AssumeLaw(ProjectileID.WoodenArrowFriendly, FlightLaw.Straight(ProjectileID.WoodenArrowFriendly));
+        var grenadeSample = new Projectile();
+        grenadeSample.SetDefaults(ProjectileID.Grenade);
+        ContentSamples.ProjectilesByType[ProjectileID.Grenade] = grenadeSample;
+        var boom = new HitResponse { ProjectileType = ProjectileID.Grenade };
+        boom.Area = new live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AreaResponse(80f, live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AreaTrigger.OnDeath);
+        LearnHits.AssumeResponse(boom);
+        FlightLaw thrown = FlightLaw.Default(ProjectileID.Grenade);
+        Laws.AssumeLaw(ProjectileID.Grenade, thrown with { LifetimeUpdates = 60 });
+        Player player = Main.player[0];
+        player.dead = false;
+        player.statLife = player.statLifeMax2 = 100;
+        player.statManaMax2 = 20;
+        player.active = true;
+        player.Bottom = new Vector2(500f, 60 * 16f);
+        companion.NPC.Bottom = new Vector2(500f, 60 * 16f - 40f);
+        companion.NPC.velocity = Vector2.Zero;
+        companion.NPC.life = companion.NPC.lifeMax = 100;
+        companion.NPC.active = true;
+        NPC left = Main.npc[30];
+        left.SetDefaults(NPCID.GreenSlime);
+        left.whoAmI = 30;
+        left.active = true;
+        left.velocity = Vector2.Zero;
+        left.damage = 10;
+        left.life = left.lifeMax = 150;
+        left.Bottom = new Vector2(935f, 60 * 16f);
+        NPC right = Main.npc[31];
+        right.SetDefaults(NPCID.GreenSlime);
+        right.whoAmI = 31;
+        right.active = true;
+        right.velocity = Vector2.Zero;
+        right.damage = 10;
+        right.life = right.lifeMax = 150;
+        right.Bottom = new Vector2(965f, 60 * 16f);
+        Main.npc[32].active = false;
+        companion.Brain.Senses.Update(companion.NPC, player);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        VerifyOreWork.SettleReach(companion, player);
+        var ctx = new C(companion, companion.Brain.Senses);
+        var combat = companion.Combat;
+        Require(companion.Brain.Senses.Threats.Threats.Count >= 2, "premise: both slimes sensed as threats");
+        var gear = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
+        gear.Slots[0].SetDefaults(ItemID.Grenade);
+        gear.Slots[1].SetDefaults(ItemID.PlatinumBow);
+
+        string wlist = string.Join(";", System.Linq.Enumerable.Select(combat.Weapons, w => w.ItemType + ":" + w.ProjectileType));
+        bool ok0 = live::AICompanion.Companion.Inventory.CompanionGear.Accepts(live::AICompanion.Companion.Inventory.GearSlot.FirstWeapon, gear.Slots[0], out string why0);
+        System.Console.WriteLine($"  DEBUG p7 weapons={wlist} area={LearnHits.ResponseFor(ProjectileID.Grenade).Area.Radius:0} slot0={gear.Slots[0].type}:{gear.Slots[0].shoot} accepts={ok0}:{why0}");
+        CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
+        Budget budget = Budget.Unbounded();
+        SearchPlans.SearchResult result = SearchPlans.Search(ctx, combat, companion.Brain.Positioner,
+            _ => true, weights, combat.NextPlanId++, ref budget);
+        Require(result.Plan != null, "the grenade scene offers nothing: " + result.Reason);
+        Require(result.Plan.Segments.Length == 2, $"grenade then pierce earns two segments; got {result.Plan.Segments.Length}");
+        StandReason first = result.Plan.Segments[0].Stand.Reason;
+        StandReason second = result.Plan.Segments[1].Stand.Reason;
+        Require(first == StandReason.AboveArea, $"the first segment must drop from above; got {first}");
+        Require(second == StandReason.FloorFlanks || second == StandReason.PierceLines,
+            $"the second segment must pierce the flank; got {second}");
+        float arrival = result.Plan.Segments[0].EndTick + result.Plan.Segments[1].Verdict.TravelTicks;
+        int start = result.Plan.Segments[1].StartTick;
+        Require(start > arrival, $"the pierce must wait for the burst, not fire at arrival; start {start}, arrival {arrival:0}");
+        Console.WriteLine($"attack planning: grenade above then {second} at {start} (arrival {arrival:0}, value {result.Plan.Weighted:0.00})");
+        return 0;
+    }
+
+    /// <summary>
+    /// P8: a bank offer exists for a bouncing weapon and none for a straight one. A wall blocks the
+    /// body's direct line to a slime; the water bolt's reflecting law reaches around via the bank
+    /// sweep and commits to a BankShots stand, while the bow's dying law offers no bank from any
+    /// stand — B8's "offers none" is about bank offers, not plans, because a pocket stand behind
+    /// the wall still offers the bow a direct shot and no sealed pocket admits the bank either.
+    /// Disabling the bounce aims — the file-8 mutation — kills the bolt's bank too.
+    /// </summary>
+    public static int ABankShotPlansWithABouncingWeaponOnly()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 5; x < 95; x++)
+        {
+            Tile tile = Main.tile[x, 60];
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+            tile.Slope = 0;
+            tile.IsHalfBlock = false;
+            tile.LiquidAmount = 0;
+        }
+        for (int y = 55; y < 60; y++)
+        {
+            Tile wall = Main.tile[50, y];
+            wall.HasTile = true;
+            wall.TileType = TileID.Dirt;
+            wall.Slope = 0;
+            wall.IsHalfBlock = false;
+            wall.LiquidAmount = 0;
+        }
+        StandUpDamage();
+        Laws.AssumeLaw(ProjectileID.WoodenArrowFriendly, FlightLaw.Straight(ProjectileID.WoodenArrowFriendly));
+        var boltSample = new Projectile();
+        boltSample.SetDefaults(ProjectileID.WaterBolt);
+        ContentSamples.ProjectilesByType[ProjectileID.WaterBolt] = boltSample;
+        FlightLaw bolt = FlightLaw.Straight(ProjectileID.WaterBolt);
+        Laws.AssumeLaw(ProjectileID.WaterBolt, bolt with
+        {
+            Wall = new WallResponse
+            {
+                ProjectileType = ProjectileID.WaterBolt,
+                Kind = WallKind.Reflects,
+                RestitutionNormal = 1f,
+                RestitutionTangent = 1f,
+                BounceCount = 4,
+            },
+        });
+        Player player = Main.player[0];
+        player.dead = false;
+        player.statLife = player.statLifeMax2 = 100;
+        player.statManaMax2 = 200;
+        player.active = true;
+        player.Bottom = new Vector2(47 * 16f, 60 * 16f);
+        companion.NPC.Bottom = new Vector2(47 * 16f, 60 * 16f - 40f);
+        companion.NPC.velocity = Vector2.Zero;
+        companion.NPC.life = companion.NPC.lifeMax = 100;
+        companion.NPC.active = true;
+        NPC slime = Main.npc[30];
+        slime.SetDefaults(NPCID.GreenSlime);
+        slime.whoAmI = 30;
+        slime.active = true;
+        slime.velocity = Vector2.Zero;
+        slime.damage = 10;
+        slime.life = slime.lifeMax = 30;
+        slime.Bottom = new Vector2(852f, 60 * 16f);
+        Main.npc[31].active = false;
+        Main.npc[32].active = false;
+        companion.Brain.Senses.Update(companion.NPC, player);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        VerifyOreWork.SettleReach(companion, player);
+        var ctx = new C(companion, companion.Brain.Senses);
+        var combat = companion.Combat;
+        Require(companion.Brain.Senses.Threats.Threats.Count >= 1, "premise: the slime sensed as a threat");
+        var gear = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
+
+        gear.Slots[0].SetDefaults(ItemID.WaterBolt);
+        gear.Slots[1] = new Item();
+        CombatWeights bounceWeights = WeighCombatObjectives.ForSenses(ctx);
+        Budget bounceBudget = Budget.Unbounded();
+        SearchPlans.SearchResult bounce = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
+            _ => true, bounceWeights, combat.NextPlanId++, ref bounceBudget);
+        Require(bounce.Plan != null, "the bouncing weapon offers nothing: " + bounce.Reason);
+        StandReason bounceReason = bounce.Plan.Segments[0].Stand.Reason;
+        Require(bounceReason == StandReason.BankShots, $"the bolt must bank; got {bounceReason} at {bounce.Plan.Segments[0].Stand.Stand}");
+
+        gear.Slots[0].SetDefaults(ItemID.WoodenBow);
+        gear.Slots[1] = new Item();
+        CombatWeights straightWeights = WeighCombatObjectives.ForSenses(ctx);
+        Budget straightBudget = Budget.Unbounded();
+        SearchPlans.SearchResult straight = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
+            _ => true, straightWeights, combat.NextPlanId++, ref straightBudget);
+        foreach (AttackPlan candidate in straight.Front)
+            foreach (var segment in candidate.Segments)
+                Require(segment.Stand.Reason != StandReason.BankShots,
+                    $"the straight weapon must offer no bank; got {segment.Stand.Stand}");
+        Console.WriteLine($"attack planning: bolt banks from {bounce.Plan.Segments[0].Stand.Stand} (value {bounce.Plan.Weighted:0.00}); bow banks nowhere");
+        return 0;
+    }
+
+    /// <summary>
     /// P12: a plan worse on every objective than another never survives, whatever the weights. Two halves:
     /// the filter drops the strictly dominated plan and keeps a tradeoff, and near-equals within tolerance
     /// both survive while a plan worse beyond tolerance on one objective falls; and across weight sweeps
