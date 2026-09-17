@@ -6,9 +6,11 @@ using Microsoft.Xna.Framework;
 namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 
 /// <summary>
-/// Why a stand was proposed. Phase D proposes only today's stands — where the body is and the two
-/// stands today's activity would take — so only those reasons exist; phase E's generators add theirs.
-/// The reason travels into the record so an audit can say which generator a better stand needed.
+/// Why a stand was proposed. The first four are phase D's: where the body is and the two stands
+/// today's activity would take, plus the audit's grid. Phase E's seven generators append theirs;
+/// the old values keep their numbers so a snapshot written before the generators still reads, but
+/// nothing live proposes them any more. The reason travels into the record so an audit can say
+/// which generator a better stand needed.
 /// </summary>
 public enum StandReason
 {
@@ -20,6 +22,20 @@ public enum StandReason
     HuntApproach,
     /// <summary>One cell of the audit's exhaustive grid: never proposed live, only ever re-searched.</summary>
     AuditGrid,
+    /// <summary>Where the body is, or inside his predicted region with a use that reaches.</summary>
+    HereAndCompany,
+    /// <summary>The distance a weapon's simulated yield per use peaks at, flown toward the body, his side, and open air.</summary>
+    BestRange,
+    /// <summary>On a chain of predicted bodies' line, both ends, for a weapon whose simulated pierce exceeds one.</summary>
+    PierceLines,
+    /// <summary>At a group's flanks, low, for a gravity law with a reflecting or stopping floor.</summary>
+    FloorFlanks,
+    /// <summary>Above a group, for a law with learned area, where the drop lands central.</summary>
+    AboveArea,
+    /// <summary>Where a reflecting law's bank sweep reaches a target with no direct line.</summary>
+    BankShots,
+    /// <summary>At the longest reach's far edge, when the companion's harm weight runs high.</summary>
+    SafeRange,
 }
 
 /// <summary>Why a segment ends: its targets died, the next segment is worth more, or the horizon ran out.</summary>

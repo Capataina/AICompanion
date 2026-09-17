@@ -523,6 +523,47 @@ public sealed class Positioner
     /// <summary>The reach sense's three-valued verdict for a tile: reached, proven absent, or not yet known.</summary>
     public ReachVerdict ReachOf(Point tile) => reachSense?.Reachable(tile) ?? ReachVerdict.NotYet;
 
+    /// <summary>
+    /// One verdict per proposed firing stand, in one batch: the reach sense's three-valued answer and
+    /// travel estimate from the body, the predicted harm at the stand and sampled along the travel
+    /// line, and the allowance. Reads only what the positioner owns plus the body's point and the
+    /// activity's allowance, which travel with the call; it runs no route search, so the navigation
+    /// boundary is unchanged. Where the body already hovers is reachable with no travel by
+    /// definition, whatever the flood has claimed so far — no route is needed to stay.
+    /// </summary>
+    public void AssessStands(IReadOnlyList<StandProposal> stands, Vector2 body, Senses.Senses senses,
+        float companionLife, Func<Vector2, bool> inAllowance, List<StandVerdict> into)
+    {
+        reachSense = senses.Reach;
+        Point feet = MovementQueries.Tile(body);
+        foreach (StandProposal proposal in stands)
+        {
+            Vector2 stand = proposal.Stand;
+            bool here = Vector2.DistanceSquared(stand, body) <= 64f;
+            Point tile = MovementQueries.Tile(stand);
+            ReachVerdict reach = here ? ReachVerdict.Reachable : ReachOf(tile);
+            float travel = 0f;
+            if (!here)
+                travel = EstimatedTravelTicks(feet, tile)
+                    ?? Vector2.Distance(body, stand) / OrbPace.MaxSpeed;
+            float atStand = PredictedHarmAt(stand, senses, companionLife);
+            float alongTravel = 0f;
+            for (int sample = 1; sample <= 4; sample++)
+            {
+                Vector2 point = Vector2.Lerp(body, stand, sample / 5f);
+                alongTravel = MathF.Max(alongTravel, PredictedHarmAt(point, senses, companionLife));
+            }
+            bool allowed = inAllowance(stand);
+            string reason = reach switch
+            {
+                ReachVerdict.Reachable => allowed ? "reachable-stand" : "stand-outside-allowance",
+                ReachVerdict.NotYet => "stand-undecided",
+                _ => "stand-unreachable",
+            };
+            into.Add(new StandVerdict(stand, reach, MathF.Max(0f, travel), atStand, alongTravel, allowed, reason));
+        }
+    }
+
     /// <summary>Whether the last FireFrom resolution refused its stand; the combat activity reads it as plan invalidity.</summary>
     public bool LastResolveFailed { get; private set; }
 

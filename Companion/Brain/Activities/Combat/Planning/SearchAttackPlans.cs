@@ -61,28 +61,23 @@ public static class SearchAttackPlans
             return Empty(null, OfferEligibility.NoOpportunity, "no-eligible-target", 0);
         }
 
-        // The approach resolve needs a flight profile or the positioner refuses the request: the
-        // longest reach in hand, so the approach considers every stand the best weapon could shoot from.
-        // The profile only proposes — every weapon is simulated from the stand before a plan is priced.
-        FlightModel? approachProfile = null;
-        foreach (CompanionWeapon weapon in weapons)
-            if (approachProfile == null || weapon.Model.Reach > approachProfile.Value.Reach)
-                approachProfile = weapon.Model;
         IReadOnlyList<StandProposal> proposals = options?.Proposals
-            ?? ProposeToday(ctx, combat, positioner, targets, approachProfile);
+            ?? ProposeFiringStands.Propose(ctx, combat, enemies, targets, ref budget);
         IReadOnlyList<StandVerdict>? replayed = options?.Proposals != null ? options.Verdicts : null;
         if (replayed != null && replayed.Count != proposals.Count)
             throw new ArgumentException($"a verdict replay needs one verdict per proposal, not {replayed.Count} for {proposals.Count}");
         if (proposals.Count == 0)
             return Empty(null, OfferEligibility.NoOpportunity, "no-eligible-target", 0);
 
+        var verdicts = new List<StandVerdict>(proposals.Count);
+        positioner.AssessStands(proposals, ctx.Npc.Center, ctx.Senses, ctx.Npc.life, inAllowance, verdicts);
         var assessed = new List<AssessedStand>(proposals.Count);
         var candidates = new List<AttackPlan>();
         bool sawReachable = false, sawUndecided = false;
         for (int p = 0; p < proposals.Count; p++)
         {
             StandProposal proposal = proposals[p];
-            StandVerdict verdict = replayed?[p] ?? Assess(ctx, positioner, inAllowance, proposal);
+            StandVerdict verdict = replayed?[p] ?? verdicts[p];
             assessed.Add(new AssessedStand(proposal, verdict));
             if (verdict.Reach == ReachVerdict.Unreachable)
                 continue;
@@ -206,89 +201,9 @@ public static class SearchAttackPlans
         return targets;
     }
 
-    /// <summary>
-    /// Today's stand candidates: where the body hovers, and per target the guard anchor and the hunt
-    /// approach the positioner resolves. Deduplicated to half a tile, so a target at the body's feet does
-    /// not price one rock three times. Phase E's generators replace this set; the verdicts and the search
-    /// above them stay.
-    /// </summary>
-    private static List<StandProposal> ProposeToday(in ActionContext ctx, CompanionCombat combat, Positioner positioner,
-        List<ThreatRecord> targets, FlightModel? approachProfile)
-    {
-        var proposals = new List<StandProposal>();
-        var seen = new HashSet<(int X, int Y)>();
-        Vector2 here = ctx.Npc.Center;
-        seen.Add(HalfTile(here));
-        var allSlots = new int[targets.Count];
-        for (int i = 0; i < targets.Count; i++)
-            allSlots[i] = targets[i].Npc.whoAmI;
-        proposals.Add(new StandProposal(here, StandReason.Here, -1, allSlots));
-
-        float leash = CompanionPreferences.Current.NewActivityRadius;
-        foreach (ThreatRecord threat in targets)
-        {
-            NPC npc = threat.Npc;
-            // The air the enemy is in, not the floor under it: a grounded enemy's feet tile is solid rock,
-            // and hovering that tile's centre is hovering inside the floor — unreachable, so the anchor never
-            // proposed anything for exactly the enemies that need a reposition.
-            Vector2 toThreat = npc.Center - ctx.Senses.Player.Bottom;
-            Vector2 anchor = toThreat.LengthSquared() <= leash * leash
-                ? npc.Center
-                : ctx.Senses.Player.Bottom + Vector2.Normalize(toThreat) * leash;
-            Vector2 hover = MovementQueries.HoverPoint(MovementQueries.Tile(anchor));
-            if (seen.Add(HalfTile(hover)))
-                proposals.Add(new StandProposal(hover, StandReason.GuardAnchor, -1, new[] { npc.whoAmI }));
-            if (!combat.TryGetApproach(npc.whoAmI, HostileAttackSources.Generation(npc), npc.Center, ctx.Npc.Center,
-                TerrainChanges.Revision, out Vector2? approach))
-            {
-                approach = positioner.QueryAttackStand(new PositionRequest(RequestKind.LineOfFire, npc.Center, npc), ctx.Senses, approachProfile);
-                combat.StoreApproach(npc.whoAmI, HostileAttackSources.Generation(npc), npc.Center, ctx.Npc.Center,
-                    TerrainChanges.Revision, approach);
-            }
-            if (approach is { } resolved && seen.Add(HalfTile(resolved)))
-                proposals.Add(new StandProposal(resolved, StandReason.HuntApproach, -1, new[] { npc.whoAmI }));
-        }
-        return proposals;
-    }
-
-    private static (int X, int Y) HalfTile(Vector2 point) => ((int)(point.X / 8f), (int)(point.Y / 8f));
-
-    /// <summary>
-    /// One proposal's verdict from what the positioner already owns: the reach sense's three-valued answer
-    /// and travel estimate, the predicted exposure at the stand and sampled along the travel line, and the
-    /// allowance. Where the body already hovers is reachable with no travel by definition, whatever the flood
-    /// has claimed so far — no route is needed to stay. Phase E runs this as one batch; the questions stay.
-    /// </summary>
-    private static StandVerdict Assess(in ActionContext ctx, Positioner positioner, Func<Vector2, bool> inAllowance,
-        StandProposal proposal)
-    {
-        Vector2 stand = proposal.Stand;
-        bool here = proposal.Reason == StandReason.Here;
-        Point tile = MovementQueries.Tile(stand);
-        ReachVerdict reach = here ? ReachVerdict.Reachable : positioner.ReachOf(tile);
-        float travel = 0f;
-        if (!here)
-        {
-            Point feet = MovementQueries.Tile(ctx.Npc.Center);
-            travel = positioner.EstimatedTravelTicks(feet, tile)
-                ?? Vector2.Distance(ctx.Npc.Center, stand) / OrbPace.MaxSpeed;
-        }
-        float atStand = Positioner.PredictedHarmAt(stand, ctx.Senses, ctx.Npc.life);
-        float alongTravel = 0f;
-        for (int sample = 1; sample <= 4; sample++)
-        {
-            Vector2 point = Vector2.Lerp(ctx.Npc.Center, stand, sample / 5f);
-            alongTravel = MathF.Max(alongTravel, Positioner.PredictedHarmAt(point, ctx.Senses, ctx.Npc.life));
-        }
-        bool allowed = inAllowance(stand);
-        string reason = reach switch
-        {
-            ReachVerdict.Reachable => allowed ? "reachable-stand" : "stand-outside-allowance",
-            ReachVerdict.NotYet => "stand-undecided",
-            _ => "stand-unreachable",
-        };
-        return new StandVerdict(stand, reach, MathF.Max(0f, travel), atStand, alongTravel, allowed, reason);
-    }
+    // Phase E proposes through ProposeFiringStands: the seven generators above this file's verdicts.
+    // The old set — where the body is, the guard anchor, the hunt approach — went with the positioner's
+    // firing-stand scoring, which named the stands instead of the weapons.
 
     private sealed record CandidateAttack(EvaluateAttackOutcomes.Attack Attack, int WeaponSlot, Vector2 Muzzle, Vector2 AimPoint, Vector2 Launch, int TargetSlot);
 

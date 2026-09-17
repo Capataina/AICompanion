@@ -239,7 +239,13 @@ public static class SolveAims
         }
     }
 
-    private static IEnumerable<AimCandidate> BankAims(Vector2 muzzle, EnemyForecast target, CombatWorld world, int aimTick)
+    /// <summary>
+    /// The bank sweep on its own: aims off wall faces near the muzzle-target midpoint, for the
+    /// planner's BankShots generator, which asks from stands the intercept search never stands on.
+    /// Unsimulated, like every other aim this class offers: the caller flies each and keeps the ones
+    /// that land.
+    /// </summary>
+    public static IEnumerable<AimCandidate> BankAims(Vector2 muzzle, EnemyForecast target, CombatWorld world, int aimTick)
     {
         Vector2 centre = target.PredictedCentre(aimTick);
         Vector2 mid = (muzzle + centre) / 2f;
