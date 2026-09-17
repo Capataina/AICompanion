@@ -48,7 +48,7 @@ public static class ForecastUses
     /// </summary>
     public static AimedUse? BestAimUse(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target,
         Vector2 muzzle, IReadOnlyList<EnemyForecast> enemies, CombatWorld world, int fireTick, bool record,
-        bool planning = false)
+        bool planning, ref PlanningBudget budget)
     {
         EnemyForecast? forecast = null;
         foreach (EnemyForecast enemy in enemies)
@@ -60,7 +60,10 @@ public static class ForecastUses
         if (planning && CachePlannedSims.TryGetBest(id, modifiers, target.whoAmI, HostileAttackSources.Generation(target),
             muzzle, fireTick, knowledge, world.RefreshCount, enemies, out AimedUse? planned))
             return planned;
-        PlanningBudget budget = PlanningBudget.Unbounded();
+        // The caller's budget all the way down: the search prices its aims against the decision's
+        // milliseconds and count, and a cut aim-solve or a cut sim returns partial aims rather than
+        // none, so the best-of-partial still prices. Hands pass their own unbounded budget — a fired
+        // aim is not search work and must not cut — as does the per-tick forecast below them.
         IReadOnlyList<AimCandidate> aims = SolveAims.For(id, muzzle, forecast, world, enemies, fireTick, ref budget);
         if (aims.Count == 0) return null;
         AimCandidate intercept = aims[0];
@@ -72,16 +75,14 @@ public static class ForecastUses
             {
                 if (!CachePlannedSims.TryGet(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, enemies, out use) || use == null)
                 {
-                    PlanningBudget simBudget = PlanningBudget.Unbounded();
-                    use = SimulateUse.Simulate(id, muzzle, aim.AimPoint, aim.LaunchDirection, world, enemies, modifiers, fireTick, ref simBudget);
+                    use = SimulateUse.Simulate(id, muzzle, aim.AimPoint, aim.LaunchDirection, world, enemies, modifiers, fireTick, ref budget);
                     CachePlannedSims.Store(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, enemies, use);
                     CacheSimulatedUses.Store(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, use);
                 }
             }
             else if (!CacheSimulatedUses.TryGet(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, out use) || use == null)
             {
-                PlanningBudget simBudget = PlanningBudget.Unbounded();
-                use = SimulateUse.Simulate(id, muzzle, aim.AimPoint, aim.LaunchDirection, world, enemies, modifiers, fireTick, ref simBudget);
+                use = SimulateUse.Simulate(id, muzzle, aim.AimPoint, aim.LaunchDirection, world, enemies, modifiers, fireTick, ref budget);
                 CacheSimulatedUses.Store(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, use);
             }
             float onTarget = 0f;
@@ -126,7 +127,9 @@ public static class ForecastUses
         if (!weapon.InReach(muzzle, target)) return null;
         int fireTick = Math.Max(0, targetTickOffset);
         CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-        AimedUse? aimed = BestAimUse(ctx, weapon, slot, target, muzzle, enemies, world, fireTick, record);
+        PlanningBudget aimBudget = PlanningBudget.Unbounded();
+        AimedUse? aimed = BestAimUse(ctx, weapon, slot, target, muzzle, enemies, world, fireTick, record,
+            planning: false, ref aimBudget);
         if (aimed == null)
         {
             rejection = "no-clear-trajectory";

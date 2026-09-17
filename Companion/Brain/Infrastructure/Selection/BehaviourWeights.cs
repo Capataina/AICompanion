@@ -374,6 +374,11 @@ public static class Weights
     /// <summary>The milliseconds one rescore may spend searching attack plans; a cut search offers unresolved, never known-unusable.</summary>
     public const float CombatPlanningMilliseconds = 4f;
 
+    /// <summary>The simulated uses beside the milliseconds: the count cuts the same search at the same
+    /// simulation on every machine, so a cut is reproducible and the audit replays it exactly. Sized from
+    /// measured decisions with headroom (see the budget-by-count commit); the C1 row owns the ceiling.</summary>
+    public const int CombatPlanningMaxSimulations = 4000;
+
     /// <summary>The distance scale the proposal-target score falls over: the hunt reach, kept.</summary>
     public const float CombatProposalReach = 1100f;
 

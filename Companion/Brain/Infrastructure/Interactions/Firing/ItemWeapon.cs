@@ -126,15 +126,19 @@ public sealed class ItemWeapon : CompanionWeapon
     /// </summary>
     public override int DamagePerHit(in ActionContext ctx)
     {
-        Player player = ctx.Player;
+        float perHit = AuditDamageOverride ?? ScaledBaseDamage(ctx.Player);
+        if (Item.mana > 0)
+            perHit *= ctx.Companion.Mana.DamageFactor;
+        return Math.Max(0, (int)(perHit + 5E-06f));
+    }
+
+    public override float ScaledBaseDamage(Player player)
+    {
         StatModifier damage = player.GetTotalDamage(Item.DamageType);
         if (ammo != null && AmmoID.Sets.IsArrow[ammo.ammo]) damage = damage.CombineWith(player.arrowDamage);
         if (ammo != null && AmmoID.Sets.IsBullet[ammo.ammo]) damage = damage.CombineWith(player.bulletDamage);
         if (ammo != null && AmmoID.Sets.IsSpecialist[ammo.ammo]) damage = damage.CombineWith(player.specialistDamage);
-        float perHit = damage.ApplyTo(BaseDamage);
-        if (Item.mana > 0)
-            perHit *= ctx.Companion.Mana.DamageFactor;
-        return Math.Max(0, (int)(perHit + 5E-06f));
+        return damage.ApplyTo(BaseDamage);
     }
 
     /// <summary>The item's knockback plus its free ammo's, which is what <c>Player.PickAmmo</c> hands a shot and the swing passes the strike.</summary>

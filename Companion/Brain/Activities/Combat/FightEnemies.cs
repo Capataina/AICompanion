@@ -206,7 +206,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             preparedPlan = null;
             preparedSearch = null;
         }
-        PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds);
+        PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds, Weights.CombatPlanningMaxSimulations);
         SearchAttackPlans.SearchResult result = SearchAttackPlans.SearchDepthOne(ctx, combat, positioner, allows,
             weights, combat.NextPlanId++, ref budget);
         lastSearch = result;
@@ -319,7 +319,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         IReadOnlyList<RejectedPlan> rejected = search?.Rejected ?? Array.Empty<RejectedPlan>();
         GodsEyeEvents.RecordCombatPlan(ctx.Npc, plan.Id, "committed", plan.Segments[0].Stand.Stand, front,
             DescribeAttackPlan.Detail(plan, rejected, front, "none"));
-        PlanningBudget budget = spent ?? PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds);
+        PlanningBudget budget = spent ?? PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds, Weights.CombatPlanningMaxSimulations);
         GodsEyeEvents.RecordCombatSnapshot(ctx.Npc, plan.Id, spent == null ? "rescore" : "commit",
             ExportCombatSnapshot.Build(ctx, combat, plan, search, weights, budget, AllowanceRadius(), combatRunning));
     }
@@ -344,7 +344,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         if (!mark && (committed == null || ctx.Senses.Tick - lastSnapshotTick < 120))
             return;
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
-        PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds);
+        PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds, Weights.CombatPlanningMaxSimulations);
         GodsEyeEvents.RecordCombatSnapshot(ctx.Npc, committed?.Id ?? -1, mark ? "mark" : "rescore",
             ExportCombatSnapshot.Build(ctx, combat, committed, lastSearch, weights, budget, AllowanceRadius(), running));
         lastSnapshotTick = ctx.Senses.Tick;

@@ -336,7 +336,7 @@ public static class SearchAttackPlans
             CompanionWeapon weapon = weapons[weaponSlot];
             if (!weapon.InReach(muzzle, npc)) continue;
             ForecastUses.AimedUse? aimed = ForecastUses.BestAimUse(ctx, weapon, weaponSlot, npc, muzzle,
-                enemies, world, travel, record: false, planning: true);
+                enemies, world, travel, record: false, planning: true, ref budget);
             if (aimed == null || !budget.Check())
                 continue;
             EvaluateAttackOutcomes.Attack? attack = ForecastUses.AttackFromUse(ctx, weapon, weaponSlot, npc,

@@ -4,6 +4,7 @@ extern alias live;
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.DataStructures;
@@ -32,9 +33,10 @@ namespace AICompanion.Tools.CombatAudit;
 /// the sweep reporting it, and shows a unit sweep reporting nothing. A4 pairs a matched and a
 /// mismatched shot against synthetic events and shows the calibration splitting them. The hold row
 /// commits a plan, snapshots it, and shows the restored commitment's Validate answering what the live
-/// one's did across a hold and one release from each invalidation class. Each row bakes its file-8
-/// mutation in as the second assertion, so the mutation that must fail it fails it every run, not by
-/// hand-reversion.
+/// one's did across a hold and one release from each invalidation class. The cut row caps a search at
+/// one simulation, shows it cutting identically twice, and replays the cut from the snapshot. Each row
+/// bakes its file-8 mutation in as the second assertion, so the mutation that must fail it fails it
+/// every run, not by hand-reversion.
 /// </summary>
 internal static class SelfTest
 {
@@ -49,7 +51,8 @@ internal static class SelfTest
         red += Row("the weight sweep reports what a doubled weight moves", WeightSweepReportsMoves);
         red += Row("the knowledge audit splits matched shots from miscalibrated types", KnowledgeAuditSplits);
         red += Row("the hold audit reproduces the live commitment's verdict", HoldReproducesLiveVerdict);
-        Console.WriteLine(red == 0 ? "combat-audit self-test: 5 rows green" : $"combat-audit self-test: {red} rows red");
+        red += Row("a count-capped search cuts at the same simulation twice and replays its cut", CountCutReplays);
+        Console.WriteLine(red == 0 ? "combat-audit self-test: 6 rows green" : $"combat-audit self-test: {red} rows red");
         return red == 0 ? 0 : 1;
     }
 
@@ -304,7 +307,71 @@ internal static class SelfTest
         RestoredDecision staleRestored = RestoreSnapshot.Restore(staleJson);
         Require(!staleRestored.Companion.Combat.Planner.IsDeferred(staleRestored.Ctx, 25, staleGen, Main.npc[25].Center),
             "the restore holds a deferral the dig reopened");
-        return $"stand {result.Plan!.Segments[0].Stand.Stand}, {result.FrontSize} on the front, verdict-less replay {dropped.Reason}, calm replay exact, hot replay exact";
+        // The fourth scene is kitted: the player plated with endurance at Expert effectiveness
+        // and an arrow bonus, the body mirroring his defence, the bow Powerful — a prefix the game
+        // accepts on a zero-knockback bow, where it refuses the knockers. Effective damage, urgency,
+        // the bow's own numbers and the class-scaled scalar all read the stamps, and the replay
+        // reproduces bit for bit. The arrow sample is pulled before the restore, so the replay
+        // proves the restore registers the default ammo rather than inheriting the scene's. The
+        // strip rebuilds the snapshot naked, stock and unbonused through the DTOs and diverges.
+        Scene clad = Setup(60, new Vector2(50, 56), new Vector2(40, 54), null,
+            (25, NPCID.Zombie, new Vector2(51, 59)));
+        Player cladPlayer = Main.player[Main.myPlayer];
+        cladPlayer.statDefense = Player.DefenseStat.Default + 20;
+        cladPlayer.endurance = 0.2f;
+        cladPlayer.DefenseEffectiveness = Terraria.ModLoader.MultipliableFloat.One * 0.75f;
+        cladPlayer.arrowDamage += 0.25f;
+        clad.Companion.NPC.defense = 20;
+        Item cladBow = AuditHost.CompanionPlayer.Gear.Slots[0];
+        Require(cladBow.Prefix(PrefixID.Powerful), "premise: the bow takes Powerful");
+        int livePrefix = cladBow.prefix, liveDamage = cladBow.damage, liveUseTime = cladBow.useTime;
+        float liveShootSpeed = cladBow.shootSpeed;
+        clad.Companion.Brain.Senses.Update(clad.Companion.NPC, Main.player[Main.myPlayer]);
+        var cladCombat = clad.Companion.Combat;
+        int livePerHit = cladCombat.Weapons[0].DamagePerHit(clad.Ctx);
+        CombatWeights cladWeights = WeighCombatObjectives.ForSenses(clad.Ctx);
+        var cladBudget = PlanningBudget.FromMilliseconds(1000f);
+        SearchAttackPlans.SearchResult cladResult = SearchAttackPlans.SearchDepthOne(clad.Ctx, cladCombat,
+            clad.Companion.Brain.Positioner, Allows(clad), cladWeights, cladCombat.NextPlanId++, ref cladBudget);
+        Require(cladResult.Plan != null, "the clad search offers nothing: " + cladResult.Reason);
+        string cladJson = ExportCombatSnapshot.Build(clad.Ctx, cladCombat, cladResult.Plan, cladResult,
+            cladWeights, cladBudget, clad.Radius, true);
+        Require(Terraria.ID.ContentSamples.ItemsByType.Remove(ItemID.WoodenArrow),
+            "premise: the arrow sample was registered to pull");
+
+        RestoredDecision cladRestored = RestoreSnapshot.Restore(cladJson);
+
+        Player restoredPlayer = Main.player[Main.myPlayer];
+        Require((int)restoredPlayer.statDefense == 20, "the restore drops the player's defence");
+        Require(restoredPlayer.endurance == 0.2f, "the restore drops the player's endurance");
+        Require(restoredPlayer.DefenseEffectiveness.Value == 0.75f, "the restore drops the effectiveness");
+        Require(AuditHost.Companion.NPC.defense == 20, "the restore drops the body's defence");
+        Item restoredBow = AuditHost.CompanionPlayer.Gear.Slots[0];
+        Require(restoredBow.prefix == livePrefix && restoredBow.damage == liveDamage
+            && restoredBow.useTime == liveUseTime && restoredBow.shootSpeed == liveShootSpeed,
+            "the restore drops the bow's prefix");
+        Require(live::AICompanion.Companion.Inventory.CompanionGear.DefaultAmmo(restoredBow) != null,
+            "the restore derives no ammo for the bow");
+        int restoredPerHit = cladRestored.Companion.Combat.Weapons[0].DamagePerHit(cladRestored.Ctx);
+        Require(restoredPerHit == livePerHit, $"the restored hit prices {restoredPerHit}, not the live {livePerHit}");
+        AuditSearch.ReplayVerdict cladReplay = AuditSearch.Replay(cladRestored);
+        Require(cladReplay.Reproduced, "clad replay diverged: " + string.Join("; ", cladReplay.Diffs));
+        var jsonOptions = new JsonSerializerOptions { IncludeFields = true };
+        ExportCombatSnapshot.SnapshotDto? cladDto =
+            JsonSerializer.Deserialize<ExportCombatSnapshot.SnapshotDto>(cladJson, jsonOptions);
+        Require(cladDto != null, "premise: the clad snapshot deserializes");
+        ExportCombatSnapshot.SnapshotDto bareDto = cladDto! with
+        {
+            Player = cladDto.Player with { Defense = 0, Endurance = 0f, DefenseEffectiveness = 0.5f },
+            Body = cladDto.Body with { Defense = 0 },
+            GearPrefixes = new List<int> { 0, 0, 0, 0 },
+            GearStats = new List<ExportCombatSnapshot.GearStatDto?> { null, null, null, null },
+            WeaponScaledDamage = null,
+        };
+        AuditSearch.ReplayVerdict bareReplay = AuditSearch.Replay(
+            RestoreSnapshot.Restore(JsonSerializer.Serialize(bareDto, jsonOptions)));
+        Require(!bareReplay.Reproduced, "a replay without kit still reproduces");
+        return $"stand {result.Plan!.Segments[0].Stand.Stand}, {result.FrontSize} on the front, verdict-less replay {dropped.Reason}, calm replay exact, hot replay exact, clad replay exact";
     }
 
     private static string ExhaustiveFindsBetterStand()
@@ -529,5 +596,55 @@ internal static class SelfTest
         float reach = scene.Companion.Combat.Weapons[0].Reach;
         float[] context = AttackLearning.Context(300f, reach, 0f, 0.1f, 0f, 0, 0f, OrbPace.MaxSpeed, false);
         AttackLearning.Observe(ItemID.WoodenBow, NPCID.Zombie, context, 1.0f);
+    }
+
+    private static string CountCutReplays()
+    {
+        // One simulation allowed: the search prices the first sim, cuts on the second question, and
+        // offers unresolved with the cut's own word — twice identically, because the count cuts at
+        // the count on every machine. Unbounded the same scene offers a plan, so the cut is the
+        // cap's doing and nothing else's. The cut snapshots with no plan and replays its cut: the
+        // restore searches under the stamped count and stops at the same simulation with the same word.
+        Scene scene = Setup(60, new Vector2(50, 56), new Vector2(40, 54), null,
+            (25, NPCID.Zombie, new Vector2(51, 59)));
+        var combat = scene.Companion.Combat;
+        CombatWeights weights = WeighCombatObjectives.ForSenses(scene.Ctx);
+        var firstBudget = PlanningBudget.FromMilliseconds(1000f, maxSimulations: 1);
+        SearchAttackPlans.SearchResult first = CappedSearch(scene, weights, combat.NextPlanId++, ref firstBudget);
+        var secondBudget = PlanningBudget.FromMilliseconds(1000f, maxSimulations: 1);
+        SearchAttackPlans.SearchResult second = CappedSearch(scene, weights, combat.NextPlanId++, ref secondBudget);
+        Require(first.Plan == null && first.Reason == "budget-cut"
+            && first.Eligibility == OfferEligibility.Unresolved,
+            $"a one-sim search offers {first.Reason}, not an unresolved cut");
+        Require(firstBudget.Simulations == 1, $"a one-sim search simulates {firstBudget.Simulations}, not one");
+        Require(second.Reason == first.Reason && secondBudget.Simulations == firstBudget.Simulations,
+            "the capped search cuts somewhere else the second time");
+        SearchAttackPlans.SearchResult free = Search(scene, weights, combat.NextPlanId++);
+        Require(free.Plan != null, "the scene offers nothing unbounded: " + free.Reason);
+        string json = ExportCombatSnapshot.Build(scene.Ctx, combat, null, first, weights, firstBudget, scene.Radius, true);
+        RestoredDecision restored = RestoreSnapshot.Restore(json);
+        var replayBudget = PlanningBudget.FromMilliseconds(restored.Snapshot.AllowanceMs,
+            restored.Snapshot.MaxSimulations);
+        SearchAttackPlans.SearchResult replayed = SearchAttackPlans.SearchDepthOne(restored.Ctx,
+            restored.Companion.Combat, restored.Companion.Brain.Positioner, Allows(new Scene
+            {
+                Companion = restored.Companion,
+                Ctx = restored.Ctx,
+                Radius = restored.Snapshot.AllowanceRadius,
+            }),
+            restored.Weights, restored.Companion.Combat.NextPlanId++, ref replayBudget,
+            new SearchAttackPlans.SearchOptions(restored.Proposals, restored.Verdicts));
+        Require(replayed.Plan == null && replayed.Reason == "budget-cut"
+            && replayBudget.Simulations == firstBudget.Simulations,
+            $"the restored cut offers {replayed.Reason} at {replayBudget.Simulations} sims, not the live cut");
+        return $"cut at {firstBudget.Simulations} sim, twice identical, replay cuts the same";
+    }
+
+    private static SearchAttackPlans.SearchResult CappedSearch(Scene scene, CombatWeights weights, int planId,
+        ref PlanningBudget budget)
+    {
+        var combat = scene.Companion.Combat;
+        return SearchAttackPlans.SearchDepthOne(scene.Ctx, combat, scene.Companion.Brain.Positioner,
+            Allows(scene), weights, planId, ref budget);
     }
 }

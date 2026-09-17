@@ -89,6 +89,21 @@ public abstract class CompanionWeapon
     /// </summary>
     public abstract int DamagePerHit(in ActionContext ctx);
 
+    /// <summary>
+    /// The class-scaled base before the mana gradient: every damage bonus the player's kit applies,
+    /// folded where the game folds it. The snapshot stamps one scalar per weapon rather than the
+    /// whole bonus stack, because the stack's shape (per-class arrays, inheritance, modded hooks)
+    /// cannot be rebuilt headless and the decision priced only the scalar.
+    /// </summary>
+    public abstract float ScaledBaseDamage(Player player);
+
+    /// <summary>
+    /// The stamped scalar, installed by the audit after the restored weapons rebuild: the restored
+    /// player wears none of the live kit, so a recomputed bonus stack would price a naked fight.
+    /// Null live and on pre-stamp captures, where the stack is computed as always.
+    /// </summary>
+    public float? AuditDamageOverride { get; set; }
+
     /// <summary>Whether the target is close enough for a use to be worth simulating at all.</summary>
     public abstract bool InReach(Vector2 muzzle, NPC target);
 

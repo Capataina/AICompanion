@@ -51,13 +51,20 @@ public static class ExportCombatSnapshot
         bool NoGravity, bool NoTileCollide, TrackDto? Track, List<AddedByDto> AddedBy, ThreatDto? Threat = null,
         int Generation = 0, long ShotTick = 0, int ShotDamage = 0);
     public sealed record DeferredDto(int Slot, int Generation, int Remaining, Vec Target, Vec Body, int Terrain = 0);
+    /// <summary>One gear slot's prefix-mutable numbers: the restore copies the stamped effects rather than
+    /// re-running the prefix machinery, which needs loader state the audit never has. Crit is absent —
+    /// the companion's spawn path carries none — and so are the tool powers, which no fight prices.</summary>
+    public sealed record GearStatDto(int Damage, int UseTime, int UseAnimation, float Knockback, int Mana,
+        float ShootSpeed, float Scale);
     public sealed record ProjectileDto(int Slot, string Type, Vec Position, Vec Velocity, int Width, int Height,
         int Damage, int ExtraUpdates);
     public sealed record RegionDto(Vec Centre, Vec Half, Vec Lead, Vec Heading, Vec Velocity, bool Travelling);
     public sealed record PlayerDto(Vec Centre, Vec Velocity, int Life, int LifeMax, bool Dead, int ManaMax,
-        RegionDto Region, float PlayerDanger, float CompanionDanger);
+        RegionDto Region, float PlayerDanger, float CompanionDanger, int Defense = 0, float Endurance = 0f,
+        float DefenseEffectiveness = 0.5f);
     public sealed record BodyDto(Vec Centre, Vec Velocity, int Life, int LifeMax, float Mana, float ManaMax,
-        int ExtraProjectiles, int AddedPierce);
+        int ExtraProjectiles, int AddedPierce, int Defense = 0, float TakenDamageMultiplier = 1f,
+        bool Ichor = false, bool BetsysCurse = false);
     public sealed record TerrainDto(int X, int Y, int Width, int Height, int Clipped, string Glyphs,
         string Liquids, string Materials, string States);
     public sealed record VerdictDto(Vec Stand, int Reason, int WeaponSlot, int[] Targets, int Reach, float Travel,
@@ -75,7 +82,9 @@ public static class ExportCombatSnapshot
         PlayerDto Player, TerrainDto Terrain, List<VerdictDto> Verdicts, float AllowanceMs, int Simulations,
         bool Cut, int Candidates, int FrontSize, float[] Weights, PlanDto? Plan, List<RejectedDto> Rejected,
         bool Explored, int Cooldown, List<DeferredDto> Deferred, List<int[]> Hits, float AllowanceRadius,
-        int TerrainRevision = 0, int ProgressTick = -1, bool CombatRunning = false);
+        int TerrainRevision = 0, int ProgressTick = -1, bool CombatRunning = false,
+        int MaxSimulations = int.MaxValue, List<int>? GearPrefixes = null,
+        List<GearStatDto?>? GearStats = null, List<float>? WeaponScaledDamage = null);
 
     public static string Build(in ActionContext ctx, CompanionCombat combat, AttackPlan? plan,
         SearchAttackPlans.SearchResult? search, CombatWeights weights, PlanningBudget budget,
@@ -87,15 +96,23 @@ public static class ExportCombatSnapshot
         ModifierState modifiers = ApplyCompanionModifiers.Current();
 
         var gear = new List<string?>(CompanionGear.SlotCount);
+        var prefixes = new List<int>(CompanionGear.SlotCount);
+        var stats = new List<GearStatDto?>(CompanionGear.SlotCount);
         CompanionGear slots = player.GetModPlayer<CompanionPlayer>().Gear;
         var weaponItems = new List<int>();
         for (int i = 0; i < CompanionGear.SlotCount; i++)
         {
             Item item = slots.Slots[i];
             gear.Add(item.IsAir ? null : identity.NameOfItem(item.type));
+            prefixes.Add(item.IsAir ? 0 : item.prefix);
+            stats.Add(item.IsAir ? null : new GearStatDto(item.damage, item.useTime, item.useAnimation,
+                item.knockBack, item.mana, item.shootSpeed, item.scale));
             if (!item.IsAir && (i == (int)GearSlot.FirstWeapon || i == (int)GearSlot.SecondWeapon))
                 weaponItems.Add(item.type);
         }
+        var scaledDamage = new List<float>(combat.Weapons.Count);
+        foreach (CompanionWeapon weapon in combat.Weapons)
+            scaledDamage.Add(weapon.ScaledBaseDamage(player));
 
         var npcs = new List<NpcDto>();
         var npcTypes = new List<int>();
@@ -160,7 +177,8 @@ public static class ExportCombatSnapshot
         var snapshot = new SnapshotDto(SchemaVersion, ctx.Senses.Tick, Main.GameUpdateCount,
             new BodyDto(V(body.Center), V(body.velocity), body.life, body.lifeMax,
                 ctx.Companion.Mana.Current, ctx.Companion.Mana.Max,
-                modifiers.ExtraProjectiles, modifiers.AddedPierce),
+                modifiers.ExtraProjectiles, modifiers.AddedPierce, body.defense, body.takenDamageMultiplier,
+                body.ichor, body.betsysCurse),
             gear,
             PersistWeaponKnowledge.ExportBundle(weaponItems, npcTypes, identity),
             npcs, projectiles,
@@ -168,7 +186,8 @@ public static class ExportCombatSnapshot
                 player.statManaMax2,
                 new RegionDto(V(region.Centre), V(region.HalfSize), V(region.Lead), V(region.Heading),
                     V(region.Velocity), region.IsTravelling),
-                ctx.Senses.Threats.PlayerDanger, ctx.Senses.Threats.CompanionDanger),
+                ctx.Senses.Threats.PlayerDanger, ctx.Senses.Threats.CompanionDanger,
+                player.statDefense, player.endurance, player.DefenseEffectiveness.Value),
             ExportTerrain(bounds),
             verdicts,
             budget.AllowanceMilliseconds, budget.Simulations, budget.Cut,
@@ -179,7 +198,8 @@ public static class ExportCombatSnapshot
             ExportRejected(search?.Rejected),
             ForecastUses.Explore(ctx),
             combat.CooldownTicks, deferred, hits, allowanceRadius, TerrainChanges.Revision,
-            combat.Planner.ExportProgressTick(), combatRunning);
+            combat.Planner.ExportProgressTick(), combatRunning, budget.AllowanceSimulations, prefixes,
+            stats, scaledDamage);
         return JsonSerializer.Serialize(snapshot, Json);
     }
 

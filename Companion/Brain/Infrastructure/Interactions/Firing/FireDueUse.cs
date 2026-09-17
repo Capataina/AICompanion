@@ -134,13 +134,16 @@ public sealed class FireDueUse
         }
         IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);
         CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-        ForecastUses.AimedUse? aimed = ForecastUses.BestAimUse(ctx, weapon, weaponSlot, target, muzzle, enemies, world, 0, record: true);
+        PlanningBudget aimBudget = PlanningBudget.Unbounded();
+        ForecastUses.AimedUse? aimed = ForecastUses.BestAimUse(ctx, weapon, weaponSlot, target, muzzle, enemies, world, 0, record: true,
+            planning: false, ref aimBudget);
         if (aimed == null)
         {
             for (int w = 0; w < weapons.Count; w++)
             {
                 if (w == weaponSlot) continue;
-                aimed = ForecastUses.BestAimUse(ctx, weapons[w], w, target, muzzle, enemies, world, 0, record: true);
+                aimed = ForecastUses.BestAimUse(ctx, weapons[w], w, target, muzzle, enemies, world, 0, record: true,
+                    planning: false, ref aimBudget);
                 if (aimed != null)
                 {
                     weapon = weapons[w];
@@ -183,10 +186,12 @@ public sealed class FireDueUse
             NPC target = Main.npc[use.TargetSlot];
             if (target == null || !target.active || target.life <= 0 || !target.CanBeChasedBy())
                 continue;
+            PlanningBudget aimBudget = PlanningBudget.Unbounded();
             for (int w = 0; w < weapons.Count; w++)
             {
                 ForecastUses.AimedUse? aimed = ForecastUses.BestAimUse(ctx, weapons[w], w, target, muzzle, enemies,
-                    CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision), 0, record: false);
+                    CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision), 0, record: false,
+                    planning: false, ref aimBudget);
                 if (aimed == null) continue;
                 EvaluateAttackOutcomes.Attack? attack = ForecastUses.AttackFromUse(ctx, weapons[w], w, target, muzzle,
                     aimed.Value.Use, aimed.Value.Aim, aimed.Value.Intercept, 0, out _, out _);

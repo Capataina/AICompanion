@@ -33,7 +33,7 @@ internal static class AuditSearch
         var positioner = restored.Companion.Brain.Positioner;
         var ctx = restored.Ctx;
         Func<Vector2, bool> Allows = RestoreSnapshot.AllowanceQuery(restored);
-        PlanningBudget budget = Budget(restored.Snapshot.AllowanceMs);
+        PlanningBudget budget = Budget(restored.Snapshot.AllowanceMs, restored.Snapshot.MaxSimulations);
         // No forced means: the sampler draws deterministically at the restored tick, so the replay draws what
         // the live search drew. Forcing means here would price the replay at the posterior mean against live
         // samples and diverge on every calm snapshot; the sweep keeps its own forcing, where noise-free
@@ -122,10 +122,10 @@ internal static class AuditSearch
             result.Plan.Weighted, capped, grid.Count, result.FrontSize);
     }
 
-    private static PlanningBudget Budget(float allowanceMs)
+    private static PlanningBudget Budget(float allowanceMs, int maxSimulations)
         => !float.IsFinite(allowanceMs) || allowanceMs >= float.MaxValue
             ? PlanningBudget.Unbounded()
-            : PlanningBudget.FromMilliseconds(allowanceMs);
+            : PlanningBudget.FromMilliseconds(allowanceMs, maxSimulations);
 
     private static void ComparePlans(AttackPlan expected, AttackPlan actual, List<string> diffs)
     {

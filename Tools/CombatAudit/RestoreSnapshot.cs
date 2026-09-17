@@ -115,6 +115,16 @@ internal static class RestoreSnapshot
         companion.Mana.Sync(Main.player[Main.myPlayer]);
         companion.Mana.Assume(snapshot.Body.Mana);
         restored.Companion = companion;
+        // The class-scaled base per weapon: touching Weapons rebuilds on the restored gear, and the
+        // stamped scalar stands in for the live bonus stack the restored player does not wear. A
+        // pre-stamp capture carries none and prices naked, as every restore before it did.
+        List<float>? scaled = snapshot.WeaponScaledDamage;
+        if (scaled != null)
+        {
+            IReadOnlyList<CompanionWeapon> weapons = companion.Combat.Weapons;
+            for (int v = 0; v < weapons.Count && v < scaled.Count; v++)
+                weapons[v].AuditDamageOverride = scaled[v];
+        }
         restored.Ctx = new ActionContext(companion, companion.Brain.Senses);
         restored.Enemies = companion.Combat.EnsureForecast(restored.Ctx);
         float[] w = snapshot.Weights;
@@ -131,6 +141,7 @@ internal static class RestoreSnapshot
         if (snapshot.Plan != null)
             restored.CommittedShifted = ShiftPlan(snapshot.Plan, restored.Shift,
                 companion.Brain.Senses.Tick - snapshot.SensesTick);
+
         return restored;
     }
 
@@ -223,7 +234,12 @@ internal static class RestoreSnapshot
         entity.statManaMax2 = player.ManaMax;
         entity.dead = player.Dead;
         entity.active = true;
+        entity.statDefense = Player.DefenseStat.Default + player.Defense;
+        entity.endurance = player.Endurance;
+        entity.DefenseEffectiveness = Terraria.ModLoader.MultipliableFloat.One * player.DefenseEffectiveness;
         var gear = AuditHost.CompanionPlayer.Gear;
+        List<int>? prefixes = restored.Snapshot.GearPrefixes;
+        List<S.GearStatDto?>? stats = restored.Snapshot.GearStats;
         for (int i = 0; i < gear.Slots.Length && i < restored.Snapshot.Gear.Count; i++)
         {
             string? name = restored.Snapshot.Gear[i];
@@ -236,7 +252,36 @@ internal static class RestoreSnapshot
                 continue;
             }
             gear.Slots[i].SetDefaults(id.Value);
+            // The stamped effects, not the machinery: re-running the prefix would need loader state
+            // the audit never has, and the game refuses prefixes that change nothing — a zero-
+            // knockback bow cannot take a knocker — so the id is restored as a label beside the
+            // numbers it produced. A pre-stamp capture carries neither and restores stock, as before.
+            if (stats != null && i < stats.Count && stats[i] is { } stamped)
+            {
+                gear.Slots[i].damage = stamped.Damage;
+                gear.Slots[i].useTime = stamped.UseTime;
+                gear.Slots[i].useAnimation = stamped.UseAnimation;
+                gear.Slots[i].knockBack = stamped.Knockback;
+                gear.Slots[i].mana = stamped.Mana;
+                gear.Slots[i].shootSpeed = stamped.ShootSpeed;
+                gear.Slots[i].scale = stamped.Scale;
+            }
+            gear.Slots[i].prefix = prefixes != null && i < prefixes.Count ? prefixes[i] : 0;
             AuditHost.RegisterSample(id.Value);
+        }
+        // The class-default ammo the restored weapons derive: the live game holds every sample and
+        // the audit holds only what it registers, so a bow restored without its arrow would derive
+        // no ammo and price a different shot. Restored slots are vanilla or air — anything else
+        // failed the name above — so probing the default is as safe as the rule that derives it.
+        for (int i = 0; i < gear.Slots.Length; i++)
+        {
+            Item slot = gear.Slots[i];
+            if (slot.IsAir || slot.useAmmo == 0)
+                continue;
+            var probe = new Item();
+            probe.SetDefaults(slot.useAmmo);
+            if (probe.ammo == slot.useAmmo)
+                AuditHost.RegisterSample(slot.useAmmo);
         }
     }
 
@@ -248,7 +293,16 @@ internal static class RestoreSnapshot
         npc.velocity = V(body.Velocity);
         npc.life = body.Life;
         npc.lifeMax = body.LifeMax;
+        // The live body mirrors the player's defence every tick and can carry the fight's debuffs;
+        // every input the effective-damage estimate reads is stamped, so urgency prices the same hit.
+        // SuperArmor is deliberately not assigned: it is a helper over defence (set writes 9999 or 0),
+        // so assigning it after defence would zero what the line above restored.
+        npc.defense = body.Defense;
+        npc.takenDamageMultiplier = body.TakenDamageMultiplier;
+        npc.ichor = body.Ichor;
+        npc.betsysCurse = body.BetsysCurse;
         npc.active = true;
+
     }
 
     private static void RestoreNpcs(RestoredDecision restored, WeaponIdentity identity)
