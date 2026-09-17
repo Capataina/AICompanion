@@ -32,11 +32,7 @@ internal static class AuditSearch
         var combat = restored.Companion.Combat;
         var positioner = restored.Companion.Brain.Positioner;
         var ctx = restored.Ctx;
-        float radius = restored.Snapshot.AllowanceRadius;
-        Vector2 heading = RestoreSnapshot.Shift(restored, restored.Snapshot.Player.Region.Heading);
-        Vector2 feet = ctx.Npc.Bottom;
-        bool Allows(Vector2 point) => Vector2.DistanceSquared(point, heading) <= radius * radius
-            && Vector2.DistanceSquared(feet, heading) <= radius * radius;
+        Func<Vector2, bool> Allows = RestoreSnapshot.AllowanceQuery(restored);
         PlanningBudget budget = Budget(restored.Snapshot.AllowanceMs);
         // No forced means: the sampler draws deterministically at the restored tick, so the replay draws what
         // the live search drew. Forcing means here would price the replay at the posterior mean against live
@@ -75,11 +71,7 @@ internal static class AuditSearch
         var combat = restored.Companion.Combat;
         var positioner = restored.Companion.Brain.Positioner;
         var ctx = restored.Ctx;
-        float radius = restored.Snapshot.AllowanceRadius;
-        Vector2 heading = RestoreSnapshot.Shift(restored, restored.Snapshot.Player.Region.Heading);
-        Vector2 feet = ctx.Npc.Bottom;
-        bool Allows(Vector2 point) => Vector2.DistanceSquared(point, heading) <= radius * radius
-            && Vector2.DistanceSquared(feet, heading) <= radius * radius;
+        Func<Vector2, bool> Allows = RestoreSnapshot.AllowanceQuery(restored);
         List<StandProposal> grid;
         bool capped;
         if (liveProposalsOnly)

@@ -75,11 +75,11 @@ public static class ExportCombatSnapshot
         PlayerDto Player, TerrainDto Terrain, List<VerdictDto> Verdicts, float AllowanceMs, int Simulations,
         bool Cut, int Candidates, int FrontSize, float[] Weights, PlanDto? Plan, List<RejectedDto> Rejected,
         bool Explored, int Cooldown, List<DeferredDto> Deferred, List<int[]> Hits, float AllowanceRadius,
-        int TerrainRevision = 0);
+        int TerrainRevision = 0, int ProgressTick = -1, bool CombatRunning = false);
 
     public static string Build(in ActionContext ctx, CompanionCombat combat, AttackPlan? plan,
         SearchAttackPlans.SearchResult? search, CombatWeights weights, PlanningBudget budget,
-        float allowanceRadius)
+        float allowanceRadius, bool combatRunning)
     {
         var identity = new WeaponIdentity();
         NPC body = ctx.Npc;
@@ -178,7 +178,8 @@ public static class ExportCombatSnapshot
             plan == null ? null : ExportPlan(plan),
             ExportRejected(search?.Rejected),
             ForecastUses.Explore(ctx),
-            combat.CooldownTicks, deferred, hits, allowanceRadius, TerrainChanges.Revision);
+            combat.CooldownTicks, deferred, hits, allowanceRadius, TerrainChanges.Revision,
+            combat.Planner.ExportProgressTick(), combatRunning);
         return JsonSerializer.Serialize(snapshot, Json);
     }
 

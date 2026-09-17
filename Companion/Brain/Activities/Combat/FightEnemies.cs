@@ -119,7 +119,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         ActionContext captured = ctx;
         Func<Vector2, bool> allows = point => AllowsTarget(captured, point);
         IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);
-        MaybeSnapshot(ctx, combat);
+        MaybeSnapshot(ctx, combat, running);
 
         if (!PlayerIntegration.CompanionPreferences.Current.Combat)
         {
@@ -197,7 +197,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
                 OfferFromPlan(ctx, preparedPlan, fresh.Value, weights, frontSize: 1, cut: false);
                 if (running)
                 {
-                    CommitAndRecord(ctx, combat, preparedPlan, preparedSearch, null, weights);
+                    CommitAndRecord(ctx, combat, preparedPlan, preparedSearch, null, weights, running);
                     preparedPlan = null;
                     preparedSearch = null;
                 }
@@ -217,7 +217,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             OfferFromPlan(ctx, result.Plan, result.Plan.Outcome, weights, result.FrontSize, cut: false);
             if (running)
             {
-                CommitAndRecord(ctx, combat, result.Plan, result, budget, weights);
+                CommitAndRecord(ctx, combat, result.Plan, result, budget, weights, running);
                 preparedPlan = null;
                 preparedSearch = null;
             }
@@ -308,7 +308,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// priced a tick that has passed; the snapshot says so by its rescore trigger.
     /// </summary>
     private void CommitAndRecord(in ActionContext ctx, CompanionCombat combat, AttackPlan plan,
-        SearchAttackPlans.SearchResult? search, PlanningBudget? spent, CombatWeights weights)
+        SearchAttackPlans.SearchResult? search, PlanningBudget? spent, CombatWeights weights, bool combatRunning)
     {
         combat.Planner.Commit(plan);
         lastSnapshotTick = ctx.Senses.Tick;
@@ -321,7 +321,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             DescribeAttackPlan.Detail(plan, rejected, front, "none"));
         PlanningBudget budget = spent ?? PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds);
         GodsEyeEvents.RecordCombatSnapshot(ctx.Npc, plan.Id, spent == null ? "rescore" : "commit",
-            ExportCombatSnapshot.Build(ctx, combat, plan, search, weights, budget, AllowanceRadius()));
+            ExportCombatSnapshot.Build(ctx, combat, plan, search, weights, budget, AllowanceRadius(), combatRunning));
     }
 
     /// <summary>
@@ -331,7 +331,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// Verdicts are the latest search's — what the brain knew when it last asked — because no search runs
     /// on the rescore tick itself; the commit's own snapshot carries the committing search.
     /// </summary>
-    private void MaybeSnapshot(in ActionContext ctx, CompanionCombat combat)
+    private void MaybeSnapshot(in ActionContext ctx, CompanionCombat combat, bool running)
     {
         bool mark = ExportCombatSnapshot.MarkRequested;
         if (mark)
@@ -346,7 +346,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
         PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds);
         GodsEyeEvents.RecordCombatSnapshot(ctx.Npc, committed?.Id ?? -1, mark ? "mark" : "rescore",
-            ExportCombatSnapshot.Build(ctx, combat, committed, lastSearch, weights, budget, AllowanceRadius()));
+            ExportCombatSnapshot.Build(ctx, combat, committed, lastSearch, weights, budget, AllowanceRadius(), running));
         lastSnapshotTick = ctx.Senses.Tick;
     }
 
@@ -360,8 +360,10 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     {
         if (ctx.Companion.Combat.Planner.Committed == null && preparedPlan != null)
         {
+            // Running is literal, not read: the chooser calls Enter before assigning Current, so the
+            // current-activity read still names the outgoing holder on this tick. Combat won the body.
             CommitAndRecord(ctx, ctx.Companion.Combat, preparedPlan, preparedSearch, null,
-                WeighCombatObjectives.ForSenses(ctx));
+                WeighCombatObjectives.ForSenses(ctx), combatRunning: true);
             preparedPlan = null;
             preparedSearch = null;
         }

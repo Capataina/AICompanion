@@ -25,13 +25,16 @@ using OrbPace = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPac
 namespace AICompanion.Tools.CombatAudit;
 
 /// <summary>
-/// Rows A1-A4: the audit proving itself on scenes it builds. A1 snapshots a live search and replays it
-/// exactly, then drops the verdicts and shows the replay failing without them. A2 plants proposals that
-/// miss the best stand and shows the exhaustive grid finding it with "no generator" — and nothing when
-/// handed only the live proposals. A3 plants a damage-driven flip, shows the sweep reporting it, and
-/// shows a unit sweep reporting nothing. A4 pairs a matched and a mismatched shot against synthetic
-/// events and shows the calibration splitting them. Each row bakes its file-8 mutation in as the
-/// second assertion, so the mutation that must fail it fails it every run, not by hand-reversion.
+/// Rows A1-A4 and the hold row: the audit proving itself on scenes it builds. A1 snapshots a live
+/// search and replays it exactly, then drops the verdicts and shows the replay failing without them.
+/// A2 plants proposals that miss the best stand and shows the exhaustive grid finding it with "no
+/// generator" — and nothing when handed only the live proposals. A3 plants a damage-driven flip, shows
+/// the sweep reporting it, and shows a unit sweep reporting nothing. A4 pairs a matched and a
+/// mismatched shot against synthetic events and shows the calibration splitting them. The hold row
+/// commits a plan, snapshots it, and shows the restored commitment's Validate answering what the live
+/// one's did across a hold and one release from each invalidation class. Each row bakes its file-8
+/// mutation in as the second assertion, so the mutation that must fail it fails it every run, not by
+/// hand-reversion.
 /// </summary>
 internal static class SelfTest
 {
@@ -45,7 +48,8 @@ internal static class SelfTest
         red += Row("the exhaustive audit finds a better stand and names no generator", ExhaustiveFindsBetterStand);
         red += Row("the weight sweep reports what a doubled weight moves", WeightSweepReportsMoves);
         red += Row("the knowledge audit splits matched shots from miscalibrated types", KnowledgeAuditSplits);
-        Console.WriteLine(red == 0 ? "combat-audit self-test: 4 rows green" : $"combat-audit self-test: {red} rows red");
+        red += Row("the hold audit reproduces the live commitment's verdict", HoldReproducesLiveVerdict);
+        Console.WriteLine(red == 0 ? "combat-audit self-test: 5 rows green" : $"combat-audit self-test: {red} rows red");
         return red == 0 ? 0 : 1;
     }
 
@@ -193,7 +197,7 @@ internal static class SelfTest
         SearchAttackPlans.SearchResult result = SearchAttackPlans.SearchDepthOne(scene.Ctx, combat,
             scene.Companion.Brain.Positioner, Allows(scene), weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the live search offers nothing: " + result.Reason);
-        string json = ExportCombatSnapshot.Build(scene.Ctx, combat, result.Plan, result, weights, budget, scene.Radius);
+        string json = ExportCombatSnapshot.Build(scene.Ctx, combat, result.Plan, result, weights, budget, scene.Radius, true);
         RestoredDecision restored = RestoreSnapshot.Restore(json);
         AuditSearch.ReplayVerdict replay = AuditSearch.Replay(restored);
         Require(replay.Reproduced, "replay diverged: " + string.Join("; ", replay.Diffs));
@@ -232,7 +236,7 @@ internal static class SelfTest
         Require(calmResult.Plan != null, "the calm search offers nothing: " + calmResult.Reason);
         Require(AttackLearning.LastSampledFactor != 1f, "the calm search drew no sample");
         string calmJson = ExportCombatSnapshot.Build(calm.Ctx, calmCombat, calmResult.Plan, calmResult,
-            calmWeights, calmBudget, calm.Radius);
+            calmWeights, calmBudget, calm.Radius, true);
         RestoredDecision calmRestored = RestoreSnapshot.Restore(calmJson);
         AuditSearch.ReplayVerdict calmReplay = AuditSearch.Replay(calmRestored);
         Require(calmReplay.Reproduced, "calm replay diverged: " + string.Join("; ", calmReplay.Diffs));
@@ -264,7 +268,7 @@ internal static class SelfTest
             hot.Companion.Brain.Positioner, Allows(hot), hotWeights, hotCombat.NextPlanId++, ref hotBudget);
         Require(hotResult.Plan != null, "the hot search offers nothing: " + hotResult.Reason);
         string hotJson = ExportCombatSnapshot.Build(hot.Ctx, hotCombat, hotResult.Plan, hotResult,
-            hotWeights, hotBudget, hot.Radius);
+            hotWeights, hotBudget, hot.Radius, true);
         RestoredDecision hotRestored = RestoreSnapshot.Restore(hotJson);
         Require(HostileAttackSources.Generation(Main.npc[25]) == liveGen, "the restore drops the generation");
         Require(HostileAttackSources.RecentDamage(Main.npc[25]) == 37, "the restore drops the shot");
@@ -293,7 +297,7 @@ internal static class SelfTest
             stale.Companion.Brain.Positioner, Allows(stale), staleWeights, staleCombat.NextPlanId++, ref staleBudget);
         Require(staleResult.Plan != null, "the stale search offers nothing: " + staleResult.Reason);
         string staleJson = ExportCombatSnapshot.Build(stale.Ctx, staleCombat, staleResult.Plan, staleResult,
-            staleWeights, staleBudget, stale.Radius);
+            staleWeights, staleBudget, stale.Radius, true);
         Vector2 staleCentre = Main.npc[25].Center;
         Require(!staleCombat.Planner.IsDeferred(stale.Ctx, 25, staleGen, staleCentre),
             "premise: the dug deferral still holds live");
@@ -314,7 +318,7 @@ internal static class SelfTest
             new SearchAttackPlans.SearchOptions(new[] { here }));
         Require(pinned.Plan != null, "Here solves nothing: " + pinned.Reason);
         var budget = PlanningBudget.FromMilliseconds(1000f);
-        string json = ExportCombatSnapshot.Build(scene.Ctx, combat, pinned.Plan, pinned, weights, budget, scene.Radius);
+        string json = ExportCombatSnapshot.Build(scene.Ctx, combat, pinned.Plan, pinned, weights, budget, scene.Radius, true);
         RestoredDecision restored = RestoreSnapshot.Restore(json);
         AuditSearch.ExhaustiveVerdict exhaustive = AuditSearch.Exhaustive(restored);
         Require(exhaustive.Regret > 0f, "the grid finds nothing better than Here");
@@ -359,7 +363,7 @@ internal static class SelfTest
             new SearchAttackPlans.SearchOptions(new[] { near, far }));
         Require(both.Plan != null, "neither pinned stand solves: " + both.Reason);
         var budget = PlanningBudget.FromMilliseconds(1000f);
-        string json = ExportCombatSnapshot.Build(scene.Ctx, combat, both.Plan, both, weights, budget, scene.Radius);
+        string json = ExportCombatSnapshot.Build(scene.Ctx, combat, both.Plan, both, weights, budget, scene.Radius, true);
         RestoredDecision restored = RestoreSnapshot.Restore(json);
         List<AuditWeights.SweepMove> moves = AuditWeights.Sweep(restored, new[] { 1.0f, 2.0f });
         AuditWeights.SweepMove? damageDouble = null;
@@ -462,4 +466,68 @@ internal static class SelfTest
     private static GodsEyeEvent Event(string kind, long tick, int subject, string related = "", string label = "",
         string channel = "", int amount = 0, string detail = "")
         => new(1, 0, tick, 0.0, kind, subject, related, label, channel, 0f, 0f, 0f, 0f, 0f, 0f, amount, detail);
+
+    private static string HoldReproducesLiveVerdict()
+    {
+        // Four scenes, one question each: does the restored commitment's Validate answer what the live
+        // one's did — a hold, and one release from each invalidation class: the clock, the world, what
+        // was learned. The snapshot is built before the live verdict is read, because a releasing
+        // Validate ends the live plan; the JSON carries the world the verdict was about either way.
+        var reasons = new List<string>
+        {
+            RevalidateScene("hold", arrange: null, running: true),
+            RevalidateScene("stall", arrange: StallPastWindow, running: true),
+            RevalidateScene("target-gone", arrange: KillTarget, running: true),
+            RevalidateScene("knowledge", arrange: ReviseKnowledge, running: true),
+        };
+        return "live and restored agree: " + string.Join(", ", reasons);
+    }
+
+    private static string RevalidateScene(string name, Action<Scene, AttackPlan>? arrange, bool running)
+    {
+        Scene scene = Setup(60, new Vector2(50, 56), new Vector2(40, 54), null,
+            (25, NPCID.Zombie, new Vector2(51, 59)));
+        var combat = scene.Companion.Combat;
+        CombatWeights weights = WeighCombatObjectives.ForSenses(scene.Ctx);
+        SearchAttackPlans.SearchResult result = Search(scene, weights, combat.NextPlanId++);
+        Require(result.Plan != null, $"the {name} search offers nothing: " + result.Reason);
+        combat.Planner.Commit(result.Plan);
+        arrange?.Invoke(scene, result.Plan);
+        var budget = PlanningBudget.FromMilliseconds(1000f);
+        string json = ExportCombatSnapshot.Build(scene.Ctx, combat, result.Plan, result,
+            weights, budget, scene.Radius, running);
+        bool liveHolds = combat.Planner.Validate(scene.Ctx, scene.Companion.Brain.Positioner,
+            Allows(scene), running);
+        string liveReason = liveHolds ? "valid" : combat.Planner.LastInvalidation;
+        RestoredDecision restored = RestoreSnapshot.Restore(json);
+        AuditHold.HoldVerdict held = AuditHold.Revalidate(restored);
+        Require(held.Holds == liveHolds && held.Reason == liveReason,
+            $"the {name} hold disagrees: live {(liveHolds ? "valid" : liveReason)}, " +
+            $"restored {(held.Holds ? "valid" : held.Reason)}");
+        return liveReason;
+    }
+
+    /// <summary>Jump the clock a stall window past the segment's start: progress stays at the search.</summary>
+    private static void StallPastWindow(Scene scene, AttackPlan plan)
+    {
+        int jumpTo = plan.Segments[0].StartTick + Weights.CombatPlanStallTicks + 1;
+        Require(jumpTo < plan.Segments[0].EndTick, "premise: the stall jump lands mid-segment");
+        scene.Companion.Brain.Senses.AssumeTick(jumpTo);
+    }
+
+    /// <summary>Kill the plan's target and let the senses rebuild without it.</summary>
+    private static void KillTarget(Scene scene, AttackPlan plan)
+    {
+        Main.npc[25].active = false;
+        Main.npc[25].life = 0;
+        scene.Companion.Brain.Senses.Update(scene.Companion.NPC, Main.player[Main.myPlayer]);
+    }
+
+    /// <summary>Teach one outcome past the search: the revision the plan was priced at is gone.</summary>
+    private static void ReviseKnowledge(Scene scene, AttackPlan plan)
+    {
+        float reach = scene.Companion.Combat.Weapons[0].Reach;
+        float[] context = AttackLearning.Context(300f, reach, 0f, 0.1f, 0f, 0, 0f, OrbPace.MaxSpeed, false);
+        AttackLearning.Observe(ItemID.WoodenBow, NPCID.Zombie, context, 1.0f);
+    }
 }

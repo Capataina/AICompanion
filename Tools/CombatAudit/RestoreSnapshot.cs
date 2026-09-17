@@ -110,9 +110,8 @@ internal static class RestoreSnapshot
                 Shift(restored, deferred.Target), Shift(restored, deferred.Body),
                 companion.Brain.Senses.Tick, terrain);
         }
-        foreach (int[] hit in snapshot.Hits)
-            if (hit.Length >= 2)
-                companion.Combat.Planner.AssumeHit(hit[0], hit[1]);
+        // Hits stay unstaged: they are per-commitment state and Commit clears them, so the hold
+        // runner installs them after committing the shifted plan. Nothing else headless Validates.
         companion.Mana.Sync(Main.player[Main.myPlayer]);
         companion.Mana.Assume(snapshot.Body.Mana);
         restored.Companion = companion;
@@ -138,6 +137,17 @@ internal static class RestoreSnapshot
     public static Vector2 V(S.Vec v) => new(v.X, v.Y);
 
     public static Vector2 Shift(RestoredDecision restored, S.Vec v) => V(v) + restored.Shift;
+
+    /// <summary>The snapshot's allowance admission rebuilt: the circle the live search was admitted
+    /// against. The replay and the hold grade the same decision, so they share the one query.</summary>
+    public static Func<Vector2, bool> AllowanceQuery(RestoredDecision restored)
+    {
+        float radius = restored.Snapshot.AllowanceRadius;
+        Vector2 heading = Shift(restored, restored.Snapshot.Player.Region.Heading);
+        Vector2 feet = restored.Ctx.Npc.Bottom;
+        return point => Vector2.DistanceSquared(point, heading) <= radius * radius
+            && Vector2.DistanceSquared(feet, heading) <= radius * radius;
+    }
 
     public static void GrowFlood(RestoredDecision restored)
     {

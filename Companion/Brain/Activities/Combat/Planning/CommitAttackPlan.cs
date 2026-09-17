@@ -72,6 +72,14 @@ public sealed class CommitAttackPlan
     /// <summary>Bodies a planned hit has landed on under the committed plan: killed by the plan.</summary>
     public IReadOnlyCollection<(int Slot, int Generation)> ExportHits() => hitByPlan;
 
+    /// <summary>The commitment's progress tick for the snapshot: -1 with no plan committed. A plan
+    /// beside -1 is a capture written before the stamp, whose stall check the runner cannot grade.</summary>
+    public int ExportProgressTick() => Committed == null ? -1 : progressTick;
+
+    /// <summary>Install the stamped progress after committing the shifted plan: Commit reseeds the
+    /// search-time value, and the snapshot carries where the live commitment's clock had reached.</summary>
+    public void AssumeProgress(int tick) => progressTick = tick;
+
     public void AssumeDeferred(int slot, int generation, int remaining, Vector2 target, Vector2 body, int nowTick, int terrain)
         => deferred[(slot, generation)] = (nowTick + remaining, target, body, terrain);
 

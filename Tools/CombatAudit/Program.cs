@@ -14,10 +14,11 @@ namespace AICompanion.Tools.CombatAudit;
 /// <summary>
 /// The combat audit: every combat-snapshot in a capture restored and re-decided. For each decision it
 /// reports whether the replay reproduces the committed plan, whether that plan is on the exhaustive
-/// front with the weighted regret and the generator attribution, and what the weight sweep moves; over
-/// the capture it pairs every shot's prediction with its landed damage and reports the calibration per
-/// projectile type. Verdicts print and, with --write, land beside the capture as -combat-audit.json for
-/// the report's Combat decisions section; the four ledger measures file under instrument combat-audit.
+/// front with the weighted regret and the generator attribution, what the weight sweep moves, and
+/// whether the commitment still holds on the snapshot's tick with the reason it ends; over the capture
+/// it pairs every shot's prediction with its landed damage and reports the calibration per projectile
+/// type. Verdicts print and, with --write, land beside the capture as -combat-audit.json for the
+/// report's Combat decisions section; the four ledger measures file under instrument combat-audit.
 /// </summary>
 internal static class Program
 {
@@ -25,7 +26,7 @@ internal static class Program
 
     public sealed record DecisionVerdict(long Tick, string Trigger, int PlanId, bool Reproduced,
         List<string> Diffs, bool OnFront, double Regret, string Generator, bool Capped, int GridStands,
-        List<AuditWeights.SweepMove> Sweep);
+        List<AuditWeights.SweepMove> Sweep, bool Holds, string HoldReason);
     public sealed record Sidecar(string Capture, List<DecisionVerdict> Decisions,
         List<AuditKnowledge.TypeCalibration> Knowledge);
 
@@ -95,6 +96,9 @@ internal static class Program
                 AuditSearch.ReplayVerdict replay = AuditSearch.Replay(restored);
                 AuditSearch.ExhaustiveVerdict exhaustive = AuditSearch.Exhaustive(restored);
                 List<AuditWeights.SweepMove> moves = sweep ? AuditWeights.Sweep(restored) : new List<AuditWeights.SweepMove>();
+                // The hold runs last: committing the shifted plan mutates the restored planner, and the
+                // searches above it must read the restore as the restore left it.
+                AuditHold.HoldVerdict hold = AuditHold.Revalidate(restored);
                 int moves2x = 0;
                 foreach (AuditWeights.SweepMove move in moves)
                     if (move.Factor == 2f && move.Changed)
@@ -102,13 +106,14 @@ internal static class Program
                 decisions.Add(new DecisionVerdict(snapshot.tick, snapshot.channel,
                     restored.Snapshot.Plan?.Id ?? -1, replay.Reproduced, replay.Diffs,
                     exhaustive.CommittedOnFront, exhaustive.Regret, exhaustive.Generator,
-                    exhaustive.Capped, exhaustive.GridStands, moves));
+                    exhaustive.Capped, exhaustive.GridStands, moves, hold.Holds, hold.Reason));
                 string replayed = replay.Reproduced ? "exact" : "DIVERGED: " + string.Join("; ", replay.Diffs);
                 string front = exhaustive.CommittedOnFront ? "on" : "off";
                 string capped = exhaustive.Capped ? $" (grid capped at {exhaustive.GridStands})" : "";
                 string swept = sweep ? $", sweep moves {moves2x}/8 at x2" : "";
+                string held = hold.Holds ? "holds" : $"RELEASED {hold.Reason}";
                 Console.WriteLine($"  tick {snapshot.tick} {snapshot.channel}: replay {replayed}; " +
-                    $"front {front}, regret {exhaustive.Regret:0.00}, generator {exhaustive.Generator}{capped}{swept}");
+                    $"front {front}, regret {exhaustive.Regret:0.00}, generator {exhaustive.Generator}{capped}{swept}; hold {held}");
             }
             catch (AuditException error)
             {
