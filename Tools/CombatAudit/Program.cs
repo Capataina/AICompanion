@@ -18,7 +18,7 @@ namespace AICompanion.Tools.CombatAudit;
 /// whether the commitment still holds on the snapshot's tick with the reason it ends; over the capture
 /// it pairs every shot's prediction with its landed damage and reports the calibration per projectile
 /// type. Verdicts print and, with --write, land beside the capture as -combat-audit.json for the
-/// report's Combat decisions section; the four ledger measures file under instrument combat-audit.
+/// report's Combat decisions section; the five ledger measures file under instrument combat-audit.
 /// </summary>
 internal static class Program
 {
@@ -26,7 +26,7 @@ internal static class Program
 
     public sealed record DecisionVerdict(long Tick, string Trigger, int PlanId, bool Reproduced,
         List<string> Diffs, bool OnFront, double Regret, string Generator, bool Capped, int GridStands,
-        List<AuditWeights.SweepMove> Sweep, bool Holds, string HoldReason);
+        List<AuditWeights.SweepMove> Sweep, bool Holds, string HoldReason, bool Cut);
     public sealed record Sidecar(string Capture, List<DecisionVerdict> Decisions,
         List<AuditKnowledge.TypeCalibration> Knowledge);
 
@@ -106,14 +106,16 @@ internal static class Program
                 decisions.Add(new DecisionVerdict(snapshot.tick, snapshot.channel,
                     restored.Snapshot.Plan?.Id ?? -1, replay.Reproduced, replay.Diffs,
                     exhaustive.CommittedOnFront, exhaustive.Regret, exhaustive.Generator,
-                    exhaustive.Capped, exhaustive.GridStands, moves, hold.Holds, hold.Reason));
+                    exhaustive.Capped, exhaustive.GridStands, moves, hold.Holds, hold.Reason,
+                    restored.Snapshot.Cut));
                 string replayed = replay.Reproduced ? "exact" : "DIVERGED: " + string.Join("; ", replay.Diffs);
                 string front = exhaustive.CommittedOnFront ? "on" : "off";
                 string capped = exhaustive.Capped ? $" (grid capped at {exhaustive.GridStands})" : "";
                 string swept = sweep ? $", sweep moves {moves2x}/8 at x2" : "";
                 string held = hold.Holds ? "holds" : $"RELEASED {hold.Reason}";
+                string cut = restored.Snapshot.Cut ? "; CUT" : "";
                 Console.WriteLine($"  tick {snapshot.tick} {snapshot.channel}: replay {replayed}; " +
-                    $"front {front}, regret {exhaustive.Regret:0.00}, generator {exhaustive.Generator}{capped}{swept}; hold {held}");
+                    $"front {front}, regret {exhaustive.Regret:0.00}, generator {exhaustive.Generator}{capped}{swept}; hold {held}{cut}");
             }
             catch (AuditException error)
             {
@@ -153,6 +155,17 @@ internal static class Program
             (double)onFront / decisions.Count, "share", "up");
         EmitLedgerRows.Measure(Instrument, "CombatAudit", "mean weighted regret",
             regret / decisions.Count, "weighted", "down");
+        int committed = 0, held = 0;
+        foreach (DecisionVerdict decision in decisions)
+            if (decision.PlanId >= 0)
+            {
+                committed++;
+                if (decision.Holds)
+                    held++;
+            }
+        if (committed > 0)
+            EmitLedgerRows.Measure(Instrument, "CombatAudit", "share of committed decisions that still hold",
+                (double)held / committed, "share", "up");
         Column? cut = session?.Find("plan_cut");
         if (cut != null && cut.Number.Length > 0)
         {

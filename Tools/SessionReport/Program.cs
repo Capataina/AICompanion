@@ -236,6 +236,7 @@ public static class Program
         // beside the session under the same stamp, so nobody has to be told where to look.
         Companion(path, "-census.txt", "behaviour census");
         Companion(path, "-map.txt", "session map");
+        Console.Write(DescribeCombatAudit.Of(path));
 
         Console.Write(RunMeasures(session));
 

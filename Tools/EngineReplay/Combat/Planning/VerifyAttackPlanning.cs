@@ -10,6 +10,8 @@ using CombatWeights = live::AICompanion.Companion.Brain.Activities.Combat.Planni
 
 /// <summary>
 /// Planning rows (P): knowledge and forecasts planted, so they test planning and not learning.
+/// P9 and P10 pin search behavior in the audit self-test, whose scenes price real searches, and P11 is
+/// the self-test's cut row; file 8 names this folder for all three, but the behaviors moved with the scenes.
 /// </summary>
 internal static class VerifyAttackPlanning
 {

@@ -53,9 +53,13 @@ public static class ChronicleTests
             ThePlayersReferenceChecksFindWhatTheyClaim();
             TheFunnelSectionTalliesEachActivity();
             WeaponKnowledgeCalibrationIsGraded();
+            CombatAuditSidecarIsReadBack();
+            MissingCombatAuditReadsAsUnmeasured();
+            CorruptCombatAuditReadsAsUnreadable();
+            ForeignCombatAuditIsNamed();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
-            Console.WriteLine("Chronicle self-tests passed (36 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (40 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -2032,6 +2036,166 @@ public static class ChronicleTests
         {
             File.Delete(file);
             File.Delete(events);
+        }
+    }
+
+    private static void CombatAuditSidecarIsReadBack()
+    {
+        string session = Path.GetTempFileName();
+        string sidecar = Path.ChangeExtension(session, null) + "-combat-audit.json";
+        try
+        {
+            object Sweep(string name, bool changed)
+                => new { Objective = 0, Name = name, Factor = 2.0, Changed = changed };
+            // A sidecar written before the hold and cut verdicts existed carries no such keys, so the
+            // pre-hold decision is a dictionary: the reader must say "predates" rather than defaulting
+            // the verdicts to held and uncut.
+            var preHold = new System.Collections.Generic.Dictionary<string, object?>
+            {
+                ["Tick"] = 400L,
+                ["Trigger"] = "commit",
+                ["PlanId"] = 5,
+                ["Reproduced"] = true,
+                ["Diffs"] = Array.Empty<string>(),
+                ["OnFront"] = true,
+                ["Regret"] = 0.02,
+                ["Generator"] = "none",
+                ["Capped"] = false,
+                ["GridStands"] = 1500,
+                ["Sweep"] = new[] { Sweep("prevention", true), Sweep("prevention", true) },
+            };
+            var root = new
+            {
+                Capture = Path.ChangeExtension(session, null) + "-events.jsonl",
+                Decisions = new object[]
+                {
+                    new
+                    {
+                        Tick = 100L, Trigger = "commit", PlanId = 3, Reproduced = true,
+                        Diffs = Array.Empty<string>(), OnFront = true, Regret = 0.0, Generator = "none",
+                        Capped = false, GridStands = 1500,
+                        Sweep = new[]
+                        {
+                            Sweep("damage", true), Sweep("damage", true),
+                            Sweep("prevention", false), Sweep("prevention", false),
+                        },
+                        Holds = true, HoldReason = "", Cut = false,
+                    },
+                    new
+                    {
+                        Tick = 200L, Trigger = "rescore", PlanId = 3, Reproduced = false,
+                        Diffs = new[] { "damage 12.0 != 10.0" }, OnFront = false, Regret = 0.22,
+                        Generator = "retreat", Capped = true, GridStands = 2000,
+                        Sweep = new[] { Sweep("damage", true), Sweep("damage", true) },
+                        Holds = false, HoldReason = "stall", Cut = true,
+                    },
+                    new
+                    {
+                        Tick = 300L, Trigger = "mark", PlanId = -1, Reproduced = false,
+                        Diffs = new[] { "snapshot carries no committed plan; replay offers waiting" },
+                        OnFront = true, Regret = 0.0, Generator = "none",
+                        Capped = false, GridStands = 1500,
+                        Sweep = Array.Empty<object>(),
+                        Holds = true, HoldReason = "", Cut = false,
+                    },
+                    preHold,
+                },
+                Knowledge = new[]
+                {
+                    new
+                    {
+                        Type = "WoodenArrowFriendly", Shots = 10, Paired = 8,
+                        PredictedHits = 8, MatchedHits = 7,
+                        DamagePredicted = 120.0, DamageLanded = 118.0,
+                        MeanTickError = 1.2, WallSurprise = 1, MeanFactor = 1.01,
+                    },
+                },
+            };
+            File.WriteAllText(sidecar, System.Text.Json.JsonSerializer.Serialize(root));
+            string text = string.Join("\n",
+                DescribeCombatAudit.Describe(session).Select(r => r.Text));
+            Require(text.Contains("4 decisions audited; 2 replayed exactly, 3 on the exhaustive front, " +
+                "mean regret 0.06", StringComparison.Ordinal), $"summary line wrong:\n{text}");
+            Require(text.Contains("tick 200 (rescore, plan #3): replay DIVERGED — damage 12.0 != 10.0.",
+                StringComparison.Ordinal), $"divergence lost its diff:\n{text}");
+            Require(text.Contains("off the exhaustive front, regret 0.22, missing generator retreat " +
+                "(grid capped at 2000", StringComparison.Ordinal), $"off-front lost its attribution:\n{text}");
+            Require(text.Contains("commitment RELEASED (stall)", StringComparison.Ordinal),
+                $"release lost its reason:\n{text}");
+            Require(text.Contains("search CUT by budget", StringComparison.Ordinal), $"cut not named:\n{text}");
+            Require(text.Contains("tick 300 (mark, no plan): the mark holds nothing",
+                StringComparison.Ordinal), $"mark not excused:\n{text}");
+            Require(text.Contains("holds: 1 of 3 committed hold (1 ungraded, sidecar predates the hold " +
+                "audit); releases: stall x1.", StringComparison.Ordinal), $"hold grade wrong:\n{text}");
+            Require(text.Contains("cuts: 1 cut by budget (1 sidecar entries predate the cut verdict).",
+                StringComparison.Ordinal), $"cut grade wrong:\n{text}");
+            Require(text.Contains("offered moves change search outcomes: damage 4/4, prevention 2/4.",
+                StringComparison.Ordinal), $"sweep tally wrong:\n{text}");
+            Require(text.Contains("WoodenArrowFriendly: 8/10 shots paired, 7/8 predicted hits landed, " +
+                "tick error 1.2, wall surprise 1, damage landed 0.98 of predicted, residual factor 1.01.",
+                StringComparison.Ordinal), $"calibration wrong:\n{text}");
+        }
+        finally
+        {
+            File.Delete(session);
+            if (File.Exists(sidecar))
+                File.Delete(sidecar);
+        }
+    }
+
+    private static void MissingCombatAuditReadsAsUnmeasured()
+    {
+        string session = Path.GetTempFileName();
+        try
+        {
+            string text = string.Join("\n",
+                DescribeCombatAudit.Describe(session).Select(r => r.Text));
+            Require(text.Contains("unmeasured rather than clean", StringComparison.Ordinal),
+                $"missing sidecar not named:\n{text}");
+        }
+        finally
+        {
+            File.Delete(session);
+        }
+    }
+
+    private static void CorruptCombatAuditReadsAsUnreadable()
+    {
+        string session = Path.GetTempFileName();
+        string sidecar = Path.ChangeExtension(session, null) + "-combat-audit.json";
+        try
+        {
+            File.WriteAllText(sidecar, "not-json{");
+            string text = string.Join("\n",
+                DescribeCombatAudit.Describe(session).Select(r => r.Text));
+            Require(text.Contains("unreadable", StringComparison.Ordinal)
+                && text.Contains("unmeasured, not clean", StringComparison.Ordinal),
+                $"corrupt sidecar not named:\n{text}");
+        }
+        finally
+        {
+            File.Delete(session);
+            File.Delete(sidecar);
+        }
+    }
+
+    private static void ForeignCombatAuditIsNamed()
+    {
+        string session = Path.GetTempFileName();
+        string sidecar = Path.ChangeExtension(session, null) + "-combat-audit.json";
+        try
+        {
+            File.WriteAllText(sidecar,
+                "{\"Capture\":\"Other-events.jsonl\",\"Decisions\":[],\"Knowledge\":[]}");
+            string text = string.Join("\n",
+                DescribeCombatAudit.Describe(session).Select(r => r.Text));
+            Require(text.Contains("the sidecar was written for Other, not for this capture",
+                StringComparison.Ordinal), $"foreign sidecar not named:\n{text}");
+        }
+        finally
+        {
+            File.Delete(session);
+            File.Delete(sidecar);
         }
     }
 

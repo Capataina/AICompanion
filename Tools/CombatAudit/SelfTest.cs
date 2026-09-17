@@ -34,9 +34,11 @@ namespace AICompanion.Tools.CombatAudit;
 /// mismatched shot against synthetic events and shows the calibration splitting them. The hold row
 /// commits a plan, snapshots it, and shows the restored commitment's Validate answering what the live
 /// one's did across a hold and one release from each invalidation class. The cut row caps a search at
-/// one simulation, shows it cutting identically twice, and replays the cut from the snapshot. Each row
-/// bakes its file-8 mutation in as the second assertion, so the mutation that must fail it fails it
-/// every run, not by hand-reversion.
+/// one simulation, shows it cutting identically twice, and replays the cut from the snapshot. The last
+/// two rows are the plan's P9 and P10, and the cut row is its P11: file 8 predates the self-test's
+/// search scenes and names EngineReplay for all three, but the behaviors are search behaviors and the
+/// scenes live here now. Each row bakes its file-8 mutation in as the second assertion, so the
+/// mutation that must fail it fails it every run, not by hand-reversion.
 /// </summary>
 internal static class SelfTest
 {
@@ -52,7 +54,9 @@ internal static class SelfTest
         red += Row("the knowledge audit splits matched shots from miscalibrated types", KnowledgeAuditSplits);
         red += Row("the hold audit reproduces the live commitment's verdict", HoldReproducesLiveVerdict);
         red += Row("a count-capped search cuts at the same simulation twice and replays its cut", CountCutReplays);
-        Console.WriteLine(red == 0 ? "combat-audit self-test: 6 rows green" : $"combat-audit self-test: {red} rows red");
+        red += Row("danger commits the harm-prevention plan over the damage plan", DangerCommitsHarmPreventionOverDamage);
+        red += Row("an unchanged scene keeps one plan across rescores", UnchangedSceneKeepsOnePlanAcrossRescores);
+        Console.WriteLine(red == 0 ? "combat-audit self-test: 8 rows green" : $"combat-audit self-test: {red} rows red");
         return red == 0 ? 0 : 1;
     }
 
@@ -646,5 +650,80 @@ internal static class SelfTest
         var combat = scene.Companion.Combat;
         return SearchAttackPlans.SearchDepthOne(scene.Ctx, combat, scene.Companion.Brain.Positioner,
             Allows(scene), weights, planId, ref budget);
+    }
+
+    /// <summary>
+    /// P9: the player is hurt with a killable zombie on him and a fat naked one mid-range. The live
+    /// weights — prevention rising with danger — commit the rescue; the same scene under damage-only
+    /// weights, the constant-weights mutation baked in, farms the fat body. The mutation is damage-only
+    /// rather than uniform because the kill is worth ~1.5 removal units against DPS in the hundredths,
+    /// so any positive removal weight agrees with danger and only a damage maximizer disagrees; the fat
+    /// body is naked rather than big because size changes nothing at these ranges and nakedness flips it.
+    /// </summary>
+    private static string DangerCommitsHarmPreventionOverDamage()
+    {
+        Scene scene = Setup(60, new Vector2(50, 56), new Vector2(35, 54), null,
+            (25, NPCID.Zombie, new Vector2(51, 59)),
+            (26, NPCID.Zombie, new Vector2(38, 59)));
+        Player player = Main.player[Main.myPlayer];
+        player.statLife = 40;
+        NPC urgent = Main.npc[25];
+        NPC fat = Main.npc[26];
+        urgent.life = urgent.lifeMax = 15;
+        urgent.defense = 6;
+        fat.life = fat.lifeMax = 400;
+        fat.defense = 0;
+        scene.Companion.Brain.Senses.Update(scene.Companion.NPC, player);
+        bool urgentListed = false, fatListed = false;
+        foreach (ThreatRecord threat in scene.Ctx.Senses.Threats.Threats)
+        {
+            if (threat.Npc != null && threat.Npc.whoAmI == 25) urgentListed = true;
+            if (threat.Npc != null && threat.Npc.whoAmI == 26) fatListed = true;
+        }
+        Require(urgentListed && fatListed, "premise: both bodies are threat-listed");
+        Require(scene.Ctx.Senses.Threats.PlayerDanger > 0.5f,
+            $"premise: the player is not in danger ({scene.Ctx.Senses.Threats.PlayerDanger:0.00})");
+        var combat = scene.Companion.Combat;
+        SearchAttackPlans.SearchResult rescue = Search(scene, WeighCombatObjectives.ForSenses(scene.Ctx),
+            combat.NextPlanId++);
+        Require(rescue.Plan != null, "the danger search offers nothing: " + rescue.Reason);
+        Require(rescue.Plan.PrimaryTarget == 25,
+            $"danger commits target {rescue.Plan.PrimaryTarget}, not the urgent 25");
+        var constant = new CombatWeights(1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f);
+        SearchAttackPlans.SearchResult greedy = Search(scene, constant, combat.NextPlanId++);
+        Require(greedy.Plan != null, "the constant search offers nothing: " + greedy.Reason);
+        Require(greedy.Plan.PrimaryTarget == 26,
+            $"constant weights commit {greedy.Plan.PrimaryTarget}, not the fat 26");
+        return $"danger targets {rescue.Plan.PrimaryTarget}, constant targets {greedy.Plan.PrimaryTarget}";
+    }
+
+    /// <summary>
+    /// P10: one zombie, nothing moving. Four rescores through the activity hold the committed plan by
+    /// reference with no new search: validity keeps it, not a score bonus, and a bonus would re-search
+    /// and reselect, advancing the plan id this row pins. Suspended throughout, so the stall clock
+    /// that would end an unfought plan stays paused while every other validity check still runs.
+    /// </summary>
+    private static string UnchangedSceneKeepsOnePlanAcrossRescores()
+    {
+        Scene scene = Setup(60, new Vector2(50, 56), new Vector2(40, 54), null,
+            (25, NPCID.Zombie, new Vector2(51, 59)));
+        var combat = scene.Companion.Combat;
+        CombatWeights weights = WeighCombatObjectives.ForSenses(scene.Ctx);
+        SearchAttackPlans.SearchResult result = Search(scene, weights, combat.NextPlanId++);
+        Require(result.Plan != null, "the scene offers nothing: " + result.Reason);
+        AttackPlan held = result.Plan;
+        combat.Planner.Commit(held);
+        int afterCommit = combat.NextPlanId;
+        var fight = new live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies();
+        for (int rescore = 0; rescore < 4; rescore++)
+        {
+            scene.Companion.Brain.Senses.AssumeTick(scene.Companion.Brain.Senses.Tick + 30);
+            scene.Companion.Brain.Senses.Update(scene.Companion.NPC, Main.player[Main.myPlayer]);
+            fight.Prepare(scene.Ctx);
+            Require(ReferenceEquals(combat.Planner.Committed, held),
+                $"rescore {rescore} drops the plan: {combat.Planner.LastInvalidation}");
+            Require(combat.NextPlanId == afterCommit, $"rescore {rescore} researches");
+        }
+        return $"plan {held.Id} held across 4 rescores, no research";
     }
 }
