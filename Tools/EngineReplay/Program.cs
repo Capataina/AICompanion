@@ -15,6 +15,12 @@ AssemblyLoadContext.Default.Resolving += (context, name) =>
 // the table had filled the slots it needed.
 ResetProcessState.PrepareProcess();
 ResetProcessState.Register();
+// Every flag below is one case, and a case starts from fresh-case state: the suite's cases get it
+// from BeforeCase through the ledger, but these early returns never reach the ledger, so without
+// this they run on a fresh process's statics — the Thompson sampler's per-process seed and the
+// production wall-clock allowances. The combat-purpose matrix showed both: its values moved run to
+// run standalone (real shots taught with per-process draws, then read back) while identical in-suite.
+ResetProcessState.BeforeCase(keepProductionAllowances: false);
 
 if (args.Contains("--orb-contact")) return VerifyOrbContact.SizeRule() + VerifyOrbContact.DiagonalStep() + VerifyOrbContact.PushOutAndSlide();
 if (args.Contains("--free-space")) return VerifyFreeSpace.CorridorsAndLiquids() + VerifyFreeSpace.FloodFinishes() + VerifyFreeSpace.FloodBounded();

@@ -143,14 +143,18 @@ internal static class VerifySafetyIsALayerOnTheJob
     /// row required a tick where spacing owned the feet while the hands fired. Since 15 September 2026 no enemy takes the
     /// body; since the combat stance landed the hands fire only while combat runs, so the player stands nearby and the row
     /// asks the reframed scene: combat takes the body against the zombie beside it, the hands are granted and fire at that
-    /// zombie on some tick, and the job is never suspended.
+    /// zombie on some tick, and the job is never suspended. The zombie is an ordinary killable one: a 400-life tank beside
+    /// a 12-life companion is truthfully a retreat — the fight cannot remove the threat, its wounds save nobody, and the
+    /// exposure it prices can kill — so the planner leaves and the row's combat premise fails. The old valuation fought
+    /// the tank because it fired before arriving and shared wounds over remaining life; both are fixed, and the row holds
+    /// the fight it means rather than the overvaluation.
     /// </summary>
     private static void TheHandsKeepFiringWhileTheBodyKeepsItsJob()
     {
         var (companion, player) = OpenFloor();
         player.Bottom = companion.NPC.Bottom + new Vector2(200, 0);
         companion.NPC.life = 12;
-        Hostile(30, NPCID.Zombie, companion.NPC.Bottom + new Vector2(64, 0), damage: 20, life: 400);
+        Hostile(30, NPCID.Zombie, companion.NPC.Bottom + new Vector2(64, 0), damage: 20);
         VerifyResponsiveFollowing.AdvanceNative(companion);
         int fired = 0, firedAtZombie = 0, suspendedTicks = 0, combatTicks = 0;
         for (int tick = 0; tick < 180; tick++)

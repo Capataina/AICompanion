@@ -89,6 +89,9 @@ public static class SearchAttackPlans
             return new SearchResult(null, OfferEligibility.KnownUnusable, "no-use-reaches-target", 0);
         }
         List<AttackPlan> front = KeepOnlyUndominated.Filter(candidates, plan => plan.Outcome);
+        if (System.Environment.GetEnvironmentVariable("AIC_DEBUG_PLAN") == "1")
+            foreach (AttackPlan c in candidates)
+                System.Console.WriteLine($"  DEBUG cand primary={c.PrimaryTarget} stand={c.Segments[0].Stand.Stand.X:0},{c.Segments[0].Stand.Stand.Y:0} weighted={c.Weighted:0.00} kills={c.TargetKillTicks?.Length ?? 0} travel={c.Segments[0].Verdict.TravelTicks:0} outcome={c.Outcome}");
         AttackPlan best = front[0];
         foreach (AttackPlan plan in front)
             if (plan.Weighted > best.Weighted)
@@ -264,7 +267,7 @@ public static class SearchAttackPlans
             if (aimed == null || !budget.Check())
                 continue;
             EvaluateAttackOutcomes.Attack? attack = ForecastUses.AttackFromUse(ctx, weapon, weaponSlot, npc,
-                muzzle, aimed.Value.Use, aimed.Value.Aim, aimed.Value.Intercept, travel, out _, out _);
+                muzzle, aimed.Value.Use, aimed.Value.Aim, aimed.Value.Intercept, travel, out string rej, out _);
             if (attack != null)
                 candidates.Add(new CandidateAttack(attack, weaponSlot, muzzle, aimed.Value.Aim.AimPoint,
                     aimed.Value.Aim.LaunchDirection, npc.whoAmI));
@@ -278,7 +281,7 @@ public static class SearchAttackPlans
         var context = new EvaluateAttackOutcomes.PlanContext(travel, verdict.ExposureAtStand, verdict.ExposureAlongTravel,
             WorstHit(ctx), Math.Max(1, ctx.Player.statLife), Math.Max(1, ctx.Npc.life), Math.Max(1, ctx.Companion.Mana.Max),
             IntegrateCompanyGap(ctx, proposal.Stand, travel, horizon));
-        int cooldown = Math.Max(0, combat.CooldownTicks - travel);
+        int cooldown = Math.Max(0, combat.CooldownTicks);
 
         CombatOutcome outcome = default;
         List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)>? sequence = null;

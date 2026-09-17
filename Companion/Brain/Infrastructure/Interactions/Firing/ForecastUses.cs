@@ -165,10 +165,10 @@ public static class ForecastUses
             if ((uint)sim.Slot >= (uint)Main.maxNPCs) continue;
             NPC body = Main.npc[sim.Slot];
             if (body == null || !body.active || body.life <= 0 || !body.CanBeChasedBy()) continue;
-            float danger = InducedDanger(ctx, weapon, body, muzzle, aim.LaunchDirection, sim.Damage);
+            (float toPlayer, float toCompanion) = InducedDangerParts(ctx, weapon, body, muzzle, aim.LaunchDirection, sim.Damage);
             priorDamage += sim.Damage;
-            charge += danger;
-            hits.Add(LearnedHit(ctx, weapon, body, sim.Damage, danger, inputs, aimOffset, explore));
+            charge += toPlayer + toCompanion;
+            hits.Add(LearnedHit(ctx, weapon, body, sim.Damage, toPlayer + toCompanion, toCompanion, inputs, aimOffset, explore));
         }
         rejection = hits.Count == 0 ? "no-damageable-intercept" : "accepted";
         if (hits.Count == 0) return null;
@@ -183,13 +183,13 @@ public static class ForecastUses
     /// that enemy type. With no evidence both damages are the prior exactly.
     /// </summary>
     public static EvaluateAttackOutcomes.Hit LearnedHit(in ActionContext ctx, CompanionWeapon weapon, NPC body, float perHit, float danger,
-        ContextInputs inputs, float aim, bool explore)
+        float dangerToCompanion, ContextInputs inputs, float aim, bool explore)
     {
         int item = weapon.ItemType;
         float chance = AttackLearning.DebuffChance(item, body.type);
         int ticks = AttackLearning.DebuffTicks(item, body.type);
         if (AttackLearning.Evidence(item) == 0)
-            return new(body.whoAmI, perHit, danger, float.NaN, chance, ticks);
+            return new(body.whoAmI, perHit, danger, float.NaN, chance, ticks, dangerToCompanion);
         int tick = ctx.Senses.Tick;
         bool debuffed = ShotOutcomes.DebuffedByOther(body, item);
         float now = AttackLearning.Factor(item, body.type, inputs.With(aim, debuffed), explore, tick);
@@ -197,8 +197,9 @@ public static class ForecastUses
         // The push is charged at the share of the forecast the weapon has been seen to land, the same factor its damage takes,
         // so a weapon learned to miss is not charged for pushes it will not deliver. The factor is capped at one for the
         // charge because what lands beyond the forecast is damage — a child projectile, a debuff paying off — and each
-        // hit's push is already learned per hit by the weapon-effects table.
-        return new(body.whoAmI, perHit * now, danger * MathF.Min(1f, now), perHit * ifDebuffed, chance, ticks);
+        // hit's push is already learned per hit by the weapon-effects table. Both halves take it, so the split survives learning.
+        float landed = MathF.Min(1f, now);
+        return new(body.whoAmI, perHit * now, danger * landed, perHit * ifDebuffed, chance, ticks, dangerToCompanion * landed);
     }
 
     /// <summary>
@@ -232,23 +233,36 @@ public static class ForecastUses
     /// </summary>
     public static float InducedDanger(in ActionContext ctx, CompanionWeapon weapon, NPC target, Vector2 muzzle, Vector2 launch, float perHit)
     {
+        (float toPlayer, float toCompanion) = InducedDangerParts(ctx, weapon, target, muzzle, launch, perHit);
+        return toPlayer + toCompanion;
+    }
+
+    /// <summary>
+    /// The same charge as <see cref="InducedDanger"/>, split by the body the push threatens: the player's
+    /// half and the orb's half, each in urgency-delta times hit-cost units. The scalar evaluator prices the
+    /// sum; the vector normalises each half by its own body's life, so a shove is in the same life-share
+    /// units as the prevention it is weighed against. A single total cannot be normalised once, because the
+    /// two bodies' lives differ.
+    /// </summary>
+    public static (float ToPlayer, float ToCompanion) InducedDangerParts(in ActionContext ctx, CompanionWeapon weapon, NPC target, Vector2 muzzle, Vector2 launch, float perHit)
+    {
         ThreatRecord? threat = null;
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
             if (ReferenceEquals(t.Npc, target)) { threat = t; break; }
-        if (threat == null) return 0f;
+        if (threat == null) return (0f, 0f);
         Player player = ctx.Player;
         int direction = WeaponEffects.PriorDirection(weapon.PushesAwayFromOwner, launch.X, target.Center.X, player.Center.X);
         float shift = WeaponEffects.SettledPush(weapon.ItemType, target, weapon.Knockback, perHit, direction);
-        if (shift == 0f) return 0f;
+        if (shift == 0f) return (0f, 0f);
         Vector2 pushed = target.Center + new Vector2(shift, 0f);
-        float charge = 0f;
+        float toPlayer = 0f, toCompanion = 0f;
         if (!player.dead && threat.CanReachPlayer)
         {
             float before = ThreatUrgency.ToPlayer(threat.EffectiveDamageToPlayer, player.statLife, threat.IsBoss,
                 threat.TicksToPlayer, threat.Shoots, threat.HasSightOnPlayer);
             float after = ThreatUrgency.ToPlayer(threat.EffectiveDamageToPlayer, player.statLife, threat.IsBoss,
                 Vector2.Distance(pushed, player.Center) / threat.ObservedSpeed, threat.Shoots, threat.HasSightOnPlayer);
-            charge += MathF.Max(0f, after - before) * threat.EffectiveDamageToPlayer;
+            toPlayer = MathF.Max(0f, after - before) * threat.EffectiveDamageToPlayer;
         }
         if (threat.CanReachCompanion)
         {
@@ -257,9 +271,9 @@ public static class ForecastUses
                 Vector2.Distance(target.Center, muzzle) / threat.ObservedSpeed, threat.Shoots, threat.HasSightOnCompanion);
             float after = ThreatUrgency.ToCompanion(threat.EffectiveDamageToCompanion, body.life, threat.IsBoss,
                 Vector2.Distance(pushed, muzzle) / threat.ObservedSpeed, threat.Shoots, threat.HasSightOnCompanion);
-            charge += MathF.Max(0f, after - before) * threat.EffectiveDamageToCompanion;
+            toCompanion = MathF.Max(0f, after - before) * threat.EffectiveDamageToCompanion;
         }
-        return charge;
+        return (toPlayer, toCompanion);
     }
 
     /// <summary>
@@ -304,7 +318,7 @@ public static class ForecastUses
             var inputs = new ContextInputs(distance, weapon.Reach, (target.velocity - ctx.Npc.velocity).Length(), 0, ctx.Npc.velocity.Length(),
                 LearnVolleyShapes.SpreadCone(weapon.ItemType));
             assumed.Add(new EvaluateAttackOutcomes.Attack(w, target.whoAmI, weapon.UseTime, flight,
-                new[] { LearnedHit(ctx, weapon, target, PerHit(ctx, weapon, target), 0f, inputs, 0f, explore) }));
+                new[] { LearnedHit(ctx, weapon, target, PerHit(ctx, weapon, target), 0f, 0f, inputs, 0f, explore) }));
         }
         return assumed;
     }

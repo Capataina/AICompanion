@@ -317,9 +317,21 @@ public static class Weights
     /// vein, which the danger lift then carries over work. The audit's weight sweeps and the play tune own this number.</summary>
     public const float CombatWeightDamage = 16f;
     public const float CombatWeightThreatRemoved = 6f;
-    public const float CombatWeightPlayerHarmPrevented = AttackPreventedHarmWeight;
+    /// <summary>Prevention is in units of the player's life, so the scalar's weight prices a full save at
+    /// two while damage prices a full kill near seven: the ratio inverts the scalar's blend, where a rescue
+    /// outvalued a kill sixty to forty-five, and an imminent rescue of the player loses to killing the
+    /// body's own attacker. Nine restores rescue-over-killing on the vector's own units, as the pursuit
+    /// cheap and middle rows pin. The audit's weight sweeps and the play tune own this number.</summary>
+    public const float CombatWeightPlayerHarmPrevented = 9f;
     public const float CombatWeightCompanionHarm = 2f;
-    public const float CombatWeightPushDanger = KnockbackInducedDangerWeight;
+    /// <summary>Push is in the same life-share units as prevention — each half over its own body's life —
+    /// so it carries prevention's weight, not the scalar's: the scalar charged a shove and a save one for
+    /// one, and nine against nine keeps that break-even where two against nine would make every shove
+    /// nearly free. Absolute units beside a normalised prevention overpriced the shove by the body's life,
+    /// and the planner flew a hundred ticks round a pillar it could shoot past to avoid pushing a zombie a
+    /// few pixels toward the player, as the actor matrix pins. The audit's weight sweeps and the play tune
+    /// own this number.</summary>
+    public const float CombatWeightPushDanger = 9f;
     public const float CombatWeightCompanyGap = 0.25f;
     public const float CombatWeightTimeToFirstDamage = 0.5f;
     public const float CombatWeightMana = 0.25f;

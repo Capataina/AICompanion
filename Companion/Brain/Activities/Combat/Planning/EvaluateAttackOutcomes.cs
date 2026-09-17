@@ -32,13 +32,15 @@ public static class EvaluateAttackOutcomes
 
     /// <summary>
     /// One body a use would strike: its damage, and the danger the hit's push would add to the player and the orb — added
-    /// urgency times what one of that enemy's hits costs each body, zero where the push adds none. <paramref name="DamageDebuffed"/>
-    /// is what the hit would deal against a body the other weapon has debuffed, NaN where it is the same;
-    /// <paramref name="DebuffChance"/> and <paramref name="DebuffTicks"/> are how likely this hit leaves its body debuffed and
-    /// for how long.
+    /// urgency times what one of that enemy's hits costs each body, zero where the push adds none. <paramref name="InducedDanger"/>
+    /// is the total both bodies; <paramref name="InducedDangerToCompanion"/> carries the orb's half apart, so the vector
+    /// normalises each half by its own body's life and the player's half is the difference. The scalar prices the total.
+    /// <paramref name="DamageDebuffed"/> is what the hit would deal against a body the other weapon has debuffed, NaN where
+    /// it is the same; <paramref name="DebuffChance"/> and <paramref name="DebuffTicks"/> are how likely this hit leaves its
+    /// body debuffed and for how long.
     /// </summary>
     public readonly record struct Hit(int Target, float Damage, float InducedDanger = 0f, float DamageDebuffed = float.NaN,
-        float DebuffChance = 0f, int DebuffTicks = 0);
+        float DebuffChance = 0f, int DebuffTicks = 0, float InducedDangerToCompanion = 0f);
 
     /// <summary>One use of a weapon at a target. <paramref name="AimOffset"/> is how far off the solver's intercept the hands would aim, radians, as the learner chose it.</summary>
     public sealed record Attack(int Weapon, int Target, int UseTicks, int ImpactTicks, Hit[] Hits, float AimOffset = 0f, float ManaCost = 0f);
@@ -115,7 +117,7 @@ public static class EvaluateAttackOutcomes
             else
             {
                 float partial = Math.Max(0f, target.ExpectedHarm) * Math.Clamp(target.Danger, 0f, 1f)
-                    * (dealt / life) * Weights.AttackPartialHarmShare * timing;
+                    * (dealt / target.Life) * Weights.AttackPartialHarmShare * timing;
                 prevented += partial;
                 value += partial * Weights.AttackPreventedHarmWeight;
                 value -= Math.Max(0f, hit.InducedDanger) * Weights.KnockbackInducedDangerWeight * timing;
@@ -154,14 +156,17 @@ public static class EvaluateAttackOutcomes
         float encounterLife = 0f;
         foreach (Target target in targets) { remaining[target.Id] = target.Life; facts[target.Id] = target; encounterLife += Math.Max(0f, target.Life); }
         encounterLife = Math.Max(1f, encounterLife);
-        int fireAt0 = Math.Max(0, cooldown);
+        // Search-relative ticks throughout: the first use fires when the hands are ready AND the body
+        // has arrived, so a stand a flight away does not schedule — or stamp, or price — uses before the
+        // body is there to fire them. Callers pass the raw cooldown; the travel comes from the context.
+        int fireAt0 = Math.Max(cooldown, context.TravelTicks);
         int fireAt = fireAt0;
         float damage = 0f, threat = 0f, prevented = 0f, push = 0f, mana = 0f;
         int firstLanded = -1, lastImpact = fireAt0;
         Attack? attack = first;
         for (int step = 0; step < MaxAttacks && attack != null && fireAt < horizon; step++)
         {
-            AttackParts parts = ValueParts(attack, fireAt, horizon, remaining, facts, ref debuffs, apply: true, searchTick, killTicks);
+            AttackParts parts = ValueParts(attack, fireAt, horizon, remaining, facts, ref debuffs, context, apply: true, searchTick, killTicks);
             sequence?.Add((attack, searchTick + fireAt));
             damage += parts.Damage; threat += parts.Threat; prevented += parts.Prevented; push += parts.Push;
             mana += Math.Max(0f, attack.ManaCost);
@@ -175,23 +180,23 @@ public static class EvaluateAttackOutcomes
             float best = 0f;
             foreach (Attack candidate in alternatives)
             {
-                AttackParts next = ValueParts(candidate, fireAt, horizon, remaining, facts, ref debuffs, apply: false, searchTick, killTicks);
+                AttackParts next = ValueParts(candidate, fireAt, horizon, remaining, facts, ref debuffs, context, apply: false, searchTick, killTicks);
                 float gain = weights.Weighted(Marginal(next, candidate, fireAt, horizon, context, encounterLife));
                 if (gain > best) { best = gain; attack = candidate; }
             }
         }
-        int duration = Math.Max(1, context.TravelTicks + lastImpact - fireAt0);
+        int duration = Math.Max(1, lastImpact);
         float playerLife = Math.Max(1f, context.PlayerLife);
         float companionLife = Math.Max(1f, context.CompanionLife);
         return new CombatOutcome(
             DamagePerSecond: damage / (duration / 60f) / encounterLife,
             ThreatRemoved: threat,
             PlayerHarmPrevented: prevented / playerLife,
-            CompanionHarmTaken: (context.StandExposure * duration + context.TravelExposure * context.TravelTicks) / 60f
+            CompanionHarmTaken: (context.StandExposure * Math.Max(0, duration - context.TravelTicks) + context.TravelExposure * context.TravelTicks) / 60f
                 * Math.Max(0f, context.WorstHit) / companionLife,
             PushDangerAdded: push,
             CompanyGap: Math.Max(0f, context.CompanyGap),
-            TimeToFirstDamage: firstLanded < 0 ? 1f : Math.Clamp((context.TravelTicks + firstLanded) / (float)Math.Max(1, horizon), 0f, 1f),
+            TimeToFirstDamage: firstLanded < 0 ? 1f : Math.Clamp(firstLanded / (float)Math.Max(1, horizon), 0f, 1f),
             ManaSpent: mana / Math.Max(1f, context.ManaPool));
     }
 
@@ -215,13 +220,13 @@ public static class EvaluateAttackOutcomes
             CompanionHarmTaken: 0f,
             PushDangerAdded: parts.Push,
             CompanyGap: 0f,
-            TimeToFirstDamage: parts.Damage > 0f ? Math.Clamp((context.TravelTicks + parts.FirstImpact) / (float)Math.Max(1, horizon), 0f, 1f) : 1f,
+            TimeToFirstDamage: parts.Damage > 0f ? Math.Clamp(parts.FirstImpact / (float)Math.Max(1, horizon), 0f, 1f) : 1f,
             ManaSpent: Math.Max(0f, attack.ManaCost) / Math.Max(1f, context.ManaPool));
     }
 
     private static AttackParts ValueParts(Attack attack, int fireAt, int horizon,
         Dictionary<int, float> remaining, Dictionary<int, Target> targets,
-        ref Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs, bool apply,
+        ref Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs, PlanContext context, bool apply,
         int searchTick = 0, ICollection<(int Target, int Tick)>? killTicks = null)
     {
         int impact = fireAt + Math.Max(1, attack.ImpactTicks);
@@ -250,10 +255,17 @@ public static class EvaluateAttackOutcomes
             }
             else
             {
-                threat += danger * (dealt / life);
+                threat += danger * (dealt / target.Life);
                 prevented += Math.Max(0f, target.ExpectedHarm) * danger
-                    * (dealt / life) * Weights.AttackPartialHarmShare * timing;
-                push += Math.Max(0f, hit.InducedDanger);
+                    * (dealt / target.Life) * Weights.AttackPartialHarmShare * timing;
+                // Each half in its own body's life shares, the units prevention is in: an absolute push
+                // beside a normalised prevention overprices the shove by the body's life, and the planner
+                // then flies a hundred ticks round a pillar it can shoot past to avoid pushing a zombie a
+                // few pixels toward the player. Discounted like the harm it accompanies, as the scalar is.
+                float toCompanion = Math.Max(0f, hit.InducedDangerToCompanion);
+                float toPlayer = Math.Max(0f, hit.InducedDanger - hit.InducedDangerToCompanion);
+                push += (toPlayer / Math.Max(1f, context.PlayerLife)
+                    + toCompanion / Math.Max(1f, context.CompanionLife)) * timing;
                 if (apply && hit.DebuffChance > 0f && hit.DebuffTicks > 0)
                 {
                     debuffs ??= new();

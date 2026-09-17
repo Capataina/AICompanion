@@ -535,8 +535,8 @@ internal static class VerifyOfferValidity
             DistanceToPlayer = Vector2.Distance(player.Bottom, enemy.Bottom),
         });
         var ctx = new C(companion, companion.Brain.Senses);
-        var profile = companion.Combat.ProfileFor(ctx, enemy);
-        Require(profile != null, "the pillar scene needs an equipped weapon profile to solve with");
+        Require(companion.Combat.Weapons.Count > 0, "the pillar scene needs an equipped weapon profile to solve with");
+        FlightModel? profile = companion.Combat.Weapons[0].Model;
         return (companion, enemy, profile);
     }
 
@@ -592,8 +592,8 @@ internal static class VerifyOfferValidity
             DistanceToPlayer = Vector2.Distance(player.Bottom, enemy.Bottom),
         });
         var ctx = new C(companion, companion.Brain.Senses);
-        var profile = companion.Combat.ProfileFor(ctx, enemy);
-        Require(profile != null, "the offer-validity fixture needs an equipped weapon profile to solve with");
+        Require(companion.Combat.Weapons.Count > 0, "the offer-validity fixture needs an equipped weapon profile to solve with");
+        FlightModel? profile = companion.Combat.Weapons[0].Model;
         return (companion, enemy, profile, ctx);
     }
 

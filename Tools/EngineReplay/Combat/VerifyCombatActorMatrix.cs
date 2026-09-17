@@ -49,7 +49,7 @@ internal static class VerifyCombatActorMatrix
 
     private readonly record struct Row(string Actor, bool Blocked, float PlayerDanger, float CompanionDanger,
         Dictionary<int, (bool SolvesFromHere, bool Pursued, float Travel, float Value)> Enemies, float Guard,
-        float ThreatRemoved, float KillIn, float Intervention, float Urgency, string Evidence,
+        float Weighted, float ThreatRemoved, float KillIn, float Intervention, float Urgency, string Evidence,
         int GuardTarget, string GuardAccess, float GuardAccessTicks, float TopUrgency);
 
     public static void Run()
@@ -69,10 +69,10 @@ internal static class VerifyCombatActorMatrix
         finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
 
         foreach (Row row in rows)
-            Console.WriteLine($"  actor matrix {row.Actor,-9} {(row.Blocked ? "blocked" : "clear  ")}: danger player {row.PlayerDanger:0.000} companion {row.CompanionDanger:0.000}; guard {row.Guard:0.000} target {row.GuardTarget} access {row.GuardAccess} {row.GuardAccessTicks:0.0} threat-removed {row.ThreatRemoved:0.000} kill-in {row.KillIn:0.0} intervention {row.Intervention:0.0} urgency {row.Urgency:0.000}; evidence {row.Evidence}; "
+            Console.WriteLine($"  actor matrix {row.Actor,-9} {(row.Blocked ? "blocked" : "clear  ")}: danger player {row.PlayerDanger:0.000} companion {row.CompanionDanger:0.000}; guard {row.Guard:0.000} weighted {row.Weighted:0.000} target {row.GuardTarget} access {row.GuardAccess} {row.GuardAccessTicks:0.0} threat-removed {row.ThreatRemoved:0.000} kill-in {row.KillIn:0.0} intervention {row.Intervention:0.0} urgency {row.Urgency:0.000}; evidence {row.Evidence}; "
                 + string.Join(", ", row.Enemies.Select(e => $"{e.Key}: solves-here={e.Value.SolvesFromHere} pursued={e.Value.Pursued} travel {e.Value.Travel:0.0} value {e.Value.Value:0.000}")));
         foreach (Row row in guardRows)
-            Console.WriteLine($"  actor matrix guard {row.Actor,-9} {(row.Blocked ? "blocked" : "clear  ")} (life {GuardedLife}): guard {row.Guard:0.000} target {row.GuardTarget} access {row.GuardAccess} {row.GuardAccessTicks:0.0} threat-removed {row.ThreatRemoved:0.000} kill-in {row.KillIn:0.0} urgency {row.Urgency:0.000} top {row.TopUrgency:0.000} danger player {row.PlayerDanger:0.000}");
+            Console.WriteLine($"  actor matrix guard {row.Actor,-9} {(row.Blocked ? "blocked" : "clear  ")} (life {GuardedLife}): guard {row.Guard:0.000} weighted {row.Weighted:0.000} target {row.GuardTarget} access {row.GuardAccess} {row.GuardAccessTicks:0.0} threat-removed {row.ThreatRemoved:0.000} kill-in {row.KillIn:0.0} urgency {row.Urgency:0.000} top {row.TopUrgency:0.000} danger player {row.PlayerDanger:0.000}");
 
         foreach (Row row in rows)
         {
@@ -112,17 +112,32 @@ internal static class VerifyCombatActorMatrix
         // difference is the reposition too, against a longer fight. The old share formula — a saturation at one
         // inside a useful length and an exact access-over-access-plus-removal past it — is gone with the linear
         // guard side: the evaluator prices time inside a nonlinear outcome, so both pairs pin the direction.
+        // The ordering is read on the plans' unclamped value, not the offers: the offer maps the plan through
+        // the specified saturate, so two good fights both read the clamp and the better-priced one only in
+        // the plans. The shaft-guard rows read it the same way for the same reason.
         foreach (string actor in new[] { "player", "both" })
         {
             Row clear = rows.Single(r => r.Actor == actor && !r.Blocked), blocked = rows.Single(r => r.Actor == actor && r.Blocked);
-            Require(clear.GuardTarget == PlayerThreatSlot && blocked.GuardTarget == PlayerThreatSlot
+            // The single-zombie pair pursues the player's zombie by construction. The two-zombie pair
+            // pursues whichever the valuation prefers — the near zombie that threatens the body, in this
+            // arrangement, because neither zombie dies inside the horizon and the nearer wound lands
+            // sooner — so the pair requires the same pursuit in both arms rather than a named one: the
+            // pillar must price a reposition for the same fight, not choose a different one. Naming the
+            // player's zombie here would be the old guard side's targeting carried over as a rule, and
+            // the unified planner chooses its target by value.
+            int wanted = actor == "player" ? PlayerThreatSlot : clear.GuardTarget;
+            Require(clear.GuardTarget == wanted && blocked.GuardTarget == wanted
                 && clear.GuardAccess == "FromHere" && blocked.GuardAccess == "AfterMoving" && blocked.GuardAccessTicks > 0f,
-                $"{actor}: guarding must pursue the player's zombie from here clear and after moving blocked, or the pair tests nothing; clear={clear.GuardTarget}/{clear.GuardAccess}, blocked={blocked.GuardTarget}/{blocked.GuardAccess}/{blocked.GuardAccessTicks}");
-            Require(blocked.Guard < clear.Guard,
-                $"{actor}: an ordinary zombie must be worth less guard blocked than clear, by the walk around the pillar; clear={clear.Guard}, blocked={blocked.Guard}");
+                $"{actor}: guarding must pursue zombie {wanted} from here clear and after moving blocked, or the pair tests nothing; clear={clear.GuardTarget}/{clear.GuardAccess}, blocked={blocked.GuardTarget}/{blocked.GuardAccess}/{blocked.GuardAccessTicks}");
+            Require(blocked.Weighted < clear.Weighted,
+                $"{actor}: an ordinary zombie must be worth less guard blocked than clear, by the walk around the pillar; clear={clear.Weighted} ({clear.Guard}), blocked={blocked.Weighted} ({blocked.Guard})");
 
             Row tankClear = guardRows.Single(r => r.Actor == actor && !r.Blocked), tankBlocked = guardRows.Single(r => r.Actor == actor && r.Blocked);
-            Require(tankClear.GuardTarget == PlayerThreatSlot && tankBlocked.GuardTarget == PlayerThreatSlot
+            // The guarded zombie is the player's in the single-zombie pair; in the two-zombie pair the
+            // companion's zombie stays ordinary and the valuation pursues it, so again the pair holds
+            // the pursuit fixed rather than naming it.
+            int tankWanted = actor == "player" ? PlayerThreatSlot : tankClear.GuardTarget;
+            Require(tankClear.GuardTarget == tankWanted && tankBlocked.GuardTarget == tankWanted
                 && tankClear.GuardAccess == "FromHere" && tankBlocked.GuardAccess == "AfterMoving"
                 && float.IsFinite(tankBlocked.GuardAccessTicks) && tankBlocked.GuardAccessTicks > 0f,
                 $"{actor} guard pair: the guarded zombie must be pursued from here clear and after a finite walk blocked; clear={tankClear.GuardTarget}/{tankClear.GuardAccess}, blocked={tankBlocked.GuardTarget}/{tankBlocked.GuardAccess}/{tankBlocked.GuardAccessTicks}");
@@ -132,10 +147,12 @@ internal static class VerifyCombatActorMatrix
             Require(MathF.Abs(tankClear.Urgency - tankBlocked.Urgency) < 1e-5f && MathF.Abs(tankClear.TopUrgency - tankBlocked.TopUrgency) < 1e-5f
                 && MathF.Abs(tankClear.PlayerDanger - tankBlocked.PlayerDanger) < 1e-5f,
                 $"{actor} guard pair: the threat to the player must be identical in both arms, or a guard difference could be danger rather than access; urgency {tankClear.Urgency}/{tankBlocked.Urgency}, top {tankClear.TopUrgency}/{tankBlocked.TopUrgency}, player danger {tankClear.PlayerDanger}/{tankBlocked.PlayerDanger}");
-            float margin = 1f - tankBlocked.Guard / tankClear.Guard;
-            Console.WriteLine($"  actor matrix guard {actor}: blocked guard {tankBlocked.Guard:0.0000} below clear {tankClear.Guard:0.0000} by {margin:P2}");
-            Require(tankBlocked.Guard < tankClear.Guard,
-                $"{actor} guard pair: a threat the companion must walk around the pillar to shoot must be worth less protection than the same threat it can shoot now; clear={tankClear.Guard}, blocked={tankBlocked.Guard}");
+            string margin = tankClear.Weighted > 0f
+                ? $"by {(1f - tankBlocked.Weighted / tankClear.Weighted):P2}"
+                : $"a difference of {tankClear.Weighted - tankBlocked.Weighted:0.0000}";
+            Console.WriteLine($"  actor matrix guard {actor}: blocked weighted {tankBlocked.Weighted:0.0000} below clear {tankClear.Weighted:0.0000} {margin}");
+            Require(tankBlocked.Weighted < tankClear.Weighted,
+                $"{actor} guard pair: a threat the companion must walk around the pillar to shoot must be worth less protection than the same threat it can shoot now; clear={tankClear.Weighted} ({tankClear.Guard}), blocked={tankBlocked.Weighted} ({tankBlocked.Guard})");
         }
     }
 
@@ -227,7 +244,7 @@ internal static class VerifyCombatActorMatrix
                     killIn = at - plan.Validity.LastProgressTick;
         float travel = plan?.Current(brain.Senses.Tick).Verdict.TravelTicks ?? float.NaN;
         return new Row(actor, blocked, brain.Senses.Threats.PlayerDanger, brain.Senses.Threats.CompanionDanger, enemies,
-            combat.Score(), plan?.Outcome.ThreatRemoved ?? 0f, killIn, brain.Senses.Threats.InterventionTicks,
+            combat.Score(), plan?.Weighted ?? 0f, plan?.Outcome.ThreatRemoved ?? 0f, killIn, brain.Senses.Threats.InterventionTicks,
             brain.Senses.Threats.ProtectionUrgency,
             $"offer={combat.Eligibility}/{combat.EligibilityReason} funnel={combat.Funnel.Describe()}",
             plan?.PrimaryTarget ?? -1, plan == null ? "unasked" : travel > 0f ? "AfterMoving" : "FromHere", travel,

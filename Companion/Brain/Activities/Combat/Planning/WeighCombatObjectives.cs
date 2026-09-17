@@ -58,8 +58,11 @@ public readonly record struct CombatWeights(float Damage, float ThreatRemoved, f
 /// harm answers his missing life and his own danger; mana answers the pool's emptiness. Push proximity
 /// needs no shape here — the adapter's induced danger already re-weighs urgency at the pushed body.
 ///
-/// The constants reproduce today's blend first: prevention and push carry the scalar's weights, so the
-/// planner's first decisions match phase C's choices and the vector changes representation, not behaviour.
+/// Neither prevention nor push can carry the scalar's weight: their vector units divide the
+/// scalar's life by the bodies', which prices a full save at two against a full kill near seven and a
+/// shove at a hundredth of the save it undoes. Prevention carries nine restoring rescue-over-killing,
+/// and push carries nine beside it, keeping the scalar's one-for-one break-even between a shove and a
+/// save. The audit's sweeps tune both.
 /// </summary>
 public static class WeighCombatObjectives
 {

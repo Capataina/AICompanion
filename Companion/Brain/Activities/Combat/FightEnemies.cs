@@ -34,7 +34,12 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// <summary>Serves the player directly when the offered plan engages a body that can reach him.</summary>
     public override bool ServesPlayerDirectly => OfferedPlan != null && ServesPlayer;
 
-    public override object? ActivityIdentity => CommittedPlanTarget;
+    /// <summary>The offered plan's target, so the identity is bound at preparation like every
+    /// sibling's: the committed target does not exist until Enter commits, which Select reads after it
+    /// stored the identity, so a commit-bound identity re-admits combat on its second tick — a passing
+    /// shot then reads as replacing guarding. The committed target is the fallback where no offer stands.</summary>
+    public override object? ActivityIdentity => OfferedPlan is { } offered
+        ? OfferedPlanTarget(offered) : CommittedPlanTarget;
     public override Vector2? ActivityTarget => CommittedPlanTarget?.Bottom;
     public override PositionRequest? PreparedPositionRequest => OfferedPlan is { } plan
         ? new PositionRequest(RequestKind.FireFrom, plan.Current(PlanTick).Stand.Stand, OfferedPlanTarget(plan))
@@ -318,7 +323,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             Math.Max(1, ctx.Companion.Mana.Max), 0f);
         var evalTargets = ForecastUses.AttackTargets(ctx);
         return EvaluateAttackOutcomes.EvaluateVector(attacks[0], attacks, evalTargets,
-            Math.Max(0, combat.CooldownTicks - (int)travel), horizon, context, weights);
+            Math.Max(0, combat.CooldownTicks), horizon, context, weights);
     }
 
     public override float Score() => preparedValue;

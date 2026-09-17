@@ -19,7 +19,7 @@ public readonly record struct CombatOutcome(
     float PlayerHarmPrevented,
     /// <summary>Lower: predicted damage to the body at its stands and along its travel, in units of its life.</summary>
     float CompanionHarmTaken,
-    /// <summary>Lower: danger the plan's pushes add toward either body, in threat-urgency times hit-cost units.</summary>
+    /// <summary>Lower: danger the plan's pushes add toward either body, each half in its own body's life shares, the units prevention is in.</summary>
     float PushDangerAdded,
     /// <summary>Lower: time-integrated distance outside the player's predicted intent region, in units of the region's size times the horizon.</summary>
     float CompanyGap,
@@ -34,7 +34,7 @@ public readonly record struct CombatOutcome(
         ThreatRemoved: 0.01f,
         PlayerHarmPrevented: 0.005f,
         CompanionHarmTaken: 0.005f,
-        PushDangerAdded: 0.01f,
+        PushDangerAdded: 0.005f,
         CompanyGap: 0.01f,
         TimeToFirstDamage: 0.005f,
         ManaSpent: 0.005f);

@@ -195,7 +195,11 @@ internal static class VerifyCombatPurpose
                 && Value("plan_threat_removed") == plan.Outcome.ThreatRemoved.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture),
                 $"the recorded plan numbers must be the offered outcome's; row={Value("plan_travel")}/{Value("plan_dps")}/{Value("plan_threat_removed")}");
             string expectedKill = "-1";
-            int rowTick = int.Parse(values[Array.IndexOf(names, "tick")], System.Globalization.CultureInfo.InvariantCulture);
+            // The plan's kill ticks run on the senses clock, not the engine counter the tick column
+            // carries; the recorded value is ticks-from-the-row either way, but the expectation must
+            // subtract the same base the recorder did. No tick runs between the recording and this
+            // read, so the live senses tick is the recording's.
+            int rowTick = ctx.Companion.Brain.Senses.Tick;
             if (plan.TargetKillTicks != null)
                 foreach ((int slot, int at) in plan.TargetKillTicks)
                     if (slot == plan.PrimaryTarget)
@@ -222,10 +226,14 @@ internal static class VerifyCombatPurpose
     private readonly record struct GuardScene(float Guard, float Urgency, float ThreatRemoved, float KillIn, bool Offered);
 
     /// <summary>
-    /// One hostile beside the player, with the companion across an open floor. Only the hostile differs
-    /// between rows — its type, or for the matched pair only its life — so a change in the fight's value is
-    /// the fight's length acting through what the plan removes. Enemy AI does not run; this values the
-    /// arrangement, it does not stage a fight.
+    /// One hostile beside the player, with the companion twelve tiles down the same open floor. Only the
+    /// hostile differs between rows — its type, or for the matched pair only its life — so a change in the
+    /// fight's value is the fight's length acting through what the plan removes. Enemy AI does not run;
+    /// this values the arrangement, it does not stage a fight. Twelve tiles, not thirty-seven: a use fires
+    /// when the hands are ready and the body has arrived, so from the ore setup's tile the flight alone
+    /// leaves the killing blow past the window and the ordinary zombie survives what the row claims it dies
+    /// to — honestly, because the plan cannot fire before it arrives. At twelve the bow kills it at the
+    /// fifth landing with room to spare, and the tank still survives by two orders of magnitude.
     /// </summary>
     private static GuardScene GuardAgainst(int type, int life = 0)
     {
@@ -233,6 +241,7 @@ internal static class VerifyCombatPurpose
         Main.tile[25, 89].ClearEverything();
         ctx.Player.Bottom = new Vector2(60 * 16, 90 * 16);
         ctx.Player.DefenseEffectiveness = MultipliableFloat.One * .5f;
+        ctx.Npc.Bottom = new Vector2(45 * 16, 90 * 16);
         // The scene owns the threat list: every hostile slot starts inactive, so earlier scenes' zombies
         // are never scanned in beside the planted one.
         for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
