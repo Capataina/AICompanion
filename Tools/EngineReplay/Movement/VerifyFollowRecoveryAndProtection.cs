@@ -72,7 +72,7 @@ internal static class VerifyFollowRecoveryAndProtection
         TerrainChanges.Reset();
         foreach (var kind in new[] { live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer,
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Exact,
-            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Guard,
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.FireFrom,
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold })
         {
             var companion = VerifyCompanionLifecycle.Create();
@@ -131,7 +131,7 @@ internal static class VerifyFollowRecoveryAndProtection
         var primeRequest = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, Main.player[0].Bottom);
         for (int i = 0; i < 3000 && !companion.Brain.Positioner.ReachComplete; i++)
-            companion.Brain.Positioner.Resolve(primeRequest, senses, null);
+            companion.Brain.Positioner.Resolve(primeRequest, senses);
         Require(companion.Brain.Positioner.ReachComplete, "the guard scene needs a completed flood before the plan can be read");
         VerifyPreparedActivities.PrepareAndScore(combat, context);
         Require(combat.OfferedPlan != null, $"the guard scene must offer a plan; reason={combat.EligibilityReason}");

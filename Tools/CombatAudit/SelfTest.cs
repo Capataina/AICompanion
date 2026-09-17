@@ -166,7 +166,7 @@ internal static class SelfTest
             new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
                 live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.FireFrom,
                 companion.NPC.Center),
-            companion.Brain.Senses, null);
+            companion.Brain.Senses);
         var scene = new Scene { Companion = companion, Ctx = new ActionContext(companion, companion.Brain.Senses) };
         scene.Radius = CompanionPreferences.Current.NewActivityRadius;
         return scene;

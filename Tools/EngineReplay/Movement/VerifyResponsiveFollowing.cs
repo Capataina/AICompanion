@@ -157,7 +157,7 @@ internal static class VerifyResponsiveFollowing
         {
             var request = company.Execute(context);
             // Resolved every tick as the brain does, because the region is rooted and replaced on the resolver's own cadence.
-            brain.Positioner.Resolve(request, brain.Senses, null);
+            brain.Positioner.Resolve(request, brain.Senses);
             accompanied &= request.Kind == RequestKind.WithPlayer && brain.Positioner.Chosen == null
                 && company.EligibilityReason == "local-company-method";
             Require(company.EligibilityReason != "reunion-method", "calm co-location should not keep requesting reunion");
@@ -679,11 +679,11 @@ internal static class VerifyResponsiveFollowing
         var positioner = companion.Brain.Positioner;
         Vector2 place = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.HoverPoint(new Point(80, 79));
         positioner.Resolve(new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(RequestKind.WithPlayer, place, MeetingPlace: true),
-            companion.Brain.Senses, null);
+            companion.Brain.Senses);
         Require(positioner.Chosen is Vector2 held && Vector2.Distance(held, place) < 1f && positioner.ChoiceReason == "priced-meeting-place",
             $"a priced meeting place must first become the exact destination, or dropping it tests nothing; chosen={positioner.Chosen} reason={positioner.ChoiceReason}");
         positioner.Resolve(new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(RequestKind.WithPlayer, player.Bottom),
-            companion.Brain.Senses, null);
+            companion.Brain.Senses);
         Require(positioner.Chosen is not Vector2 kept || Vector2.Distance(kept, place) >= 16f,
             $"a dropped meeting place must not remain the destination until the next rescore; chosen={positioner.Chosen} reason={positioner.ChoiceReason} place={place}");
     }
@@ -960,7 +960,7 @@ internal static class VerifyResponsiveFollowing
         brain.Senses.Update(companion.NPC, player);
         var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             RequestKind.WithPlayer, player.Bottom);
-        brain.Positioner.Resolve(request, brain.Senses, null);
+        brain.Positioner.Resolve(request, brain.Senses);
         Require(brain.Positioner.FollowObjectiveSatisfied, FormattableString.Invariant(
             $"a moving body inside the region is with the player: companion={companion.NPC.Center} v={companion.Motor.State.Velocity} player={player.Bottom} vy={player.velocity.Y} reason={brain.Positioner.FollowObjectiveReason} inside={brain.Senses.Intent.Inside}"));
         var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();

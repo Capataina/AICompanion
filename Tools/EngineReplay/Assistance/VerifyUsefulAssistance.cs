@@ -144,7 +144,7 @@ internal static class VerifyUsefulAssistance
         var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            brain.Positioner.Resolve(home, brain.Senses, null);
+            brain.Positioner.Resolve(home, brain.Senses);
         Require(brain.Positioner.ReachComplete, "the lighting scenes need a settled reach region before preparing");
         var action = new LightUsefulArea();
         float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);

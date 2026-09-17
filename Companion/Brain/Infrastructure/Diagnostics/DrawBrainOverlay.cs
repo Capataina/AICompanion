@@ -411,7 +411,7 @@ public sealed class BrainOverlay : ModSystem
         {
             if (brain.EngageTarget is { } target) Line(sb, c.NPC.Center, target.Center, Color.OrangeRed);
             if (brain.LastAction?.ActivityTarget is Vector2 work) { Line(sb, c.NPC.Center, work, Color.Cyan); Dot(sb, work, Color.Cyan, 8); }
-            if (brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer or Infrastructure.Position.RequestKind.Guard) Line(sb, c.NPC.Center, brain.Senses.Player.Bottom, Color.White * .4f);
+            if (brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer) Line(sb, c.NPC.Center, brain.Senses.Player.Bottom, Color.White * .4f);
         }
         if (ShowFollow) DrawFollow(sb, brain, c.NPC);
         if (ShowSenses) DrawSensed(sb, brain);

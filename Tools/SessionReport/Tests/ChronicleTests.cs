@@ -1405,7 +1405,10 @@ public static class ChronicleTests
                     && region.Contains("SuccessRegionKind.FollowComfort => Near(feet, PlayerFeet)", StringComparison.Ordinal)
                     && telemetry.Contains("region.Contains(npc.Center)", StringComparison.Ordinal),
                 "the follow region admits something other than its own box, or the recorder judges an arrival on a point other than the orb's centre");
-            Require(new[] { "\"follow-comfort\"", "\"tool-reach\"", "\"firing-position\"", "\"meeting-place\"", "\"undeclared\"" }.All(name => region.Contains(name, StringComparison.Ordinal))
+            // "firing-position" retired with the positioner's scored firing stands: no new capture
+            // writes it, while the firing rows above keep grading it where an old capture carries it.
+            Require(new[] { "\"follow-comfort\"", "\"tool-reach\"", "\"meeting-place\"", "\"undeclared\"" }.All(name => region.Contains(name, StringComparison.Ordinal))
+                    && !region.Contains("\"firing-position\"", StringComparison.Ordinal)
                     && telemetry.Contains("controlGrant?.RequestedOwner == \"travel\"", StringComparison.Ordinal)
                     && telemetry.Contains("region_kind\\tregion_revision\\tregion_tick\\tregion_terrain\\tregion_anchor_px\\tregion_player_px\\tregion_comfort\\tregion_work_tile\\tregion_reach\\tregion_arrival", StringComparison.Ordinal),
                 "the region names, the arrival-claim gate or the region column order the rule reads has changed");

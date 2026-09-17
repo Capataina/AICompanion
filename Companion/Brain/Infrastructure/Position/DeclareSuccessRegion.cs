@@ -15,8 +15,6 @@ public enum SuccessRegionKind
     FollowComfort,
     /// <summary>A tool stand: the native reach box around the work tile its proof chose the stand for.</summary>
     ToolReach,
-    /// <summary>An attack position admitted with a solved arc; the arc belongs to a moving target, so no box is declared.</summary>
-    FiringPosition,
     /// <summary>A priced meeting place, flown to as a point without acceptance, so no box is declared.</summary>
     MeetingPlace,
     /// <summary>An exact or roaming destination whose request carries no purpose geometry.</summary>
@@ -70,7 +68,6 @@ public readonly record struct SuccessRegion(SuccessRegionKind Kind, int Admitted
     {
         SuccessRegionKind.FollowComfort => "follow-comfort",
         SuccessRegionKind.ToolReach => "tool-reach",
-        SuccessRegionKind.FiringPosition => "firing-position",
         SuccessRegionKind.MeetingPlace => "meeting-place",
         SuccessRegionKind.Undeclared => "undeclared",
         _ => "none",

@@ -10,6 +10,8 @@ using AttackPlan = live::AICompanion.Companion.Brain.Activities.Combat.Planning.
 using SearchPlans = live::AICompanion.Companion.Brain.Activities.Combat.Planning.SearchAttackPlans;
 using Weigh = live::AICompanion.Companion.Brain.Activities.Combat.Planning.WeighCombatObjectives;
 using Budget = live::AICompanion.Companion.Brain.Activities.Combat.Planning.PlanningBudget;
+using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
 
 /// <summary>
 /// The combat fixtures' shared hand: a plan searched under an unbounded budget with every stand and
@@ -27,6 +29,15 @@ internal static class CombatFixture
         var combat = companion.Combat;
         var weights = Weigh.ForSenses(ctx);
         Budget budget = Budget.Unbounded();
+        // Prime the reach region to completion before searching: the search answers on the flood's
+        // verdicts, and no fixture here ever resolves anything, so without priming every stand but
+        // the body's reads undecided and no reposition is ever priced — a state live play leaves
+        // after one tick. The actor matrix primes the same way for the same reason.
+        var brain = companion.Brain;
+        var primeHome = new PositionRequest(RequestKind.WithPlayer, ctx.Player.Bottom);
+        brain.Positioner.Resolve(primeHome, brain.Senses);
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+            brain.Positioner.Resolve(primeHome, brain.Senses);
         SearchPlans.SearchResult result = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, weights, combat.NextPlanId++, ref budget);
         return result.Plan;

@@ -279,15 +279,15 @@ internal static class VerifyCombatPurpose
     private static void PrimeAndSettle(live::AICompanion.Companion.Brain.Brain brain,
         live::AICompanion.Companion.Brain.Activities.ActionContext ctx, Combat combat)
     {
-        // WithPlayer, not the LineOfFire the search itself will ask: a firing request without a flight
-        // profile early-outs before it refreshes the flood, so three thousand of them prime nothing.
+        // WithPlayer, which walks the scored path and refreshes the flood on the way; the combat
+        // stance's own FireFrom only holds a point and never grows anything.
         var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
         // The flood is bounded per advance and grows across resolves: three thousand, the count the
         // assistance matrix uses, because four hundred no longer completes it. Nothing else about the scene
         // moves — the threat list, the urgency and the terrain stay as the scene built them.
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            brain.Positioner.Resolve(request, brain.Senses, null);
+            brain.Positioner.Resolve(request, brain.Senses);
         Require(brain.Positioner.ReachComplete, "the reach flood must complete before the offer can be read as the search's answer");
         VerifyPreparedActivities.PrepareAndScore(combat, ctx);
         Require(combat.Eligibility != live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved,

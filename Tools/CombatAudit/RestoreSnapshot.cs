@@ -169,9 +169,9 @@ internal static class RestoreSnapshot
             reach.Grow();
         // The positioner reads the flood through a reference it binds incidentally while resolving,
         // so a replay that never resolved reads NotYet over finished ground. An admission query binds
-        // it without moving anything: maxSolves zero prices nothing and restores what it held.
+        // it without moving anything.
         restored.Companion.Brain.Positioner.PrepareOffer(
-            new PositionRequest(RequestKind.FireFrom, restored.Companion.NPC.Center), senses, null);
+            new PositionRequest(RequestKind.FireFrom, restored.Companion.NPC.Center), senses);
     }
 
     private static void RestoreTiles(RestoredDecision restored)

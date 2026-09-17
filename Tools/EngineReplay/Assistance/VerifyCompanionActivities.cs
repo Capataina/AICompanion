@@ -474,6 +474,7 @@ internal static class VerifyCompanionActivities
         var seen = new Dictionary<string, (float Raw, float Protection, float Reunion, float DelayCost, float Guard, float PlayerDanger, float CompanionDanger)>();
         var excursions = new Dictionary<string, Dictionary<string, float>>();
         var offers = new Dictionary<string, string>();
+        var combatOffers = new Dictionary<string, string>();
         bool torchPlacement = Preferences.Current.TorchPlacement;
         var lightMode = Lighting.Mode;
         float brightness = Lighting.GlobalBrightness;
@@ -550,9 +551,9 @@ internal static class VerifyCompanionActivities
                 // loop exits at once on the stale true, the first tick refloods, and the hand-rolled
                 // loop below never grows the replacement the way the live tick would. The resolve
                 // refloods first if it must, and the loop then grows the flood that actually answers.
-                brain.Positioner.Resolve(primeHome, brain.Senses, null);
+                brain.Positioner.Resolve(primeHome, brain.Senses);
                 for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-                    brain.Positioner.Resolve(primeHome, brain.Senses, null);
+                    brain.Positioner.Resolve(primeHome, brain.Senses);
                 Require(brain.Positioner.ReachComplete,
                     $"the reach region must settle before the comparison, or a refusal reads as an absence: {scene.Name}");
                 var combatPreview = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
@@ -582,6 +583,10 @@ internal static class VerifyCompanionActivities
                 excursions[scene.Name] = brain.Chooser.LastScores.Where(s => s.Action.IsExcursion && s.Action.Name != "combat").ToDictionary(s => s.Action.Name, s => s.Raw);
                 offers[scene.Name] = string.Join(",", brain.Chooser.LastScores.Where(s => s.Action.IsExcursion)
                     .Select(s => $"{s.Action.Name}:{s.Action.Eligibility}/{s.Action.EligibilityReason}"));
+                // Read directly, not through the excursion offers above: whether the winning stand
+                // travels past the local-trip line is the planner's answer about this scene's
+                // geometry, and a nearer winning stand must not read as a removed offer.
+                combatOffers[scene.Name] = $"{combat.Eligibility}/{combat.EligibilityReason}";
             }
         }
         finally
@@ -605,8 +610,8 @@ internal static class VerifyCompanionActivities
                 Require(excursions[threatened][name] == raw,
                     $"{name}'s raw value must not read the player's danger: {calm}={raw} against {threatened}={excursions[threatened][name]}; {excursionLedger}");
         foreach (var scene in scenes)
-            Require(offers[scene.Name].Contains("combat:Usable/planned-attack", StringComparison.Ordinal),
-                $"danger reprices the fight but never removes the offer; {scene.Name} offers {offers[scene.Name]}; {excursionLedger}");
+            Require(combatOffers[scene.Name] == "Usable/planned-attack",
+                $"danger reprices the fight but never removes the offer; {scene.Name} offers combat:{combatOffers[scene.Name]}; {excursionLedger}");
         Console.WriteLine($"danger charged once: {excursionLedger}");
         var (neither, player, companion, both) = (seen["neither"], seen["player"], seen["companion"], seen["both"]);
         static bool Same(float a, float b) => MathF.Abs(a - b) < 1e-6f;
@@ -686,7 +691,7 @@ internal static class VerifyCompanionActivities
             brain.Chooser.Activity.Select(i % 2 == 0
                 ? new live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies()
                 : new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany(), ctx);
-            Tick(i % 2 == 0 ? RequestKind.WithPlayer : RequestKind.Guard, i % 8 - 4);
+            Tick(i % 2 == 0 ? RequestKind.WithPlayer : RequestKind.Exact, i % 8 - 4);
         }
         Require(brain.MovementStalled, "local oscillation and behaviour churn must not reset continuing non-progress");
         Tick(RequestKind.Hold);

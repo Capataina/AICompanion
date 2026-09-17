@@ -267,7 +267,7 @@ internal static class VerifyOreWork
             // region is complete — which is the quietest way a fixture can prime nothing and look primed.
             ResettleReach(ctx);
             for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-                brain.Positioner.Resolve(home, brain.Senses, null);
+                brain.Positioner.Resolve(home, brain.Senses);
             if (brain.Positioner.EstimatedTravelTicks(from, to) == null)
             {
                 // An extern alias cannot appear inside an interpolation hole, so the diagnostics are locals.
@@ -1585,7 +1585,7 @@ internal static class VerifyOreWork
         var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            brain.Positioner.Resolve(home, brain.Senses, null);
+            brain.Positioner.Resolve(home, brain.Senses);
         // Warming the region is the whole job, so the choice it took to warm it is thrown away. Those
         // resolves leave the positioner holding a destination, the request kind that produced it and a fresh
         // rescore clock, and a fixture that then runs the brain gets that destination handed back as a
@@ -1596,7 +1596,7 @@ internal static class VerifyOreWork
         brain.Positioner.Resolve(
             new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
                 live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold, player.Bottom),
-            brain.Senses, null);
+            brain.Senses);
     }
 
     private static void ProbeOreLineTarget(Vector2 feet, Point ore)

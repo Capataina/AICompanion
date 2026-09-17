@@ -90,6 +90,7 @@ internal static class VerifyItemWeapon
             DistanceToCompanion = Vector2.Distance(companion.NPC.Bottom, enemy.Bottom),
             DistanceToPlayer = Vector2.Distance(player.Bottom, enemy.Bottom),
         });
+        Console.WriteLine($"### item scene {tilesAway} tiles [{string.Join(",", gear.Select(g => g.Item))}]");
         return (companion, enemy, new C(companion, companion.Brain.Senses));
     }
 
@@ -276,7 +277,6 @@ internal static class VerifyItemWeapon
         var use = CombatFixture.FireOnce(companion, ctx);
         Require(!use.Fired && combat.LastFireOutcome == "no-weapon", $"the outcome names the empty hands; got {combat.LastFireOutcome}");
         Require(float.IsPositiveInfinity(combat.EstimateInterventionTicks(ctx)), "a target cannot be removed with nothing to fire");
-        Require(combat.ProfileFor(ctx, enemy) == null, "no flight model with nothing to fire");
     }
 
     private static void Require(bool value, string message)

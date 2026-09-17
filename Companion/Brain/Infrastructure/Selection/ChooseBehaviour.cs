@@ -90,7 +90,7 @@ public sealed class Chooser
         if (ctx.Companion.Brain.Positioner.EstimatedTravelTicks(Infrastructure.Movement.MovementQueries.Tile(ctx.Npc.Center),
             Infrastructure.Movement.MovementQueries.Tile(region.Centre)) is float knownTravel)
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, knownTravel);
-        if (ctx.Companion.Brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer or Infrastructure.Position.RequestKind.Guard
+        if (ctx.Companion.Brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer or Infrastructure.Position.RequestKind.FireFrom
             && navigator.Path != null)
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, navigator.RemainingEstimatedRouteTicks);
         float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Intent, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
@@ -180,8 +180,7 @@ public sealed class Chooser
             string reason = bindings[winner.Index].Rejection(Actions[winner.Index]);
             if (reason.Length == 0 && Actions[winner.Index].PreparedPositionRequest is { } request)
             {
-                var method = ctx.Companion.Brain.Positioner.PrepareOffer(request, ctx.Senses,
-                    ctx.Companion.Combat.ProfileFor(ctx, request.Target));
+                var method = ctx.Companion.Brain.Positioner.PrepareOffer(request, ctx.Senses);
                 Infrastructure.Diagnostics.GodsEyeEvents.RecordMethodAssessment(ctx.Npc, request.Target,
                     bindings[winner.Index].Generation, EvaluationId + 1, Actions[winner.Index].Name,
                     Actions[winner.Index].Family.ToString(), request.Kind.ToString(), method.SourceTick,

@@ -120,7 +120,7 @@ internal static class VerifyCollectionContracts
         var brain = ctx.Companion.Brain;
         var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(RequestKind.WithPlayer, ctx.Player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            brain.Positioner.Resolve(home, brain.Senses, null);
+            brain.Positioner.Resolve(home, brain.Senses);
         Require(brain.Positioner.ReachComplete, "these rows need a settled reach region before preparing");
     }
 

@@ -217,7 +217,7 @@ internal static class VerifyCapabilityRevision
         var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            brain.Positioner.Resolve(home, brain.Senses, null);
+            brain.Positioner.Resolve(home, brain.Senses);
         return (new LightUsefulArea(), ctx);
     }
 

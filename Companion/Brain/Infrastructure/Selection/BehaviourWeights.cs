@@ -12,7 +12,6 @@ public static class Weights
     // machine load cannot change a fixture's reachability verdict.
     public const double RouteSearchMilliseconds = 8d;
     public const double PositionReachMilliseconds = 2d;
-    public const double PositionAimingMilliseconds = 2d;
     // The orb's pace is the player's, read live, times these: the cap is three times his maximum run
     // speed after accessories (the owner's ruling, so a speed accessory carries over and a
     // companion at the cap overtakes a running player; raised from two times on 15 September 2026
@@ -400,30 +399,6 @@ public static class Weights
     public const float FollowHorizontalComfort = 240f;
     public const float FollowVerticalComfort = 96f;
 
-    /// <summary>
-    /// The band when the player is in danger. It is wider than the calm band's near edge rather
-    /// than tighter, because the threats are on the player: a band that closes as danger rises
-    /// scores a ranged companion into the melee that is already hitting him, and what should
-    /// decide the distance is whether the shot solves from further out.
-    /// </summary>
-    public const float ThreatBandNear = 32f;
-    public const float ThreatBandFar = 384f;
-
-    /// <summary>
-    /// Distance band to the player while guarding him. Guarding means being able to shoot what is
-    /// attacking him, not standing on him, so this is wide and the line of fire does the rest.
-    /// </summary>
-    public const float GuardBandNear = 48f;
-    public const float GuardBandFar = 360f;
-
-    /// <summary>
-    /// Distance band from the thing being shot at. Distance is preferred across the band rather
-    /// than merely permitted, because the line-of-fire factor already refuses a spot that cannot
-    /// reach the target, so anything the shot still solves from is free to be further away.
-    /// </summary>
-    public const float StandoffNear = 120f;
-    public const float StandoffFar = 520f;
-
     /// <summary>Beyond this the companion drops everything and comes back, whatever else is going on.</summary>
     public const float LeashHard = FollowRecoveryDistance;
 
@@ -515,15 +490,6 @@ public static class Weights
     /// there, short enough that a spot blocked by an enemy that has since moved comes back.
     /// </summary>
     public const int StuckSpotBanTicks = 600;
-
-    /// <summary>
-    /// Positioner: how much a candidate keeps in the cheap ranking pass when the straight line from
-    /// its eye to the target is blocked. It ranks, it never vetoes: a straight ray is a lower bound
-    /// on an arcing projectile, which clears a lip the ray hits, so a blocked candidate must still
-    /// be able to reach the shortlist and pay for a real trajectory solve. It therefore sits above
-    /// the 0.15 a *solved* failure scores and below the 1 a clear ray scores.
-    /// </summary>
-    public const float BlockedSightRank = .35f;
 
     /// <summary>
     /// Hunt: what a target is worth when no weapon can hit it from here but a reachable standing
@@ -675,15 +641,6 @@ public static class Weights
     /// </summary>
     public const int HoverCeilingTiles = 10;
 
-    /// <summary>
-    /// The clearance, in tiles, at which a candidate's openness factor reaches its full value. The
-    /// factor is the clearance field the route search prices — the same reading, so a spot the scorer
-    /// likes is one the route can reach the middle of — and it saturates here because a body two
-    /// tiles from every wall is as open as it needs to be, and preferring the exact middle of every
-    /// cavern would walk the companion further from the player for nothing.
-    /// </summary>
-    public const float OpennessFullClearanceTiles = 2f;
-
     /// <summary>Item physics, from the game's own <c>Item.UpdateItem</c>: gravity per tick and the fall
     /// speed it is capped at, dry and wet. A drop is forecast to its landing with these, so a falling
     /// item is priced where it will be rather than where it is; if the game changes them the forecast
@@ -722,38 +679,7 @@ public static class Weights
     // Lane B — offer validity and destination retention.
 
     /// <summary>
-    /// How many ticks apart the arrival-window samples of a firing stand's shot are taken. Two samples this far past the
-    /// estimated arrival are asked, so the window a stand must hold for is bounded by twice this however long the trip is;
-    /// the trip itself is the requirement below that bound. It is a sampling rate, not a promise about the ticks between:
-    /// a target that leaves the arc and returns inside one interval reads as a shot that held.
-    /// </summary>
-    public const int ShotWindowSampleTicks = 20;
-
     /// <summary>
-    /// The measured continuation confidence a forecast must carry before a stand's shot is judged at the arrival tick
-    /// rather than at the target's current position. Below it the forecast is not evidence about where the thing will be,
-    /// so refusing a stand on it would be refusing on a guess; the solve falls back to the current position and the reason
-    /// says which of the two was asked.
-    /// </summary>
-    public const float ShotForecastConfidenceFloor = 0.35f;
-
-    /// <summary>
-    /// How far a target may drift from where it stood when a firing destination was admitted before the stand's arc is
-    /// re-proved rather than retained. It is the firing position's success region: the kind declares no box precisely
-    /// because its arc belongs to a moving target, so "still the region it was admitted against" can only mean "the
-    /// target has not moved enough to have changed the answer".
-    /// </summary>
-    public const float FiringHoldTargetSlackPx = 48f;
-
-    /// <summary>
-    /// The longest window a firing stand's arc is required to hold for, past the estimated arrival. The requirement
-    /// itself is the trip's own length — a shot has to survive the walk to the stand and no longer — and this only
-    /// stops a walk across the world from asking for an arc that holds indefinitely, which is a question the
-    /// forecast cannot answer anyway at that range. Raising it asks for more solves on long trips; lowering it stops
-    /// distinguishing a middling trip from a long one.
-    /// </summary>
-    public const int ShotWindowCapTicks = 2 * ShotWindowSampleTicks;
-
     // Lane D — knockback, the danger a hit's push adds, and credit for wounding a dangerous enemy.
 
     /// <summary>
@@ -785,15 +711,6 @@ public static class Weights
     public const float AttackPartialHarmShare = .5f;
 
     // Lane D — weapon, target, stand and aim valued by what the companion's own shots achieved.
-
-    /// <summary>
-    /// The share of its score a firing stand keeps when the best attack any weapon in hand could make from there is worth
-    /// nothing, rising to the whole score as that attack approaches the best the weapons could do with no geometry in the
-    /// way. A floor rather than a veto, like every other factor: a stand whose only shot pushes the target into the player
-    /// is still the answer when it is the only stand with a shot. It replaced a side preference read off the weapon chosen
-    /// last, which priced a stand by one weapon's push and ignored the other weapon entirely.
-    /// </summary>
-    public const float FiringStandValueFloor = .5f;
 
     /// <summary>
     /// The prior variance of each learned coefficient, on the context's unit scale and the outcome ratio's scale. One means

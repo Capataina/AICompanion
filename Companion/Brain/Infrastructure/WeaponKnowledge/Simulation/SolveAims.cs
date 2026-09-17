@@ -38,7 +38,8 @@ public static class SolveAims
     /// angle lands. Banks are not swept — a stand proved only by a bank waits for the planner's own generator.
     /// </summary>
     public static (AimCandidate Aim, SimulatedUse Use)? FirstLanding(WeaponId weapon, Vector2 muzzle, EnemyForecast target,
-        CombatWorld world, IReadOnlyList<EnemyForecast> enemies, int fireTick, ref PlanningBudget budget)
+        CombatWorld world, IReadOnlyList<EnemyForecast> enemies, int fireTick, ref PlanningBudget budget,
+        bool planning = false)
     {
         int aimTick = Math.Max(1, fireTick);
         Vector2 toTarget = target.PredictedCentre(aimTick) - muzzle;
@@ -47,11 +48,11 @@ public static class SolveAims
         float distance = toTarget.Length();
         for (float offset = 0f; offset <= SweepElevationRadians; offset += SweepStepRadians)
         {
-            if (TryAngle(weapon, muzzle, direct - offset, distance, target, world, enemies, fireTick, ref budget)
+            if (TryAngle(weapon, muzzle, direct - offset, distance, target, world, enemies, fireTick, ref budget, planning)
                 is { } landed)
                 return landed;
             if (offset > 0f && offset <= SweepDepressionRadians
-                && TryAngle(weapon, muzzle, direct + offset, distance, target, world, enemies, fireTick, ref budget)
+                && TryAngle(weapon, muzzle, direct + offset, distance, target, world, enemies, fireTick, ref budget, planning)
                 is { } lower)
                 return lower;
             if (!budget.Check()) return null;
@@ -61,15 +62,22 @@ public static class SolveAims
 
     private static (AimCandidate Aim, SimulatedUse Use)? TryAngle(WeaponId weapon, Vector2 muzzle, float angle,
         float distance, EnemyForecast target, CombatWorld world, IReadOnlyList<EnemyForecast> enemies, int fireTick,
-        ref PlanningBudget budget)
+        ref PlanningBudget budget, bool planning)
     {
         Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
         var aim = new AimCandidate(muzzle + direction * distance, direction);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
         int knowledge = KnowledgeRevision.Current;
-        if (!CacheSimulatedUses.TryGet(weapon, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, out SimulatedUse? use) || use == null)
+        // A planning sweep asks the same hopeless crowd every tick; the cross-tick cache holds its
+        // misses while the per-tick one would re-fly the whole sweep sixty times a second.
+        bool cached = planning
+            ? CachePlannedSims.TryGet(weapon, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, enemies, out SimulatedUse? use)
+            : CacheSimulatedUses.TryGet(weapon, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, out use);
+        if (!cached || use == null)
         {
             use = SimulateUse.Simulate(weapon, muzzle, aim.AimPoint, direction, world, enemies, modifiers, fireTick, ref budget);
+            if (planning)
+                CachePlannedSims.Store(weapon, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, enemies, use);
             CacheSimulatedUses.Store(weapon, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, use);
         }
         foreach (SimHit hit in use.Hits)

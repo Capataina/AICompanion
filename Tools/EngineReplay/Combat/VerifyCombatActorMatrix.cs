@@ -221,8 +221,9 @@ internal static class VerifyCombatActorMatrix
         // same way, because four hundred no longer completes the flood.
         var primeRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            brain.Positioner.Resolve(primeRequest, brain.Senses, null);
+            brain.Positioner.Resolve(primeRequest, brain.Senses);
         Require(brain.Positioner.ReachComplete, "the reach flood must complete before the offer can be read as the search's answer");
+        Console.WriteLine($"### scene {actor} {(blocked ? "blocked" : "clear")} life={guardedLife}");
         VerifyPreparedActivities.PrepareAndScore(combat, ctx);
         Require(combat.Eligibility != live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved,
             $"the stand search must decide on a completed flood; still {combat.EligibilityReason}");

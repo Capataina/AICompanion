@@ -430,7 +430,7 @@ internal static class VerifyWeaponLearning
     /// bow's is. On paper: the player's side is worth the strong shot, the far side the larger of the weak shot and the strong
     /// shot less its push charge, so the player's side wins whenever the charge is positive and the strong shot outvalues the
     /// weak. The plan against a slime the strong bow barely hurts opens with the weak bow, which is the premise that
-    /// made this red on the proxy: the side share read that weak bow's push of nothing and scored both stands identically.
+    /// made this red on the proxy: the stand value read that weak bow's push of nothing and priced both stands identically.
     /// </summary>
     private static void AStandIsPricedByEveryHandedWeapon()
     {
@@ -466,21 +466,11 @@ internal static class VerifyWeaponLearning
 
         float valuePlayerSide = combat.BestShotValueFrom(scene.Ctx, playerSide, enemy);
         float valueFarSide = combat.BestShotValueFrom(scene.Ctx, farSide, enemy);
-        float sharePlayerSide = Positioner.FiringStandShare(playerSide, enemy, senses, 0);
-        float shareFarSide = Positioner.FiringStandShare(farSide, enemy, senses, 0);
-        float Score(Vector2 spot, float share)
-        {
-            MethodInfo score = typeof(Positioner).GetMethod("ScoreSpot", BindingFlags.NonPublic | BindingFlags.Static)!;
-            var request = new PositionRequest(RequestKind.LineOfFire, enemy.Center, enemy);
-            return (float)score.Invoke(null, new object[] { request, spot, scene.Ctx.Player.Bottom, senses,
-                Weights.ThreatBandNear, Weights.ThreatBandFar, share, combat.MaxReach })!;
-        }
-        float scorePlayerSide = Score(playerSide, sharePlayerSide), scoreFarSide = Score(farSide, shareFarSide);
-        EmitLedgerRows.Detail(FormattableString.Invariant($"stand pricing: value player side {valuePlayerSide:0.000} far {valueFarSide:0.000}; share {sharePlayerSide:0.0000} / {shareFarSide:0.0000}; score {scorePlayerSide:0.0000} / {scoreFarSide:0.0000}"));
-        // The ranking is asserted first because it is the row's claim; the value comparison beneath it is the mechanism that
-        // produces the ranking, not a premise about the scene, and a planted proxy changes both at once.
-        Require(scorePlayerSide > scoreFarSide,
-            $"the stand where the strong bow's push goes away from the player outranks the stand where only the weak bow is safe; player side={scorePlayerSide} far={scoreFarSide}");
+        EmitLedgerRows.Detail(FormattableString.Invariant($"stand pricing: value player side {valuePlayerSide:0.000} far {valueFarSide:0.000}"));
+        // The positioner no longer multiplies a stand's value into a score, so the arsenal's per-stand
+        // value is the ranking now: the player's side is worth the strong bow's safe shot, more than
+        // the far side's best, which is the larger of the weak shot and the strong shot less its push
+        // charge. A planted proxy changes the value, not a multiplier, so the claim moved with it.
         Require(valuePlayerSide > valueFarSide, $"the player side's stand is worth the strong bow's safe shot, more than the far side's best; player side={valuePlayerSide} far={valueFarSide}");
     }
 

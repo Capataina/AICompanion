@@ -224,7 +224,7 @@ internal static class VerifyHuntProgress
         var primeRequest = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, player.Bottom);
         for (int i = 0; i < 3000 && !companion.Brain.Positioner.ReachComplete; i++)
-            companion.Brain.Positioner.Resolve(primeRequest, companion.Brain.Senses, null);
+            companion.Brain.Positioner.Resolve(primeRequest, companion.Brain.Senses);
         Require(companion.Brain.Positioner.ReachComplete, "the travel scene needs a completed flood before the plan can be read");
         VerifyPreparedActivities.PrepareAndScore(combat, ctx);
         Require(combat.CommittedPlan != null,

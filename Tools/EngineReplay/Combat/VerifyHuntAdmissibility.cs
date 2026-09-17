@@ -215,7 +215,7 @@ internal static class VerifyHuntAdmissibility
         passes = 0;
         for (int i = 0; i < 3000 && !companion.Brain.Positioner.ReachComplete; i++)
         {
-            companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, null);
+            companion.Brain.Positioner.Resolve(request, companion.Brain.Senses);
             passes++;
         }
         Require(companion.Brain.Positioner.ReachComplete, "the reach flood must complete before the offer can be read as the search's answer");

@@ -515,7 +515,7 @@ internal static class VerifyLightAndReachSenses
         // destination the positioner resolves for it must be one the sense itself calls Reachable — not
         // NotYet, which is the answer a flood that has not settled gives and which lighting must refuse.
         var request = action.Execute(ctx);
-        Vector2? destination = brain.Positioner.Resolve(request, brain.Senses, null);
+        Vector2? destination = brain.Positioner.Resolve(request, brain.Senses);
         Require(destination is { } stand && brain.Senses.Reach.Reachable(MovementQueries.Tile(stand)) == ReachVerdict.Reachable,
             $"the lighting destination must be a tile the reach sense calls Reachable; destination={destination} "
             + $"verdict={(destination is { } d ? brain.Senses.Reach.Reachable(MovementQueries.Tile(d)).ToString() : "none")} "
@@ -596,7 +596,7 @@ internal static class VerifyLightAndReachSenses
         Point site = action.ActivityTarget!.Value.ToTileCoordinates();
         Require(site.X >= FarDark,
             $"the offered site must be the reachable darkness, not a chamber tile the body cannot get to; site={site}; {offer}");
-        Require(reach.Reachable(MovementQueries.Tile(ctx.Companion.Brain.Positioner.Resolve(action.Execute(ctx), ctx.Companion.Brain.Senses, null)
+        Require(reach.Reachable(MovementQueries.Tile(ctx.Companion.Brain.Positioner.Resolve(action.Execute(ctx), ctx.Companion.Brain.Senses)
                 ?? ctx.Npc.Center)) == ReachVerdict.Reachable,
             $"the destination lighting resolves for that site must itself be reachable; {offer}");
         // The ledger the recorder writes must name what was asked, or the next capture is as unreadable as the
@@ -874,7 +874,7 @@ internal static class VerifyLightAndReachSenses
         // once and every reflood counted below would be a count against a flood from the previous world.
         // This is the trap this folder's own file names, and it is what the first version of this row hit.
         VerifyOreWork.ResettleReach(ctx);
-        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++) brain.Positioner.Resolve(request, brain.Senses, null);
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++) brain.Positioner.Resolve(request, brain.Senses);
         Require(brain.Positioner.ReachComplete, "the flood must settle before a reflood can be counted against it");
 
         Point feet = MovementQueries.Tile(ctx.Npc.Center);
@@ -885,7 +885,7 @@ internal static class VerifyLightAndReachSenses
         int refloodsBefore = brain.Senses.Reach.Refloods;
         // Outside the world's own margin, so it is a row no flood over free cells can have read.
         TerrainChanges.Changed(feet.X, 2);
-        for (int i = 0; i < 40; i++) brain.Positioner.Resolve(request, brain.Senses, null);
+        for (int i = 0; i < 40; i++) brain.Positioner.Resolve(request, brain.Senses);
         Require(brain.Senses.Reach.Refloods == refloodsBefore,
             $"an edit forty rows above everything the flood read must cost no reflood; {refloodsBefore} -> {brain.Senses.Reach.Refloods}");
         Require(brain.Positioner.ReachComplete && brain.Senses.Reach.Reachable(beyond) == ReachVerdict.Reachable,
@@ -902,10 +902,10 @@ internal static class VerifyLightAndReachSenses
         }
         // One resolve, so the sense is asked before the count is read: the discard happens inside Refresh and
         // Refresh runs on a resolve, which is the same clock the whole flood keeps.
-        brain.Positioner.Resolve(request, brain.Senses, null);
+        brain.Positioner.Resolve(request, brain.Senses);
         Require(brain.Senses.Reach.Refloods > refloodsBefore,
             $"an edit on the floor the flood walked must throw the flood away; refloods={brain.Senses.Reach.Refloods}");
-        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++) brain.Positioner.Resolve(request, brain.Senses, null);
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++) brain.Positioner.Resolve(request, brain.Senses);
         Require(brain.Positioner.ReachComplete, "the refloods region must settle again before its membership is read as final");
         Require(brain.Senses.Reach.Reachable(beyond) == ReachVerdict.Unreachable,
             $"the region grown after the wall must not still hold the floor behind it; verdict={brain.Senses.Reach.Reachable(beyond)}");
@@ -1089,7 +1089,7 @@ internal static class VerifyLightAndReachSenses
         var brain = ctx.Companion.Brain;
         var home = new PositionRequest(RequestKind.WithPlayer, ctx.Player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            brain.Positioner.Resolve(home, brain.Senses, null);
+            brain.Positioner.Resolve(home, brain.Senses);
         Require(brain.Positioner.ReachComplete, "these scenes need a settled reach region before preparing");
     }
 

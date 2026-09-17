@@ -21,6 +21,13 @@ namespace AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
 /// </summary>
 public static class CachePlannedSims
 {
+    /// <summary>
+    /// How many simulated uses the cross-tick cache holds before a wholesale clear: the seven
+    /// generators' probe working set on a crowd runs past six hundred distinct aims, and a smaller
+    /// cap clears mid-decision and re-flies everything every tick — the thrash this size absorbs.
+    /// </summary>
+    private const int Capacity = 2048;
+
     private readonly record struct Key(int ItemType, int Slot, int ExtraProjectiles, int AddedPierce,
         int StandX, int StandY, int AimX, int AimY, int FireTick, int Knowledge, int Terrain, int Enemies);
 
@@ -39,7 +46,7 @@ public static class CachePlannedSims
     public static void Store(WeaponId weapon, ModifierState modifiers, Vector2 muzzle, Vector2 aim,
         int fireTick, int knowledge, int terrain, IReadOnlyList<EnemyForecast> enemies, SimulatedUse use)
     {
-        if (cached.Count >= 256)
+        if (cached.Count >= Capacity)
             cached.Clear();
         cached[ToKey(weapon, modifiers, muzzle, aim, fireTick, knowledge, terrain, enemies)] = use;
     }
@@ -48,7 +55,27 @@ public static class CachePlannedSims
         int fireTick, int knowledge, int terrain, IReadOnlyList<EnemyForecast> enemies)
         => new(weapon.ItemType, weapon.Slot, modifiers.ExtraProjectiles, modifiers.AddedPierce,
             (int)(muzzle.X / 16f), (int)(muzzle.Y / 16f), (int)(aim.X / 8f), (int)(aim.Y / 8f), fireTick,
-            knowledge, terrain, EnemyContent(enemies));
+            knowledge, terrain, EnemyContentMemoized(enemies));
+
+    private static IReadOnlyList<EnemyForecast>? hashedEnemies;
+    private static int hashedContent;
+
+    /// <summary>
+    /// The enemy content hash, memoized by list reference: one decision asks it hundreds of times
+    /// about the same list, and re-sorting and re-folding nine bodies per probe spent most of a
+    /// hopeless crowd's decision. Safe because the list is built once per tick and nothing mutates
+    /// a forecast mid-decision — the same guarantee the simulator already relies on — so the same
+    /// reference always carries the same content.
+    /// </summary>
+    private static int EnemyContentMemoized(IReadOnlyList<EnemyForecast> enemies)
+    {
+        if (!ReferenceEquals(enemies, hashedEnemies))
+        {
+            hashedEnemies = enemies;
+            hashedContent = EnemyContent(enemies);
+        }
+        return hashedContent;
+    }
 
     /// <summary>
     /// Every forecast body folded to one hash in slot order, so a reordered threat list still hits:
@@ -98,7 +125,7 @@ public static class CachePlannedSims
     {
         var key = new BestKey(weapon.ItemType, weapon.Slot, modifiers.ExtraProjectiles, modifiers.AddedPierce,
             targetSlot, targetGeneration, (int)(muzzle.X / 16f), (int)(muzzle.Y / 16f), fireTick,
-            knowledge, terrain, EnemyContent(enemies));
+            knowledge, terrain, EnemyContentMemoized(enemies));
         if (bestCached.TryGetValue(key, out ForecastUses.AimedUse? found))
         {
             aimed = found;
@@ -112,16 +139,17 @@ public static class CachePlannedSims
         Vector2 muzzle, int fireTick, int knowledge, int terrain, IReadOnlyList<EnemyForecast> enemies,
         ForecastUses.AimedUse? aimed)
     {
-        if (bestCached.Count >= 256)
+        if (bestCached.Count >= Capacity)
             bestCached.Clear();
         bestCached[new BestKey(weapon.ItemType, weapon.Slot, modifiers.ExtraProjectiles, modifiers.AddedPierce,
             targetSlot, targetGeneration, (int)(muzzle.X / 16f), (int)(muzzle.Y / 16f), fireTick,
-            knowledge, terrain, EnemyContent(enemies))] = aimed;
+            knowledge, terrain, EnemyContentMemoized(enemies))] = aimed;
     }
 
     public static void Clear()
     {
         cached.Clear();
         bestCached.Clear();
+        hashedEnemies = null;
     }
 }

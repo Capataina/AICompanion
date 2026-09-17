@@ -188,8 +188,7 @@ public sealed class Brain
         bool reunionRequested = LastRequest.Kind == RequestKind.WithPlayer && action?.HandsBusy != true;
         if (TryFollowRecovery(companion, player, reunionRequested, out var selectedRecovery)) return selectedRecovery;
 
-        var profile = companion.Combat.ProfileFor(ctx, LastRequest.Target);
-        Vector2? spot = Positioner.Resolve(LastRequest, Senses, profile);
+        Vector2? spot = Positioner.Resolve(LastRequest, Senses);
         PositionMs = Lap();
         // Enemy bodies are hazards wherever the route passes them, even when neither actor
         // is currently reachable from the enemy's pocket.
@@ -276,7 +275,7 @@ public sealed class Brain
 
     private void CountStranded()
     {
-        bool towardPlayer = LastRequest.Kind is RequestKind.WithPlayer or RequestKind.Guard;
+        bool towardPlayer = LastRequest.Kind is RequestKind.WithPlayer or RequestKind.FireFrom;
         if (StrandedTicks > 0 && Positioner.Reaches(MovementQueries.FeetTile(Senses.Player.Bottom)))
             StrandedTicks = 0;
         else if (towardPlayer && Navigator.PlannedThisTick)

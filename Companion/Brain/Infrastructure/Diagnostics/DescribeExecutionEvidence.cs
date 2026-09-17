@@ -49,7 +49,6 @@ public static class DescribeExecutionEvidence
             SuccessRegionKind.None => "no destination is held",
             SuccessRegionKind.FollowComfort => $"follow comfort {F(region.Comfort.X)} by {F(region.Comfort.Y)} around player {P(region.PlayerFeet)} or anchor {P(region.Anchor)}",
             SuccessRegionKind.ToolReach => $"tool reach {region.ReachX}x{region.ReachY} tiles to tile {region.WorkTile?.X},{region.WorkTile?.Y} from stand {P(region.Anchor)}",
-            SuccessRegionKind.FiringPosition => $"firing position near {P(region.Anchor)}; its arc belongs to a moving target, so it declares no box",
             SuccessRegionKind.MeetingPlace => $"meeting place {P(region.Anchor)}, walked to without a box",
             _ => $"destination {P(region.Anchor)} declares no purpose geometry",
         }));

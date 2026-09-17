@@ -68,6 +68,18 @@ public static class ProposeFiringStands
         return remaining == int.MaxValue ? int.MaxValue : remaining / (2 * GeneratorCount);
     }
 
+    /// <summary>
+    /// This generator's stopping simulation count: spent so far plus its share, saturating rather
+    /// than overflowing — under an unbounded allowance the share is <see cref="int.MaxValue"/> and a
+    /// plain addition wraps negative past the first spent sim, which reads as already spent and
+    /// silently disables every generator after the first for the whole suite.
+    /// </summary>
+    private static int StopAt(ref PlanningBudget budget, ref int left)
+    {
+        int share = Share(ref budget, ref left);
+        return share >= int.MaxValue - budget.Simulations ? int.MaxValue : budget.Simulations + share;
+    }
+
     private static void Emit(List<StandProposal> proposals, HashSet<(int X, int Y)> seen,
         Vector2 stand, StandReason reason, int weaponSlot, int[] targetSlots)
     {
@@ -108,27 +120,67 @@ public static class ProposeFiringStands
     }
 
     /// <summary>
-    /// One probe: the intercept aim from this muzzle, simulated once, damage on the target summed and
-    /// distinct bodies counted. Cached, so a stand the search prices afterwards does not pay twice for
-    /// the aim the generator already flew.
+    /// One probe: a use aimed straight at the target's predicted centre, simulated once, damage on the
+    /// target summed and distinct bodies counted — plus one lobbed aim when the straight one misses and
+    /// the law's gravity engages inside the flight, so an arcing weapon is not judged by a flat shot.
+    /// Deliberately not the aim search: the intercept sweep flies dozens of paths per probe, which priced
+    /// a hopeless crowd at fifty milliseconds a tick. The probe only asks whether a use reaches; the
+    /// search aims every emitted stand truly afterwards. Cached, so a stand the search prices does not
+    /// pay twice for the aim the generator already flew.
     /// </summary>
-    private static float ProbeYield(WeaponId id, Vector2 muzzle, EnemyForecast target, CombatWorld world,
-        IReadOnlyList<EnemyForecast> enemies, ModifierState modifiers, ref PlanningBudget budget,
-        out int bodies, out SimulatedUse? flown)
+    private static float ProbeYield(CompanionWeapon weapon, int slot, in ActionContext ctx, Vector2 muzzle,
+        EnemyForecast target, CombatWorld world, IReadOnlyList<EnemyForecast> enemies,
+        ModifierState modifiers, ref PlanningBudget budget, out int bodies, out SimulatedUse? flown)
     {
         bodies = 0;
         flown = null;
-        IReadOnlyList<AimCandidate> aims = SolveAims.For(id, muzzle, target, world, enemies, 0, ref budget);
-        if (aims.Count == 0 || !budget.Check())
+        if (!budget.Check())
             return 0f;
-        AimCandidate intercept = aims[0];
-        int knowledge = KnowledgeRevision.Current;
-        if (!CacheSimulatedUses.TryGet(id, modifiers, muzzle, intercept.AimPoint, 0, knowledge,
-            world.RefreshCount, out SimulatedUse? use) || use == null)
+        WeaponId id = SimulateUse.Identify(weapon, ctx, slot);
+        Vector2 centre = target.PredictedCentre(1);
+        Vector2 toTarget = centre - muzzle;
+        float dist = toTarget.Length();
+        toTarget = dist < 1f ? Vector2.UnitX : toTarget / dist;
+        float best = FlyProbe(id, muzzle, centre, toTarget, target.Slot, world, enemies, modifiers,
+            ref budget, out bodies, out flown);
+        FlightLaw law = FitFlightLaws.LawFor(RepresentativeType(weapon));
+        if (best <= 0f && law.Gravity is GravityTerm gravity
+            && dist / MathF.Max(1f, weapon.Model.Speed) >= gravity.OnsetUpdate)
         {
-            use = SimulateUse.Simulate(id, muzzle, intercept.AimPoint, intercept.LaunchDirection,
-                world, enemies, modifiers, 0, ref budget);
-            CacheSimulatedUses.Store(id, modifiers, muzzle, intercept.AimPoint, 0, knowledge,
+            Vector2 lobAim = centre + new Vector2(0f, -0.35f * dist);
+            Vector2 lobDir = lobAim - muzzle;
+            float lobDist = lobDir.Length();
+            lobDir = lobDist < 1f ? -Vector2.UnitY : lobDir / lobDist;
+            float lobbed = FlyProbe(id, muzzle, lobAim, lobDir, target.Slot, world, enemies, modifiers,
+                ref budget, out int lobBodies, out SimulatedUse? lobFlown);
+            if (lobbed > best)
+            {
+                best = lobbed;
+                bodies = lobBodies;
+                flown = lobFlown;
+            }
+        }
+        return best;
+    }
+
+    private static float FlyProbe(WeaponId id, Vector2 muzzle, Vector2 aimPoint, Vector2 direction,
+        int targetSlot, CombatWorld world, IReadOnlyList<EnemyForecast> enemies, ModifierState modifiers,
+        ref PlanningBudget budget, out int bodies, out SimulatedUse? flown)
+    {
+        bodies = 0;
+        int knowledge = KnowledgeRevision.Current;
+        // The cross-tick planned cache, not the per-tick one: the generators ask the same stands
+        // sixty times a second against enemies that mostly stand still, and re-flying every probe
+        // every tick spent whole frames deciding not to fight. Fresh sims dual-write to the
+        // per-tick cache, so the overlay and the hands read this tick as before.
+        if (!CachePlannedSims.TryGet(id, modifiers, muzzle, aimPoint, 0, knowledge, world.RefreshCount,
+            enemies, out SimulatedUse? use) || use == null)
+        {
+            use = SimulateUse.Simulate(id, muzzle, aimPoint, direction, world, enemies, modifiers, 0,
+                ref budget);
+            CachePlannedSims.Store(id, modifiers, muzzle, aimPoint, 0, knowledge, world.RefreshCount,
+                enemies, use);
+            CacheSimulatedUses.Store(id, modifiers, muzzle, aimPoint, 0, knowledge,
                 world.RefreshCount, use);
         }
         flown = use;
@@ -137,7 +189,7 @@ public static class ProposeFiringStands
         foreach (SimHit hit in use.Hits)
         {
             struck.Add(hit.Slot);
-            if (hit.Slot == target.Slot)
+            if (hit.Slot == targetSlot)
                 damage += hit.Damage;
         }
         bodies = struck.Count;
@@ -146,9 +198,8 @@ public static class ProposeFiringStands
 
     /// <summary>
     /// Where the body is — free, always, no probe — and points inside his predicted region from which
-    /// a use reaches a target. The region samples are its centre and six points at half extent; each
-    /// keeps the targets some weapon lands on from it, proved by the cheap true/false rather than a
-    /// priced aim.
+    /// a use reaches a target. The region samples are its centre and four cardinals at half extent;
+    /// each keeps the targets some weapon's probe lands on from it.
     /// </summary>
     private static void HereAndCompany(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
@@ -156,7 +207,7 @@ public static class ProposeFiringStands
         HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
     {
         Emit(proposals, seen, ctx.Npc.Center, StandReason.HereAndCompany, -1, allSlots);
-        int stopAt = budget.Simulations + Share(ref budget, ref left);
+        int stopAt = StopAt(ref budget, ref left);
         PlayerIntentRegion region = ctx.Senses.Intent.Region;
         var points = new Vector2[]
         {
@@ -165,9 +216,8 @@ public static class ProposeFiringStands
             region.Centre - new Vector2(region.HalfSize.X / 2f, 0f),
             region.Centre + new Vector2(0f, region.HalfSize.Y / 2f),
             region.Centre - new Vector2(0f, region.HalfSize.Y / 2f),
-            region.Centre + new Vector2(region.HalfSize.X / 2f, region.HalfSize.Y / 2f),
-            region.Centre - new Vector2(region.HalfSize.X / 2f, region.HalfSize.Y / 2f),
         };
+        ModifierState modifiers = ApplyCompanionModifiers.Current();
         for (int p = 0; p < points.Length; p++)
         {
             Vector2 muzzle = CompanionCombat.MuzzleAt(points[p]);
@@ -178,13 +228,13 @@ public static class ProposeFiringStands
             {
                 if (budget.Simulations >= stopAt || !budget.Check())
                     return;
-                WeaponId id = SimulateUse.Identify(weapons[w], ctx, w);
                 foreach (ThreatRecord threat in targets)
                 {
                     EnemyForecast? forecast = ForecastFor(enemies, threat.Npc.whoAmI);
                     if (forecast == null)
                         continue;
-                    if (SolveAims.FirstLanding(id, muzzle, forecast, world, enemies, 0, ref budget) != null)
+                    if (ProbeYield(weapons[w], w, ctx, muzzle, forecast, world, enemies, modifiers,
+                        ref budget, out _, out _) > 0f)
                     {
                         reached.Add(threat.Npc.whoAmI);
                         if (serving < 0)
@@ -199,17 +249,20 @@ public static class ProposeFiringStands
 
     /// <summary>
     /// For each weapon and each priority target, the distance the simulated yield per use peaks at:
-    /// six distances flown along the line from the target toward the body and toward the player's
-    /// side, plus three bearings biased off those lines, the peak of each kept when a use reaches.
-    /// A flat long weapon peaks far, a spread weapon close, against the same lone target — the sim
-    /// prices the difference, so the generator names no category.
+    /// four distances flown along the line from the target toward the body, toward the player's
+    /// side, and straight up, plus two bearings off the body line at two distances, the peak of
+    /// each kept when a use reaches. The up line is the vertical the other lines never sample: a
+    /// pillar between the body and a grounded target blocks every near-horizontal line, and the
+    /// reposition the fight prices is above the target shooting down. A flat long weapon peaks
+    /// far, a spread weapon close, against the same lone target — the sim prices the difference,
+    /// so the generator names no category.
     /// </summary>
     private static void BestRange(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
         List<ThreatRecord> targets, List<StandProposal> proposals,
         HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
     {
-        int stopAt = budget.Simulations + Share(ref budget, ref left);
+        int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
         foreach (ThreatRecord threat in targets)
         {
@@ -225,41 +278,51 @@ public static class ProposeFiringStands
                 toPlayer = -Vector2.UnitX;
             toBody = Vector2.Normalize(toBody);
             toPlayer = Vector2.Normalize(toPlayer);
-            var lines = new Vector2[]
+            var mains = new Vector2[] { toBody, toPlayer, -Vector2.UnitY };
+            var bearings = new Vector2[]
             {
-                toBody, toPlayer,
                 Vector2.Normalize(toBody.RotatedBy(0.7f)), Vector2.Normalize(toBody.RotatedBy(-0.7f)),
-                -Vector2.UnitY,
             };
             for (int w = 0; w < weapons.Count; w++)
             {
                 float reach = weapons[w].IsSwing
                     ? SwingStandReach(weapons[w]) : MathF.Max(48f, weapons[w].Reach);
-                WeaponId id = SimulateUse.Identify(weapons[w], ctx, w);
-                foreach (Vector2 line in lines)
-                {
-                    Vector2 peak = centre;
-                    float peakYield = 0f;
-                    for (int s = 1; s <= 6; s++)
-                    {
-                        if (budget.Simulations >= stopAt || !budget.Check())
-                            return;
-                        Vector2 stand = centre + line * (reach * s / 6f);
-                        Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
-                        var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-                        float yield = ProbeYield(id, muzzle, forecast, world, enemies, modifiers,
-                            ref budget, out _, out _);
-                        if (yield > peakYield + 1e-6f)
-                        {
-                            peakYield = yield;
-                            peak = stand;
-                        }
-                    }
-                    if (peakYield > 0f)
-                        Emit(proposals, seen, peak, StandReason.BestRange, w, new[] { threat.Npc.whoAmI });
-                }
+                foreach (Vector2 line in mains)
+                    PeakAlongLine(ctx, weapons[w], w, forecast, threat.Npc.whoAmI, centre, line, reach, 4,
+                        enemies, modifiers, proposals, seen, ref budget, stopAt);
+                foreach (Vector2 line in bearings)
+                    PeakAlongLine(ctx, weapons[w], w, forecast, threat.Npc.whoAmI, centre, line, reach, 2,
+                        enemies, modifiers, proposals, seen, ref budget, stopAt);
+                if (budget.Simulations >= stopAt || !budget.Check())
+                    return;
             }
         }
+    }
+
+    private static void PeakAlongLine(in ActionContext ctx, CompanionWeapon weapon, int slot,
+        EnemyForecast forecast, int targetSlot, Vector2 centre, Vector2 line, float reach, int samples,
+        IReadOnlyList<EnemyForecast> enemies, ModifierState modifiers, List<StandProposal> proposals,
+        HashSet<(int X, int Y)> seen, ref PlanningBudget budget, int stopAt)
+    {
+        Vector2 peak = centre;
+        float peakYield = 0f;
+        for (int s = 1; s <= samples; s++)
+        {
+            if (budget.Simulations >= stopAt || !budget.Check())
+                break;
+            Vector2 stand = centre + line * (reach * s / samples);
+            Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
+            var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
+            float yield = ProbeYield(weapon, slot, ctx, muzzle, forecast, world, enemies, modifiers,
+                ref budget, out _, out _);
+            if (yield > peakYield + 1e-6f)
+            {
+                peakYield = yield;
+                peak = stand;
+            }
+        }
+        if (peakYield > 0f)
+            Emit(proposals, seen, peak, StandReason.BestRange, slot, new[] { targetSlot });
     }
 
     private static float SwingStandReach(CompanionWeapon weapon)
@@ -278,14 +341,13 @@ public static class ProposeFiringStands
     {
         if (targets.Count < 2)
             return;
-        int stopAt = budget.Simulations + Share(ref budget, ref left);
+        int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
         for (int w = 0; w < weapons.Count; w++)
         {
             if (!Pierces(weapons[w]))
                 continue;
             float reach = MathF.Max(48f, weapons[w].Reach);
-            WeaponId id = SimulateUse.Identify(weapons[w], ctx, w);
             for (int a = 0; a < targets.Count; a++)
             {
                 EnemyForecast? first = ForecastFor(enemies, targets[a].Npc.whoAmI);
@@ -316,8 +378,8 @@ public static class ProposeFiringStands
                             Vector2 stand = mid + along * end * reach * fraction;
                             Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
                             var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-                            float damage = ProbeYield(id, muzzle, first, world, enemies, modifiers,
-                                ref budget, out int bodies, out _);
+                            float damage = ProbeYield(weapons[w], w, ctx, muzzle, first, world, enemies,
+                                modifiers, ref budget, out int bodies, out _);
                             if (bodies > bestBodies || (bodies == bestBodies && damage > bestDamage + 1e-6f))
                             {
                                 bestBodies = bodies;
@@ -373,7 +435,7 @@ public static class ProposeFiringStands
                 return;
             centroid = sum / count;
         }
-        int stopAt = budget.Simulations + Share(ref budget, ref left);
+        int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
         Vector2 across = centroid - ctx.Npc.Center;
         across = across == Vector2.Zero ? Vector2.UnitY : Vector2.Normalize(new Vector2(-across.Y, across.X));
@@ -392,7 +454,6 @@ public static class ProposeFiringStands
             FlightLaw law = FitFlightLaws.LawFor(RepresentativeType(weapons[w]));
             if (law.Gravity == null || (law.Wall.Kind != WallKind.Reflects && law.Wall.Kind != WallKind.Stops))
                 continue;
-            WeaponId id = SimulateUse.Identify(weapons[w], ctx, w);
             EnemyForecast? aimAt = ForecastFor(enemies, targets[0].Npc.whoAmI);
             if (aimAt == null)
                 continue;
@@ -407,7 +468,7 @@ public static class ProposeFiringStands
                     Vector2 stand = centroid + across * side * flank - new Vector2(0f, above);
                     Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
                     var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-                    float yield = ProbeYield(id, muzzle, aimAt, world, enemies, modifiers,
+                    float yield = ProbeYield(weapons[w], w, ctx, muzzle, aimAt, world, enemies, modifiers,
                         ref budget, out _, out _);
                     if (yield > bestYield + 1e-6f)
                     {
@@ -447,7 +508,7 @@ public static class ProposeFiringStands
                 return;
             centroid = sum / count;
         }
-        int stopAt = budget.Simulations + Share(ref budget, ref left);
+        int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
         var group = new int[targets.Count];
         for (int i = 0; i < targets.Count; i++)
@@ -457,7 +518,6 @@ public static class ProposeFiringStands
             AreaResponse area = LearnHitResponses.ResponseFor(RepresentativeType(weapons[w])).Area;
             if (area.Radius <= 0f)
                 continue;
-            WeaponId id = SimulateUse.Identify(weapons[w], ctx, w);
             EnemyForecast? aimAt = ForecastFor(enemies, targets[0].Npc.whoAmI);
             if (aimAt == null)
                 continue;
@@ -470,7 +530,7 @@ public static class ProposeFiringStands
                 Vector2 stand = centroid - new Vector2(0f, above);
                 Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
                 var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-                float yield = ProbeYield(id, muzzle, aimAt, world, enemies, modifiers,
+                float yield = ProbeYield(weapons[w], w, ctx, muzzle, aimAt, world, enemies, modifiers,
                     ref budget, out _, out SimulatedUse? flown);
                 bool centred = false;
                 if (flown != null)
@@ -502,7 +562,7 @@ public static class ProposeFiringStands
         List<ThreatRecord> targets, List<StandProposal> proposals,
         HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
     {
-        int stopAt = budget.Simulations + Share(ref budget, ref left);
+        int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
         Vector2 body = CompanionCombat.MuzzleAt(ctx.Npc.Center);
         var bodyWorld = CombatWorld.Current(body, ctx.Player.Center, TerrainChanges.Revision);
@@ -530,7 +590,7 @@ public static class ProposeFiringStands
                     continue;
                 if (budget.Simulations >= stopAt || !budget.Check())
                     return;
-                if (SolveAims.FirstLanding(id, body, forecast, bodyWorld, enemies, 0, ref budget) != null)
+                if (SolveAims.FirstLanding(id, body, forecast, bodyWorld, enemies, 0, ref budget, planning: true) != null)
                     continue;
                 int knowledge = KnowledgeRevision.Current;
                 foreach (Vector2 point in points)
@@ -544,11 +604,13 @@ public static class ProposeFiringStands
                         if (budget.Simulations >= stopAt || !budget.Check())
                             return;
                         SimulatedUse use;
-                        if (!CacheSimulatedUses.TryGet(id, modifiers, muzzle, bank.AimPoint, 1, knowledge,
-                            world.RefreshCount, out SimulatedUse? cached) || cached == null)
+                        if (!CachePlannedSims.TryGet(id, modifiers, muzzle, bank.AimPoint, 1, knowledge,
+                            world.RefreshCount, enemies, out SimulatedUse? cached) || cached == null)
                         {
                             use = SimulateUse.Simulate(id, muzzle, bank.AimPoint, bank.LaunchDirection,
                                 world, enemies, modifiers, 1, ref budget);
+                            CachePlannedSims.Store(id, modifiers, muzzle, bank.AimPoint, 1, knowledge,
+                                world.RefreshCount, enemies, use);
                             CacheSimulatedUses.Store(id, modifiers, muzzle, bank.AimPoint, 1, knowledge,
                                 world.RefreshCount, use);
                         }
