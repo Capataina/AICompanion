@@ -352,9 +352,14 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
 
     public override float Score() => preparedValue;
 
-    /// <summary>The committed plan's remaining duration, so the chooser's horizon discount prices it.</summary>
+    /// <summary>
+    /// The committed plan's remaining duration, so the chooser's horizon discount prices it. The last
+    /// segment's end, not the current one's: the body is occupied until the plan ends, and pricing only
+    /// the current segment would let a plan evade the duration discount by splitting into short legs.
+    /// </summary>
     public override float ForecastTicks()
-        => OfferedPlan is { } plan ? Math.Max(0, plan.Current(PlanTick).EndTick - PlanTick) : 0f;
+        => OfferedPlan is { } plan && plan.Segments.Length > 0
+            ? Math.Max(0, plan.Segments[^1].EndTick - PlanTick) : 0f;
 
     public override void Enter(in ActionContext ctx)
     {

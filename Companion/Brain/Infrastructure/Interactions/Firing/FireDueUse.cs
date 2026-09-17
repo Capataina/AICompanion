@@ -20,8 +20,9 @@ namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 /// <summary>
 /// The hands on a tick combat runs: the committed plan's due use when the weapon is ready and the body
 /// is within the stand's arrival tolerance, re-simulated from the actual muzzle so the aim is the live
-/// one; while the body is travelling, the best use from where the body is, chosen by the same evaluator
-/// with the plan's targets. The plan names weapon and target; this names the aim and pulls the trigger.
+/// one; a hold when the body is there with the next use still ahead, because the plan ordained a wait;
+/// while the body is travelling, the best use from where the body is, chosen by the same evaluator with
+/// the plan's targets. The plan names weapon and target; this names the aim and pulls the trigger.
 /// It reads the committed plan it is handed as a parameter and holds no choice of its own.
 /// </summary>
 public sealed class FireDueUse
@@ -69,7 +70,24 @@ public sealed class FireDueUse
         PlannedUse? due = DueUse(segment, tick);
         if (arrived && due != null)
             return FirePlanned(ctx, combat, plan, segment, due.Value);
+        if (arrived && HasFutureUse(segment, tick))
+        {
+            // At the stand with the plan's next use still ahead: the plan ordained a wait — a delayed
+            // start timed to an earlier segment's landing — and firing through it would spend the cooldown
+            // the planned use was priced against. Travelling hands still fire best-from-here below.
+            HoldPlanned(ctx, weapons, segment, tick);
+            combat.NoteWaiting();
+            return false;
+        }
         return FireBestFromHere(ctx, combat, plan, segment);
+    }
+
+    private static bool HasFutureUse(AttackSegment segment, int tick)
+    {
+        foreach (PlannedUse use in segment.Uses)
+            if (use.FireTick > tick)
+                return true;
+        return false;
     }
 
     private static NPC? PrimaryTarget(AttackPlan plan)

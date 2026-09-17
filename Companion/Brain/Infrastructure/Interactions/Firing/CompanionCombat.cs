@@ -49,6 +49,12 @@ public sealed class CompanionCombat
 
     internal void NoteFired() => LastFireOutcome = "fired";
     internal void NoteCooldown() => LastFireOutcome = "cooldown";
+    /// <summary>At the stand with the plan's next use still ahead: the plan ordained a wait.</summary>
+    internal void NoteWaiting()
+    {
+        LastFireOutcome = "waiting";
+        LastShotSolved = false;
+    }
     internal void NoteNoUseWorthFiring() => LastFireOutcome = "no-use-worth-firing";
     internal void NoteNoWeapon()
     {
