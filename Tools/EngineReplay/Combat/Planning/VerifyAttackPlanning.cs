@@ -22,6 +22,9 @@ using Recording = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowled
 using AttackLearning = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AttackLearning;
 using LearnHits = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnHitResponses;
 using HitResponse = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.HitResponse;
+using WallResponse = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.WallResponse;
+using WallKind = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.WallKind;
+using StandReason = live::AICompanion.Companion.Brain.Activities.Combat.Planning.StandReason;
 using ForecastUses = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ForecastUses;
 
 /// <summary>
@@ -554,6 +557,94 @@ internal static class VerifyAttackPlanning
         foreach (AttackPlan candidate in single.Front)
             Require(candidate.Segments.Length == 1, "depth one must offer only single segments");
         Console.WriteLine($"attack planning: far {firstDist:0}px then close {secondDist:0}px on the front (best {result.Plan.Weighted:0.00}); depth one {single.Plan.Weighted:0.00}");
+        return 0;
+    }
+
+    /// <summary>
+    /// P6: a low flank stand for a gravity-and-floor piercer against a group. Two slimes hold a
+    /// row on the floor and the body hovers above their middle, so the flanks fall left and right;
+    /// the arrow flies with gravity and a reflecting floor, piercing both bodies along the row, and
+    /// the flank's two kills beat any direct stand's one. Removing the floor proposals — the file-8
+    /// mutation — leaves only ranging stands, which this row kills by asserting the reason.
+    /// </summary>
+    public static int AFloorRollerTakesTheLowFlank()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 5; x < 95; x++)
+        {
+            Tile tile = Main.tile[x, 60];
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+            tile.Slope = 0;
+            tile.IsHalfBlock = false;
+            tile.LiquidAmount = 0;
+        }
+        StandUpDamage();
+        var pierce = new HitResponse { ProjectileType = ProjectileID.WoodenArrowFriendly };
+        pierce.PierceRatio.Add(2f);
+        LearnHits.AssumeResponse(pierce);
+        FlightLaw straight = FlightLaw.Default(ProjectileID.WoodenArrowFriendly);
+        Require(straight.Gravity != null, "premise: the arrow law carries gravity");
+        Laws.AssumeLaw(ProjectileID.WoodenArrowFriendly, straight with
+        {
+            Wall = new WallResponse
+            {
+                ProjectileType = ProjectileID.WoodenArrowFriendly,
+                Kind = WallKind.Reflects,
+                RestitutionNormal = 1f,
+                RestitutionTangent = 1f,
+                BounceCount = 4,
+            },
+        });
+        Player player = Main.player[0];
+        player.dead = false;
+        player.statLife = player.statLifeMax2 = 100;
+        player.statManaMax2 = 20;
+        player.active = true;
+        player.Bottom = new Vector2(950f, 60 * 16f);
+        companion.NPC.Bottom = new Vector2(950f, 60 * 16f - 160f);
+        companion.NPC.velocity = Vector2.Zero;
+        companion.NPC.life = companion.NPC.lifeMax = 100;
+        companion.NPC.active = true;
+        NPC left = Main.npc[30];
+        left.SetDefaults(NPCID.GreenSlime);
+        left.whoAmI = 30;
+        left.active = true;
+        left.velocity = Vector2.Zero;
+        left.damage = 10;
+        left.life = left.lifeMax = 12;
+        left.Bottom = new Vector2(935f, 60 * 16f);
+        NPC right = Main.npc[31];
+        right.SetDefaults(NPCID.GreenSlime);
+        right.whoAmI = 31;
+        right.active = true;
+        right.velocity = Vector2.Zero;
+        right.damage = 10;
+        right.life = right.lifeMax = 12;
+        right.Bottom = new Vector2(965f, 60 * 16f);
+        Main.npc[32].active = false;
+        companion.Brain.Senses.Update(companion.NPC, player);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        VerifyOreWork.SettleReach(companion, player);
+        var ctx = new C(companion, companion.Brain.Senses);
+        var combat = companion.Combat;
+        Require(companion.Brain.Senses.Threats.Threats.Count >= 2, "premise: both slimes sensed as threats");
+        var gear = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
+        gear.Slots[0].SetDefaults(ItemID.WoodenBow);
+        gear.Slots[1] = new Item();
+
+        CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
+        Budget budget = Budget.Unbounded();
+        SearchPlans.SearchResult result = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
+            _ => true, weights, combat.NextPlanId++, ref budget);
+        Require(result.Plan != null, "the roller scene offers nothing: " + result.Reason);
+        Vector2 stand = result.Plan.Segments[0].Stand.Stand;
+        StandReason reason = result.Plan.Segments[0].Stand.Reason;
+        Require(reason == StandReason.FloorFlanks, $"the stand must come from the floor flanks; got {reason} at {stand}");
+        Require(stand.Y > 800f, $"the flank must stay low; stand {stand}");
+        Require(stand.X < 880f || stand.X > 1020f, $"the flank must sit outside the pair; stand {stand}");
+        Console.WriteLine($"attack planning: roller flank {stand} by {reason} (value {result.Plan.Weighted:0.00})");
         return 0;
     }
 

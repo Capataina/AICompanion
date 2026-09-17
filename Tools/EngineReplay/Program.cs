@@ -69,6 +69,7 @@ if (args.Contains("--attack-planning"))
         + RunOneRow.Case("a debuff weapon opens for its exploiting weapon", () => VerifyAttackPlanning.ADebuffWeaponOpensForItsExploitingWeapon())
         + RunOneRow.Case("two in a line are fought from the line, nearer first", () => VerifyAttackPlanning.TwoInALineAreFoughtFromTheLineNearerFirst())
         + RunOneRow.Case("goons then boss earns two segments", () => VerifyAttackPlanning.GoonsThenBossEarnsTwoSegments())
+        + RunOneRow.Case("a floor roller takes the low flank", () => VerifyAttackPlanning.AFloorRollerTakesTheLowFlank())
         + RunOneRow.Case("a dominated plan never survives the front, whatever the weights", () => VerifyAttackPlanning.ADominatedPlanNeverSurvivesTheFront());
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;
 if (args.Contains("--light-senses")) return VerifyLightAndReachSenses.Run() == 0 ? 0 : 1;

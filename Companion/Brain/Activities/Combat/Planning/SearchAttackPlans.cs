@@ -165,7 +165,7 @@ public static class SearchAttackPlans
             KeepOnlyUndominated.FilterWithDrops(plans, plan => plan.Outcome);
         if (System.Environment.GetEnvironmentVariable("AIC_DEBUG_PLAN") == "1")
             foreach (AttackPlan c in plans)
-                System.Console.WriteLine($"  DEBUG cand primary={c.PrimaryTarget} segs={c.Segments.Length} stands={string.Join("+", System.Linq.Enumerable.Select(c.Segments, s => $"{s.Stand.Stand.X:0},{s.Stand.Stand.Y:0}"))} weighted={c.Weighted:0.00} kills={c.TargetKillTicks?.Length ?? 0} uses={string.Join("+", System.Linq.Enumerable.Select(c.Segments, s => s.Uses.Length))} travel={c.Segments[0].Verdict.TravelTicks:0} outcome={c.Outcome}");
+                System.Console.WriteLine($"  DEBUG cand primary={c.PrimaryTarget} segs={c.Segments.Length} stands={string.Join("+", System.Linq.Enumerable.Select(c.Segments, s => $"{s.Stand.Stand.X:0},{s.Stand.Stand.Y:0}/{s.Stand.Reason}"))} weighted={c.Weighted:0.00} kills={c.TargetKillTicks?.Length ?? 0} uses={string.Join("+", System.Linq.Enumerable.Select(c.Segments, s => s.Uses.Length))} travel={c.Segments[0].Verdict.TravelTicks:0} outcome={c.Outcome}");
         AttackPlan best = front[0];
         foreach (AttackPlan plan in front)
             if (plan.Weighted > best.Weighted)
