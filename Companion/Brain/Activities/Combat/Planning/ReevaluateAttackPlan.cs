@@ -103,6 +103,6 @@ public static CombatOutcome? Reevaluate(in ActionContext ctx, CompanionCombat co
         Math.Max(1, ctx.Companion.Mana.Max), 0f);
     var evalTargets = ForecastUses.AttackTargets(ctx);
     return EvaluateAttackOutcomes.EvaluateVector(attacks[0], attacks, evalTargets,
-        Math.Max(0, combat.CooldownTicks), horizon, context, weights);
+        Math.Max(0, combat.CooldownTicks), horizon, context, weights).Outcome;
 }
 }

@@ -149,7 +149,11 @@ public sealed class ReachSense
             : Complete && WithinKnownRadius(tile) ? ReachVerdict.Unreachable
             : ReachVerdict.NotYet;
 
-    /// <summary>The flood's travel cost to the nearest reached corner of a tile, in ticks at the body's cap; null while unreached.</summary>
+    /// <summary>
+    /// The flood's travel cost to the nearest reached corner of a tile, in ticks at the body's cap;
+    /// null while unreached. Root-relative: the cost counts from the flood's root, and <paramref name="from"/>
+    /// selects nothing — a caller pricing a leg between two other points differs two costs itself.
+    /// </summary>
     public float? EstimatedTravelTicks(Point from, Point tile)
     {
         if (flood == null) return null;

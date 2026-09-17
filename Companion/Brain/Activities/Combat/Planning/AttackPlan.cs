@@ -87,10 +87,10 @@ public sealed record AttackSegment(StandProposal Stand, Infrastructure.Position.
 
 /// <summary>
 /// A plan: a short timeline of segments, its objective vector, its weighted value under the weights that
-/// chose it, what it was admitted against, and whether the budget cut its search. Depth one in phase D —
-/// one segment — so commitment and the offer run on the vector before the timed sequences of phase E.
-/// TargetKillTicks carries the evaluator's predicted kill tick per target slot, absolute, for the threat
-/// sense's intervention estimate: protection prices the fight the plan performs.
+/// chose it, what it was admitted against, and whether the budget cut its search. The beam prices up to
+/// three timed segments; a one-segment plan is a search that found no second stand worth the travel.
+/// TargetKillTicks carries the evaluator's predicted kill tick per target slot, absolute, earliest first,
+/// for the threat sense's intervention estimate: protection prices the fight the plan performs.
 /// </summary>
 public sealed record AttackPlan(int Id, AttackSegment[] Segments, CombatOutcome Outcome, float Weighted,
     PlanValidity Validity, bool BudgetCut, (int Slot, int Tick)[]? TargetKillTicks = null)
@@ -111,6 +111,14 @@ public sealed record AttackPlan(int Id, AttackSegment[] Segments, CombatOutcome 
 /// <summary>One proposal with the verdict the search read: the snapshot carries the whole assessed set,
 /// so the audit replays the decision against the same reach answers rather than a fresh flood.</summary>
 public readonly record struct AssessedStand(StandProposal Proposal, Infrastructure.Position.StandVerdict Verdict);
+
+/// <summary>
+/// One deeper-level proposal with the verdict the search priced and the prefix stand it was assessed
+/// from: travel and reach are leg-relative, so the origin is part of the answer. The audit matches
+/// replays by origin and stand tiles with the reason, because restored coordinates shift.
+/// </summary>
+public readonly record struct DeeperAssessedStand(Vector2 Origin, StandProposal Proposal,
+    Infrastructure.Position.StandVerdict Verdict);
 
 /// <summary>
 /// One plan the search turned down: whether the dominance filter dropped it or the weights did, and the

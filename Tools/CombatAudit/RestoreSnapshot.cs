@@ -40,6 +40,7 @@ internal sealed class RestoredDecision
     public AttackPlan? CommittedShifted;
     public List<StandProposal> Proposals = new();
     public List<StandVerdict> Verdicts = new();
+    public List<DeeperAssessedStand> Deeper = new();
     public int KnowledgeSkipped;
     public List<string> Unresolved = new();
 
@@ -138,6 +139,18 @@ internal static class RestoreSnapshot
             restored.Verdicts.Add(new StandVerdict(Shift(restored, verdict.Stand), (ReachVerdict)verdict.Reach,
                 verdict.Travel, verdict.HarmAt, verdict.HarmAlong, verdict.InAllowance, verdict.Why));
         }
+        if (snapshot.Deeper != null)
+            foreach (S.DeeperVerdictDto deeper in snapshot.Deeper)
+            {
+                S.VerdictDto verdict = deeper.Verdict;
+                if (!Enum.IsDefined(typeof(StandReason), verdict.Reason) || !Enum.IsDefined(typeof(ReachVerdict), verdict.Reach))
+                    throw new AuditException($"deeper verdict names unknown reason {verdict.Reason} or reach {verdict.Reach}");
+                var proposal = new StandProposal(Shift(restored, verdict.Stand), (StandReason)verdict.Reason,
+                    verdict.WeaponSlot, verdict.Targets);
+                restored.Deeper.Add(new DeeperAssessedStand(Shift(restored, deeper.Origin), proposal,
+                    new StandVerdict(Shift(restored, verdict.Stand), (ReachVerdict)verdict.Reach,
+                        verdict.Travel, verdict.HarmAt, verdict.HarmAlong, verdict.InAllowance, verdict.Why)));
+            }
         if (snapshot.Plan != null)
             restored.CommittedShifted = ShiftPlan(snapshot.Plan, restored.Shift,
                 companion.Brain.Senses.Tick - snapshot.SensesTick);

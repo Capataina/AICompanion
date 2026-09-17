@@ -47,6 +47,15 @@ public static class EvaluateAttackOutcomes
     public readonly record struct Outcome(float Damage, int Kills, float PreventedHarm, float Value);
 
     /// <summary>
+    /// A priced piece of a fight: the objective vector plus what the next piece prices against — the
+    /// raw damage dealt, the last impact's search-relative tick, and the enemies' remaining life after
+    /// it. The beam rolls one segment's valuation into the next one's starting state, so a later
+    /// segment never re-kills what an earlier one already removed.
+    /// </summary>
+    public sealed record Valuation(CombatOutcome Outcome, float DamageDealt, int LastImpactTick,
+        Dictionary<int, float> RemainingLife);
+
+    /// <summary>
     /// What the vector needs beyond the attacks themselves, all as numbers so this class still reads no world:
     /// the ticks to reach the stand, the predicted harm at the stand and along the travel as shares of the
     /// companion's life, the bodies' lives, the mana pool, and the company gap the planner integrated over
@@ -144,17 +153,28 @@ public static class EvaluateAttackOutcomes
     /// The planner reads the continuation back through the collectors: <paramref name="sequence"/> takes the
     /// attacks the continuation applied with their absolute fire ticks, and <paramref name="killTicks"/> the
     /// absolute tick each target died at. Both are written only on the applied path, never on a marginal probe.
+    ///
+    /// <paramref name="initialRemaining"/> starts the roll from an earlier piece's ending life instead of
+    /// full life; the beam threads one segment's remainder into the next. Null is the whole fight from
+    /// full life, which is every level-one call.
     /// </summary>
-    public static CombatOutcome EvaluateVector(Attack first, IReadOnlyList<Attack> alternatives,
+    public static Valuation EvaluateVector(Attack first, IReadOnlyList<Attack> alternatives,
         IReadOnlyList<Target> targets, int cooldown, int horizon, PlanContext context, CombatWeights weights,
         int searchTick = 0, ICollection<(Attack Attack, int FireTick)>? sequence = null,
-        ICollection<(int Target, int Tick)>? killTicks = null)
+        ICollection<(int Target, int Tick)>? killTicks = null,
+        Dictionary<int, float>? initialRemaining = null)
     {
         var remaining = new Dictionary<int, float>();
         var facts = new Dictionary<int, Target>();
         Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs = null;
         float encounterLife = 0f;
-        foreach (Target target in targets) { remaining[target.Id] = target.Life; facts[target.Id] = target; encounterLife += Math.Max(0f, target.Life); }
+        foreach (Target target in targets)
+        {
+            remaining[target.Id] = initialRemaining != null && initialRemaining.TryGetValue(target.Id, out float left)
+                ? Math.Max(0f, left) : target.Life;
+            facts[target.Id] = target;
+            encounterLife += Math.Max(0f, target.Life);
+        }
         encounterLife = Math.Max(1f, encounterLife);
         // Search-relative ticks throughout: the first use fires when the hands are ready AND the body
         // has arrived, so a stand a flight away does not schedule — or stamp, or price — uses before the
@@ -186,6 +206,19 @@ public static class EvaluateAttackOutcomes
             }
         }
         int duration = Math.Max(1, lastImpact);
+        return new Valuation(Assemble(damage, threat, prevented, push, mana, firstLanded, duration,
+            context, horizon, encounterLife), damage, duration, remaining);
+    }
+
+    /// <summary>
+    /// One vector from rolled totals: damage over the span in encounter-life units, prevention in player
+    /// life, harm over the stand and travel spans, the gap the caller integrated, first damage timed.
+    /// Both the greedy continuation and the fixed-sequence roll below assemble through here, so a
+    /// truncated prefix prices in the same units as the continuation it came from.
+    /// </summary>
+    private static CombatOutcome Assemble(float damage, float threat, float prevented, float push, float mana,
+        int firstLanded, int duration, PlanContext context, int horizon, float encounterLife)
+    {
         float playerLife = Math.Max(1f, context.PlayerLife);
         return new CombatOutcome(
             DamagePerSecond: damage / (duration / 60f) / encounterLife,
@@ -196,6 +229,79 @@ public static class EvaluateAttackOutcomes
             CompanyGap: Math.Max(0f, context.CompanyGap),
             TimeToFirstDamage: firstLanded < 0 ? 1f : Math.Clamp(firstLanded / (float)Math.Max(1, horizon), 0f, 1f),
             ManaSpent: mana / Math.Max(1f, context.ManaPool));
+    }
+
+    /// <summary>
+    /// A fixed sequence rolled in order: the beam's truncated prefix, whose uses were chosen by an
+    /// earlier greedy run and are re-priced here without re-choosing. Fire ticks are search-relative,
+    /// as the continuation's cursor reads them. Returns the vector with the raw damage, the last
+    /// impact and the ending life, so the next piece starts where this one ended.
+    /// </summary>
+    public static Valuation RollFixed(IReadOnlyList<(Attack Attack, int FireTick)> uses,
+        IReadOnlyList<Target> targets, int horizon, PlanContext context, int searchTick,
+        Dictionary<int, float>? initialRemaining = null, ICollection<(int Target, int Tick)>? killTicks = null)
+    {
+        var remaining = new Dictionary<int, float>();
+        var facts = new Dictionary<int, Target>();
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs = null;
+        float encounterLife = 0f;
+        foreach (Target target in targets)
+        {
+            remaining[target.Id] = initialRemaining != null && initialRemaining.TryGetValue(target.Id, out float left)
+                ? Math.Max(0f, left) : target.Life;
+            facts[target.Id] = target;
+            encounterLife += Math.Max(0f, target.Life);
+        }
+        encounterLife = Math.Max(1f, encounterLife);
+        float damage = 0f, threat = 0f, prevented = 0f, push = 0f, mana = 0f;
+        int firstLanded = -1, lastImpact = 0;
+        foreach ((Attack attack, int fireAt) in uses)
+        {
+            if (fireAt < 0 || fireAt >= horizon)
+                continue;
+            AttackParts parts = ValueParts(attack, fireAt, horizon, remaining, facts, ref debuffs, context,
+                apply: true, searchTick, killTicks);
+            damage += parts.Damage; threat += parts.Threat; prevented += parts.Prevented; push += parts.Push;
+            mana += Math.Max(0f, attack.ManaCost);
+            if (parts.Damage > 0f)
+            {
+                if (firstLanded < 0) firstLanded = parts.FirstImpact;
+                lastImpact = Math.Max(lastImpact, parts.LastImpact);
+            }
+        }
+        int duration = Math.Max(1, lastImpact);
+        return new Valuation(Assemble(damage, threat, prevented, push, mana, firstLanded, duration,
+            context, horizon, encounterLife), damage, duration, remaining);
+    }
+
+    /// <summary>
+    /// Two valuations in tick order combined into the whole plan's: damage over the joint span in the
+    /// same encounter-life units, removal, prevention, push, harm and mana summed, the gap the caller's
+    /// joint integral. <paramref name="secondOffsetTicks"/> carries the second piece's frame into the
+    /// first's — its impact ticks count from its own start, so the joint span offsets them. First damage
+    /// is the first piece's whenever it dealt any: the second's fraction is normalised to its own shorter
+    /// horizon, so a minimum would read a later impact as earlier. The second must have been rolled from
+    /// the first's ending life, so nothing is removed twice.
+    /// </summary>
+    public static Valuation Combine(Valuation first, Valuation second, IReadOnlyList<Target> targets,
+        float companyGap, int secondOffsetTicks)
+    {
+        float encounterLife = 0f;
+        foreach (Target target in targets)
+            encounterLife += Math.Max(0f, target.Life);
+        encounterLife = Math.Max(1f, encounterLife);
+        int duration = Math.Max(1, Math.Max(first.LastImpactTick, secondOffsetTicks + second.LastImpactTick));
+        var outcome = new CombatOutcome(
+            DamagePerSecond: (first.DamageDealt + second.DamageDealt) / (duration / 60f) / encounterLife,
+            ThreatRemoved: first.Outcome.ThreatRemoved + second.Outcome.ThreatRemoved,
+            PlayerHarmPrevented: first.Outcome.PlayerHarmPrevented + second.Outcome.PlayerHarmPrevented,
+            CompanionHarmTaken: first.Outcome.CompanionHarmTaken + second.Outcome.CompanionHarmTaken,
+            PushDangerAdded: first.Outcome.PushDangerAdded + second.Outcome.PushDangerAdded,
+            CompanyGap: Math.Max(0f, companyGap),
+            TimeToFirstDamage: first.DamageDealt > 0f ? first.Outcome.TimeToFirstDamage : second.Outcome.TimeToFirstDamage,
+            ManaSpent: first.Outcome.ManaSpent + second.Outcome.ManaSpent);
+        return new Valuation(outcome, first.DamageDealt + second.DamageDealt, duration,
+            new Dictionary<int, float>(second.RemainingLife));
     }
 
     /// <summary>One attack's raw parts: what it deals, removes, prevents and adds, and when its hits land.</summary>

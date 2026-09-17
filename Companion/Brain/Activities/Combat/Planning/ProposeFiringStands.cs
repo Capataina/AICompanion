@@ -36,7 +36,8 @@ public static class ProposeFiringStands
     private const int GeometryTick = 30;
 
     public static List<StandProposal> Propose(in ActionContext ctx, CompanionCombat combat,
-        IReadOnlyList<EnemyForecast> enemies, List<ThreatRecord> targets, ref PlanningBudget budget)
+        IReadOnlyList<EnemyForecast> enemies, List<ThreatRecord> targets, ref PlanningBudget budget,
+        Vector2? origin = null)
     {
         var proposals = new List<StandProposal>();
         var seen = new HashSet<(int X, int Y)>();
@@ -44,13 +45,17 @@ public static class ProposeFiringStands
         var allSlots = new int[targets.Count];
         for (int i = 0; i < targets.Count; i++)
             allSlots[i] = targets[i].Npc.whoAmI;
+        // Deeper beam levels re-propose from the previous segment's stand, so "here" and the
+        // body-anchored lines mean where the body will be, not where it is. The live body is the
+        // default, which is every level-one call.
+        Vector2 body = origin ?? ctx.Npc.Center;
         int left = GeneratorCount;
-        HereAndCompany(ctx, combat, weapons, enemies, targets, allSlots, proposals, seen, ref budget, ref left);
-        BestRange(ctx, combat, weapons, enemies, targets, proposals, seen, ref budget, ref left);
+        HereAndCompany(ctx, combat, weapons, enemies, targets, allSlots, body, proposals, seen, ref budget, ref left);
+        BestRange(ctx, combat, weapons, enemies, targets, body, proposals, seen, ref budget, ref left);
         PierceLines(ctx, combat, weapons, enemies, targets, proposals, seen, ref budget, ref left);
-        FloorFlanks(ctx, combat, weapons, enemies, targets, proposals, seen, ref budget, ref left);
+        FloorFlanks(ctx, combat, weapons, enemies, targets, body, proposals, seen, ref budget, ref left);
         AboveArea(ctx, combat, weapons, enemies, targets, proposals, seen, ref budget, ref left);
-        BankShots(ctx, combat, weapons, enemies, targets, proposals, seen, ref budget, ref left);
+        BankShots(ctx, combat, weapons, enemies, targets, body, proposals, seen, ref budget, ref left);
         SafeRange(ctx, weapons, targets, proposals, seen);
         return proposals;
     }
@@ -203,10 +208,10 @@ public static class ProposeFiringStands
     /// </summary>
     private static void HereAndCompany(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
-        List<ThreatRecord> targets, int[] allSlots, List<StandProposal> proposals,
+        List<ThreatRecord> targets, int[] allSlots, Vector2 body, List<StandProposal> proposals,
         HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
     {
-        Emit(proposals, seen, ctx.Npc.Center, StandReason.HereAndCompany, -1, allSlots);
+        Emit(proposals, seen, body, StandReason.HereAndCompany, -1, allSlots);
         int stopAt = StopAt(ref budget, ref left);
         PlayerIntentRegion region = ctx.Senses.Intent.Region;
         var points = new Vector2[]
@@ -259,7 +264,7 @@ public static class ProposeFiringStands
     /// </summary>
     private static void BestRange(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
-        List<ThreatRecord> targets, List<StandProposal> proposals,
+        List<ThreatRecord> targets, Vector2 body, List<StandProposal> proposals,
         HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
     {
         int stopAt = StopAt(ref budget, ref left);
@@ -270,7 +275,7 @@ public static class ProposeFiringStands
             if (forecast == null)
                 continue;
             Vector2 centre = forecast.PredictedCentre(GeometryTick);
-            Vector2 toBody = ctx.Npc.Center - centre;
+            Vector2 toBody = body - centre;
             Vector2 toPlayer = ctx.Player.Center - centre;
             if (toBody == Vector2.Zero)
                 toBody = Vector2.UnitX;
@@ -416,7 +421,7 @@ public static class ProposeFiringStands
     /// </summary>
     private static void FloorFlanks(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
-        List<ThreatRecord> targets, List<StandProposal> proposals,
+        List<ThreatRecord> targets, Vector2 body, List<StandProposal> proposals,
         HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
     {
         Vector2 centroid;
@@ -437,7 +442,7 @@ public static class ProposeFiringStands
         }
         int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
-        Vector2 across = centroid - ctx.Npc.Center;
+        Vector2 across = centroid - body;
         across = across == Vector2.Zero ? Vector2.UnitY : Vector2.Normalize(new Vector2(-across.Y, across.X));
         float flank = 64f;
         foreach (ThreatRecord threat in targets)
@@ -559,12 +564,12 @@ public static class ProposeFiringStands
     /// </summary>
     private static void BankShots(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
-        List<ThreatRecord> targets, List<StandProposal> proposals,
+        List<ThreatRecord> targets, Vector2 origin, List<StandProposal> proposals,
         HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
     {
         int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
-        Vector2 body = CompanionCombat.MuzzleAt(ctx.Npc.Center);
+        Vector2 body = CompanionCombat.MuzzleAt(origin);
         var bodyWorld = CombatWorld.Current(body, ctx.Player.Center, TerrainChanges.Revision);
         PlayerIntentRegion region = ctx.Senses.Intent.Region;
         var points = new Vector2[]

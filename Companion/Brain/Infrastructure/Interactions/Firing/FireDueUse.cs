@@ -215,7 +215,7 @@ public sealed class FireDueUse
         foreach (EvaluateAttackOutcomes.Attack attack in attacks)
         {
             CombatOutcome outcome = EvaluateAttackOutcomes.EvaluateVector(attack, attacks, evalTargets,
-                combat.CooldownTicks, CompanionCombat.HorizonTicks, context, weights);
+                combat.CooldownTicks, CompanionCombat.HorizonTicks, context, weights).Outcome;
             float value = weights.Weighted(outcome);
             if (value > best)
             {

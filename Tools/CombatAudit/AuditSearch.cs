@@ -38,9 +38,10 @@ internal static class AuditSearch
         // the live search drew. Forcing means here would price the replay at the posterior mean against live
         // samples and diverge on every calm snapshot; the sweep keeps its own forcing, where noise-free
         // weight comparison is the point.
-        SearchAttackPlans.SearchResult result = SearchAttackPlans.SearchDepthOne(ctx, combat, positioner, Allows, restored.Weights,
+        SearchAttackPlans.SearchResult result = SearchAttackPlans.Search(ctx, combat, positioner, Allows, restored.Weights,
             restored.Snapshot.Plan?.Id ?? combat.NextPlanId++,
-            ref budget, new SearchAttackPlans.SearchOptions(restored.Proposals, restored.Verdicts));
+            ref budget, new SearchAttackPlans.SearchOptions(restored.Proposals, restored.Verdicts, restored.Deeper),
+            maxDepth: restored.Deeper.Count > 0 ? SearchAttackPlans.MaxSearchDepth : 1);
         var verdict = new ReplayVerdict(false, new List<string>(), result.FrontSize, result.Plan?.Weighted ?? 0f,
             ctx.Senses.Threats.PlayerDanger, ctx.Senses.Threats.CompanionDanger);
         if (restored.CommittedShifted == null)
@@ -64,7 +65,7 @@ internal static class AuditSearch
     /// The exhaustive front: every half-tile of the proposal region with a completed flood, priced at the
     /// snapshot's weights. The grid spirals out from the committed stand and stops at two thousand stands,
     /// which the verdict reports rather than hiding — past the cap the front is a lower bound, not the
-    /// front. Depth stays the live depth: the plus-one level arrives with phase E's deeper search.
+    /// front. Depth is the live depth: the grid replaces the proposals, and the beam expands past them.
     /// </summary>
     public static ExhaustiveVerdict Exhaustive(RestoredDecision restored, bool liveProposalsOnly = false)
     {
@@ -86,11 +87,14 @@ internal static class AuditSearch
         }
         PlanningBudget budget = PlanningBudget.Unbounded();
         AttackLearning.ForceMeans = true;
+        // The grid grades against everything at the live depth; the live proposals alone replay the live
+        // decision's own set, so they run at the recorded depth — a depth-one recording replays depth one.
+        int depth = !liveProposalsOnly || restored.Deeper.Count > 0 ? SearchAttackPlans.MaxSearchDepth : 1;
         SearchAttackPlans.SearchResult result;
         try
         {
-            result = SearchAttackPlans.SearchDepthOne(ctx, combat, positioner, Allows, restored.Weights,
-                combat.NextPlanId++, ref budget, new SearchAttackPlans.SearchOptions(grid));
+            result = SearchAttackPlans.Search(ctx, combat, positioner, Allows, restored.Weights,
+                combat.NextPlanId++, ref budget, new SearchAttackPlans.SearchOptions(grid), maxDepth: depth);
         }
         finally
         {

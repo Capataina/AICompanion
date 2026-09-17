@@ -207,14 +207,14 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             preparedSearch = null;
         }
         PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds, Weights.CombatPlanningMaxSimulations);
-        SearchAttackPlans.SearchResult result = SearchAttackPlans.SearchDepthOne(ctx, combat, positioner, allows,
+        SearchAttackPlans.SearchResult result = SearchAttackPlans.Search(ctx, combat, positioner, allows,
             weights, combat.NextPlanId++, ref budget);
         lastSearch = result;
         if (result.Plan != null)
         {
             preparedPlan = result.Plan;
             preparedSearch = result;
-            OfferFromPlan(ctx, result.Plan, result.Plan.Outcome, weights, result.FrontSize, cut: false);
+            OfferFromPlan(ctx, result.Plan, result.Plan.Outcome, weights, result.FrontSize, cut: result.Cut);
             if (running)
             {
                 CommitAndRecord(ctx, combat, result.Plan, result, budget, weights, running);
@@ -226,7 +226,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         preparedPlan = null;
         preparedSearch = null;
         OfferedFrontSize = result.FrontSize;
-        OfferedCut = result.Reason == "budget-cut";
+        OfferedCut = result.Cut;
         if (result.Eligibility != OfferEligibility.Unresolved)
         {
             // A decided search names the threat it was about and what the planner read, which is what thousands of

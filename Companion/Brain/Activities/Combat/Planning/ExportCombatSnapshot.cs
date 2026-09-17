@@ -69,6 +69,10 @@ public static class ExportCombatSnapshot
         string Liquids, string Materials, string States);
     public sealed record VerdictDto(Vec Stand, int Reason, int WeaponSlot, int[] Targets, int Reach, float Travel,
         float HarmAt, float HarmAlong, bool InAllowance, string Why);
+    /// <summary>One deeper-level verdict with the prefix stand it was assessed from: leg travel is
+    /// origin-relative, so the origin is part of the recorded answer. Null on snapshots whose search
+    /// never expanded past level one, which replay at depth one.</summary>
+    public sealed record DeeperVerdictDto(Vec Origin, VerdictDto Verdict);
     public sealed record UseDto(int Weapon, Vec Muzzle, Vec Aim, Vec Launch, int FireTick, int Target);
     public sealed record SegmentDto(Vec Stand, int Reason, int WeaponSlot, int[] Targets, VerdictDto Verdict,
         int Arrive, int Start, int End, List<UseDto> Uses, int EndsWhen);
@@ -84,7 +88,8 @@ public static class ExportCombatSnapshot
         bool Explored, int Cooldown, List<DeferredDto> Deferred, List<int[]> Hits, float AllowanceRadius,
         int TerrainRevision = 0, int ProgressTick = -1, bool CombatRunning = false,
         int MaxSimulations = int.MaxValue, List<int>? GearPrefixes = null,
-        List<GearStatDto?>? GearStats = null, List<float>? WeaponScaledDamage = null);
+        List<GearStatDto?>? GearStats = null, List<float>? WeaponScaledDamage = null,
+        List<DeeperVerdictDto>? Deeper = null);
 
     public static string Build(in ActionContext ctx, CompanionCombat combat, AttackPlan? plan,
         SearchAttackPlans.SearchResult? search, CombatWeights weights, PlanningBudget budget,
@@ -166,6 +171,16 @@ public static class ExportCombatSnapshot
                 bounds.Add(assessed.Proposal.Stand);
                 verdicts.Add(ExportVerdict(assessed.Proposal, assessed.Verdict));
             }
+        List<DeeperVerdictDto>? deeper = null;
+        if (search?.DeeperAssessed != null)
+            foreach (DeeperAssessedStand assessed in search.DeeperAssessed)
+            {
+                deeper ??= new List<DeeperVerdictDto>();
+                bounds.Add(assessed.Origin);
+                bounds.Add(assessed.Proposal.Stand);
+                deeper.Add(new DeeperVerdictDto(V(assessed.Origin),
+                    ExportVerdict(assessed.Proposal, assessed.Verdict)));
+            }
 
         PlayerIntentRegion region = ctx.Senses.Intent.Region;
         var deferred = new List<DeferredDto>();
@@ -199,7 +214,7 @@ public static class ExportCombatSnapshot
             ForecastUses.Explore(ctx),
             combat.CooldownTicks, deferred, hits, allowanceRadius, TerrainChanges.Revision,
             combat.Planner.ExportProgressTick(), combatRunning, budget.AllowanceSimulations, prefixes,
-            stats, scaledDamage);
+            stats, scaledDamage, deeper);
         return JsonSerializer.Serialize(snapshot, Json);
     }
 

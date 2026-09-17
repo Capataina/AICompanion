@@ -55,6 +55,37 @@ public sealed class EnemyForecast
     public float ConfidenceAtTick(int ticks) => npc == null ? 0.5f : PredictObservedMotion.Confidence(npc, ticks);
 
     internal void Track(NPC live) => npc = live;
+
+    /// <summary>
+    /// The same forecast with rolled life: the beam's next segment aims and simulates against what an
+    /// earlier segment leaves alive, while predictions, buffs and AI state stay the tick's snapshot.
+    /// Positions stay too — pushes displacing later predictions is the one rolled term not carried —
+    /// so a later segment never invents a dodge its own shots did not prove.
+    /// </summary>
+    public EnemyForecast RolledCopy(float life)
+    {
+        var copy = new EnemyForecast
+        {
+            Slot = Slot,
+            NpcType = NpcType,
+            IsBoss = IsBoss,
+            Shoots = Shoots,
+            Life = Math.Max(0f, life),
+            MaxLife = MaxLife,
+            Defense = Defense,
+            KnockbackResist = KnockbackResist,
+            NoGravity = NoGravity,
+            OnFire2 = OnFire2,
+            Box = Box,
+            BuffTypes = BuffTypes,
+            Direction = Direction,
+            Velocity = Velocity,
+        };
+        Array.Copy(Ai, copy.Ai, Math.Min(Ai.Length, copy.Ai.Length));
+        Array.Copy(LocalAi, copy.LocalAi, Math.Min(LocalAi.Length, copy.LocalAi.Length));
+        copy.npc = npc;
+        return copy;
+    }
 }
 
 /// <summary>

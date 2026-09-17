@@ -48,9 +48,10 @@ internal static class AuditWeights
         SearchAttackPlans.SearchResult result;
         try
         {
-            result = SearchAttackPlans.SearchDepthOne(ctx, combat, positioner, Allows, weights,
+            result = SearchAttackPlans.Search(ctx, combat, positioner, Allows, weights,
                 combat.NextPlanId++, ref budget,
-                new SearchAttackPlans.SearchOptions(restored.Proposals, restored.Verdicts));
+                new SearchAttackPlans.SearchOptions(restored.Proposals, restored.Verdicts, restored.Deeper),
+                maxDepth: restored.Deeper.Count > 0 ? SearchAttackPlans.MaxSearchDepth : 1);
         }
         finally
         {

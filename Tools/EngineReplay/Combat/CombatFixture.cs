@@ -23,8 +23,11 @@ internal static class CombatFixture
 {
     public sealed record FiredUse(bool Fired, CombatWeapon? Weapon, AttackPlan? Plan);
 
-    /// <summary>One plan searched the way the activity searches, but unbounded and allow-all.</summary>
-    public static AttackPlan? Search(CompanionNPC companion, C ctx)
+    /// <summary>
+    /// One plan searched the way the activity searches, but unbounded and allow-all. Depth is the
+    /// row's independent variable: level-one rows pin one segment, the beam rows pass two or three.
+    /// </summary>
+    public static AttackPlan? Search(CompanionNPC companion, C ctx, int maxDepth = 1)
     {
         var combat = companion.Combat;
         var weights = Weigh.ForSenses(ctx);
@@ -38,8 +41,8 @@ internal static class CombatFixture
         brain.Positioner.Resolve(primeHome, brain.Senses);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
             brain.Positioner.Resolve(primeHome, brain.Senses);
-        SearchPlans.SearchResult result = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
-            _ => true, weights, combat.NextPlanId++, ref budget);
+        SearchPlans.SearchResult result = SearchPlans.Search(ctx, combat, companion.Brain.Positioner,
+            _ => true, weights, combat.NextPlanId++, ref budget, maxDepth: maxDepth);
         return result.Plan;
     }
 

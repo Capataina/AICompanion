@@ -370,6 +370,13 @@ public static class Weights
     /// <summary>How many candidate attacks one stand prices before the search moves on: the intercept-first ordering means the cap costs banks and far spread, never the direct shot.</summary>
     public const int CombatMaxAttacksPerStand = 12;
 
+    /// <summary>
+    /// How many plans each beam level keeps for expansion, by weighted value among the undominated:
+    /// two keeps a live level-two expansion inside the rescore beside level one, while the unbounded
+    /// audit and fixtures price every expansion the level admits. The C1 row owns the ceiling.
+    /// </summary>
+    public const int CombatBeamWidth = 2;
+
     /// <summary>The milliseconds one rescore may spend searching attack plans; a cut search offers unresolved, never known-unusable.</summary>
     public const float CombatPlanningMilliseconds = 4f;
 
