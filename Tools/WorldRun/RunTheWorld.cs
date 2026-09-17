@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.ID;
 using live::AICompanion.Companion.CharacterBody;
 
 /// <summary>
@@ -31,6 +32,21 @@ internal static class RunTheWorld
     /// more generous than the one the capture was recorded under.
     /// </summary>
     private const int LightHalfWidth = 80, LightHalfHeight = 60;
+
+    /// <summary>
+    /// What the combat variant saw, per tick. The zombie is the instrument's own staging — frozen,
+    /// retired by the instrument after sustained fire — so this record exists to grade the
+    /// companion's decisions around a fight (eagerness, persistence, recovery), never its lethality,
+    /// which no headless tool simulates. Null on an ordinary run, which places no zombie.
+    /// </summary>
+    internal sealed record FightTrace(
+        IReadOnlyList<bool> CombatCurrent,
+        IReadOnlyList<string> Fire,
+        IReadOnlyList<bool> Threatened,
+        /// <summary>Step index the instrument retired the zombie, or -1 when the companion never fired the sustained burst that retires it.</summary>
+        int KillStep,
+        /// <summary>How many ticks read fired, cumulative, which is what retires the zombie at five.</summary>
+        int FiredTicks);
 
     internal sealed record Outcome(
         IReadOnlyList<Vector2> CompanionCentres,
@@ -71,7 +87,9 @@ internal static class RunTheWorld
         /// <summary>Ticks the body's own tile sat outside the reach sense's known radius, so nothing near it could be proven absent.</summary>
         int TicksOutsideKnownRadius,
         /// <summary>Ticks the reach flood read complete.</summary>
-        int TicksReachComplete)
+        int TicksReachComplete,
+        /// <summary>The combat variant's fight record, or null on an ordinary run, which places no zombie.</summary>
+        FightTrace? Fight)
     {
         /// <summary>
         /// One number standing for the whole run's decisions and positions, so two runs can be
@@ -99,6 +117,31 @@ internal static class RunTheWorld
     /// than a fault, and one worth being able to establish rather than assume.
     /// </summary>
     public static bool DriveLight { get; set; } = true;
+
+    /// <summary>
+    /// Whether this run is the combat variant: a zombie placed where the player will stand thirty
+    /// ticks in, grading whether Combat takes the body, whether the hands keep firing while the
+    /// zombie is on him, and whether the body rejoins the route after the kill.
+    ///
+    /// The zombie is staging, and the rows say so. It never moves — no headless tool runs NPC AI —
+    /// and the kill is struck by the instrument after five cumulative fired ticks, because no
+    /// headless tool simulates projectile damage either. What the variant grades is the companion's
+    /// decisions around the fight, which are all real: the threat sense reads a live hostile, the
+    /// stance must win selection, the hands must fire, and the body must come home afterwards.
+    /// </summary>
+    public static bool CombatVariant { get; set; } = false;
+
+    /// <summary>Which Main.npc slot the combat variant's zombie stands in. The companion is not in the array, so no slot collides.</summary>
+    private const int ZombieSlot = 50;
+
+    /// <summary>How many steps ahead of the opening the zombie waits, at the player's own recorded feet — free space by construction, beside the route by the plan's wording.</summary>
+    private const int ZombieStepAhead = 30;
+
+    /// <summary>How close the zombie must be to count as on the player: five tiles, near enough that the danger sense cannot miss it and far enough that the window spans his approach and his passing.</summary>
+    private const float OnPlayerPx = 80f;
+
+    /// <summary>How many cumulative fired ticks retire the zombie: five arrows over several cooldown cycles, which proves the stance held the fight rather than firing once. Thirty was the first guess; the probe fired nine ticks in three hundred steps, the wooden bow's maximum rate, so thirty needs a thousand-tick slice for nothing the fifth shot does not prove.</summary>
+    private const int FiredTicksToKill = 5;
 
     public static Outcome Play(ReadRecordedRoute.Route route, string worldSource, int seed)
     {
@@ -140,11 +183,29 @@ internal static class RunTheWorld
         Player player = Main.player[0];
         if (DriveLight) PrepareTheHeadlessEngine.WarmTheLightEngine(player.Bottom.ToTileCoordinates(), LightHalfWidth, LightHalfHeight);
 
+        // The combat variant's zombie, placed where the player will stand and retired by the
+        // instrument. Re-placed every pass: the slot persists across passes in-process, and a pass
+        // that inherited a dead zombie would grade a fight that never started.
+        NPC? zombie = null;
+        if (CombatVariant)
+        {
+            zombie = Main.npc[ZombieSlot];
+            zombie.SetDefaults(NPCID.Zombie);
+            zombie.Bottom = route[Math.Min(ZombieStepAhead, route.Count - 1)].PlayerFeet;
+            zombie.velocity = Vector2.Zero;
+            zombie.active = true;
+            zombie.whoAmI = ZombieSlot;
+        }
+
         var centres = new List<Vector2>(route.Count);
         var trace = new List<string>(route.Count);
         var claims = new List<live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict>(route.Count);
         var inside = new List<bool>(route.Count);
         var connected = new List<bool>(route.Count);
+        var combatCurrent = new List<bool>(route.Count);
+        var fire = new List<string>(route.Count);
+        var threatened = new List<bool>(route.Count);
+        int killStep = -1, firedTicks = 0;
         int ticksOutsideKnownRadius = 0, ticksReachComplete = 0;
         var clock = Stopwatch.StartNew();
 
@@ -197,15 +258,43 @@ internal static class RunTheWorld
             if (!brain.Senses.Reach.WithinKnownRadius(live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.Tile(companion.NPC.Center)))
                 ticksOutsideKnownRadius++;
             if (brain.Senses.Reach.Complete) ticksReachComplete++;
+            bool fighting = brain.LastAction?.Name == "combat";
+            string fireOutcome = companion.Combat.LastFireOutcome;
+            // On him means near him and still standing: a retired zombie threatens nothing, and a
+            // window that outlived the kill would grade the companion for not fighting a corpse.
+            bool onPlayer = zombie != null && zombie.active
+                && Vector2.Distance(zombie.Center, player.Center) <= OnPlayerPx;
+            if (zombie != null)
+            {
+                combatCurrent.Add(fighting);
+                fire.Add(fireOutcome);
+                threatened.Add(onPlayer);
+                // The retirement: five cumulative fired ticks prove the fight, and the instrument
+                // strikes the kill itself because no headless tool simulates projectile damage. Set
+                // directly rather than through StrikeNPC, whose death path writes dust through
+                // cosmetic slots no decision reads; the row states the staging either way.
+                if (fireOutcome == "fired")
+                    firedTicks++;
+                if (killStep < 0 && firedTicks >= FiredTicksToKill)
+                {
+                    killStep = index;
+                    zombie.life = 0;
+                    zombie.active = false;
+                }
+            }
+            string fightSuffix = zombie == null ? ""
+                : $"|fight {(fighting ? "combat" : "other")} {fireOutcome} {(onPlayer ? "threatened" : "calm")} {(killStep < 0 ? "alive" : "retired")}";
             trace.Add(string.Create(CultureInfo.InvariantCulture,
                 $"{step.Tick}|{brain.LastAction?.Name ?? "-"}|{brain.LastRequest.Kind}|{companion.Motor.AppliedControls}|{brain.Navigator.Status}|{companion.NPC.position.X:R},{companion.NPC.position.Y:R}"
-                + $"|reach {(brain.Senses.Reach.Complete ? "complete" : "growing")} {brain.Senses.Reach.CornerCount} {(brain.Senses.Reach.WithinKnownRadius(live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.Tile(companion.NPC.Center)) ? "in" : "out")} reroots {brain.Senses.Reach.Reroots} refloods {brain.Senses.Reach.Refloods}"));
+                + $"|reach {(brain.Senses.Reach.Complete ? "complete" : "growing")} {brain.Senses.Reach.CornerCount} {(brain.Senses.Reach.WithinKnownRadius(live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.Tile(companion.NPC.Center)) ? "in" : "out")} reroots {brain.Senses.Reach.Reroots} refloods {brain.Senses.Reach.Refloods}") + fightSuffix);
         }
 
         clock.Stop();
         var light = companion.Brain.Senses.Light;
+        FightTrace? fight = zombie == null ? null
+            : new FightTrace(combatCurrent, fire, threatened, killStep, firedTicks);
         return new Outcome(centres, trace, claims, inside, connected, route.Count, clock.Elapsed.TotalSeconds, worldSource,
             light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer,
-            ticksOutsideKnownRadius, ticksReachComplete);
+            ticksOutsideKnownRadius, ticksReachComplete, fight);
     }
 }

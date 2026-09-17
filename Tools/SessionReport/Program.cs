@@ -79,6 +79,8 @@ public static class Program
         new FollowingRespondsAfterDeparture(),
         new DamageArrivesWhereDangerWasSeen(),
         new TheHandsWorkWhileThreatened(),
+        new CombatIsEagerWhenHeIsInDanger(),
+        new NotFightingMeansNothingToShoot(),
         new TheChosenWeaponIsTheBetterOne(),
         new WeaponKnowledgeIsCalibrated(),
         new TheCompanionStaysUp(),

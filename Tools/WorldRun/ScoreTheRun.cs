@@ -272,6 +272,104 @@ internal static class ScoreTheRun
     /// dash, which is a burst of pace the motor's cap does not allow. A swim filters nothing either:
     /// every liquid is air to the orb, so a place the player swam to is a place it flies to.
     /// </summary>
+    /// <summary>
+    /// The combat variant's three grades: Combat takes the body within a stated time of a zombie
+    /// beside the route, no tick reads not-fighting while the zombie is on him, and the body is
+    /// back inside his region and connected to him within a stated time of the kill.
+    ///
+    /// The zombie is the instrument's staging — frozen where the player will stand, retired after
+    /// five fired ticks — so these rows grade the companion's decisions around a fight and never
+    /// its lethality. When the companion never fires the burst, there is no kill to rejoin after
+    /// and the third row skips rather than failing: the first two rows already carry that verdict.
+    /// </summary>
+    public static int Combat(string suite, RunTheWorld.Outcome run)
+    {
+        if (run.Fight == null)
+        {
+            EmitLedgerRows.Skipped(Instrument, suite, "combat takes the body within 180 ticks of a zombie beside the route",
+                "this run placed no zombie; the combat rows only judge the --combat variant");
+            return 0;
+        }
+        int failures = 0;
+        RunTheWorld.FightTrace fight = run.Fight;
+        string staging = "the zombie is the instrument's staging: frozen at the player's recorded feet "
+            + "thirty steps ahead of the opening, retired by the instrument after five cumulative fired "
+            + "ticks because no headless tool simulates projectile damage";
+
+        int firstCombat = -1;
+        for (int i = 0; i < fight.CombatCurrent.Count; i++)
+            if (fight.CombatCurrent[i]) { firstCombat = i; break; }
+        if (firstCombat >= 0 && firstCombat <= CombatWithinSteps)
+            EmitLedgerRows.Pass(Instrument, suite, "combat takes the body within 180 ticks of a zombie beside the route",
+                $"combat first current at step {firstCombat} of {fight.CombatCurrent.Count}; {staging}",
+                mode: "unbounded-allowances",
+                killedBy: "the danger lift failing to outscore travel against a visible hostile");
+        else
+        {
+            failures++;
+            EmitLedgerRows.Fail(Instrument, suite, "combat takes the body within 180 ticks of a zombie beside the route",
+                firstCombat < 0
+                    ? $"combat never current over {fight.CombatCurrent.Count} steps with a live zombie beside the route; {staging}"
+                    : $"combat first current at step {firstCombat}, past the stated 180; {staging}",
+                mode: "unbounded-allowances");
+        }
+
+        int threatened = 0, silent = 0, firstSilent = -1;
+        for (int i = 0; i < fight.Threatened.Count; i++)
+        {
+            if (!fight.Threatened[i]) continue;
+            threatened++;
+            if (fight.Fire[i] == "not-fighting")
+            {
+                silent++;
+                if (firstSilent < 0) firstSilent = i;
+            }
+        }
+        if (silent == 0)
+            EmitLedgerRows.Pass(Instrument, suite, "no tick reads not-fighting while the zombie is on the player",
+                $"{threatened} threatened steps (zombie within five tiles of him and still standing) and none read not-fighting; {staging}",
+                mode: "unbounded-allowances",
+                killedBy: "selection running another activity mid-fight, or the hands gate misfiring");
+        else
+        {
+            failures++;
+            EmitLedgerRows.Fail(Instrument, suite, "no tick reads not-fighting while the zombie is on the player",
+                $"{silent} of {threatened} threatened steps read not-fighting, first at step {firstSilent}; {staging}",
+                mode: "unbounded-allowances");
+        }
+
+        if (fight.KillStep < 0)
+        {
+            EmitLedgerRows.Skipped(Instrument, suite, "the body rejoins his region within 300 ticks of the kill",
+                $"the companion fired {fight.FiredTicks} ticks, short of the five that retire the zombie, so there is no kill to rejoin after; {staging}");
+            return failures;
+        }
+        int rejoined = -1;
+        for (int i = fight.KillStep; i < run.InsideRegion.Count; i++)
+            if (run.InsideRegion[i] && run.ConnectedToPlayer[i]) { rejoined = i; break; }
+        if (rejoined >= 0 && rejoined - fight.KillStep <= RejoinWithinSteps)
+            EmitLedgerRows.Pass(Instrument, suite, "the body rejoins his region within 300 ticks of the kill",
+                $"killed at step {fight.KillStep} after {fight.FiredTicks} fired ticks, back inside and connected at step {rejoined}; {staging}",
+                mode: "unbounded-allowances",
+                killedBy: "combat holding the body after its target died, or travel failing to resume");
+        else
+        {
+            failures++;
+            EmitLedgerRows.Fail(Instrument, suite, "the body rejoins his region within 300 ticks of the kill",
+                rejoined < 0
+                    ? $"killed at step {fight.KillStep} and never back inside and connected over the remaining {run.InsideRegion.Count - fight.KillStep} steps; {staging}"
+                    : $"killed at step {fight.KillStep}, back at step {rejoined}, past the stated 300; {staging}",
+                mode: "unbounded-allowances");
+        }
+        return failures;
+    }
+
+    /// <summary>How long Combat may take to win selection once a zombie waits beside the route: three seconds, several rescans over.</summary>
+    private const int CombatWithinSteps = 180;
+
+    /// <summary>How long the body may take to come home after the kill: five seconds at orb pace.</summary>
+    private const int RejoinWithinSteps = 300;
+
     private static string[] AbilitiesThePlayerHadAndTheCompanionDoesNot(ReadRecordedRoute.Kits kits)
         => kits.PlayerDash ? new[] { "a dash" } : Array.Empty<string>();
 

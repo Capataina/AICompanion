@@ -57,9 +57,11 @@ public static class ChronicleTests
             MissingCombatAuditReadsAsUnmeasured();
             CorruptCombatAuditReadsAsUnreadable();
             ForeignCombatAuditIsNamed();
+            EagernessFiresWhenDangerStandsUnfought();
+            NotFightingFiresBesideATargetInRange();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
-            Console.WriteLine("Chronicle self-tests passed (40 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (42 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -2196,6 +2198,89 @@ public static class ChronicleTests
         {
             File.Delete(session);
             File.Delete(sidecar);
+        }
+    }
+
+    private static void EagernessFiresWhenDangerStandsUnfought()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            var body = new StringBuilder();
+            body.AppendLine("tick\taction\tdanger\tstate\tbrain_fresh\tplayer_hit\tnear_threat\tweapon_reach\tcombat_fin");
+            for (int i = 0; i < 70; i++)
+                body.AppendLine($"{i}\tkeep-company\t0.50\tup\t1\t-\t5.0\t20.0\t0.80");
+            File.WriteAllText(file, body.ToString());
+            Finding[] findings = new CombatIsEagerWhenHeIsInDanger().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 1, $"expected one eagerness finding, got {findings.Length}");
+            Require(findings[0].Severity == Severity.Potential, "eagerness is a pattern to look at, not a contradiction in the record");
+            Require(findings[0].Title.Contains("70 ticks", StringComparison.Ordinal)
+                && findings[0].Title.Contains("keep-company", StringComparison.Ordinal),
+                $"eagerness title lost its stretch: {findings[0].Title}");
+            Require(findings[0].Detail.Contains("combat scored 0.80", StringComparison.Ordinal),
+                $"eagerness detail lost combat's score: {findings[0].Detail}");
+
+            // The three excuses: combat current, danger below the brain's own unsafe line, and
+            // combat disabled in the preamble. Each reads clean on the same shape.
+            body = new StringBuilder();
+            body.AppendLine("tick\taction\tdanger\tstate\tbrain_fresh");
+            for (int i = 0; i < 70; i++)
+                body.AppendLine($"{i}\tcombat\t0.50\tup\t1");
+            for (int i = 70; i < 140; i++)
+                body.AppendLine($"{i}\tkeep-company\t0.10\tup\t1");
+            File.WriteAllText(file, body.ToString());
+            findings = new CombatIsEagerWhenHeIsInDanger().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 0, $"a fought danger and a safe stretch must read clean, got {findings.Length}");
+
+            File.WriteAllText(file, "# config=character;mining=Ask;chopping=Ask;combat=false;pot_breaking=true\n"
+                + "tick\taction\tdanger\tstate\tbrain_fresh\n"
+                + string.Concat(Enumerable.Range(0, 70).Select(i => $"{i}\tkeep-company\t0.90\tup\t1\n")));
+            findings = new CombatIsEagerWhenHeIsInDanger().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 0, "a capture with combat disabled must not grade eagerness");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    private static void NotFightingFiresBesideATargetInRange()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            var body = new StringBuilder();
+            body.AppendLine("tick\tfire\tnear_threat\tweapon_reach\taction\tstate\tbrain_fresh\tplan_value\tweapon");
+            for (int i = 0; i < 70; i++)
+                body.AppendLine($"{i}\tnot-fighting\t5.0\t20.0\tmine\tup\t1\t0.500\tWooden Bow");
+            File.WriteAllText(file, body.ToString());
+            Finding[] findings = new NotFightingMeansNothingToShoot().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 1, $"expected one not-fighting finding, got {findings.Length}");
+            Require(findings[0].Severity == Severity.Potential, "not-fighting beside a target is a pattern to look at, not a contradiction in the record");
+            Require(findings[0].Title.Contains("70 ticks not fighting", StringComparison.Ordinal),
+                $"not-fighting title lost its stretch: {findings[0].Title}");
+            Require(findings[0].Detail.Contains("offered a plan worth 0.500", StringComparison.Ordinal)
+                && findings[0].Detail.Contains("selection still ran something else", StringComparison.Ordinal),
+                $"not-fighting detail lost the selection loss: {findings[0].Detail}");
+
+            // Fired, out of range, unmeasured, and downed all read clean on the same shape.
+            body = new StringBuilder();
+            body.AppendLine("tick\tfire\tnear_threat\tweapon_reach\taction\tstate\tbrain_fresh\tplan_value\tweapon");
+            for (int i = 0; i < 70; i++)
+                body.AppendLine($"{i}\tfired\t5.0\t20.0\tcombat\tup\t1\t0.500\tWooden Bow");
+            for (int i = 70; i < 140; i++)
+                body.AppendLine($"{i}\tnot-fighting\t25.0\t20.0\tmine\tup\t1\t0.000\t-");
+            for (int i = 140; i < 210; i++)
+                body.AppendLine($"{i}\tnot-fighting\t-\t20.0\tmine\tup\t1\t0.000\t-");
+            for (int i = 210; i < 280; i++)
+                body.AppendLine($"{i}\tnot-fighting\t5.0\t20.0\tmine\tdowned\t1\t0.000\t-");
+            File.WriteAllText(file, body.ToString());
+            findings = new NotFightingMeansNothingToShoot().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 0, $"fired, far, unmeasured and downed rows must read clean, got {findings.Length}");
+        }
+        finally
+        {
+            File.Delete(file);
         }
     }
 

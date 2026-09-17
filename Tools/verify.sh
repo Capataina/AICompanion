@@ -184,6 +184,23 @@ cat "$world_run_log"
 rm -f "$world_run_log"
 record_exit "world-run" "$world_run_status"
 
+# The combat variant: the same instrument with a frozen zombie waiting at the player's recorded
+# feet thirty steps ahead, grading combat winning, no silence while threatened, and rejoining
+# after the instrument retires the zombie. The route is pinned rather than newest, because the
+# zombie is placed relative to the opening and a discovered route would make the same case name
+# mean a different ambush every playtest. A fresh clone has no capture and the instrument files
+# its own skip, the same as the route above.
+world_run_combat_route="${AIC_WORLD_RUN_COMBAT_ROUTE:-Telemetry/2026-09-15_08-30-31-684.tsv}"
+world_run_combat_log=$(mktemp)
+dotnet run --project Tools/WorldRun -- \
+  --route="$world_run_combat_route" --world="$world_run_world" \
+  --from-tick=1 --ticks=600 --combat \
+  --suite="combat $(basename "$world_run_combat_route" .tsv)@1" >"$world_run_combat_log" 2>&1
+world_run_combat_status=$?
+cat "$world_run_combat_log"
+rm -f "$world_run_combat_log"
+record_exit "world-run" "$world_run_combat_status"
+
 # The committed scenario checkpoints: the two windows from the last walker play, the statue ledge
 # and the water pocket, played by the orb in the real world they were cut from with the player
 # standing where he stood. The scenario files are in the repository, so only the world can be

@@ -172,6 +172,14 @@ internal static class PrepareTheHeadlessEngine
     /// its fields, so it clears whatever that path clears today; the world the core reads is rebound
     /// to the loaded tiles, the clearance field forgets every chunk it built, and the search's world
     /// override — a headless tool's hook, never set here — is cleared in case a caller left it.
+    ///
+    /// The weapon knowledge, the firing ledgers and the experience credit go too, mirroring
+    /// EngineReplay's BeforeCase. An ordinary run never fires, so the leak was invisible until the
+    /// combat variant: the first probe's passes disagreed at step 30 on fired-vs-cooldown at the
+    /// same position, because the second pass aimed with the first pass's learning. NPC and
+    /// projectile slots are switched off for the same reason — a pass inherits no actors — while
+    /// the objects the fill placed stay, because the engine dereferences the slots, not the flag.
+    /// The combat variant's zombie is re-placed after this runs, so clearing its slot here is safe.
     /// </summary>
     public static void ForgetEverythingLearnedAboutTheWorld()
     {
@@ -182,6 +190,32 @@ internal static class PrepareTheHeadlessEngine
             new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.FreeSpaceSearch.WorldOverride = null;
         live::AICompanion.Companion.Brain.Infrastructure.Movement.ClearanceField.Shared.Invalidate();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.WeaponEffects.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AttackLearning.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ShotOutcomes.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording.RecordProjectileFlights.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording.GroupSpawnsIntoUses.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnVolleyShapes.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.FitFlightLaws.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnWallResponses.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnHitResponses.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnChildSpawns.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.KnowledgeRevision.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CacheSimulatedUses.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CachePlannedSims.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.SpoofOwnerInputForShots.Clear();
+        live::AICompanion.Companion.Progression.CreditKillsAndFights.Reset();
+        live::AICompanion.Companion.Progression.CompanionExperience.DefaultEnemyLife = live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLifeInThisWorld;
+        live::AICompanion.Companion.Progression.CompanionExperience.NormalEnemyLife = () => live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLife(Terraria.DataStructures.GameModeData.NormalMode);
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.CompanionTorches.Clear();
+        live::AICompanion.Companion.Progression.CreditWork.ForgetPaidTorches();
+        foreach (NPC npc in Main.npc)
+            if (npc != null)
+                npc.active = false;
+        foreach (Projectile projectile in Main.projectile)
+            if (projectile != null)
+                projectile.active = false;
     }
 
     /// <summary>

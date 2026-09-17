@@ -90,6 +90,7 @@ internal static class WorldRunEntry
 
         Main.dedServ = true;
         RunTheWorld.DriveLight = !args.Contains("--no-light");
+        RunTheWorld.CombatVariant = args.Contains("--combat");
         var route = ReadRecordedRoute.Read(capture, fromTick, ticks);
         var loaded = LoadTheSavedWorld.Load(world);
         string worldNote = DescribeWorldMatch(route, loaded);
@@ -154,7 +155,13 @@ internal static class WorldRunEntry
 
         int failures = ScoreTheRun.Determinism(suite, first, second);
         ScoreTheRun.RecordedTrackDivergence(suite, route, first, worldNote);
-        ScoreTheRun.Checkpoints(suite, route, first, CheckpointCadence);
+        // A fight run is asked to fight, not to follow: the checkpoint row would fail a companion
+        // for standing its ground beside a zombie, which is the behaviour the combat rows grade as
+        // a pass. The rejoin row is the travel grade on this variant.
+        if (RunTheWorld.CombatVariant)
+            failures += ScoreTheRun.Combat(suite, first);
+        else
+            ScoreTheRun.Checkpoints(suite, route, first, CheckpointCadence);
 
         if (Value(args, "--explore=") is { } budget)
             ExploreWithoutTheTrack.Run(suite, route, int.Parse(budget, CultureInfo.InvariantCulture));
@@ -209,6 +216,9 @@ internal static class WorldRunEntry
               --ticks=N               how many ticks to play (default 600 for a route, 900 for a scenario; 0 plays the whole capture)
               --suite=<name>          the ledger suite these rows belong to
               --no-light              leave the light engine undriven
+              --combat                the combat variant: a frozen zombie waits at his recorded feet
+                                      thirty steps ahead, retired after five fired ticks; the rows
+                                      are combat winning, no silence while threatened, and rejoining
 
             The world is never committed and Telemetry/ is gitignored, so both paths are named rather
             than discovered, and an absent one is a skipped row rather than a failure.

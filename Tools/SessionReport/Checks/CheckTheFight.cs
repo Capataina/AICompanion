@@ -232,6 +232,165 @@ public sealed class TheHandsWorkWhileThreatened : ICheck
 }
 
 /// <summary>
+/// Whether Combat took the body while he was in danger. The stance's eagerness rows (F2, F3) say a
+/// damageable hostile in reach makes Combat beat keeping company, and an enemy on him takes the
+/// body from a vein; this is the capture-side grading of both. "In danger" is the brain's own
+/// unsafe line — PlayerDanger at or above 0.25, where PlayerIsSafe stops holding — read back at it
+/// rather than a threshold of this reader's choosing, and the finding carries what ran instead,
+/// what Combat scored, and whether he was actually hit, so a selection loss reads differently from
+/// a stance that offered nothing from range. A capture whose preamble disabled combat is excused
+/// whole: not fighting when told not to is obedience, not reluctance.
+/// </summary>
+public sealed class CombatIsEagerWhenHeIsInDanger : ICheck
+{
+    /// <summary>The brain's own unsafe line: PlayerDanger below this is PlayerIsSafe.</summary>
+    private const float Unsafe = 0.25f;
+
+    /// <summary>One second. Shorter than any rescore cadence worth suspecting; a lost tick or two while the choice flips is noise.</summary>
+    private const int MinTicks = 60;
+
+    public string Name => "did combat take the body while he was in danger";
+    public string[] Needs => new[] { "action", "danger" };
+
+    public IEnumerable<Finding> Run(Session session)
+    {
+        if (FightPreference.CombatDisabled(session))
+            yield break;
+        Column action = session["action"], danger = session["danger"];
+        Column? state = session.Find("state");
+        Column? fresh = session.Find("brain_fresh");
+        Column? playerDead = session.Find("player_dead");
+        Column? playerHit = session.Find("player_hit");
+        Column? nearThreat = session.Find("near_threat");
+        Column? weaponReach = session.Find("weapon_reach");
+        Column? combatScore = session.Find("combat_fin")
+            ?? session.Find("hunt_fin") ?? session.Find("guard_fin");
+
+        // The gap allowance is for the threshold boundary, not for flicker in the choice: danger
+        // hovering at 0.25 crosses it every few ticks, and without an allowance one afternoon of
+        // reluctance reads as a dozen one-line findings. Five ticks cannot hide a real takeover.
+        foreach (var stretch in FindStretches.Where(session.Count, i =>
+            danger.Number[i] >= Unsafe && !IsFighting(action.Text[i])
+                && state?.Text[i] != "downed"
+                && (fresh != null ? fresh.Number[i] > 0f : playerDead?.Text[i] != "1"),
+            MinTicks, allowGap: 5))
+        {
+            int hits = 0;
+            if (playerHit != null)
+                for (int i = stretch.Start; i <= stretch.End; i++)
+                    if (playerHit.Text[i] != "-")
+                        hits++;
+            string score = combatScore == null
+                ? "no combat score column, so whether the stance offered anything is unanswerable"
+                : $"combat scored {FindStretches.Mean(combatScore, stretch):0.00} on average, " +
+                  $"{FindStretches.Max(combatScore, stretch):0.00} at best";
+            string reach = nearThreat != null && weaponReach != null
+                ? $" Nearest reachable hostile {FindStretches.Mean(nearThreat, stretch):0.0} tiles, " +
+                  $"hands throw {FindStretches.Mean(weaponReach, stretch):0.0}."
+                : "";
+            string hurt = hits == 0 ? "He took no recorded hit in the stretch."
+                : $"He took {hits} recorded hit(s) in the stretch while nothing fought for him.";
+            yield return new Finding(
+                Severity.Potential,
+                Name,
+                $"{stretch.Length} ticks with him in danger while {FindStretches.Summarise(action, stretch)} ran instead of combat",
+                $"Danger to him peaked at {FindStretches.Max(danger, stretch):0.00} over the stretch; {score}.{reach} " +
+                    $"{hurt} A high combat score beside another action is a selection loss; a score near zero is " +
+                    "the stance offering nothing, which range explains and reluctance does not.",
+                session.Tick(stretch.Start), session.Tick(stretch.End), stretch.Length);
+        }
+    }
+
+    internal static bool IsFighting(string label) => label is "combat" or "hunt" or "guard";
+}
+
+/// <summary>
+/// Whether the ticks that read not-fighting had nothing to shoot. The fire column reads
+/// not-fighting exactly when Combat is not the running activity, so a stretch of it beside a
+/// reachable hostile inside weapon range is the eagerness row F1 failing in the file: something
+/// shootable was there and no fight ran. The finding carries what ran instead and the best plan
+/// value Combat offered over the stretch, which separates the two failures — a plan offered and
+/// outscored is a selection loss, no plan at all beside a target in range is the stance not
+/// seeing the shot. No gear column exists, so an unarmed stretch reads the same as a blind one;
+/// the finding says so rather than guessing.
+/// </summary>
+public sealed class NotFightingMeansNothingToShoot : ICheck
+{
+    /// <summary>One second. A lost comparison that Combat wins back on the next rescore is not reluctance.</summary>
+    private const int MinTicks = 60;
+
+    public string Name => "was there something to shoot on the ticks it was not fighting";
+    public string[] Needs => new[] { "fire", "near_threat", "weapon_reach" };
+
+    public IEnumerable<Finding> Run(Session session)
+    {
+        if (FightPreference.CombatDisabled(session))
+            yield break;
+        Column fire = session["fire"], near = session["near_threat"], reach = session["weapon_reach"];
+        Column? action = session.Find("action");
+        Column? state = session.Find("state");
+        Column? fresh = session.Find("brain_fresh");
+        Column? playerDead = session.Find("player_dead");
+        Column? planValue = session.Find("plan_value");
+        Column? weapon = session.Find("weapon");
+        Column? engage = session.Find("engage");
+
+        // Unmeasured distances write "-", which parses to NaN and fails both comparisons, so a row
+        // nobody measured is excluded without a special case. The gap allowance is the range
+        // boundary's: a hostile pacing at the edge of the throw crosses it every few ticks.
+        foreach (var stretch in FindStretches.Where(session.Count, i =>
+            fire.Text[i] == "not-fighting" && near.Number[i] <= reach.Number[i]
+                && state?.Text[i] != "downed"
+                && (fresh != null ? fresh.Number[i] > 0f : playerDead?.Text[i] != "1"),
+            MinTicks, allowGap: 5))
+        {
+            string running = action == null ? "an unrecorded activity" : FindStretches.Summarise(action, stretch);
+            string offered = planValue == null ? "no plan value column"
+                : FindStretches.Max(planValue, stretch) > 0f
+                    ? $"combat offered a plan worth {FindStretches.Max(planValue, stretch):0.000}" +
+                      (weapon == null ? "" : $" ({FindStretches.Summarise(weapon, stretch)})") +
+                      ", and selection still ran something else"
+                    : "combat offered no plan at all beside a target in range";
+            string engaging = engage == null ? "" : $" Engage target: {FindStretches.Summarise(engage, stretch, 3)}.";
+            yield return new Finding(
+                Severity.Potential,
+                Name,
+                $"{stretch.Length} ticks not fighting while a reachable hostile stood inside weapon range",
+                $"Nearest hostile {FindStretches.Mean(near, stretch):0.0} tiles against a throw of " +
+                    $"{FindStretches.Mean(reach, stretch):0.0}; {running} ran instead and {offered}.{engaging} " +
+                    "If the weapon slots held nothing this stretch, not-fighting is correct and the file " +
+                    "cannot say: no gear column exists, so an unarmed stretch reads the same as a blind one.",
+                session.Tick(stretch.Start), session.Tick(stretch.End), stretch.Length);
+        }
+    }
+}
+
+/// <summary>
+/// Whether the capture's preamble disabled fighting, in either label era: `combat=false` now,
+/// `hunting=false` before 0.39.0. A mid-session flip from the profile card is an occurrence, not
+/// preamble, so a session that toggles combat halfway reads under the starting value; the fight
+/// checks document that rather than joining the events stream for a toggle almost nobody makes.
+/// </summary>
+internal static class FightPreference
+{
+    internal static bool CombatDisabled(Session session)
+    {
+        if (!session.Metadata.TryGetValue("config", out string? config) || config == null)
+            return false;
+        foreach (string part in config.Split(';'))
+        {
+            string[] kv = part.Split('=');
+            if (kv.Length != 2)
+                continue;
+            if ((kv[0] == "combat" || kv[0] == "hunting")
+                && kv[1].Equals("false", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+}
+
+/// <summary>
 /// Whether the weapon it fired was the one its own arithmetic scored higher. Both weapons' expected
 /// damage is recorded, the loser included, precisely so this question has an answer in the file
 /// instead of having to be re-derived by hand from the situation. A row where the rejected weapon
