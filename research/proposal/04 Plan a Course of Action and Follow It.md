@@ -1,12 +1,44 @@
 # Path 4 — designate a course of action and follow it
 
-**Rank: the proposed next structural bet, 18 September 2026.** Path 1 is implemented and remains the generator of what work exists. This route combines Path 2's continuing-activity ownership with Path 3's bounded comparison of sequences, under corrections the owner made the same night after three independent sentinels failed a narrower merge. It is not a whole-brain GOAP rewrite, not a task queue, and not a torch-versus-pickup patch.
+**Status, 18 September 2026: a work-in-progress discussion, not an implementation plan.** This file is the handoff for the next sitting. It is the mix of Path 2 and Path 3 that this sitting reached on paper, plus the receipts, the owner's corrections, the sentinels' Fail, and the holes that sitting did not close. It is not complete. Combining 02 and 03 has not been shown to be the right next move. A later sitting still has to attack it, run `where-next` against the history, and decide whether to upgrade, simplify, abstract, extend, keep, replace, or patch — or to throw this mix out. Do not implement from this file tomorrow.
 
-Confidence is conditional on two things the tree does not yet have: a leftover that stays still while the body is in the air, and a comparison of "finish this plan" against "switch to that plan" that uses only quantities the brain already computes. The ranking is an engineering judgement from last night's capture and from how many times this class has already been "fixed", not a prediction that a planner will feel human.
+Path 1 is implemented and remains the generator of what work exists. The text below combines Path 2's continuing-activity ownership with Path 3's bounded comparison of sequences, under corrections the owner made the same night after three independent sentinels failed a narrower merge. That combination is a candidate. It is not a whole-brain GOAP rewrite, not a task queue, and not a torch-versus-pickup patch, and it is also not settled.
+
+Confidence is low on completeness. The leftover inequality, frozen identity, and "no stickers" constraints are the sitting's refusals, not a proof that a course assembler is the system. Logical errors remain. The ranking of 02 and 03 as sequential investments still stands; this file does not promote 04 above them as a decided bet.
 
 In plain language: the companion should have a game plan, start following it, and when it thinks the plan should change, ask whether finishing what it is already doing is easier than starting the new thing, including the cost of the switch. That question is the same at every scale the product cares about — which of seven torches, which of three enemies, which fifteen combat moves, whether to pick up a gel on the way to ore, whether to mine two copper on the way home, whether to drop a slime and come because the player has gone down a cave. Last night's collect-versus-torch ping-pong is the most primitive member of that class, not the class.
 
-The [folder synthesis](CLAUDE.md) ranks the original three paths. This file is the live design for the gap those three left: Path 1 picks a job every tick, Path 2 would hold the job, Path 3 would compare short sequences, and neither 2 nor 3 as written is the product the owner described on 18 September 2026.
+The [folder synthesis](CLAUDE.md) ranks the original three paths. This file is the live discussion of the gap those three left: Path 1 picks a job every tick, Path 2 would hold the job, Path 3 would compare short sequences, and neither 2 nor 3 as written is the product the owner described on 18 September 2026. The mix is what we have on paper. The next sitting starts by attacking it, not by typing it.
+
+## This file is a handoff, not a licence to build
+
+The owner, same session, after the first draft of 04: this is not "save the plan and implement tomorrow." It is the context dump so the next sitting can pick up without re-deriving last night, the sentinels, the shrink, and the corrections. The receipts are here because a sitting that forgets them will churn the same mistakes. The holes are here because a sitting that treats 04 as finished will ship keep-the-job, or a queue, or family-level sequencing, and call it the jungle.
+
+The objective, as the owner named it this sitting: **maximise the amount of work actually done.** Work, in this product, is a closed list: collecting drops, placing torches, breaking pots, combat, chopping wood, mining ore. Keeping company is not work. Following the player is leftover. A body that ping-pongs between two jobs does **zero** work, and that is the worst case — last night's 68 collect↔torch swaps in `2026-09-18_18-57-09-481`, 53 torch attempts all `Attempted`, Exact 56 asked 7 reached. A body that picks the slower chain still does the work; that is better than zero. A body that picks the faster chain is better still. Urgency can make the slower chain the right one (a torch that is more urgent than a drop, even if drop-then-torch-at-his-feet is fewer tiles). Those three outcomes — zero, slower, faster-or-more-urgent — are the scale the next sitting has to hold. 04's leftover inequality is one candidate for that scale. It has not been shown to be the one.
+
+### League of Legends, Drake and Baron — the two pictures this sitting uses
+
+**Finish the worse C rather than get neither.** You are mid. Your jungler is bot-side and pings Drake. You go down. Your ADC lands vision on Baron and the enemy has started it. If you had stayed mid you could have walked up and stopped Baron. You did not stay mid. You are at Drake. Abandoning Drake now means you get nothing and they get Baron — the worst case, last night's swap. Finishing Drake is making the best of the decision you already paid for. Collect-then-torch versus torch-then-collect is the same shape: once you have flown twenty tiles toward one of them, swapping to the other and then back is getting neither. The owner named this earlier in the sitting as finish-C / League Drake. It belongs in this file as a constraint on *whatever* system the next sitting picks, not as a proof that a course assembler is that system.
+
+**A better step 1 of the same plan is not a ping-pong.** You are the jungler. You commit to Drake. You see they are on Baron. You do not run Drake ↔ Baron. You tell mid to go farm, you invade their bot-side camps, then you take Drake. Drake was step 1. The camps became a better step 1 of the *same* list. You never treat the global objective and the camps as two jobs that swap. Last night was the other thing: the same two jobs swapping 1 and 2. A genuinely new identity becoming step 1 of an updated course is this picture. 04's leftover comparison is supposed to tell them apart. It has not been walked through the slime-on-the-drop case below, and until it has, it is a hope.
+
+### Holes this sitting named and did not close
+
+These are not "open questions with a default." They are reasons 04 is unfinished. A sitting that implements leftover-vs-leftover without answering them is jumping.
+
+1. **Stick versus come.** How does the companion stick to mining without wasting the trip when it should have come? A hold that cannot drop is the slime-then-you-went-down-the-cave picture. A hold that drops too early is the surface zombie. Leftover of finishing-then-coming versus coming is the candidate. It has not been scored against a live vein and a walking player.
+
+2. **Combat as an endless step 1.** How do we stop a fight from eating the tick forever so torches and drops never happen? Combat-always-step-1 freezes on a Super Dummy. A dummy that deals nothing should not be work. A 1,500 HP / 5 DPS body versus two-hit ore is the same arithmetic. 04 says remaining harm arriving before remaining work ends. That sentence has not been made into a quantity the brain already computes, against a fight that is *real* work (kills, not a dummy) that still outlasts a torch.
+
+3. **Urgency versus raw time.** Drop, then fly to the player, then torch at his feet, can be fewer tiles than torch, then drop, then fly home. The torch can still be more urgent. 04's leftover is time and travel. Urgency is not leftover. Nothing in this file says how a dark tile next to the player outranks a drop that is closer if the two disagree. Inventing a sticker for urgency is the 15% failure again.
+
+4. **A slime lands on the drop.** The companion went to the drop because being with the player soon, hands free, beat torch-first. A slime drops on it. Kill the slime then its drops? Leave the slime and torch? Torch then come back for the slime? 04 says leftover. It does not say which leftover, frozen when, against a new identity that appeared on top of step 1.
+
+5. **Family sequencing is the wrong grain.** "Combat, then lighting, then collect" is not the product. The product is which torch tile, which enemy, which drop, which vein, in one list, at the same time. Nearby assistance as a family, lighting as a task, torch tiles as sub-tasks, is the nested shape 04 has not chosen (open question 4 still has a default). Sequencing families is a lower-level plan than the owner asked for. Sequencing specific sites is the higher-level one. This file still reads, in places, as if leftover of *jobs* is enough.
+
+6. **Is 02+03 even the system?** Maybe the next move is simplify (OrderNearbyTasks already permutes; keep the order, freeze identity, stop). Maybe it is keep Path 1 and only freeze collect/torch membership. Maybe it is abstract a missing fact (work delivered per remaining tick, urgency as a sense). Maybe it is replace utility for this layer. `where-next` is the skill that picks from that palette against the history. This sitting did not run it to a committed pick. 04 is one candidate on that palette, written down so the pick has something to attack.
+
+Until those are closed, "designate a course and follow it" is a direction, not a design complete enough to type.
 
 ## Sources for this file, so a claim can be re-checked
 
@@ -516,7 +548,7 @@ God's-eye and SessionReport gain one check family: a pair of identities that rem
 
 ## Conditions for promoting, shrinking, or withdrawing
 
-Promote this above "give collect/torch a membership hold and stop" when the owner wants the jungle, seven-torch order, inside-combat sequences, and universal leftovers, not only last night to go away. That want is already on the record as of 18 September 2026.
+Do not promote this to an implementation plan in the sitting that opens this file. Attack it first. Run `where-next`. Close the holes above, or name a different move. Promote a *later* revision of this mix above "give collect/torch a membership hold and stop" only when the owner still wants the jungle after that attack, and the leftover-versus-urgency and site-grain questions have answers that are not stickers.
 
 Shrink to keep-the-job only if a later sitting explicitly takes back the jungle as acceptance. The sentinels' Fail remains true of last night under that shrink. It does not become the product by being true.
 
@@ -528,19 +560,25 @@ Complete through a recorded play of the jungle picture and the leftover-on-the-w
 
 ## Open questions for the sitting that goes through this file
 
-These are forks that change the design. Each carries the default this file would pick.
+These are forks that change the design. Defaults below are what *this draft* would pick if forced, not what the next sitting is bound to. Several of them are the holes named above; a default does not close a hole.
 
-1. **Session-scale intent.** Does the companion invent a playthrough (craft, spawn a boss, travel to a biome), or does it apply several-steps-ahead thinking only to the scene it is in, reading the player's journey as the intent region already does? Default: scene, job, and move. The ten-steps picture is the shape, not a mission. Independent gathering was abandoned.
+1. **Session-scale intent.** Does the companion invent a playthrough (craft, spawn a boss, travel to a biome), or does it apply several-steps-ahead thinking only to the scene it is in, reading the player's journey as the intent region already does? Draft default: scene, job, and move. The ten-steps picture is the shape, not a mission. Independent gathering was abandoned.
 
-2. **Is the combat stance's timeline the combat course, or does 04 replace it?** Default: it is the combat course. Extend it so a course may mix combat steps with other steps, and so a weapon switch is a step. Do not run two planners.
+2. **Is the combat stance's timeline the combat course, or does a later mix replace it?** Draft default: it is the combat course. Extend it so a course may mix combat steps with other steps, and so a weapon switch is a step. Do not run two planners.
 
-3. **Who is the tick winner — the course assembler, or Path 1 among courses?** Default: Path 1 prepares candidates; the assembler sequences them and holds the running course; Path 1 does not pick a job over a live course except through the leftover inequality.
+3. **Who is the tick winner — a course assembler, or Path 1 among courses?** Draft default: Path 1 prepares candidates; the assembler sequences them and holds the running course. Unresolved: leftover does not yet carry urgency, so this default can pick the faster chain when the slower urgent one was right.
 
-4. **Inside-job order as steps versus as a nested order on one step.** Default: the same comparison, whatever the grouping, as long as seven torch tiles cannot become "nearest" again. Grouping lighting as one step with an inside-order is fine if the inside-order is kept.
+4. **Inside-job order as steps versus as a nested order on one step.** The owner this sitting: lighting is a task, torch tiles are within-task, and the list has to hold specific tiles, specific enemies, specific veins at once — not "combat then lighting then collect." Draft default: the same comparison at that grain. Unresolved: 04 still talks in jobs more than in sites.
 
-5. **Computational bound.** Default: the tick's planning deadline, three-valued (kept current course if unfinished). No maximum of five, no share of 0.4.
+5. **Computational bound.** Draft default: the tick's planning deadline, three-valued (kept current course if unfinished). No maximum of five, no share of 0.4.
 
-Nothing in those five is a licence to add a constant, a combat-always rule, a lighting-only leftover, a queue, or a stack.
+6. **Urgency versus leftover.** When drop-then-torch-at-his-feet is fewer tiles, and torch-then-drop is more urgent, which wins? No default. A sticker is refused.
+
+7. **A new identity on top of step 1.** Slime on the drop. Kill, skip, torch-first? No default that survives both last night and the jungle.
+
+8. **Is 02+03 the move at all?** `where-next` against the history: replace, simplify, upgrade, abstract, extend, keep, patch. This file is one candidate. The pick has not been made.
+
+Nothing in those is a licence to add a constant, a combat-always rule, a lighting-only leftover, a queue, a stack, or to start typing.
 
 ---
 
@@ -563,4 +601,4 @@ Current Behaviour of 18 September 2026, 0.30.6, is the negative of those rows. P
 
 02 still describes a stronger executor beneath the three families, ranked second, conditional on lifecycle defects Path 1 could not economically prevent. 03 still describes bounded planning for consequential choices, ranked third, conditional on E13. Both remain true as the documents of those bets. Last night and the owner's overruling changed the *product* those bets were aimed at: not "hold collect" and not "plan a lighting detour," but a universal course of action with relative leftover and no stickers.
 
-Editing 02 to say that, or 03 to say that, would falsify the ranking they were written under and hide the sentinels' Fail behind a rewrite. 01 stays the implemented chooser. 02 and 03 stay the source bets. 04 is what combining them is, now that combining them has been tried on paper, attacked, shrunk, and overruled.
+Editing 02 to say that, or 03 to say that, would falsify the ranking they were written under and hide the sentinels' Fail behind a rewrite. 01 stays the implemented chooser. 02 and 03 stay the source bets. 04 is what combining them looks like on paper, now that combining them has been tried, attacked, shrunk, and overruled — and it is still unfinished. The next sitting attacks it. It does not type it.
