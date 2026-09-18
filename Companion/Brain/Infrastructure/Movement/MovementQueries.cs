@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Movement;
@@ -53,6 +54,17 @@ public static class MovementQueries
     public static float Clearance(int x, int y) => ClearanceField.Shared.At(World, x, y);
     /// <summary>The clearance under a world point: the least of the four tiles around its nearest corner.</summary>
     public static float ClearanceAt(Vector2 point) => ClearanceField.Shared.AtCorner(World, CornerGraph.NearestCorner(point));
+
+    /// <summary>Enemy bodies the current tick's routes and parks read, the same inflated boxes the navigator avoids.</summary>
+    public static IReadOnlyList<Rectangle> Hazards { get; set; } = Array.Empty<Rectangle>();
+
+    /// <summary>Tiles to the nearer of wall and enemy at this point. Closer costs more; nothing is refused.</summary>
+    public static float CombinedClearance(Vector2 point)
+        => ClearanceHeat.Combined(World, point, Hazards);
+
+    /// <summary>The parking and stand cost of that closeness, the same formula a route edge uses.</summary>
+    public static float ParkingPenalty(Vector2 point)
+        => ClearanceHeat.Penalty(CombinedClearance(point));
 
     /// <summary>Whether the body fits centred on this corner: its four tiles are free.</summary>
     public static bool IsUsableCorner(Point corner) => CornerGraph.Usable(World, corner);

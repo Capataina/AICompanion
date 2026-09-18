@@ -125,7 +125,7 @@ public sealed class BrainOverlay : ModSystem
         "Green is where following would be content: the solid box is around your feet, the dashed box around the place it was asked to go, and the two faint rings are the near and far edges of the calm distance band. The white ring is the meeting place reunion priced, labelled with its reason and both bodies' ticks to it.",
         "Yellow is the continuation the brain predicts from your recent movement, labelled with its confidence and how many samples back it. A diamond is a drop: white it can reach, orange it has proven it cannot, hollow not yet flooded. The companion's own label carries the encounter pressure charged against optional work.",
         "One column per tick of the last second: how long deciding, positioning and navigating took together. The hairline is eight milliseconds, half a frame, and the scale never moves, so a spike reads as a spike. White is under four milliseconds, orange at or above it.",
-        "Every free tile near the companion tinted by how far it is from the nearest wall: dark red is a tile the body cannot fit in, and the tint fades to nothing at the field's cap. This is the field the route search prices, so the route runs where the tint is faintest.",
+        "Every free tile near the companion tinted by how far it is from the nearer of wall and enemy: dark red is a tile the body cannot fit in or is inside a body, and the tint fades to nothing at the field's cap. Parking and routes both read this, so the body sits and flies where the tint is faintest.",
         "Numbered stands are the committed plan's segments, gold the current one, with arrows and the start tick on each. Hover a stand for its weapon and timing.",
     };
     // Every index is named and the default is false rather than the last layer, because a default arm holding a real layer
@@ -333,19 +333,16 @@ public sealed class BrainOverlay : ModSystem
         { Border(sb, WorldRect(p.Hitbox), Color.Orange); Line(sb, p.Hitbox.Center.ToVector2(), p.Predict(30).Center.ToVector2(), Color.Orange); }
         if (ShowClearance)
         {
-            // The field the route search prices, drawn under the route so the route can be read
-            // against it: a tile the body cannot fit in is red, and the tint fades to nothing at the
-            // field's cap. Read from the shared field, never recomputed, so the drawing is the search's.
+            // The heat parking and routes both read: walls and enemy boxes, red near, faint at the cap.
             const int Radius = 14;
             Point at = MovementQueries.Tile(c.NPC.Center);
-            var world = MovementQueries.World;
             for (int dx = -Radius; dx <= Radius; dx++)
                 for (int dy = -Radius; dy <= Radius; dy++)
                 {
                     int x = at.X + dx, y = at.Y + dy;
                     if (!MovementQueries.IsFreeForOrb(x, y)) continue;
-                    float clearance = Infrastructure.Movement.ClearanceField.Shared.At(world, x, y);
-                    float share = 1f - Math.Clamp(clearance / Infrastructure.Movement.ClearanceField.MaxTiles, 0f, 1f);
+                    float clearance = MovementQueries.CombinedClearance(MovementQueries.TileCentre(new Point(x, y)));
+                    float share = 1f - Math.Clamp(clearance / ClearanceField.MaxTiles, 0f, 1f);
                     if (share <= 0f) continue;
                     Fill(sb, WorldRect(new Rectangle(x * 16, y * 16, 16, 16)), Color.Red * (.5f * share));
                 }

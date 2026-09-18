@@ -239,12 +239,7 @@ public sealed class FreeSpaceSearch
         => Goal is Point goal ? Vector2.Distance(CornerGraph.ToWorld(corner), CornerGraph.ToWorld(goal)) : 0f;
 
     private float AvoidancePenalty(Point corner)
-    {
-        Vector2 at = CornerGraph.ToWorld(corner);
-        foreach (Rectangle box in Avoid)
-            if (box.Contains((int)at.X, (int)at.Y)) return Selection.Weights.ThreatBodyRoutePenalty;
-        return 1f;
-    }
+        => ClearanceHeat.Penalty(ClearanceHeat.ToBoxes(CornerGraph.ToWorld(corner), Avoid));
 
     private void Touch(Point corner)
     {

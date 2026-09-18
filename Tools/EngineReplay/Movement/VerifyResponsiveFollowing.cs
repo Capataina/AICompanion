@@ -147,18 +147,16 @@ internal static class VerifyResponsiveFollowing
         brain.Senses.Update(companion.NPC, player);
         Require(brain.Chooser.Choose(context) == company && company.Score() > 0, "company must be a positive ordinary offer while nearby");
         long identity = brain.Chooser.Activity.Id;
-        // Company beside a resting player is the inside method: the body moves about his region, the request aims at the
-        // region's centre and the positioner chooses no place in it. Restated on 15 September 2026, when the inside method
-        // stopped being a hold; what the row protects is unchanged — calm co-location never asks to rejoin, and the request
-        // it does make must still grow the reach region to completion, because a companion whose only request picks no place
-        // is otherwise a companion with no flood, and every optional job refuses to start on an unanswered search.
+        // Company beside a resting player is the inside method: the request aims at the region's centre and the
+        // positioner parks in the clearest air inside it. Calm co-location never asks to rejoin, and the request
+        // must still grow the reach region to completion.
         bool accompanied = true;
         for (int tick = 0; tick < 2400; tick++)
         {
             var request = company.Execute(context);
             // Resolved every tick as the brain does, because the region is rooted and replaced on the resolver's own cadence.
             brain.Positioner.Resolve(request, brain.Senses);
-            accompanied &= request.Kind == RequestKind.WithPlayer && brain.Positioner.Chosen == null
+            accompanied &= request.Kind == RequestKind.WithPlayer && brain.Positioner.Chosen != null
                 && company.EligibilityReason == "local-company-method";
             Require(company.EligibilityReason != "reunion-method", "calm co-location should not keep requesting reunion");
         }

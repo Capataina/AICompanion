@@ -146,11 +146,8 @@ public sealed class KeepCompany : CompanionAction
         }
         ctx.Companion.Brain.Meeting.Release();
         if (ctx.Stranded) return new PositionRequest(RequestKind.Roam, ctx.Npc.Bottom);
-        // Inside the region, with him. The request is the kind rejoining asks for, aimed at the region's centre, and the brain
-        // answers it by moving the body about the region rather than by choosing a place in it. Courtesy — the tiles the player
-        // is building on or walking down — is answered by that motion refusing those tiles as places to move to; a request for
-        // a fresh spot near his feet stood here until 15 September 2026, and a hold before that, both of them a body that
-        // stopped somewhere.
+        // Inside the region, with him. The request is the kind rejoining asks for, aimed at the region's centre, and the
+        // positioner parks in the clearest air inside it — walls and enemies cost, a crack is still legal.
         return new PositionRequest(RequestKind.WithPlayer, ctx.Senses.Intent.Region.Centre);
     }
 }

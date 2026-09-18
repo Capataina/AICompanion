@@ -31,6 +31,10 @@ using CachePlanned = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnow
 using CacheSims = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CacheSimulatedUses;
 using Modifiers = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers;
 using Positioner = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner;
+using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
+using ClearanceHeat = live::AICompanion.Companion.Brain.Infrastructure.Movement.ClearanceHeat;
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 using HostileAttackSources = live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources;
 using ModifierState = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState;
 using Persist = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.PersistWeaponKnowledge;
@@ -1279,6 +1283,62 @@ internal static class VerifyAttackPlanning
         Require(combat.Planner.LastInvalidation == "new-urgent-hostile",
             "the jump must name new-urgent-hostile, got " + combat.Planner.LastInvalidation);
         Console.WriteLine("attack planning: hold survives creep, dumps a jump");
+        return 0;
+    }
+
+    /// <summary>
+    /// Closer to a box costs more, inside is zero, six tiles out is the cap. Never a refusal.
+    /// </summary>
+    public static int ClosenessToABodyIsAHeatNotAWall()
+    {
+        var box = new Rectangle(100, 100, 20, 40);
+        Rectangle[] boxes = { box };
+        Require(ClearanceHeat.ToBoxes(new Vector2(110, 120), boxes) == 0f, "inside a body is zero clearance");
+        float six = ClearanceHeat.ToBoxes(new Vector2(110, 100 - 6 * 16), boxes);
+        Require(MathF.Abs(six - 6f) < 0.05f, $"six tiles above the box must cap at 6, got {six}");
+        float near = ClearanceHeat.ToBoxes(new Vector2(110, 100 - 16), boxes);
+        Require(near < six - 1f, $"one tile off must cost more than six tiles off; near={near} far={six}");
+        Require(ClearanceHeat.Penalty(0.5f) > ClearanceHeat.Penalty(6f), "a touch must cost more than the cap");
+        Console.WriteLine($"clearance heat: 1-tile {near:0.00}, 6-tile {six:0.00}, penalties {ClearanceHeat.Penalty(near):0.00}/{ClearanceHeat.Penalty(six):0.00}");
+        return 0;
+    }
+
+    /// <summary>
+    /// A follow park in open air picks the clearer corner, not the dirt next to the player.
+    /// </summary>
+    public static int CompanyParksInClearAir()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 5; x < 95; x++)
+        {
+            Tile tile = Main.tile[x, 60];
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+        }
+        Player player = Main.player[0];
+        player.dead = false;
+        player.active = true;
+        player.statLife = player.statLifeMax2 = 100;
+        player.Bottom = new Vector2(50 * 16f, 60 * 16f);
+        companion.NPC.Bottom = new Vector2(47 * 16f, 60 * 16f - 40f);
+        companion.NPC.velocity = Vector2.Zero;
+        companion.NPC.active = true;
+        companion.Brain.Senses.Update(companion.NPC, player);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        VerifyOreWork.SettleReach(companion, player);
+        MovementQueries.Hazards = Array.Empty<Rectangle>();
+        var request = new PositionRequest(RequestKind.WithPlayer, player.Center);
+        Vector2? chosen = null;
+        for (int i = 0; i < 24; i++)
+            chosen = companion.Brain.Positioner.Resolve(request, companion.Brain.Senses);
+        var pos = companion.Brain.Positioner;
+        Require(chosen is Vector2,
+            $"company must name a park; reason={pos.ChoiceReason} candidates={pos.CandidateCount} reached={pos.ReachableCandidateCount} rejected={pos.RejectedCandidateCount} complete={pos.ReachComplete}");
+        float aboveFloor = 60 * 16f - chosen.Value.Y;
+        Require(aboveFloor >= 4 * 16f,
+            $"open-air company must park at least four tiles off the floor, sat {aboveFloor / 16f:0.0} tiles up at {chosen} reason={pos.ChoiceReason}");
+        Console.WriteLine($"company park: {aboveFloor / 16f:0.0} tiles above the floor, reason {pos.ChoiceReason}");
         return 0;
     }
 }

@@ -23,8 +23,9 @@ namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 /// leaves alive, starts segments at arrival and at the prefix's delayed landings, rolls each start
 /// from the prefix life as of that start, and values the whole plan. The answer is the best weighted
 /// plan among the undominated across every completed level, so a level wins only when moving is worth
-/// the travel. A cut inside level one commits nothing — unresolved, never known-unusable — while a cut
-/// past it keeps the deepest completed level's answer and records the cut.
+/// the travel. A cut inside level one keeps every stand it already priced and offers the best of those;
+/// only a cut that priced nothing is unresolved. A cut past level one keeps the deepest completed
+/// level's answer the same way.
 /// </summary>
 public static class SearchAttackPlans
 {
@@ -118,20 +119,22 @@ public static class SearchAttackPlans
             if (node != null)
                 pool.Add(node);
             if (budget.Cut)
-                return new SearchResult(null, OfferEligibility.Unresolved, "budget-cut", pool.Count,
-                    Array.Empty<RejectedPlan>(), assessed, pool.Count, budget.Simulations, Array.Empty<AttackPlan>(),
-                    Cut: true);
-        }
-        if (!sawReachable)
-        {
-            if (sawUndecided)
-                return new SearchResult(null, OfferEligibility.Unresolved, "stands-undecided", 0,
-                    Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>(), budget.Cut);
-            return new SearchResult(null, OfferEligibility.KnownUnusable, "no-reachable-stand", 0,
-                Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>(), budget.Cut);
+                break;
         }
         if (pool.Count == 0)
         {
+            if (budget.Cut)
+                return new SearchResult(null, OfferEligibility.Unresolved, "budget-cut", 0,
+                    Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>(),
+                    Cut: true);
+            if (!sawReachable)
+            {
+                if (sawUndecided)
+                    return new SearchResult(null, OfferEligibility.Unresolved, "stands-undecided", 0,
+                        Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>(), budget.Cut);
+                return new SearchResult(null, OfferEligibility.KnownUnusable, "no-reachable-stand", 0,
+                    Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>(), budget.Cut);
+            }
             // A reachable stand with no solving use settles nothing about the stands still undecided:
             // answering unusable would report an unanswered search as a proven absence.
             if (sawUndecided)
@@ -173,6 +176,8 @@ public static class SearchAttackPlans
         foreach (AttackPlan plan in front)
             if (plan.Weighted > best.Weighted)
                 best = plan;
+        if (budget.Cut)
+            best = best with { BudgetCut = true };
         return new SearchResult(best, OfferEligibility.Usable, "planned-attack", front.Count,
             BestRejected(front, drops, best, weights), assessed, pool.Count, budget.Simulations, front, budget.Cut,
             deeperAssessed);

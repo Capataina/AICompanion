@@ -80,7 +80,9 @@ int AttackPlanning() =>
         + RunOneRow.Case("the planning clock stores milliseconds", () => VerifyAttackPlanning.ThePlanningClockStoresMilliseconds())
         + RunOneRow.Case("SafeRange steps off a horizontal flyer", () => VerifyAttackPlanning.SafeRangeStepsOffAHorizontalFlyer())
         + RunOneRow.Case("harm at a stand is path occupancy", () => VerifyAttackPlanning.HarmAtStandIsPathOccupancy())
-        + RunOneRow.Case("a hold survives creep and dumps a jump", () => VerifyAttackPlanning.AHoldSurvivesCreepAndDumpsAJump());
+        + RunOneRow.Case("a hold survives creep and dumps a jump", () => VerifyAttackPlanning.AHoldSurvivesCreepAndDumpsAJump())
+        + RunOneRow.Case("closeness to a body is a heat not a wall", () => VerifyAttackPlanning.ClosenessToABodyIsAHeatNotAWall())
+        + RunOneRow.Case("company parks in clear air", () => VerifyAttackPlanning.CompanyParksInClearAir());
 if (args.Contains("--attack-planning"))
     return AttackPlanning();
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;

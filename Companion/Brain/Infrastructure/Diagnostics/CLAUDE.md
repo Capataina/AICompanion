@@ -1,6 +1,6 @@
 # Behaviour diagnostics — the overlay and the record
 
-Two independently configurable instruments answer why the companion acted: the visual inspector exposes retained decision and execution evidence, and the recorder preserves observations for an unnarrated session. `Companion/DiagnosticsConfiguration/` owns the native ModConfig switches. The inspector defaults off and world drawings default off; telemetry defaults on so a playtest still writes a capture. World-enter does not force layers or the inspector on. Recording opens on world entry only when enabled; disabling closes the stream immediately without clearing gameplay prediction state. A missing observation remains unknown rather than being reconstructed from intended action.
+Two independently configurable instruments answer why the companion acted: the visual inspector exposes retained decision and execution evidence, and the recorder preserves observations for an unnarrated session. `Companion/DiagnosticsConfiguration/` owns the native ModConfig switches. The inspector, every overlay layer and telemetry default on so a playtest can watch the brain and still writes a capture. World-enter turns the panel and all layers on while the inspector config is enabled. Recording opens on world entry only when enabled; disabling closes the stream immediately without clearing gameplay prediction state. A missing observation remains unknown rather than being reconstructed from intended action. The clearance layer tints the combined wall-and-enemy heat parking and routes both read.
 
 ```
 Diagnostics/

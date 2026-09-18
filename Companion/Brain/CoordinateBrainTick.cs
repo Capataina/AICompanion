@@ -188,10 +188,8 @@ public sealed class Brain
         bool reunionRequested = LastRequest.Kind == RequestKind.WithPlayer && action?.HandsBusy != true;
         if (TryFollowRecovery(companion, player, reunionRequested, out var selectedRecovery)) return selectedRecovery;
 
-        Vector2? spot = Positioner.Resolve(LastRequest, Senses);
-        PositionMs = Lap();
-        // Enemy bodies are hazards wherever the route passes them, even when neither actor
-        // is currently reachable from the enemy's pocket.
+        // Hazards before the park: standing reads the same enemy heat the route will, and a
+        // resolve that ran first saw last tick's boxes or none.
         var obstacles = new System.Collections.Generic.List<Rectangle>();
         foreach (var threat in Senses.Threats.Threats)
         {
@@ -200,6 +198,8 @@ public sealed class Brain
             obstacles.Add(box);
         }
         Movement.SetObstacles(obstacles);
+        Vector2? spot = Positioner.Resolve(LastRequest, Senses);
+        PositionMs = Lap();
         Controls movement;
         string movementOwner;
         try

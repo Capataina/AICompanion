@@ -7,6 +7,7 @@ FreeSpace/
 ├─ CLAUDE.md             this guide
 ├─ OrbTerrain.cs         free for the orb: not solid to the contact, whatever liquid is in it
 ├─ ClearanceField.cs     for every free tile, how far the nearest wall is, per chunk, kept while the world it describes stands
+├─ ClearanceHeat.cs      that field plus live enemy boxes as one cost; parking, tool hovers and route edges all read it
 ├─ CornerGraph.cs        nodes are tile corners, eight-connected, usable when the four tiles around are free; the edge price
 ├─ FreeSpaceSearch.cs    one resumable best-first search: the flood with no goal, A* with one
 ├─ Reachability.cs       the three-valued answer every reach question passes around
@@ -23,7 +24,7 @@ A twenty-pixel body centred on a sixteen-pixel tile in a two-tile corridor overh
 
 ## The price is the corridor's middle
 
-An edge costs its length times one plus a tunable over the clearance at its far corner, and the clearance is the field's: a distance transform over free tiles, per chunk, built on demand and kept while the world it describes stands. A chunk is rebuilt when the terrain revision has an edit inside the chunk's own reach or when the world object is replaced; asking about a tile far from every recent edit costs a dictionary lookup. The field's cap is a structural constant rather than a tunable: beyond it the corridor-middle preference has nothing left to prefer, and a smaller cap makes every chunk cheaper to build by the square of the difference. The corridor fixture in `Tools/NavReplay` is the measurement that this price does what it says — a priced route down a corridor sits on its mid-line where the unpriced route hugs the wall it started beside — and its smoother row is the reason `../Steering/Route.Smooth` refuses a skip that would give the clearance back.
+An edge costs its length times one plus a tunable over the clearance at its far corner, and the clearance is the field's: a distance transform over free tiles, per chunk, built on demand and kept while the world it describes stands. A chunk is rebuilt when the terrain revision has an edit inside the chunk's own reach or when the world object is replaced; asking about a tile far from every recent edit costs a dictionary lookup. The field's cap is a structural constant rather than a tunable: beyond it the corridor-middle preference has nothing left to prefer, and a smaller cap makes every chunk cheaper to build by the square of the difference. Enemy bodies pay the same formula out to that cap, multiplied onto the edge, never as a wall: a two-tile crack stays legal. Parking and tool hovers read `ClearanceHeat.Combined` so the body stops in the same faint air the route prefers. The corridor fixture in `Tools/NavReplay` is the measurement that this price does what it says — a priced route down a corridor sits on its mid-line where the unpriced route hugs the wall it started beside — and its smoother row is the reason `../Steering/Route.Smooth` refuses a skip that would give the clearance back.
 
 ## One search, two shapes
 

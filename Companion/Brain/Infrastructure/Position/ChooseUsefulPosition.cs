@@ -276,21 +276,6 @@ public sealed class Positioner
                 return Chosen;
         }
 
-        if (request.Kind == RequestKind.WithPlayer && senses.Intent.Inside)
-        {
-            // Inside the player's region there is no place to choose: the brain moves the body about the region itself. The flood
-            // is still refreshed, because that motion reads it to refuse places a finished flood proved out of reach and nothing
-            // else roots it while the companion keeps him company. A destination held from outside is dropped, so the first tick
-            // outside again chooses afresh instead of flying back to a place picked before the body entered.
-            lastRequest = request;
-            senses.Reach.Refresh(senses);
-            Chosen = null;
-            ChosenScore = 0f;
-            ChoiceReason = "accompanying-inside-region";
-            Region = SuccessRegion.None;
-            return null;
-        }
-
         if (request.Kind == RequestKind.WithPlayer && request.MeetingPlace)
         {
             // A priced meeting place is the destination itself. Scoring a region around it picked a
@@ -322,34 +307,25 @@ public sealed class Positioner
         lastRequest = request;
         sinceScore = 0;
         senses.Reach.Refresh(senses);
-        // Retention is a rule at the rescore, not a bonus inside the scoring. A destination that still belongs to
-        // the region it was admitted against is kept and nothing else is searched, so the revision names one
-        // journey instead of a corner resampled around a moving anchor every twelve ticks. Replacement happens
-        // only where this test fails, which is the only moment a different place is actually needed.
-        if (!kindChanged && RetainsHeldDestination(request, senses))
-            return Chosen;
-        // Only WithPlayer reaches here: every other kind returns from its own case above. The way back in is
-        // the nearest inside corner, and a follow request that accepts nothing answers nothing — the brain
-        // hands the follow intent to the state search, because a substitute the navigator can reach without
-        // satisfying the objective is a destination that is arrived at and achieves nothing, which is the fixed
-        // point the walker's partial-progress fallback produced.
-        Chosen = NearestInsideCorner(senses);
+        // Only WithPlayer reaches here: every other kind returns from its own case above. The park is
+        // the clearest air inside the region — same heat the route uses — not the nearest corner, which
+        // sat on the dirt beside him. A two-tile crack still wins when it is the only air that is with
+        // him. Between rescores the destination holds, so this is not a twitch every tick.
+        Chosen = ClearestInsideCorner(senses);
         Region = Chosen == null ? SuccessRegion.None
             : SuccessRegion.Follow(senses.Intent.Objective.At(request.Anchor), senses.Tick, TerrainChanges.Revision);
         return Chosen;
     }
 
     /// <summary>
-    /// Where a companion outside the player's region rejoins it: the corner nearest the body, inside the region by the settle
-    /// radius, that the flood holds; failing that, the nearest usable corner inside it the flood has not proven out of reach,
-    /// so the route flies as close as it can while the flood grows. Tiles the player is building on or walking down are passed
-    /// over. Nearest, because inside the region the companion moves about with the region and a place in it is only the way
-    /// back in: scoring places there for band, height and openness was choosing where to arrive and stop, which the owner ruled
-    /// on 15 September 2026 nothing does any more. Sight of the player is not asked, because losing it is not distance. A corner
-    /// the intent sense has proven cut off from the player inside his region is passed over, because arriving there is not
-    /// being with him: the nearest inside corner to a body on the wrong side of a wall is otherwise the one it already hovers at.
+    /// The park inside the player's region: the usable corner with the most combined wall-and-enemy
+    /// clearance the flood holds, failing that the same among corners not yet proven out. Closer to
+    /// a wall or a body costs more, the way a route costs more; a two-tile crack is still taken when
+    /// it is the only air that is with him. Equal clearance keeps the nearer corner so open sky does
+    /// not twitch across a tied cap. Courtesy, bans and cut-off corners still refuse. Sight of the
+    /// player is not asked, because losing it is not distance.
     /// </summary>
-    private Vector2? NearestInsideCorner(Senses.Senses senses)
+    private Vector2? ClearestInsideCorner(Senses.Senses senses)
     {
         EvidenceTick = senses.Tick;
         CandidateEvidence = "";
@@ -361,6 +337,7 @@ public sealed class Positioner
         Point low = CornerGraph.NearestCorner(region.Centre - region.HalfSize + new Vector2(inset));
         Point high = CornerGraph.NearestCorner(region.Centre + region.HalfSize - new Vector2(inset));
         Vector2? reached = null, unproven = null;
+        float reachedClearance = float.MinValue, unprovenClearance = float.MinValue;
         float reachedDistance = float.MaxValue, unprovenDistance = float.MaxValue;
         for (int x = low.X; x <= high.X; x++)
         {
@@ -375,56 +352,36 @@ public sealed class Positioner
                     RejectedCandidateCount++;
                     continue;
                 }
+                float clearance = MovementQueries.CombinedClearance(spot);
                 float distance = Vector2.DistanceSquared(spot, body);
                 if (ReachesCorner(corner))
                 {
                     ReachableCandidateCount++;
-                    if (distance < reachedDistance) { reachedDistance = distance; reached = spot; }
+                    if (BetterPark(clearance, distance, reachedClearance, reachedDistance))
+                    {
+                        reachedClearance = clearance;
+                        reachedDistance = distance;
+                        reached = spot;
+                    }
                 }
-                else if (distance < unprovenDistance)
+                else if (BetterPark(clearance, distance, unprovenClearance, unprovenDistance))
                 {
+                    unprovenClearance = clearance;
                     unprovenDistance = distance;
                     unproven = spot;
                 }
             }
         }
         ChosenScore = reached != null || unproven != null ? 1f : -1f;
-        ChoiceReason = reached != null ? "nearest-reached-inside-region"
-            : unproven != null ? "nearest-unproven-inside-region"
+        ChoiceReason = reached != null ? "clearest-reached-inside-region"
+            : unproven != null ? "clearest-unproven-inside-region"
             : "no-accepted-candidate";
         return reached ?? unproven;
     }
 
-    /// <summary>
-    /// Whether the destination already held still belongs to the region it was admitted against, in which case it is
-    /// kept and no search runs: a follow spot is inside the comfort box the objective admits against now. The
-    /// corner must also be usable, un-banned and not proven out of the reachable region, because a destination
-    /// the body cannot get to is not a destination however well it once served the purpose. The corner is tested
-    /// rather than the tile the point floors into, because a point on a tile boundary floors into one of four
-    /// tiles and a hoverable test on that one tile can refuse a spot the body fits at.
-    /// </summary>
-    private bool RetainsHeldDestination(in PositionRequest request, Senses.Senses senses)
-    {
-        if (Chosen is not Vector2 spot) return false;
-        Point tile = MovementQueries.Tile(spot);
-        Point corner = CornerGraph.NearestCorner(spot);
-        if (!Allowed(tile) || !MovementQueries.IsUsableCorner(corner) || ProvenUnreachable(corner))
-            return false;
-        switch (Region.Kind)
-        {
-            case SuccessRegionKind.FollowComfort:
-                if (request.Kind != RequestKind.WithPlayer) return false;
-                var objective = senses.Intent.Objective.At(request.Anchor);
-                if (!objective.AcceptsDestination(spot, CanSeePlayer(spot, senses)))
-                    return false;
-                if (StandsInPlayersWay(spot, senses)) return false;
-                ChoiceReason = PositionReasons.Retained;
-                Region = SuccessRegion.Follow(objective, senses.Tick, TerrainChanges.Revision);
-                return true;
-            default:
-                return false;
-        }
-    }
+    private static bool BetterPark(float clearance, float distance, float bestClearance, float bestDistance)
+        => clearance > bestClearance + 0.05f
+            || (clearance >= bestClearance - 0.05f && distance < bestDistance);
 
     /// <summary>Whether the flood holds any corner of this tile; the tile-shaped question the exact and roam kinds and the brain ask.</summary>
     private bool InReach(Point tile) => reachSense != null && reachSense.InScoredRegion(tile);
@@ -585,22 +542,11 @@ public sealed class Positioner
         => StandsInPlayersWay(spot, senses) ? Weights.CourtesyOccupancyShare : 1f;
 
     /// <summary>
-    /// Whether a body standing here would overlap the player's interference footprint. Retention of a follow
-    /// destination asks this as well as the objective, because the objective is about being near the player and
-    /// says nothing about being in the way: a spot the player is now walking through no longer belongs to the
-    /// region it was admitted against, whatever its distance says. Without this the footprint's forced rescore
-    /// above becomes a rescore that retains, which is no rescore at all, and the companion holds the tile the
-    /// player is trying to walk down. Releasing it is not a veto — the scored pass that follows prices courtesy
-    /// as a share, so the spot is chosen again where it is the only usable one.
+    /// Whether a body standing here would overlap the player's interference footprint.
     /// </summary>
     private static bool StandsInPlayersWay(Vector2 spot, Senses.Senses senses)
         => senses.Player.Interference is Rectangle footprint
             && PlayerSense.BodyTiles(spot + new Vector2(0f, CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter).Intersects(footprint);
-
-    /// <summary>The orb's own box against the player's, which is the line the brain tick tests arrival with.</summary>
-    private static bool CanSeePlayer(Vector2 spot, Senses.Senses senses)
-        => Collision.CanHitLine(spot - new Vector2(CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter,
-            senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);
 
     /// <summary>0..1: how much of the next second's predicted threat paths pass through this spot, the body being the
     /// orb's own box centred on it.</summary>

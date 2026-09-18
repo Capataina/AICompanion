@@ -222,5 +222,10 @@ public sealed class CoordinateMovement
         return holdAnchor.Value;
     }
 
-    public void SetObstacles(IEnumerable<Rectangle> obstacles) => Navigator.Avoid = new List<Rectangle>(obstacles);
+    public void SetObstacles(IEnumerable<Rectangle> obstacles)
+    {
+        var list = new List<Rectangle>(obstacles);
+        Navigator.Avoid = list;
+        MovementQueries.Hazards = list;
+    }
 }

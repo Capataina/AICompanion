@@ -79,8 +79,8 @@ public static class Weights
     // being refused: at one, a corner touching a wall costs twice its length and one three tiles
     // clear a third more. Zero is the shortest path and the wall-hugging the owner refused.
     public const float CorridorMiddlePreference = 1f;
-    // A corner inside a threat's inflated body costs this many times more, so a route goes around
-    // an enemy where a way around exists and through it only where none does.
+    // Was the inside-hitbox route multiplier. Routes and parks now pay the terrain heat out to
+    // ClearanceField.MaxTiles around each enemy instead.
     public const float ThreatBodyRoutePenalty = 6f;
     // How many corners the reach flood may close per resolve. Corner expansions are cheap — eight
     // swept tests each — and a screen-sized window is a few thousand corners, so this closes one
