@@ -7,6 +7,7 @@ using Terraria.GameInput;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
 using AICompanion.Companion.CharacterBody;
 using AICompanion.Companion.DiagnosticsConfiguration;
 using AICompanion.Companion.Inventory;
@@ -53,6 +54,7 @@ public partial class CompanionPlayer : ModPlayer
         // Read live rather than from the field: the layers are toggled in the overlay panel during
         // play, so the field is only ever the value this session started from.
         tag["overlayLayers"] = BrainOverlay.Layers;
+        tag["weaponKnowledge"] = PersistWeaponKnowledge.ExportAll();
     }
 
     public override void LoadData(TagCompound tag)
@@ -81,6 +83,8 @@ public partial class CompanionPlayer : ModPlayer
             Preferences = new CompanionPreferences();
         }
 
+        if (tag.ContainsKey("weaponKnowledge"))
+            PersistWeaponKnowledge.Import(tag.GetString("weaponKnowledge"));
     }
 
     public override void OnEnterWorld()

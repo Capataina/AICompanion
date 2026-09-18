@@ -40,9 +40,9 @@ internal static class VerifyHuntProgress
     private static void VerifyIdleHandsStallAndDefer()
     {
         var (companion, ctx, combat) = RunningScene(12, 160);
-        int searchTick = combat.OfferedPlan!.Validity.LastProgressTick;
+        int deadline = StallDeadline(combat.OfferedPlan!, combat.OfferedPlan!.Validity.LastProgressTick);
 
-        SetTick(companion, searchTick + StallWindow + 1);
+        SetTick(companion, deadline);
         float score = VerifyPreparedActivities.PrepareAndScore(combat, ctx);
         Require(combat.CommittedPlan == null && companion.Combat.Planner.LastInvalidation == "stall",
             $"a running plan idle past its window must stall; score={score} invalidation={companion.Combat.Planner.LastInvalidation} reason={combat.EligibilityReason}");
@@ -58,8 +58,7 @@ internal static class VerifyHuntProgress
     private static void VerifyMovedTargetReopens()
     {
         var (companion, ctx, combat) = RunningScene(12, 160);
-        int searchTick = combat.OfferedPlan!.Validity.LastProgressTick;
-        SetTick(companion, searchTick + StallWindow + 1);
+        SetTick(companion, StallDeadline(combat.OfferedPlan!, combat.OfferedPlan!.Validity.LastProgressTick));
         VerifyPreparedActivities.PrepareAndScore(combat, ctx);
         Require(VerifyPreparedActivities.PrepareAndScore(combat, ctx) == 0f,
             "the reopen scene needs the stall to have deferred the body first");
@@ -77,20 +76,26 @@ internal static class VerifyHuntProgress
     private static void VerifyFiredUseRenews()
     {
         var (companion, ctx, combat) = RunningScene(12, 160);
-        int searchTick = combat.OfferedPlan!.Validity.LastProgressTick;
         var first = combat.CommittedPlan!;
+        int start = Math.Max(first.Validity.LastProgressTick, first.Current(first.Validity.LastProgressTick).StartTick);
 
-        SetTick(companion, searchTick + 30);
-        companion.Combat.Planner.NoteUseFired(searchTick + 30);
-        SetTick(companion, searchTick + StallWindow + 1);
+        SetTick(companion, start + 30);
+        companion.Combat.Planner.NoteUseFired(start + 30);
+        SetTick(companion, start + StallWindow + 1);
         float score = VerifyPreparedActivities.PrepareAndScore(combat, ctx);
         Require(score > 0f && ReferenceEquals(combat.CommittedPlan, first),
             $"a use fired at +30 must keep the plan past the search's deadline; score={score} reason={combat.EligibilityReason} invalidation={companion.Combat.Planner.LastInvalidation}");
 
-        SetTick(companion, searchTick + 30 + StallWindow + 1);
+        int stallAt = start + 30 + StallWindow + 1;
+        int endTick = first.Current(start).EndTick;
+        SetTick(companion, stallAt < endTick ? stallAt : endTick + 1);
         VerifyPreparedActivities.PrepareAndScore(combat, ctx);
-        Require(combat.CommittedPlan == null && companion.Combat.Planner.LastInvalidation == "stall",
-            $"the renewed window must still end in a stall when nothing more fires; invalidation={companion.Combat.Planner.LastInvalidation}");
+        if (stallAt < endTick)
+            Require(combat.CommittedPlan == null && companion.Combat.Planner.LastInvalidation == "stall",
+                $"the renewed window must still end in a stall when nothing more fires; invalidation={companion.Combat.Planner.LastInvalidation}");
+        else
+            Require(companion.Combat.Planner.LastInvalidation == "segment-complete",
+                $"a renewed window that outlasts the horizon ends complete, not as a stall; invalidation={companion.Combat.Planner.LastInvalidation}");
     }
 
     /// <summary>
@@ -132,6 +137,12 @@ internal static class VerifyHuntProgress
     {
         BuildFloor();
         var companion = VerifyCompanionLifecycle.Create();
+        // A handed knife is a pile. SetDefaults leaves one, and the stack cap then prices a
+        // single throw; a one-throw plan completes and re-searches instead of stalling.
+        foreach (var weapon in companion.Combat.Weapons)
+            if (weapon.ItemType == Terraria.ID.ItemID.ThrowingKnife
+                && weapon is live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ItemWeapon item)
+                item.Item.stack = 999;
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
         ClearHostileSlots();
@@ -186,7 +197,7 @@ internal static class VerifyHuntProgress
             .GetProperty("LastFireOutcome")!.GetSetMethod(true)!;
         setOutcome.Invoke(companion.Combat, new object[] { "fired" });
         combat.ObserveOutcome(ctx);
-        SetTick(companion, searchTick + StallWindow + 1);
+        SetTick(companion, StallDeadline(combat.OfferedPlan, searchTick));
         VerifyPreparedActivities.PrepareAndScore(combat, ctx);
         Require(combat.CommittedPlan == null && companion.Combat.Planner.LastInvalidation == "stall",
             $"an outcome the hands never reported must not renew the window; invalidation={companion.Combat.Planner.LastInvalidation}");
@@ -241,19 +252,22 @@ internal static class VerifyHuntProgress
         Require(score > 0f && ReferenceEquals(combat.CommittedPlan, plan),
             $"ordained travel must not consume the window; score={score} reason={combat.EligibilityReason} invalidation={companion.Combat.Planner.LastInvalidation} travel={travel}");
 
-        // A window after arrival with idle hands, a stall — unless the travel outlasts the horizon's
-        // remainder, in which case the segment honestly ends first and re-searches.
-        int endTick = plan.Current(searchTick).EndTick;
-        if (startTick + StallWindow + 1 < endTick)
+        // A window after arrival with idle hands, a stall — unless the last segment's horizon
+        // remainder is shorter than the window, in which case the plan honestly ends first.
+        // EndTick is the last segment's: a two-segment plan's first segment ends at departure,
+        // and jumping there only advances the commitment.
+        int lastStart = plan.Segments[^1].StartTick;
+        int lastEnd = plan.Segments[^1].EndTick;
+        if (lastStart + StallWindow + 1 < lastEnd)
         {
-            SetTick(companion, startTick + StallWindow + 1);
+            SetTick(companion, lastStart + StallWindow + 1);
             VerifyPreparedActivities.PrepareAndScore(combat, ctx);
             Require(companion.Combat.Planner.LastInvalidation == "stall",
                 $"idle hands past arrival must stall; invalidation={companion.Combat.Planner.LastInvalidation}");
         }
         else
         {
-            SetTick(companion, endTick + 1);
+            SetTick(companion, lastEnd + 1);
             score = VerifyPreparedActivities.PrepareAndScore(combat, ctx);
             Require(companion.Combat.Planner.LastInvalidation == "segment-complete" && score > 0f,
                 $"a plan that spent its horizon travelling ends and re-searches; score={score} invalidation={companion.Combat.Planner.LastInvalidation}");
@@ -318,6 +332,14 @@ internal static class VerifyHuntProgress
             .GetProperty("Tick")!.GetSetMethod(true)!;
         setTick.Invoke(companion.Brain.Senses, new object[] { tick });
     }
+
+    /// <summary>
+    /// The stall clock runs from the segment's start, not the search: travel the plan ordained is
+    /// the plan working. A BestRange stand a flight away would otherwise still look idle at
+    /// search+window, which is the travel fixture's own case.
+    /// </summary>
+    private static int StallDeadline(live::AICompanion.Companion.Brain.Activities.Combat.Planning.AttackPlan plan, int progressTick)
+        => Math.Max(progressTick, plan.Current(progressTick).StartTick) + StallWindow + 1;
 
     /// <summary>
     /// The hostile slots this file plants into, wiped before each observation. Every scene here

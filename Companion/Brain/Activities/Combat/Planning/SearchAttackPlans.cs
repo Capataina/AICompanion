@@ -49,7 +49,9 @@ public static class SearchAttackPlans
     /// </summary>
     public sealed record SearchOptions(IReadOnlyList<StandProposal>? Proposals = null,
         IReadOnlyList<StandVerdict>? Verdicts = null,
-        IReadOnlyList<DeeperAssessedStand>? DeeperVerdicts = null);
+        IReadOnlyList<DeeperAssessedStand>? DeeperVerdicts = null,
+        bool ArrivalStartsOnly = false,
+        bool DisableBankAims = false);
 
     private static SearchResult Empty(AttackPlan? plan, OfferEligibility eligibility, string reason, int frontSize,
         bool cut)
@@ -84,7 +86,8 @@ public static class SearchAttackPlans
         }
 
         IReadOnlyList<StandProposal> proposals = options?.Proposals
-            ?? ProposeFiringStands.Propose(ctx, combat, enemies, targets, ref budget);
+            ?? ProposeFiringStands.Propose(ctx, combat, enemies, targets, ref budget,
+                disableBankAims: options?.DisableBankAims ?? false);
         IReadOnlyList<StandVerdict>? replayed = options?.Proposals != null ? options.Verdicts : null;
         if (replayed != null && replayed.Count != proposals.Count)
             throw new ArgumentException($"a verdict replay needs one verdict per proposal, not {replayed.Count} for {proposals.Count}");
@@ -146,7 +149,7 @@ public static class SearchAttackPlans
             if (!budget.Check())
                 break;
             List<BeamNode> next = ExpandFrontier(ctx, combat, positioner, inAllowance, weights, enemies,
-                evalTargets, targets, frontier, planId, tick, horizon, options?.DeeperVerdicts, deeperAssessed,
+                evalTargets, targets, frontier, planId, tick, horizon, options, deeperAssessed,
                 ref budget);
             if (budget.Cut)
                 break;
@@ -165,7 +168,7 @@ public static class SearchAttackPlans
             KeepOnlyUndominated.FilterWithDrops(plans, plan => plan.Outcome);
         if (System.Environment.GetEnvironmentVariable("AIC_DEBUG_PLAN") == "1")
             foreach (AttackPlan c in plans)
-                System.Console.WriteLine($"  DEBUG cand primary={c.PrimaryTarget} segs={c.Segments.Length} stands={string.Join("+", System.Linq.Enumerable.Select(c.Segments, s => $"{s.Stand.Stand.X:0},{s.Stand.Stand.Y:0}/{s.Stand.Reason}"))} weighted={c.Weighted:0.00} kills={c.TargetKillTicks?.Length ?? 0} uses={string.Join("+", System.Linq.Enumerable.Select(c.Segments, s => s.Uses.Length))} travel={c.Segments[0].Verdict.TravelTicks:0} outcome={c.Outcome}");
+                System.Console.WriteLine($"  DEBUG cand primary={c.PrimaryTarget} segs={c.Segments.Length} stands={string.Join("+", System.Linq.Enumerable.Select(c.Segments, s => $"{s.Stand.Stand.X:0},{s.Stand.Stand.Y:0}/{s.Stand.Reason}@{s.StartTick}"))} weighted={c.Weighted:0.00} kills={c.TargetKillTicks?.Length ?? 0} uses={string.Join("+", System.Linq.Enumerable.Select(c.Segments, s => s.Uses.Length + ":" + string.Join(",", System.Linq.Enumerable.Select(s.Uses, u => u.WeaponSlot))))} travel={c.Segments[0].Verdict.TravelTicks:0} outcome={c.Outcome}");
         AttackPlan best = front[0];
         foreach (AttackPlan plan in front)
             if (plan.Weighted > best.Weighted)
@@ -213,14 +216,14 @@ public static class SearchAttackPlans
     private static List<BeamNode> ExpandFrontier(in ActionContext ctx, CompanionCombat combat, Positioner positioner,
         Func<Vector2, bool> inAllowance, CombatWeights weights, IReadOnlyList<EnemyForecast> enemies,
         List<EvaluateAttackOutcomes.Target> evalTargets, List<ThreatRecord> targets, List<BeamNode> frontier,
-        int planId, int tick, int horizon, IReadOnlyList<DeeperAssessedStand>? recorded,
+        int planId, int tick, int horizon, SearchOptions? options,
         List<DeeperAssessedStand> deeperAssessed, ref PlanningBudget budget)
     {
         var next = new List<BeamNode>();
         foreach (BeamNode node in frontier)
         {
             List<BeamNode> extended = ExpandPrefix(ctx, combat, positioner, inAllowance, weights, enemies,
-                evalTargets, targets, node, planId, tick, horizon, recorded, deeperAssessed, ref budget);
+                evalTargets, targets, node, planId, tick, horizon, options, deeperAssessed, ref budget);
             if (budget.Cut)
                 return next;
             foreach (BeamNode child in extended)
@@ -230,52 +233,54 @@ public static class SearchAttackPlans
     }
 
     /// <summary>
-    /// One prefix extended by one segment: the body fires the prefix whole, departs at its last fire,
-    /// and the next segment starts at arrival or waits for a prefix landing. The simulations run once
-    /// per stand; every start re-prices the same aims from the prefix life as of that start, so a start
-    /// that waits past an explosion prices the enemies the explosion leaves rather than the ones the
-    /// prefix merely fired at. A cut aborts the level, and the caller discards the partial level with it.
+    /// One prefix extended by one segment: the body fires an early cut of the prefix, departs, and
+    /// the next segment starts at arrival or waits for a prefix landing. Departing only after the
+    /// greedy fill's last fire left every travelling continuation arriving after the horizon, so a
+    /// far-then-close plan and a grenade-then-pierce plan could never beat staying. The earliest
+    /// fires are the cuts worth naming; the proposal set is the enemies still alive at the first of
+    /// them, and each cut re-prices remaining life as of that cut. A cut budget aborts the level.
     /// </summary>
     private static List<BeamNode> ExpandPrefix(in ActionContext ctx, CompanionCombat combat, Positioner positioner,
         Func<Vector2, bool> inAllowance, CombatWeights weights, IReadOnlyList<EnemyForecast> enemies,
         List<EvaluateAttackOutcomes.Target> evalTargets, List<ThreatRecord> targets, BeamNode node, int planId,
-        int tick, int horizon, IReadOnlyList<DeeperAssessedStand>? recorded,
+        int tick, int horizon, SearchOptions? options,
         List<DeeperAssessedStand> deeperAssessed, ref PlanningBudget budget)
     {
         var extended = new List<BeamNode>();
         AttackPlan prefix = node.Plan;
         AttackSegment last = prefix.Segments[^1];
         Vector2 origin = last.Stand.Stand;
-        int departAbs = last.StartTick;
-        foreach (PlannedUse use in last.Uses)
-            if (use.FireTick > departAbs)
-                departAbs = use.FireTick;
         int horizonEnd = tick + horizon;
-        if (departAbs >= horizonEnd)
+        var departures = new List<int>();
+        foreach (PlannedUse use in last.Uses)
+        {
+            if (use.FireTick >= horizonEnd)
+                continue;
+            if (!departures.Contains(use.FireTick))
+                departures.Add(use.FireTick);
+            if (departures.Count >= MaxDelayedStarts)
+                break;
+        }
+        if (departures.Count == 0)
             return extended;
-        int lastFireAbs = departAbs;
-        int lastUseTicks = 1;
-        foreach ((EvaluateAttackOutcomes.Attack attack, int fire) in node.Pairs[^1])
-            if (fire >= lastFireAbs)
-            {
-                lastFireAbs = fire;
-                lastUseTicks = Math.Max(1, attack.UseTicks);
-            }
-        (_, Dictionary<int, float> remAtDepart) = ValuationAt(node, evalTargets, horizon, tick, departAbs);
+        int earliest = departures[0];
+        (_, Dictionary<int, float> remAtPropose, _) = ValuationAt(node, evalTargets, horizon, tick, earliest);
         var alive = new List<ThreatRecord>();
         foreach (ThreatRecord threat in targets)
-            if (remAtDepart.TryGetValue(threat.Npc.whoAmI, out float life) && life > 0f)
+            if (remAtPropose.TryGetValue(threat.Npc.whoAmI, out float life) && life > 0f)
                 alive.Add(threat);
         if (alive.Count == 0)
             return extended;
         var rolled = new List<EnemyForecast>(enemies.Count);
         foreach (EnemyForecast enemy in enemies)
-            rolled.Add(enemy.RolledCopy(remAtDepart.TryGetValue(enemy.Slot, out float life) ? life : enemy.Life));
-        List<StandProposal> proposals = ProposeFiringStands.Propose(ctx, combat, rolled, alive, ref budget, origin);
+            rolled.Add(enemy.RolledCopy(remAtPropose.TryGetValue(enemy.Slot, out float life) ? life : enemy.Life));
+        List<StandProposal> proposals = ProposeFiringStands.Propose(ctx, combat, rolled, alive, ref budget, origin,
+            disableBankAims: options?.DisableBankAims ?? false);
         if (budget.Cut)
             return extended;
         var verdicts = new List<StandVerdict>(proposals.Count);
         positioner.AssessStands(proposals, origin, ctx.Senses, ctx.Npc.life, inAllowance, verdicts);
+        IReadOnlyList<DeeperAssessedStand>? recorded = options?.DeeperVerdicts;
         for (int p = 0; p < proposals.Count; p++)
         {
             StandProposal proposal = proposals[p];
@@ -286,16 +291,27 @@ public static class SearchAttackPlans
             deeperAssessed.Add(new DeeperAssessedStand(origin, proposal, verdict));
             if (verdict.Reach != ReachVerdict.Reachable)
                 continue;
+            Vector2 muzzle = CompanionCombat.MuzzleAt(proposal.Stand);
+            CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
+            foreach (int departAbs in departures)
+            {
             int arrivalAbs = departAbs + (int)MathF.Min(verdict.TravelTicks, horizonEnd - departAbs);
             if (arrivalAbs >= horizonEnd)
                 continue;
-            List<int> starts = DelayedStarts(node, arrivalAbs, horizonEnd);
+            int lastFireAbs = last.StartTick;
+            int lastUseTicks = 1;
+            foreach ((EvaluateAttackOutcomes.Attack attack, int fire) in node.Pairs[^1])
+                if (fire <= departAbs && fire >= lastFireAbs)
+                {
+                    lastFireAbs = fire;
+                    lastUseTicks = Math.Max(1, attack.UseTicks);
+                }
+            List<int> starts = DelayedStarts(node, arrivalAbs, horizonEnd, options?.ArrivalStartsOnly ?? false);
             float gap = JointCompanyGap(ctx, prefix, departAbs, proposal.Stand, arrivalAbs, tick, horizon);
-            Vector2 muzzle = CompanionCombat.MuzzleAt(proposal.Stand);
-            CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
             int handsAtArrival = Math.Max(0, lastFireAbs + lastUseTicks - arrivalAbs);
+            Dictionary<int, int>? throwsAtArrival = AfterUses(StartingThrows(combat.Weapons), node.Pairs, arrivalAbs);
             SimmedStand simmed = SimulateStand(ctx, combat, rolled, evalTargets, alive, proposal, muzzle,
-                arrivalAbs - tick, handsAtArrival, horizon, world, ref budget);
+                arrivalAbs - tick, handsAtArrival, horizon, world, ref budget, throwsAtArrival);
             if (budget.Cut)
                 return extended;
             if (simmed.Candidates.Count == 0)
@@ -305,11 +321,14 @@ public static class SearchAttackPlans
                 int horizonRem = horizonEnd - startAbs;
                 if (horizonRem <= 0)
                     continue;
-                (EvaluateAttackOutcomes.Valuation prefixAt, Dictionary<int, float> remAt) =
+                (EvaluateAttackOutcomes.Valuation prefixAt, Dictionary<int, float> remAt,
+                    Dictionary<(int Target, int Weapon), (float Chance, int Until)>? marksAt) =
                     ValuationAt(node, evalTargets, horizon, tick, startAbs);
                 int cooldown = Math.Max(0, lastFireAbs + lastUseTicks - startAbs);
+                Dictionary<int, int>? throwsAtStart = AfterUses(StartingThrows(combat.Weapons), node.Pairs, startAbs);
                 PricedPiece? piece = PriceFromStart(ctx, evalTargets, simmed, proposal, verdict, weights, startAbs,
-                    arrivalAbs, cooldown, travelCtx: 0, horizonRem, remAt, tick, horizon, gapForContext: 0f);
+                    arrivalAbs, cooldown, travelCtx: 0, horizonRem, remAt, tick, horizon, gapForContext: 0f,
+                    ShiftMarks(marksAt, startAbs - tick), usesLeft: throwsAtStart);
                 if (piece == null)
                     continue;
                 EvaluateAttackOutcomes.Valuation whole = EvaluateAttackOutcomes.Combine(prefixAt, piece.Value,
@@ -317,7 +336,13 @@ public static class SearchAttackPlans
                 var segments = new AttackSegment[prefix.Segments.Length + 1];
                 for (int i = 0; i < prefix.Segments.Length; i++)
                     segments[i] = prefix.Segments[i];
-                segments[^2] = segments[^2] with { EndTick = departAbs, EndsWhen = SegmentEnd.NextSegmentWorthMore };
+                PlannedUse[] keptUses = KeptUses(prefix.Segments[^1].Uses, departAbs);
+                segments[^2] = segments[^2] with
+                {
+                    EndTick = departAbs,
+                    EndsWhen = SegmentEnd.NextSegmentWorthMore,
+                    Uses = keptUses,
+                };
                 segments[^1] = piece.Segment;
                 var seen = new HashSet<int>();
                 var unionTargets = new List<(int Slot, int Generation)>();
@@ -336,7 +361,7 @@ public static class SearchAttackPlans
                 var seenKills = new HashSet<int>();
                 var kills = new List<(int Target, int Tick)>();
                 foreach ((int target, int killTick) in node.Kills)
-                    if (seenKills.Add(target))
+                    if (seenKills.Add(target) && killTick <= startAbs)
                         kills.Add((target, killTick));
                 foreach ((int target, int killTick) in piece.Kills)
                     if (seenKills.Add(target))
@@ -346,14 +371,36 @@ public static class SearchAttackPlans
                     killArray[i] = kills[i];
                 float weighted = weights.Weighted(whole.Outcome);
                 var plan = new AttackPlan(planId, segments, whole.Outcome, weighted, validity, BudgetCut: false,
-                    killArray);
-                var pairs = new List<List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)>>(node.Pairs)
-                    { piece.Pairs };
+                    killArray, AttackPlan.NameByDanger(segments, evalTargets));
+                var cutPairs = new List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)>();
+                foreach ((EvaluateAttackOutcomes.Attack attack, int fire) in node.Pairs[^1])
+                    if (fire <= departAbs)
+                        cutPairs.Add((attack, fire));
+                var pairs = new List<List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)>>(node.Pairs.Count + 1);
+                for (int i = 0; i < node.Pairs.Count - 1; i++)
+                    pairs.Add(node.Pairs[i]);
+                pairs.Add(cutPairs);
+                pairs.Add(piece.Pairs);
                 var contexts = new List<EvaluateAttackOutcomes.PlanContext>(node.Contexts) { piece.Context };
                 extended.Add(new BeamNode(plan, pairs, contexts, kills));
             }
+            }
         }
         return extended;
+    }
+
+    private static PlannedUse[] KeptUses(PlannedUse[] uses, int departAbs)
+    {
+        int n = 0;
+        foreach (PlannedUse use in uses)
+            if (use.FireTick <= departAbs)
+                n++;
+        var kept = new PlannedUse[n];
+        int w = 0;
+        foreach (PlannedUse use in uses)
+            if (use.FireTick <= departAbs)
+                kept[w++] = use;
+        return kept;
     }
 
     /// <summary>
@@ -363,10 +410,12 @@ public static class SearchAttackPlans
     /// starts firing. Nothing more of the prefix is assumed to land after the start: a segment's roll
     /// cannot price through in-flight damage, so the delayed starts exist to wait past it instead.
     /// </summary>
-    private static (EvaluateAttackOutcomes.Valuation Value, Dictionary<int, float> Remaining) ValuationAt(
+    private static (EvaluateAttackOutcomes.Valuation Value, Dictionary<int, float> Remaining,
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? Debuffs) ValuationAt(
         BeamNode node, IReadOnlyList<EvaluateAttackOutcomes.Target> evalTargets, int horizon, int tick, int startAbs)
     {
         Dictionary<int, float>? remaining = null;
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? marks = null;
         EvaluateAttackOutcomes.Valuation? acc = null;
         for (int i = 0; i < node.Pairs.Count; i++)
         {
@@ -374,12 +423,35 @@ public static class SearchAttackPlans
             foreach ((EvaluateAttackOutcomes.Attack attack, int fire) in node.Pairs[i])
                 if (fire + Math.Max(1, attack.ImpactTicks) <= startAbs)
                     subset.Add((attack, fire - tick));
+            var ending = new Dictionary<(int Target, int Weapon), (float Chance, int Until)>();
             EvaluateAttackOutcomes.Valuation piece = EvaluateAttackOutcomes.RollFixed(subset, evalTargets, horizon,
-                node.Contexts[i], tick, initialRemaining: remaining);
+                node.Contexts[i], tick, initialRemaining: remaining, initialDebuffs: marks, endingDebuffs: ending);
             remaining = piece.RemainingLife;
+            marks = ending.Count == 0 ? null : ending;
             acc = acc == null ? piece : EvaluateAttackOutcomes.Combine(acc, piece, evalTargets, 0f, 0);
         }
-        return (acc!, remaining!);
+        return (acc!, remaining!, marks);
+    }
+
+    /// <summary>
+    /// The prefix's live marks carried into a piece's frame: the prefix rolls search-relative, the piece
+    /// from its own start, so every expiry moves back by the start's offset and what already expired is
+    /// dropped. Until is exclusive against impacts at one or later, so an expiry at or before the start
+    /// marks nothing the piece can price.
+    /// </summary>
+    private static Dictionary<(int Target, int Weapon), (float Chance, int Until)>? ShiftMarks(
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? marks, int shift)
+    {
+        if (marks == null)
+            return null;
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? moved = null;
+        foreach (var entry in marks)
+        {
+            int until = entry.Value.Until - shift;
+            if (until > 0)
+                (moved ??= new Dictionary<(int Target, int Weapon), (float Chance, int Until)>())[entry.Key] = (entry.Value.Chance, until);
+        }
+        return moved;
     }
 
     /// <summary>
@@ -387,19 +459,22 @@ public static class SearchAttackPlans
     /// arrival and before the horizon's end, earliest first. Waiting past a landing is how the next
     /// segment avoids firing at what the prefix already killed.
     /// </summary>
-    private static List<int> DelayedStarts(BeamNode node, int arrivalAbs, int horizonEnd)
+    private static List<int> DelayedStarts(BeamNode node, int arrivalAbs, int horizonEnd, bool arrivalOnly)
     {
         var landings = new List<int>();
-        foreach (List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)> pairs in node.Pairs)
-            foreach ((EvaluateAttackOutcomes.Attack attack, int fire) in pairs)
-            {
-                int landing = fire + Math.Max(1, attack.ImpactTicks);
-                if (landing > arrivalAbs && landing < horizonEnd && !landings.Contains(landing))
-                    landings.Add(landing);
-            }
-        landings.Sort();
-        if (landings.Count > MaxDelayedStarts)
-            landings.RemoveRange(MaxDelayedStarts, landings.Count - MaxDelayedStarts);
+        if (!arrivalOnly)
+        {
+            foreach (List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)> pairs in node.Pairs)
+                foreach ((EvaluateAttackOutcomes.Attack attack, int fire) in pairs)
+                {
+                    int landing = fire + Math.Max(1, attack.ImpactTicks);
+                    if (landing > arrivalAbs && landing < horizonEnd && !landings.Contains(landing))
+                        landings.Add(landing);
+                }
+            landings.Sort();
+            if (landings.Count > MaxDelayedStarts)
+                landings.RemoveRange(MaxDelayedStarts, landings.Count - MaxDelayedStarts);
+        }
         landings.Insert(0, arrivalAbs);
         return landings;
     }
@@ -407,7 +482,8 @@ public static class SearchAttackPlans
     /// <summary>
     /// The leg's travel in ticks: the flood's costs count from its root, so the leg differs the stand's
     /// cost and the origin's, floored by the straight line, which is also the whole answer while either
-    /// end is unreached. An underestimate at most fires the next segment late; the hands hold for arrival.
+    /// end is unreached. The difference is capped at four times the air line so a hop on the far side
+    /// of a wall the flood rounded the long way cannot exceed the horizon and skip the segment.
     /// </summary>
     private static float LegTravelTicks(Positioner positioner, Vector2 origin, Vector2 stand)
     {
@@ -417,8 +493,14 @@ public static class SearchAttackPlans
         float? toStand = positioner.EstimatedTravelTicks(oTile, MovementQueries.Tile(stand));
         float? toOrigin = positioner.EstimatedTravelTicks(oTile, oTile);
         float straight = Vector2.Distance(origin, stand) / MathF.Max(0.1f, OrbPace.MaxSpeed);
-        float leg = toStand != null && toOrigin != null ? MathF.Abs(toStand.Value - toOrigin.Value) : straight;
-        return MathF.Max(leg, straight);
+        if (toStand == null || toOrigin == null)
+            return straight;
+        float leg = MathF.Abs(toStand.Value - toOrigin.Value);
+        // Flood costs are from the body's root, not this origin. A short hop on the far side of a
+        // wall the flood rounded the long way would exceed the horizon and skip the segment. The
+        // holonomic body flies the air line; the flood may only make a real corridor cost more,
+        // never many times the straight hop.
+        return MathF.Min(straight * 4f, MathF.Max(straight, leg));
     }
 
     private static StandVerdict? MatchDeeper(IReadOnlyList<DeeperAssessedStand>? recorded, Vector2 origin,
@@ -545,13 +627,14 @@ public static class SearchAttackPlans
         Vector2 muzzle = CompanionCombat.MuzzleAt(proposal.Stand);
         CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
         float gap = IntegrateCompanyGap(ctx, proposal.Stand, travel, horizon);
+        Dictionary<int, int>? throws = StartingThrows(combat.Weapons);
         SimmedStand simmed = SimulateStand(ctx, combat, enemies, evalTargets, targets, proposal, muzzle, travel,
-            Math.Max(0, combat.CooldownTicks - travel), horizon, world, ref budget);
+            Math.Max(0, combat.CooldownTicks - travel), horizon, world, ref budget, throws);
         if (simmed.Candidates.Count == 0 || budget.Cut)
             return null;
         PricedPiece? piece = PriceFromStart(ctx, evalTargets, simmed, proposal, verdict, weights, tick,
             tick + travel, Math.Max(0, combat.CooldownTicks), travel, horizon, remainingAt: null, tick, horizon,
-            gap);
+            gap, usesLeft: throws);
         if (piece == null)
             return null;
 
@@ -570,7 +653,7 @@ public static class SearchAttackPlans
             killArray[i] = piece.Kills[i];
         float weighted = weights.Weighted(piece.Value.Outcome);
         var plan = new AttackPlan(planId, new[] { piece.Segment }, piece.Value.Outcome, weighted, validity,
-            BudgetCut: false, killArray);
+            BudgetCut: false, killArray, AttackPlan.NameByDanger(new[] { piece.Segment }, evalTargets));
         return new BeamNode(plan,
             new List<List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)>> { piece.Pairs },
             new List<EvaluateAttackOutcomes.PlanContext> { piece.Context }, piece.Kills);
@@ -581,23 +664,43 @@ public static class SearchAttackPlans
     /// the per-stand cap: the aims every start of this stand prices. The bound's cooldown is the hands'
     /// busy remainder when firing could start; the simulations predict the enemy at the fire tick, so a
     /// deeper stand's aims lead the arrival rather than the search tick.
+    /// A specialised generator named this stand for one weapon — the area drop, the pierce line, the
+    /// floor flank, the bank — so only that weapon is priced here. BestRange and HereAndCompany stay
+    /// unbound: they are "any weapon" stands, and binding them collapsed the goons-then-close plan
+    /// onto fighting from here.
     /// </summary>
     private static SimmedStand SimulateStand(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<EnemyForecast> enemies, IReadOnlyList<EvaluateAttackOutcomes.Target> evalTargets,
         List<ThreatRecord> targets, StandProposal proposal, Vector2 muzzle, int fireTickForSim, int boundCooldown,
-        int horizon, CombatWorld world, ref PlanningBudget budget)
+        int horizon, CombatWorld world, ref PlanningBudget budget, Dictionary<int, int>? usesLeft)
     {
         var weapons = combat.Weapons;
         var pairs = new List<(int Weapon, ThreatRecord Target, float Bound)>();
+        bool bind = BindsWeapon(proposal.Reason) && proposal.WeaponSlot >= 0;
         foreach (ThreatRecord threat in targets)
         {
             if (!ProposalServes(proposal, threat.Npc.whoAmI))
                 continue;
             List<EvaluateAttackOutcomes.Attack> assumed = ForecastUses.AssumedAttacks(combat, ctx, threat.Npc);
+            var legal = new List<EvaluateAttackOutcomes.Attack>(assumed.Count);
             foreach (EvaluateAttackOutcomes.Attack attack in assumed)
             {
-                float bound = EvaluateAttackOutcomes.Evaluate(attack, assumed, evalTargets, boundCooldown,
-                    horizon).Value;
+                if (bind && attack.Weapon != proposal.WeaponSlot)
+                    continue;
+                if (usesLeft != null && usesLeft.TryGetValue(attack.Weapon, out int remaining) && remaining <= 0)
+                    continue;
+                // AboveArea named the drop for the area weapon. Pricing that throw from here, a
+                // ranging peak, or a flank makes a one-segment contact kill that the grenade-then-
+                // pierce plan can never beat.
+                if (proposal.Reason != StandReason.AboveArea && proposal.Reason != StandReason.AuditGrid
+                    && HasArea(weapons[attack.Weapon]))
+                    continue;
+                legal.Add(attack);
+            }
+            foreach (EvaluateAttackOutcomes.Attack attack in legal)
+            {
+                float bound = EvaluateAttackOutcomes.Evaluate(attack, legal, evalTargets, boundCooldown,
+                    horizon, usesLeft).Value;
                 pairs.Add((attack.Weapon, threat, bound));
             }
         }
@@ -633,7 +736,10 @@ public static class SearchAttackPlans
     private static PricedPiece? PriceFromStart(in ActionContext ctx,
         IReadOnlyList<EvaluateAttackOutcomes.Target> evalTargets, SimmedStand simmed, StandProposal proposal,
         StandVerdict verdict, CombatWeights weights, int startAbs, int arrivalAbs, int cooldown, int travelCtx,
-        int horizonRem, Dictionary<int, float>? remainingAt, int tick, int horizon, float gapForContext)
+        int horizonRem, Dictionary<int, float>? remainingAt, int tick, int horizon, float gapForContext,
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? initialDebuffs = null,
+        int maxSteps = EvaluateAttackOutcomes.MaxAttacks,
+        Dictionary<int, int>? usesLeft = null)
     {
         var context = new EvaluateAttackOutcomes.PlanContext(travelCtx, verdict.HarmAtStand,
             verdict.HarmAlongTravel, Math.Max(1, ctx.Player.statLife), Math.Max(1, ctx.Npc.life),
@@ -659,7 +765,8 @@ public static class SearchAttackPlans
             var tryKills = new List<(int Target, int Tick)>();
             EvaluateAttackOutcomes.Valuation tried = EvaluateAttackOutcomes.EvaluateVector(candidate.Attack,
                 attacks, evalTargets, cooldown, horizonRem, context, weights, startAbs, trySequence, tryKills,
-                initialRemaining: remainingAt);
+                initialRemaining: remainingAt, initialDebuffs: initialDebuffs, maxSteps: maxSteps,
+                usesLeft: usesLeft);
             float value = weights.Weighted(tried.Outcome);
             if (value > best)
             {
@@ -692,6 +799,45 @@ public static class SearchAttackPlans
         foreach (int served in proposal.TargetSlots)
             if (served == slot) return true;
         return false;
+    }
+
+    /// <summary>
+    /// Specialised generators named the stand for one weapon. BestRange and HereAndCompany did not —
+    /// they sample "a weapon peaks here" and "a use reaches from here", and the search still prices
+    /// every handed weapon at those rocks.
+    /// </summary>
+    private static bool BindsWeapon(StandReason reason)
+        => reason is StandReason.AboveArea or StandReason.PierceLines
+            or StandReason.FloorFlanks or StandReason.BankShots;
+
+    private static bool HasArea(CompanionWeapon weapon)
+        => LearnHitResponses.ResponseFor(weapon.ProjectileType).Area.Radius > 0f;
+
+    private static Dictionary<int, int>? StartingThrows(IReadOnlyList<CompanionWeapon> weapons)
+    {
+        Dictionary<int, int>? throws = null;
+        for (int i = 0; i < weapons.Count; i++)
+        {
+            int n = weapons[i].UsesRemaining;
+            if (n >= int.MaxValue)
+                continue;
+            throws ??= new Dictionary<int, int>();
+            throws[i] = n;
+        }
+        return throws;
+    }
+
+    private static Dictionary<int, int>? AfterUses(Dictionary<int, int>? throws,
+        IReadOnlyList<List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)>> pairs, int untilAbs)
+    {
+        if (throws == null)
+            return null;
+        var next = new Dictionary<int, int>(throws);
+        foreach (List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)> segment in pairs)
+            foreach ((EvaluateAttackOutcomes.Attack attack, int fire) in segment)
+                if (fire < untilAbs && next.ContainsKey(attack.Weapon))
+                    next[attack.Weapon] = Math.Max(0, next[attack.Weapon] - 1);
+        return next;
     }
 
     /// <summary>

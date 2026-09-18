@@ -32,7 +32,8 @@ if (args.Contains("--weapon-learning")) return VerifyWeaponLearning.Run();
 if (args.Contains("--volley-learning"))
     return RunOneRow.Case("spread and burst group into one use each", () => VerifyVolleyLearning.SpreadAndBurstGroupIntoOneUseEach())
         + RunOneRow.Case("arcs are learned from the player's flights", () => VerifyVolleyLearning.ArcsAreLearnedFromThePlayersFlights())
-        + RunOneRow.Case("companion shots read the companion's aim", () => VerifyVolleyLearning.CompanionShotsReadTheCompanionsAimAsTheirCursor());
+        + RunOneRow.Case("companion shots read the companion's aim", () => VerifyVolleyLearning.CompanionShotsReadTheCompanionsAimAsTheirCursor())
+        + RunOneRow.Case("knowledge saved by name survives shuffled numeric ids", () => VerifyVolleyLearning.KnowledgeSurvivesANameKeyedSaveUnderShuffledIds());
 if (args.Contains("--flight-laws"))
     return RunOneRow.Case("delayed gravity matches native tick for tick", () => VerifyFlightLaws.DelayedGravityMatchesNativeTickForTick())
         + RunOneRow.Case("bounce points are predicted in a fixture box", () => VerifyFlightLaws.BouncePointsArePredictedInAFixtureBox())
@@ -46,7 +47,8 @@ if (args.Contains("--simulated-uses"))
         + RunOneRow.Case("unlimited pierce strikes twenty", () => VerifySimulatedUses.UnlimitedPierceStrikesTwenty())
         + RunOneRow.Case("four pellets on a low body record four hits", () => VerifySimulatedUses.FourPelletsOnALowBodyRecordFourHits())
         + RunOneRow.Case("timed children land after their parent", () => VerifySimulatedUses.TimedChildrenLandAfterTheirParent())
-        + RunOneRow.Case("the same decision simulated twice is identical", () => VerifySimulatedUses.TheSameDecisionSimulatedTwiceIsIdentical());
+        + RunOneRow.Case("the same decision simulated twice is identical", () => VerifySimulatedUses.TheSameDecisionSimulatedTwiceIsIdentical())
+        + RunOneRow.Case("an extra projectile adds its spawn and changes the prediction", () => VerifySimulatedUses.ExtraProjectileAddsItsSpawnAndChangesThePrediction());
 if (args.Contains("--weapon-outcome-credit"))
     return RunOneRow.Case("misses stay with their enemy type", () => VerifyWeaponLearning.MissesAgainstOneEnemyTypeStayWithThatType())
         + RunOneRow.Case("a swing kill is the strike", () => VerifyWeaponLearning.ASwingKillIsRecordedAsTheStrike())
@@ -63,16 +65,20 @@ if (args.Contains("--combat-activity"))
         + RunOneRow.Case("unarmed offers nothing", () => VerifyCombatActivity.UnarmedOffersNoCombat())
         + RunOneRow.Case("hunting-off migration", () => VerifyCombatActivity.HuntingOffMigration());
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
-if (args.Contains("--attack-planning"))
-    return RunOneRow.Case("company fights from inside the predicted region", () => VerifyAttackPlanning.CompanyFightsFromInsideThePredictedRegion())
+int AttackPlanning() =>
+    RunOneRow.Case("company fights from inside the predicted region", () => VerifyAttackPlanning.CompanyFightsFromInsideThePredictedRegion())
         + RunOneRow.Case("range follows the weapon against one lone target", () => VerifyAttackPlanning.RangeFollowsTheWeaponAgainstOneLoneTarget())
-        + RunOneRow.Case("a debuff weapon opens for its exploiting weapon", () => VerifyAttackPlanning.ADebuffWeaponOpensForItsExploitingWeapon())
+        + RunOneRow.Case("a spread weapon closes at full life and holds range at low life", () => VerifyAttackPlanning.SpreadClosesAtFullLifeAndHoldsRangeAtLowLife())
         + RunOneRow.Case("two in a line are fought from the line, nearer first", () => VerifyAttackPlanning.TwoInALineAreFoughtFromTheLineNearerFirst())
         + RunOneRow.Case("goons then boss earns two segments", () => VerifyAttackPlanning.GoonsThenBossEarnsTwoSegments())
         + RunOneRow.Case("a floor roller takes the low flank", () => VerifyAttackPlanning.AFloorRollerTakesTheLowFlank())
         + RunOneRow.Case("a grenade then pierce is timed to the explosion", () => VerifyAttackPlanning.AGrenadeThenPierceIsTimedToTheExplosion())
         + RunOneRow.Case("a bank shot plans with a bouncing weapon only", () => VerifyAttackPlanning.ABankShotPlansWithABouncingWeaponOnly())
-        + RunOneRow.Case("a dominated plan never survives the front, whatever the weights", () => VerifyAttackPlanning.ADominatedPlanNeverSurvivesTheFront());
+        + RunOneRow.Case("a dominated plan never survives the front, whatever the weights", () => VerifyAttackPlanning.ADominatedPlanNeverSurvivesTheFront())
+        + RunOneRow.Case("planning cost on a crowd fits a frame", () => VerifyAttackPlanning.PlanningCostOnACrowdFitsAFrame())
+        + RunOneRow.Case("the overlay carries the committed-plan layer", () => VerifyAttackPlanning.TheOverlayCarriesThePlanLayer());
+if (args.Contains("--attack-planning"))
+    return AttackPlanning();
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;
 if (args.Contains("--light-senses")) return VerifyLightAndReachSenses.Run() == 0 ? 0 : 1;
 if (args.Contains("--torch-rule")) return VerifyTorchPlacementRule.Run() == 0 ? 0 : 1;
@@ -87,8 +93,11 @@ if (args.Contains("--observation")) return VerifyObservationLifecycle.Run();
 if (args.Contains("--travel-episodes")) return VerifyTravelEpisodes.Run();
 if (args.Any(a => a == "--evidence-scenes" || a.StartsWith("--evidence-scenes=", StringComparison.Ordinal))) return RecordEvidenceScenes.Run(args);
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);
-if (args.Contains("--combat-cost")) return VerifyEngineMotion.Run(combatCostOnly: true);
+if (args.Contains("--combat-cost"))
+    return AttackPlanning();
 if (args.Contains("--combat-purpose")) return VerifyEngineMotion.Run(combatPurposeOnly: true);
+if (args.Contains("--hunt-progress")) return VerifyHuntProgress.Run();
+if (args.Contains("--hunt-admissibility")) return VerifyHuntAdmissibility.Run();
 if (args.Contains("--safety-layer")) return VerifyEngineMotion.Run(safetyLayerOnly: true);
 if (args.Contains("--dodge-repro")) return VerifyEngineMotion.Run(dodgeReproOnly: true);
 if (args.Contains("--activities")) return VerifyEngineMotion.Run(activitiesOnly: true);

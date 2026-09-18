@@ -74,7 +74,7 @@ The standalone flags are the fourth row's cause and it is structural rather than
 --travel-episodes      a journey recorded against the ticks the body could travel
 --evidence-scenes[=dir] four stalls driven through the real recorder; keeps its captures
 --brain-cost           per-phase timings and the recording-invariance proof
---combat-cost          the same, on a scene with four hostiles in it
+--combat-cost          the attack-planning rows then C1: forty-hostile p50/p90/p99 with and without the sim cache. P1–P8 JIT the path; a cold C1-only process is 39 ms cached and misses the frame.
 --combat-purpose       the danger matrix, the pursuit rows, guard access and identity
 --safety-layer         safety as a layer: an enemy beside a leaving player, firing on, a bent guard, an intervening hostile
 --dodge-repro          one arrow advanced by hand at body height on dry floor
@@ -82,7 +82,7 @@ The standalone flags are the fourth row's cause and it is structural rather than
 --liquids              every liquid as air: flight through all four at the air pace, and a flooded passage reached through it
 ```
 
-`--brain-cost`, `--combat-cost`, `--evidence-scenes` and `--dodge-repro` are instruments rather than suites: they measure or record, and the first two assert nothing about behaviour. Numbers any of them print describe the machine they ran on and are never asserted.
+`--brain-cost`, `--evidence-scenes` and `--dodge-repro` are instruments rather than suites: they measure or record, and `--brain-cost` asserts nothing about behaviour. `--combat-cost` is the attack-planning suite: P1–P8 JIT the generators and beam, then C1 (forty hostiles, cache vs no-cache p50/p90/p99, 99th with cache inside one frame). A C1-only process measures 39 ms cached because those methods have never run; after the P-rows the same scene is 12 ms. Three untimed cached crowd searches fill the sim cache so p99 is not the compiling miss. The four-hostile full-brain dump stays behind `VerifyEngineMotion`'s `combatCostOnly` path, which this flag no longer takes.
 
 **Any timing from this suite is comparable only to another taken the same way.** A fixture run alone through its own flag pays JIT compilation for the whole planning path on first use, where the same fixture inside the default suite does not; a twelvefold difference was once credited to a change that had in fact moved the worst tick by nothing.
 

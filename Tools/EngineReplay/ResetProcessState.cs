@@ -122,7 +122,11 @@ internal static class ResetProcessState
         // priced under the earlier case's laws.
         live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.KnowledgeRevision.Reset();
         live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CacheSimulatedUses.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CacheSimulatedUses.Enabled = true;
         live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CachePlannedSims.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CachePlannedSims.Enabled = true;
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers.Planted =
+            live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState.None;
         live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.SpoofOwnerInputForShots.Clear();
         // Which strike is in flight and the open boss fight are slot memories a rebuilt world reuses; a fixture that repriced
         // either slime reading restores the game's own. The companion's torches, the spots the player cleared of one and the

@@ -79,7 +79,12 @@ internal static class VerifyHuntAdmissibility
         }
         double perTick = clock.Elapsed.TotalMilliseconds / Ticks;
         Console.WriteLine($"combat admissibility cost: {perTick:0.000} ms per score over {Ticks} ticks with {threats.Count} unshootable targets");
-        Require(perTick < 2.0d,
+        // Two weapons, nine sealed bodies, a muzzle that walks two pixels a tick so the planned-sim
+        // cache cannot hold a single answer. The bound is still an order-of-magnitude catch — a
+        // cache key that stops holding used to cost fifty milliseconds a tick — not a few
+        // microseconds of machine load. 2 ms was the one-weapon from-here check; the seven
+        // generators against a moving crowd sit a little over that and a frame (16 ms) is the fail.
+        Require(perTick < 5.0d,
             $"establishing firing opportunity costs {perTick:0.000} ms per tick on a hopeless crowd, which is a whole frame budget spent deciding not to fight");
     }
 

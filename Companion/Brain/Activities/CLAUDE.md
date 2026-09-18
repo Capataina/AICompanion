@@ -9,9 +9,9 @@ Activities/
 ├─ ClassifyOffersAndAttempts.cs  offer eligibility and attempt outcomes
 ├─ RecordCandidateFunnel.cs      what one preparation did with each candidate: the stage that refused it and what it read
 ├─ WorkPolicies.cs               mining/chopping mimic vs opportunistic vs off
-├─ Combat/                       the one fighting stance, with a guard side and a hunt side
-│  ├─ FightEnemies.cs            guarding's threat binding with hunting's admissibility and stall deferral
-│  └─ ResolveFiringOpportunity.cs whether a reachable stand can shoot, shared by both sides
+├─ Combat/                       the one fighting stance: one plan, and only it fires
+│  ├─ FightEnemies.cs            search, commit, FireFrom, stall
+│  └─ Planning/                  stands, beam, vector, commitment
 ├─ Gathering/                    retained ore veins and tree jobs
 │  ├─ MineOre.cs                 ore-only vein work under the chosen policy
 │  ├─ ChopTree.cs                trunk-preference work under the chosen policy
@@ -27,7 +27,7 @@ All six ordinary activities live in this tree: **Combat** is the one fighting st
 
 ## The shared contract and offer classification
 
-Every activity implements `CompanionAction`: a `Prepare` pass that populates the candidate pool, a `Score` pass that values each candidate, an `Execute` pass that performs the selected work, and a `Place` query that returns the tile or target where the work occurs. `ClassifyOffersAndAttempts.cs` owns the vocabulary of offer eligibility: **usable** if a prepared candidate has a proven working pose or target; **unresolved** at value zero if the approach is still unknown and cannot yet decide; **known-unusable** if the work is inherently impossible here (a reachability veto, a tool that cannot damage the target, or a pick whose material does not exist nearby). Optional work does not nominate unresolved candidates — mining and the hunt side publish Unknown at value zero rather than walking toward an unanswered search. **Deferred**, also at value zero, is an offer set aside for a reason that is neither an unanswered search nor a proof: a family whose preparation share was spent before the child ran, and a nearby-work stand outside a finished flood's known radius, which no amount of waiting on that flood will answer.
+Every activity implements `CompanionAction`: a `Prepare` pass that populates the candidate pool, a `Score` pass that values each candidate, an `Execute` pass that performs the selected work, and a `Place` query that returns the tile or target where the work occurs. `ClassifyOffersAndAttempts.cs` owns the vocabulary of offer eligibility: **usable** if a prepared candidate has a proven working pose or target; **unresolved** at value zero if the approach is still unknown and cannot yet decide; **known-unusable** if the work is inherently impossible here (a reachability veto, a tool that cannot damage the target, or a pick whose material does not exist nearby). Optional work does not nominate unresolved candidates — mining and combat publish Unknown at value zero rather than walking toward an unanswered search. **Deferred**, also at value zero, is an offer set aside for a reason that is neither an unanswered search nor a proof: a family whose preparation share was spent before the child ran, and a nearby-work stand outside a finished flood's known radius, which no amount of waiting on that flood will answer.
 
 ## A preparation says what it did with each candidate
 

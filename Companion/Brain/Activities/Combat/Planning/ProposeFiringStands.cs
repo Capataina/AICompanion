@@ -37,7 +37,7 @@ public static class ProposeFiringStands
 
     public static List<StandProposal> Propose(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<EnemyForecast> enemies, List<ThreatRecord> targets, ref PlanningBudget budget,
-        Vector2? origin = null)
+        Vector2? origin = null, bool disableBankAims = false)
     {
         var proposals = new List<StandProposal>();
         var seen = new HashSet<(int X, int Y)>();
@@ -55,8 +55,10 @@ public static class ProposeFiringStands
         PierceLines(ctx, combat, weapons, enemies, targets, proposals, seen, ref budget, ref left);
         FloorFlanks(ctx, combat, weapons, enemies, targets, body, proposals, seen, ref budget, ref left);
         AboveArea(ctx, combat, weapons, enemies, targets, proposals, seen, ref budget, ref left);
-        BankShots(ctx, combat, weapons, enemies, targets, body, proposals, seen, ref budget, ref left);
+        if (!disableBankAims)
+            BankShots(ctx, combat, weapons, enemies, targets, body, proposals, seen, ref budget, ref left);
         SafeRange(ctx, weapons, targets, proposals, seen);
+        RetagAboveDrops(proposals, weapons, targets, enemies);
         return proposals;
     }
 
@@ -90,6 +92,87 @@ public static class ProposeFiringStands
     {
         if (seen.Add(HalfTile(stand)))
             proposals.Add(new StandProposal(stand, reason, weaponSlot, targetSlots));
+    }
+
+    /// <summary>
+    /// BestRange's up-line samples the same air AboveArea drops from. Dedup keeps one rock; the reason
+    /// still has to be the area drop when a stand sits above the group and a handed weapon has learned
+    /// area, or a grenade-then-pierce plan reads as a ranging stand.
+    /// </summary>
+    private static void RetagAboveDrops(List<StandProposal> proposals, IReadOnlyList<CompanionWeapon> weapons,
+        List<ThreatRecord> targets, IReadOnlyList<EnemyForecast> enemies)
+    {
+        bool anyArea = false;
+        for (int w = 0; w < weapons.Count; w++)
+            if (LearnHitResponses.ResponseFor(RepresentativeType(weapons[w])).Area.Radius > 0f)
+            {
+                anyArea = true;
+                break;
+            }
+        if (!anyArea || targets.Count == 0)
+            return;
+        Vector2 sum = Vector2.Zero;
+        int count = 0;
+        foreach (ThreatRecord threat in targets)
+        {
+            EnemyForecast? forecast = ForecastFor(enemies, threat.Npc.whoAmI);
+            if (forecast == null)
+                continue;
+            sum += forecast.PredictedCentre(GeometryTick);
+            count++;
+        }
+        if (count == 0)
+            return;
+        Vector2 centroid = sum / count;
+        for (int i = 0; i < proposals.Count; i++)
+            if ((proposals[i].Reason == StandReason.BestRange || proposals[i].Reason == StandReason.HereAndCompany)
+                && proposals[i].Stand.Y < centroid.Y - 40f
+                && MathF.Abs(proposals[i].Stand.X - centroid.X) < 120f)
+                proposals[i] = proposals[i] with { Reason = StandReason.AboveArea };
+    }
+
+    private static void EmitAbove(List<StandProposal> proposals, HashSet<(int X, int Y)> seen,
+        Vector2 stand, int weaponSlot, int[] targetSlots)
+    {
+        (int X, int Y) key = HalfTile(stand);
+        for (int i = 0; i < proposals.Count; i++)
+            if (HalfTile(proposals[i].Stand) == key)
+            {
+                proposals[i] = proposals[i] with
+                {
+                    Reason = StandReason.AboveArea,
+                    WeaponSlot = weaponSlot,
+                    TargetSlots = targetSlots,
+                };
+                return;
+            }
+        Emit(proposals, seen, stand, StandReason.AboveArea, weaponSlot, targetSlots);
+    }
+
+    /// <summary>
+    /// BestRange samples the same body-line rocks PierceLines proves as a chain. Dedup keeps one
+    /// rock; the reason still has to be the pierce when the probe struck two bodies, or a
+    /// grenade-then-pierce plan reads as a ranging stand. Never steal an AboveArea drop — that
+    /// generator's retag is the one that names the burst.
+    /// </summary>
+    private static void EmitPierce(List<StandProposal> proposals, HashSet<(int X, int Y)> seen,
+        Vector2 stand, int weaponSlot, int[] targetSlots)
+    {
+        (int X, int Y) key = HalfTile(stand);
+        for (int i = 0; i < proposals.Count; i++)
+            if (HalfTile(proposals[i].Stand) == key)
+            {
+                if (proposals[i].Reason == StandReason.AboveArea)
+                    return;
+                proposals[i] = proposals[i] with
+                {
+                    Reason = StandReason.PierceLines,
+                    WeaponSlot = weaponSlot,
+                    TargetSlots = targetSlots,
+                };
+                return;
+            }
+        Emit(proposals, seen, stand, StandReason.PierceLines, weaponSlot, targetSlots);
     }
 
     private static (int X, int Y) HalfTile(Vector2 point) => ((int)(point.X / 8f), (int)(point.Y / 8f));
@@ -290,6 +373,11 @@ public static class ProposeFiringStands
             };
             for (int w = 0; w < weapons.Count; w++)
             {
+                // AboveArea owns the drop. A ranging peak beside the group for an area weapon is a
+                // contact throw that the search then prices as a one-segment kill, and the grenade-
+                // then-pierce plan never leaves the rock.
+                if (LearnHitResponses.ResponseFor(RepresentativeType(weapons[w])).Area.Radius > 0f)
+                    continue;
                 float reach = weapons[w].IsSwing
                     ? SwingStandReach(weapons[w]) : MathF.Max(48f, weapons[w].Reach);
                 foreach (Vector2 line in mains)
@@ -311,11 +399,18 @@ public static class ProposeFiringStands
     {
         Vector2 peak = centre;
         float peakYield = 0f;
-        for (int s = 1; s <= samples; s++)
+        // Reach is capped at 1100, so s/samples starts at 275px. A spread weapon's peak is inside
+        // the 160px harm Inverse, and a goons-then-close plan needs a stand closer than 250px; a
+        // grid that never asks there cannot name either. Close extras run after the even grid so a
+        // flat long weapon keeps its first equal peak (range) and a shotgun with more pellets on
+        // the box moves in — including when the even grid missed, which is the close peak.
+        int n = samples + 2;
+        for (int i = 0; i < n; i++)
         {
-            if (budget.Simulations >= stopAt || !budget.Check())
-                break;
-            Vector2 stand = centre + line * (reach * s / samples);
+            float distance = i < samples ? reach * (i + 1) / samples : i == samples ? 96f : 48f;
+            if (distance < 32f || distance > reach || budget.Simulations >= stopAt || !budget.Check())
+                continue;
+            Vector2 stand = centre + line * distance;
             Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
             var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
             float yield = ProbeYield(weapon, slot, ctx, muzzle, forecast, world, enemies, modifiers,
@@ -393,7 +488,7 @@ public static class ProposeFiringStands
                             }
                         }
                         if (bestBodies >= 2)
-                            Emit(proposals, seen, best, StandReason.PierceLines, w, chain);
+                            EmitPierce(proposals, seen, best, w, chain);
                     }
                 }
             }
@@ -528,6 +623,7 @@ public static class ProposeFiringStands
                 continue;
             Vector2 best = centroid;
             float bestYield = 0f;
+            bool bestCentred = false;
             foreach (float above in new[] { 64f, 128f, 192f })
             {
                 if (budget.Simulations >= stopAt || !budget.Check())
@@ -545,14 +641,15 @@ public static class ProposeFiringStands
                             centred = true;
                             break;
                         }
-                if ((yield > 0f || centred) && yield >= bestYield)
+                if ((yield > 0f || centred) && (yield > bestYield + 1e-6f || (centred && !bestCentred && yield >= bestYield)))
                 {
                     bestYield = yield;
                     best = stand;
+                    bestCentred = centred;
                 }
             }
-            if (bestYield > 0f)
-                Emit(proposals, seen, best, StandReason.AboveArea, w, group);
+            if (bestYield > 0f || bestCentred)
+                EmitAbove(proposals, seen, best, w, group);
         }
     }
 

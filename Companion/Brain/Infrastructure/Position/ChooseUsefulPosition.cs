@@ -609,7 +609,7 @@ public sealed class Positioner
         float worst = 0f;
         Rectangle body = new((int)(centre.X - CircleContact.Radius), (int)(centre.Y - CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter);
         foreach (ThreatRecord t in senses.Threats.Threats)
-            worst = MathF.Max(worst, ThreatProximity(t, centre, body, 1f));
+            worst = MathF.Max(worst, ThreatProximity(t, centre, body));
         return worst;
     }
 
@@ -618,25 +618,29 @@ public sealed class Positioner
     /// hit it lands on the body, summed. A sum rather than the exposure times the hardest hit anywhere,
     /// because that product prices a distant lethal into every stand — a damage-100 body thirty tiles off
     /// set the price of hits the mild zombie at the stand would land, and no fight beside any lethal was
-    /// ever worth starting. The distance term is gated by the threat's urgency to the companion, because a
-    /// body busy with the player is not incoming however near; a predicted hitbox overlap is not gated,
-    /// because a forecasted overlap is incoming by construction.
+    /// ever worth starting. Inverse falls off from the stand, not from where the body is now, so a
+    /// shotgun stand next to a zombie is priced as a beating while the body is still far; a predicted
+    /// hitbox overlap is the same question at proximity one.
     /// </summary>
     public static float PredictedHarmAt(Vector2 centre, Senses.Senses senses, float companionLife)
     {
         float total = 0f;
         Rectangle body = new((int)(centre.X - CircleContact.Radius), (int)(centre.Y - CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter);
         foreach (ThreatRecord t in senses.Threats.Threats)
-            total += ThreatProximity(t, centre, body, Math.Clamp(t.UrgencyToCompanion, 0f, 1f)) * MathF.Max(0f, t.EffectiveDamageToCompanion);
+            total += ThreatProximity(t, centre, body) * MathF.Max(0f, t.EffectiveDamageToCompanion);
         return total / MathF.Max(1f, companionLife);
     }
 
-    private static float ThreatProximity(ThreatRecord t, Vector2 centre, Rectangle body, float urgencyGate)
+    private static float ThreatProximity(ThreatRecord t, Vector2 centre, Rectangle body)
     {
         for (int tick = 0; tick <= 40; tick += 10)
             if (t.PredictedHitbox(tick).Intersects(body))
                 return 1f;
         float d = Vector2.Distance(t.Npc.Center, centre);
-        return Consideration.Inverse(d, 160f) * 0.6f * urgencyGate;
+        // Inverse is already this threat's distance to the stand. Gating it by the body's current
+        // urgency made every close stand look safe while the body was still far — the shotgun
+        // stand next to a zombie priced as harmless until the body was already there. Overlap
+        // stays ungated; the Inverse is the same question from the stand rather than from here.
+        return Consideration.Inverse(d, 160f) * 0.6f;
     }
 }

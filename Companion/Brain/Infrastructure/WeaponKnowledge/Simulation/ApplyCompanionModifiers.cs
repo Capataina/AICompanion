@@ -17,6 +17,13 @@ public readonly record struct ModifierState(int ExtraProjectiles, int AddedPierc
 /// </summary>
 public static class ApplyCompanionModifiers
 {
-    /// <summary>What this use carries from the companion's side. Empty until mastery lands.</summary>
-    public static ModifierState Current() => ModifierState.None;
+    /// <summary>
+    /// A planted state the fixtures set, and production never does. Mastery bonuses do not exist yet —
+    /// the wheel is still a preview — so the seam is this plant plus a read that stays empty until a
+    /// bonuses record exists. S5 plants +1 extra projectile; the live companion reads None.
+    /// </summary>
+    public static ModifierState Planted { get; set; } = ModifierState.None;
+
+    /// <summary>What this use carries from the companion's side: the plant if one is set, otherwise none until mastery grants pierce or extra projectiles.</summary>
+    public static ModifierState Current() => Planted;
 }

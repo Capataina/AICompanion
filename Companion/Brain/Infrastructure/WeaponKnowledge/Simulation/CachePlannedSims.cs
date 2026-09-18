@@ -31,6 +31,10 @@ public static class CachePlannedSims
     private readonly record struct Key(int ItemType, int Slot, int ExtraProjectiles, int AddedPierce,
         int StandX, int StandY, int AimX, int AimY, int FireTick, int Knowledge, int Terrain, int Enemies);
 
+    /// <summary>When false, every lookup misses and every store is skipped, so C1 can price the same
+    /// decision with the cache and without it. Production never turns this off.</summary>
+    public static bool Enabled { get; set; } = true;
+
     private static readonly Dictionary<Key, SimulatedUse> cached = new();
 
     private readonly record struct BestKey(int ItemType, int Slot, int ExtraProjectiles, int AddedPierce,
@@ -41,11 +45,16 @@ public static class CachePlannedSims
 
     public static bool TryGet(WeaponId weapon, ModifierState modifiers, Vector2 muzzle, Vector2 aim,
         int fireTick, int knowledge, int terrain, IReadOnlyList<EnemyForecast> enemies, out SimulatedUse? use)
-        => cached.TryGetValue(ToKey(weapon, modifiers, muzzle, aim, fireTick, knowledge, terrain, enemies), out use);
+    {
+        use = null;
+        return Enabled && cached.TryGetValue(ToKey(weapon, modifiers, muzzle, aim, fireTick, knowledge, terrain, enemies), out use);
+    }
 
     public static void Store(WeaponId weapon, ModifierState modifiers, Vector2 muzzle, Vector2 aim,
         int fireTick, int knowledge, int terrain, IReadOnlyList<EnemyForecast> enemies, SimulatedUse use)
     {
+        if (!Enabled)
+            return;
         if (cached.Count >= Capacity)
             cached.Clear();
         cached[ToKey(weapon, modifiers, muzzle, aim, fireTick, knowledge, terrain, enemies)] = use;
@@ -126,7 +135,7 @@ public static class CachePlannedSims
         var key = new BestKey(weapon.ItemType, weapon.Slot, modifiers.ExtraProjectiles, modifiers.AddedPierce,
             targetSlot, targetGeneration, (int)(muzzle.X / 16f), (int)(muzzle.Y / 16f), fireTick,
             knowledge, terrain, EnemyContentMemoized(enemies));
-        if (bestCached.TryGetValue(key, out ForecastUses.AimedUse? found))
+        if (Enabled && bestCached.TryGetValue(key, out ForecastUses.AimedUse? found))
         {
             aimed = found;
             return true;
@@ -139,6 +148,8 @@ public static class CachePlannedSims
         Vector2 muzzle, int fireTick, int knowledge, int terrain, IReadOnlyList<EnemyForecast> enemies,
         ForecastUses.AimedUse? aimed)
     {
+        if (!Enabled)
+            return;
         if (bestCached.Count >= Capacity)
             bestCached.Clear();
         bestCached[new BestKey(weapon.ItemType, weapon.Slot, modifiers.ExtraProjectiles, modifiers.AddedPierce,

@@ -5,7 +5,8 @@ Firing/
 ├─ CLAUDE.md                 this guide
 ├─ CompanionWeapon.cs        the contract the arsenal reads: facts, in-reach, hits, fire
 ├─ ItemWeapon.cs             the one weapon: whatever item sits in a weapon slot, read and never run
-├─ Arsenal.cs                target, weapon and cooldown selection, fed from the gear's two weapon slots
+├─ CompanionCombat.cs        the one combat surface: gear enumeration, forecast, planner, hands
+├─ FireDueUse.cs             the plan's due use, or the best from here at the plan's targets while travelling
 ├─ TrackLandedHits.cs        which NPC a companion shot struck, whether a projectile is the companion's, and the global hooks that attribute hits and open outcome windows
 ├─ SpoofOwnerInputForShots.cs the companion's aim point as its projectiles' cursor while their AI runs
 └─ ObserveShotOutcomes.cs    one use's outcome window: its projectile and every descendant, the damage landed, the bodies struck, the debuffs added
@@ -57,9 +58,9 @@ The same file carries the global hooks over NPC hits: the modify hook keeps each
 
 **A companion swing never applies its item's status**, because `Player.ApplyDamageToNPC` applies none; the item-status path lives in the player's melee hit code, which is the item-use code this folder never runs. **A volley's timing is not reproduced**: every slot spawns on the firing tick even when the player's use spaced them across its animation, which the simulator prices and live fire does not. The intervention and removal estimates protection reads stay on the prior. And no recorder column carries the learner's numbers yet: `AttackLearning.LastSampledFactor`, `LastMeanFactor` and `ShotOutcomes.LastClosed` are there for whoever owns the schema.
 
-## Planned work — the arsenal is split by the combat plan
+## Current state — 18 September 2026
 
-`research/Combat System Plan/` phase D splits `Arsenal.cs` into the per-companion combat surface, the firing interaction's due-use choice and the planner; phases A (the hands fire only on a Combat tick) and B (learned volleys, the flight recorder, the cursor spoof) landed on 16 September 2026. File 6 of the plan lists every file's fate. Until the split lands, this guide describes the choice as it is.
+The arsenal split landed: `CompanionCombat` is the per-companion surface, `FireDueUse` is the hand, the planner lives under `Activities/Combat/Planning/`. The hands fire only on a Combat tick. Learned volleys, the flight recorder and the cursor spoof are built. Knowledge saves by full name and reloads under shuffled ids; an extra-projectile modifier changes the next simulated use without relearning, planted in the S5 row until mastery bonuses exist. A consumable's remaining throws are the stack in the slot (`UsesRemaining`); ammo is free, so a bow is unlimited.
 
 ## Fixtures
 

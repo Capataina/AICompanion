@@ -362,4 +362,52 @@ internal static class VerifySimulatedUses
         Console.WriteLine($"simulated uses: two runs agree exactly over {first.Hits.Count} hits, {first.Bounces.Count} bounces, {first.Deaths.Count} deaths");
         return 0;
     }
+
+    /// <summary>
+    /// S5: an Extra projectile modifier adds its spawn with its damage and spacing, and the prediction
+    /// changes at once. Applying the modifier after the sim — the file-8 mutation — leaves the hit
+    /// count unchanged because the extra spawn never flew.
+    /// </summary>
+    public static int ExtraProjectileAddsItsSpawnAndChangesThePrediction()
+    {
+        Reset();
+        Vector2 muzzle = new(100f, 1100f);
+        Vector2 aim = new(1500f, 1100f);
+        Main.LocalPlayer.Center = muzzle;
+        StandUpDamage();
+        (float composedDamage, float composedSpeed) = LearnVolleys.ComposedStats(ItemID.FlintlockPistol, ItemID.MusketBall);
+        int whole = (int)composedDamage;
+        int quarter = Math.Max(1, whole / 4);
+        LearnFourPelletVolley(muzzle, aim, composedSpeed, quarter);
+        var enemies = new[] { Forecast(1, new Vector2(300f, 1100f), 80, 80, 1000f) };
+        var weapon = new WeaponId(ItemID.FlintlockPistol, 0, false, whole, composedSpeed, 5f, 20, 0, 0f,
+            ProjectileID.Bullet, false);
+        CombatWorld world = CombatWorld.Current(muzzle, muzzle, 0);
+        PlanningBudget noneBudget = PlanningBudget.Unbounded();
+        SimulatedUse none = Simulate.Simulate(weapon, muzzle, aim, Vector2.UnitX, world, enemies,
+            ModifierState.None, 0, ref noneBudget);
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers.Planted =
+            new ModifierState(1, 0);
+        PlanningBudget extraBudget = PlanningBudget.Unbounded();
+        SimulatedUse extra = Simulate.Simulate(weapon, muzzle, aim, Vector2.UnitX, world, enemies,
+            live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers.Current(),
+            0, ref extraBudget);
+        Require(!none.Cut && !extra.Cut, "unbounded sims must run to their lifetimes");
+        Require(none.Hits.Count == 4, $"the unmodified volley is four pellets; got {none.Hits.Count}");
+        Require(extra.Hits.Count == 5, $"one extra projectile adds its spawn; got {extra.Hits.Count} hits");
+        Require(extra.TotalDamage > none.TotalDamage,
+            $"the prediction must change at once; extra {extra.TotalDamage:0} vs none {none.TotalDamage:0}");
+
+        PlanningBudget afterBudget = PlanningBudget.Unbounded();
+        SimulatedUse flown = Simulate.Simulate(weapon, muzzle, aim, Vector2.UnitX, world, enemies,
+            ModifierState.None, 0, ref afterBudget);
+        var plantedAfter = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers.Current();
+        Require(plantedAfter.ExtraProjectiles == 1, "premise: the plant is still set when the mutation applies after");
+        Require(flown.Hits.Count == none.Hits.Count,
+            "applying the modifier after the sim must leave the flown hits unchanged");
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers.Planted =
+            ModifierState.None;
+        Console.WriteLine($"simulated uses: extra projectile {none.Hits.Count} hits -> {extra.Hits.Count} hits, damage {none.TotalDamage:0} -> {extra.TotalDamage:0}");
+        return 0;
+    }
 }

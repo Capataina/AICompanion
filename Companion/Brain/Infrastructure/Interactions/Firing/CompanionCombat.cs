@@ -122,18 +122,29 @@ public sealed class CompanionCombat
         int signature = gear.Signature;
         if (signature == gearSignature)
             return;
+        var previous = new int[weapons.Count];
+        for (int i = 0; i < weapons.Count; i++)
+            previous[i] = weapons[i].ItemType;
         gearSignature = signature;
         weapons.Clear();
         foreach (GearSlot slot in new[] { GearSlot.FirstWeapon, GearSlot.SecondWeapon })
         {
             Item item = gear[slot];
             if (!item.IsAir && CompanionGear.Accepts(slot, item, out _))
-                weapons.Add(new ItemWeapon(item));
+                weapons.Add(new ItemWeapon(item.Clone()));
         }
         maxReach = 0f;
         foreach (CompanionWeapon weapon in weapons)
             maxReach = MathF.Max(maxReach, weapon.Reach);
-        Planner.Release("gear-changed");
+        bool same = previous.Length == weapons.Count;
+        if (same)
+            for (int i = 0; i < weapons.Count; i++)
+                if (previous[i] != weapons[i].ItemType)
+                    same = false;
+        // A first populate, or a stamp flicker that left the same types in hand, is not a
+        // loadout change: releasing then would mark gear-changed before a stall can fire.
+        if (!same && Planner.Committed != null)
+            Planner.Release("gear-changed");
         LastShotSolved = false;
         interventionCheckedAt = int.MinValue;
         idealCheckedAt = int.MinValue;

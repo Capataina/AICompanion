@@ -17,6 +17,9 @@ public static class CacheSimulatedUses
     private readonly record struct Key(int ItemType, int Slot, int ExtraProjectiles, int AddedPierce,
         int StandX, int StandY, int AimX, int AimY, int FireTick, int Knowledge, int Terrain);
 
+    /// <summary>When false, every lookup misses. C1 prices the same decision with the cache off; production never turns this off.</summary>
+    public static bool Enabled { get; set; } = true;
+
     private static readonly Dictionary<Key, SimulatedUse> cached = new();
     private static int tick = -1;
 
@@ -29,11 +32,16 @@ public static class CacheSimulatedUses
 
     public static bool TryGet(WeaponId weapon, ModifierState modifiers, Vector2 muzzle, Vector2 aim, int fireTick,
         int knowledge, int terrain, out SimulatedUse? use)
-        => cached.TryGetValue(ToKey(weapon, modifiers, muzzle, aim, fireTick, knowledge, terrain), out use);
+    {
+        use = null;
+        return Enabled && cached.TryGetValue(ToKey(weapon, modifiers, muzzle, aim, fireTick, knowledge, terrain), out use);
+    }
 
     public static void Store(WeaponId weapon, ModifierState modifiers, Vector2 muzzle, Vector2 aim, int fireTick,
         int knowledge, int terrain, SimulatedUse use)
     {
+        if (!Enabled)
+            return;
         Key key = ToKey(weapon, modifiers, muzzle, aim, fireTick, knowledge, terrain);
         if (cached.Count < 256)
             cached[key] = use;

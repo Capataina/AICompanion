@@ -375,7 +375,7 @@ public static class Weights
     /// two keeps a live level-two expansion inside the rescore beside level one, while the unbounded
     /// audit and fixtures price every expansion the level admits. The C1 row owns the ceiling.
     /// </summary>
-    public const int CombatBeamWidth = 2;
+    public const int CombatBeamWidth = 4;
 
     /// <summary>The milliseconds one rescore may spend searching attack plans; a cut search offers unresolved, never known-unusable.</summary>
     public const float CombatPlanningMilliseconds = 4f;

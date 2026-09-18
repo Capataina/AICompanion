@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameContent;
 using Terraria.ModLoader;
+using AICompanion.Companion.Brain.Activities.Combat.Planning;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
@@ -29,7 +30,8 @@ public sealed class BrainOverlay : ModSystem
     public static bool ShowThreats = true, ShowPredictions = true, ShowRoutes = true, ShowCandidates = true;
     public static bool ShowProjectiles = true, ShowAiming = true, ShowMovement = true, ShowAttention = true, ShowRegion = true;
     public static bool ShowFollow = true, ShowSenses = true, ShowCost = true, ShowClearance = true;
-    public const int AllLayers = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | 2048 | 8192 | 16384;
+    public static bool ShowPlan = true;
+    public const int AllLayers = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | 2048 | 8192 | 16384 | 32768;
 
     /// <summary>
     /// The layer switches as one integer, so the character save can carry which drawings the
@@ -52,14 +54,14 @@ public sealed class BrainOverlay : ModSystem
             | (ShowProjectiles ? 8 : 0) | (ShowRoutes ? 16 : 0) | (ShowCandidates ? 32 : 0)
             | (ShowAiming ? 64 : 0) | (ShowMovement ? 128 : 0) | (ShowAttention ? 256 : 0) | (ShowRegion ? 512 : 0)
             | (ShowFollow ? 1024 : 0) | (ShowSenses ? 2048 : 0) | (ShowCost ? 8192 : 0)
-            | (ShowClearance ? 16384 : 0);
+            | (ShowClearance ? 16384 : 0) | (ShowPlan ? 32768 : 0);
         set
         {
             ShowWorld = (value & 1) != 0; ShowThreats = (value & 2) != 0; ShowPredictions = (value & 4) != 0;
             ShowProjectiles = (value & 8) != 0; ShowRoutes = (value & 16) != 0; ShowCandidates = (value & 32) != 0;
             ShowAiming = (value & 64) != 0; ShowMovement = (value & 128) != 0; ShowAttention = (value & 256) != 0;
             ShowRegion = (value & 512) != 0; ShowFollow = (value & 1024) != 0; ShowSenses = (value & 2048) != 0;
-            ShowCost = (value & 8192) != 0; ShowClearance = (value & 16384) != 0;
+            ShowCost = (value & 8192) != 0; ShowClearance = (value & 16384) != 0; ShowPlan = (value & 32768) != 0;
         }
     }
 
@@ -114,7 +116,7 @@ public sealed class BrainOverlay : ModSystem
         => new(12, 12, Math.Max(200, Math.Min(440, width - 24)), Math.Max(180, Math.Min(540, height - 24)));
     private static Rectangle Bounds => PanelBounds((int)(Main.screenWidth / Main.UIScale), (int)(Main.screenHeight / Main.UIScale));
     private static Point Mouse => new((int)(Main.mouseX / Main.UIScale), (int)(Main.mouseY / Main.UIScale));
-    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Simulated uses and rejected aims", "Movement and dodge choices", "Targets and attention", "Where the purpose succeeds", "Where following wants it", "What it senses", "Cost of thinking", "Clearance field" };
+    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Simulated uses and rejected aims", "Movement and dodge choices", "Targets and attention", "Where the purpose succeeds", "Where following wants it", "What it senses", "Cost of thinking", "Clearance field", "Committed attack plan" };
     private static readonly string[] hints = {
         "Hide all drawings without losing your selected layers.", "Red boxes are observed bodies; arrows show current velocity.",
         "Yellow paths contain only samples the brain calculated. Future enemy decisions remain unknown.",
@@ -129,14 +131,15 @@ public sealed class BrainOverlay : ModSystem
         "Yellow is the continuation the brain predicts from your recent movement, labelled with its confidence and how many samples back it. A diamond is a drop: white it can reach, orange it has proven it cannot, hollow not yet flooded. The companion's own label carries the encounter pressure charged against optional work.",
         "One column per tick of the last second: how long deciding, positioning and navigating took together. The hairline is eight milliseconds, half a frame, and the scale never moves, so a spike reads as a spike. White is under four milliseconds, orange at or above it.",
         "Every free tile near the companion tinted by how far it is from the nearest wall: dark red is a tile the body cannot fit in, and the tint fades to nothing at the field's cap. This is the field the route search prices, so the route runs where the tint is faintest.",
+        "Numbered stands are the committed plan's segments, gold the current one, with arrows and the start tick on each. Hover a stand for its weapon and timing.",
     };
     // Every index is named and the default is false rather than the last layer, because a default arm holding a real layer
     // silently maps the next bit anyone appends onto that layer's toggle instead of onto its own — which is exactly what the
     // arm did when it read `_ => ShowRegion` and four layers were appended after it.
-    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, 8 => ShowAttention, 9 => ShowRegion, 10 => ShowFollow, 11 => ShowSenses, 12 => ShowCost, 13 => ShowClearance, _ => false };
+    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, 8 => ShowAttention, 9 => ShowRegion, 10 => ShowFollow, 11 => ShowSenses, 12 => ShowCost, 13 => ShowClearance, 14 => ShowPlan, _ => false };
     private static void Flip(int i)
     {
-        switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; case 9: ShowRegion = !ShowRegion; break; case 10: ShowFollow = !ShowFollow; break; case 11: ShowSenses = !ShowSenses; break; case 12: ShowCost = !ShowCost; break; case 13: ShowClearance = !ShowClearance; break; }
+        switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; case 9: ShowRegion = !ShowRegion; break; case 10: ShowFollow = !ShowFollow; break; case 11: ShowSenses = !ShowSenses; break; case 12: ShowCost = !ShowCost; break; case 13: ShowClearance = !ShowClearance; break; case 14: ShowPlan = !ShowPlan; break; }
     }
     public static void CaptureInput()
     {
@@ -362,6 +365,7 @@ public sealed class BrainOverlay : ModSystem
             }
             Dot(sb, brain.Navigator.Lookahead, Color.Gold, 6);
         }
+        if (ShowPlan) DrawCommittedPlan(sb, c);
         if (ShowRoutes && brain.Positioner.Chosen is Vector2 chosen) Dot(sb, chosen, Color.White, 9);
         if (ShowCandidates) foreach (string sample in brain.Positioner.CandidateEvidence.Split('|'))
         {
@@ -434,6 +438,29 @@ public sealed class BrainOverlay : ModSystem
     /// distance band and the meeting place reunion priced. The success-region layer draws the admitted box on top where one
     /// exists; this one draws what the current tick wants, which is not the same thing whenever a destination is being held.
     /// </summary>
+    private static void DrawCommittedPlan(SpriteBatch sb, CompanionNPC c)
+    {
+        AttackPlan? plan = c.Combat?.Planner.Committed;
+        if (plan == null || plan.Segments.Length == 0)
+            return;
+        int tick = c.Brain.Senses.Tick;
+        AttackSegment current = plan.Current(tick);
+        Vector2 previous = c.NPC.Center;
+        for (int i = 0; i < plan.Segments.Length; i++)
+        {
+            AttackSegment segment = plan.Segments[i];
+            Vector2 stand = segment.Stand.Stand;
+            bool now = ReferenceEquals(segment, current) || (segment.Stand.Stand == current.Stand.Stand && segment.StartTick == current.StartTick);
+            Color color = now ? Color.Gold : Color.Orange;
+            Line(sb, previous, stand, color * .7f);
+            Dot(sb, stand, color, 10);
+            Label(sb, Screen(stand), $"{i + 1} @{segment.StartTick}", color);
+            if ((Screen(stand) - new Vector2(Mouse.X, Mouse.Y)).LengthSquared() < 20 * 20)
+                HoverEvidence(stand, $"segment {i + 1}: {segment.Stand.Reason} start {segment.StartTick} end {segment.EndTick} uses {segment.Uses.Length}");
+            previous = stand;
+        }
+    }
+
     private static void DrawFollow(SpriteBatch sb, Brain brain, NPC body)
     {
         var meeting = brain.Meeting;

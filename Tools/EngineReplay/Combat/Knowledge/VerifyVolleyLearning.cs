@@ -9,6 +9,8 @@ using LearnVolleys = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnow
 using Laws = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.FitFlightLaws;
 using FlightLaw = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.FlightLaw;
 using Spoof = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.SpoofOwnerInputForShots;
+using Persist = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.PersistWeaponKnowledge;
+using WeaponIdentity = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.WeaponIdentity;
 
 /// <summary>
 /// What the companion learns from the player's own volleys: spawn grouping (K8), laws from player-only
@@ -198,5 +200,62 @@ internal static class VerifyVolleyLearning
         Recording.GroupSpawnsIntoUses.CloseCompanionUse(useId, 51);
         Console.WriteLine("cursor spoof: the companion's aim during its shots' AI, the player's cursor before and after");
         return 0;
+    }
+
+    /// <summary>
+    /// K10: knowledge saved and loaded under shuffled numeric ids resolves to the same weapons. The
+    /// bundle keys by full name; a fixture identity that maps WoodenArrowFriendly onto a different
+    /// numeric id still restores the planted law there. Keying by numeric id — the file-8 mutation —
+    /// would install the law on the old id and leave the shuffled one as the default.
+    /// </summary>
+    public static int KnowledgeSurvivesANameKeyedSaveUnderShuffledIds()
+    {
+        Reset();
+        FlightLaw planted = FlightLaw.Default(ProjectileID.WoodenArrowFriendly) with { ResidualPerUpdate = 0.42f, Evidence = 17 };
+        Laws.AssumeLaw(ProjectileID.WoodenArrowFriendly, planted);
+        Vector2 shooter = new(1000f, 1000f), aim = new(1400f, 1000f);
+        var use = new Recording.ProjectileUse
+        {
+            Id = 1,
+            Shooter = Recording.Shooter.Player,
+            ItemType = ItemID.WoodenBow,
+            StartTick = 100,
+            AimPoint = aim,
+            ShooterCentre = shooter,
+            BuffsAtStart = Array.Empty<int>(),
+            Complete = true,
+        };
+        use.Spawns.Add(new Recording.UseSpawn(10, ProjectileID.WoodenArrowFriendly, 100, shooter,
+            new Vector2(8f, 0f), 5, 0, shooter, aim));
+        LearnVolleys.Learn(use);
+        string json = Persist.Export(new int[] { ItemID.WoodenBow }, new int[] { NPCID.Zombie });
+        Require(json.Contains("WoodenArrowFriendly", System.StringComparison.Ordinal),
+            "the bundle must key the law by name, not by the numeric id");
+
+        Laws.Reset();
+        LearnVolleys.Reset();
+        const int shuffled = 4096;
+        var identity = new ShuffledArrowIdentity(shuffled);
+        (int installed, int skipped) = Persist.Import(json, identity);
+        Require(installed > 0, $"the named bundle must install; installed {installed}, skipped {skipped}");
+        FlightLaw restored = Laws.LawFor(shuffled);
+        Require(restored.ResidualPerUpdate == 0.42f && restored.Evidence == 17,
+            $"the shuffled id must carry the planted law; residual {restored.ResidualPerUpdate}, evidence {restored.Evidence}");
+        FlightLaw original = Laws.LawFor(ProjectileID.WoodenArrowFriendly);
+        Require(original.ResidualPerUpdate != 0.42f,
+            "the original numeric id must not hold the planted law after a name-keyed load");
+        Console.WriteLine($"weapon knowledge: name-keyed save restored the arrow law onto id {shuffled} ({installed} installed)");
+        return 0;
+    }
+
+    /// <summary>Maps the vanilla wooden arrow onto a numeric id no content owns, so a name-keyed load is observable.</summary>
+    private sealed class ShuffledArrowIdentity : WeaponIdentity
+    {
+        private readonly int shuffled;
+        public ShuffledArrowIdentity(int shuffled) => this.shuffled = shuffled;
+        public override string NameOfProjectile(int id)
+            => id == shuffled ? "WoodenArrowFriendly" : base.NameOfProjectile(id);
+        public override int? ProjectileOfName(string name)
+            => name == "WoodenArrowFriendly" ? shuffled : base.ProjectileOfName(name);
     }
 }

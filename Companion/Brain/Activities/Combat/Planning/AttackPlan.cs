@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 
 namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
@@ -93,7 +94,7 @@ public sealed record AttackSegment(StandProposal Stand, Infrastructure.Position.
 /// for the threat sense's intervention estimate: protection prices the fight the plan performs.
 /// </summary>
 public sealed record AttackPlan(int Id, AttackSegment[] Segments, CombatOutcome Outcome, float Weighted,
-    PlanValidity Validity, bool BudgetCut, (int Slot, int Tick)[]? TargetKillTicks = null)
+    PlanValidity Validity, bool BudgetCut, (int Slot, int Tick)[]? TargetKillTicks = null, int NamedTarget = -1)
 {
     /// <summary>The segment the body is working now: the first whose end has not passed.</summary>
     public AttackSegment Current(int tick)
@@ -104,8 +105,53 @@ public sealed record AttackPlan(int Id, AttackSegment[] Segments, CombatOutcome 
         return Segments[^1];
     }
 
-    /// <summary>The plan's primary target: the first segment's first use's target, or -1 with no uses.</summary>
-    public int PrimaryTarget => Segments.Length > 0 && Segments[0].Uses.Length > 0 ? Segments[0].Uses[0].TargetSlot : -1;
+    /// <summary>
+    /// The enemy this plan is pursuing: the use whose body had the highest danger when the search
+    /// named it. A two-segment plan that farms a nearby zombie and then stands over the threat on
+    /// the player is pursuing the latter; the opener and the longest hop both name the wrong body
+    /// on the cheap and in-sight rows of that scene.
+    /// </summary>
+    public int PrimaryTarget => NamedTarget >= 0 ? NamedTarget : FirstUseTarget();
+
+    private int FirstUseTarget()
+    {
+        foreach (AttackSegment segment in Segments)
+            if (segment.Uses.Length > 0)
+                return segment.Uses[0].TargetSlot;
+        return -1;
+    }
+
+    /// <summary>The use target with the highest sensed danger, or the first use when none is listed.</summary>
+    public static int NameByDanger(AttackSegment[] segments, IReadOnlyList<EvaluateAttackOutcomes.Target> targets)
+    {
+        int best = -1;
+        float bestDanger = float.NegativeInfinity;
+        foreach (AttackSegment segment in segments)
+            foreach (PlannedUse use in segment.Uses)
+            {
+                float danger = 0f;
+                foreach (EvaluateAttackOutcomes.Target target in targets)
+                    if (target.Id == use.TargetSlot)
+                    {
+                        danger = target.Danger;
+                        break;
+                    }
+                if (danger > bestDanger)
+                {
+                    bestDanger = danger;
+                    best = use.TargetSlot;
+                }
+            }
+        return best >= 0 ? best : Fallback(segments);
+    }
+
+    private static int Fallback(AttackSegment[] segments)
+    {
+        foreach (AttackSegment segment in segments)
+            if (segment.Uses.Length > 0)
+                return segment.Uses[0].TargetSlot;
+        return -1;
+    }
 }
 
 /// <summary>One proposal with the verdict the search read: the snapshot carries the whole assessed set,

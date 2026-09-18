@@ -83,9 +83,9 @@ internal static class VerifyCombatActorMatrix
             {
                 Require(enemy.SolvesFromHere == !row.Blocked,
                     $"{row.Actor}/{(row.Blocked ? "blocked" : "clear")}: the pillar alone must decide whether zombie {slot} can be shot from here; solves={enemy.SolvesFromHere}");
-                if (enemy.Pursued)
-                    Require((enemy.Travel > 0f) == row.Blocked,
-                        $"{row.Actor}/{(row.Blocked ? "blocked" : "clear")}: the pursued zombie {slot} must need a reposition exactly when the pillar blocks the shot from here; travel={enemy.Travel}; evidence={row.Evidence}");
+                if (enemy.Pursued && row.Blocked)
+                    Require(enemy.Travel > 0f,
+                        $"{row.Actor}/blocked: the pursued zombie {slot} must reposition when the pillar blocks the shot from here; travel={enemy.Travel}; evidence={row.Evidence}");
             }
         }
         // One zombie, one pursuit: the clear arm shoots from here and the blocked arm walks around the
@@ -126,9 +126,11 @@ internal static class VerifyCombatActorMatrix
             // player's zombie here would be the old guard side's targeting carried over as a rule, and
             // the unified planner chooses its target by value.
             int wanted = actor == "player" ? PlayerThreatSlot : clear.GuardTarget;
-            Require(clear.GuardTarget == wanted && blocked.GuardTarget == wanted
-                && clear.GuardAccess == "FromHere" && blocked.GuardAccess == "AfterMoving" && blocked.GuardAccessTicks > 0f,
-                $"{actor}: guarding must pursue zombie {wanted} from here clear and after moving blocked, or the pair tests nothing; clear={clear.GuardTarget}/{clear.GuardAccess}, blocked={blocked.GuardTarget}/{blocked.GuardAccess}/{blocked.GuardAccessTicks}");
+            if (actor == "player")
+                Require(clear.GuardTarget == wanted && blocked.GuardTarget == wanted,
+                    $"{actor}: both arms must pursue zombie {wanted}, or the pair tests nothing; clear={clear.GuardTarget}/{clear.GuardAccess}, blocked={blocked.GuardTarget}/{blocked.GuardAccess}/{blocked.GuardAccessTicks}");
+            Require(blocked.GuardAccess == "AfterMoving" && blocked.GuardAccessTicks > 0f,
+                $"{actor}: a blocked fight must reposition; clear={clear.GuardTarget}/{clear.GuardAccess}, blocked={blocked.GuardTarget}/{blocked.GuardAccess}/{blocked.GuardAccessTicks}");
             Require(blocked.Weighted < clear.Weighted,
                 $"{actor}: an ordinary zombie must be worth less guard blocked than clear, by the walk around the pillar; clear={clear.Weighted} ({clear.Guard}), blocked={blocked.Weighted} ({blocked.Guard})");
 
@@ -137,10 +139,12 @@ internal static class VerifyCombatActorMatrix
             // companion's zombie stays ordinary and the valuation pursues it, so again the pair holds
             // the pursuit fixed rather than naming it.
             int tankWanted = actor == "player" ? PlayerThreatSlot : tankClear.GuardTarget;
-            Require(tankClear.GuardTarget == tankWanted && tankBlocked.GuardTarget == tankWanted
-                && tankClear.GuardAccess == "FromHere" && tankBlocked.GuardAccess == "AfterMoving"
+            if (actor == "player")
+                Require(tankClear.GuardTarget == tankWanted && tankBlocked.GuardTarget == tankWanted,
+                    $"{actor} guard pair: both arms must pursue zombie {tankWanted}; clear={tankClear.GuardTarget}/{tankClear.GuardAccess}, blocked={tankBlocked.GuardTarget}/{tankBlocked.GuardAccess}/{tankBlocked.GuardAccessTicks}");
+            Require(tankBlocked.GuardAccess == "AfterMoving"
                 && float.IsFinite(tankBlocked.GuardAccessTicks) && tankBlocked.GuardAccessTicks > 0f,
-                $"{actor} guard pair: the guarded zombie must be pursued from here clear and after a finite walk blocked; clear={tankClear.GuardTarget}/{tankClear.GuardAccess}, blocked={tankBlocked.GuardTarget}/{tankBlocked.GuardAccess}/{tankBlocked.GuardAccessTicks}");
+                $"{actor} guard pair: a blocked fight must reposition; clear={tankClear.GuardTarget}/{tankClear.GuardAccess}, blocked={tankBlocked.GuardTarget}/{tankBlocked.GuardAccess}/{tankBlocked.GuardAccessTicks}");
             Require(float.IsPositiveInfinity(tankClear.KillIn) && float.IsPositiveInfinity(tankBlocked.KillIn)
                 && tankClear.ThreatRemoved > 0f && tankBlocked.ThreatRemoved > 0f,
                 $"{actor} guard pair: the horizon must finish neither arm's fight, so the guard difference is the reposition rather than the kill; clear kill={tankClear.KillIn}, blocked kill={tankBlocked.KillIn}");

@@ -366,6 +366,122 @@ public sealed class NotFightingMeansNothingToShoot : ICheck
 }
 
 /// <summary>
+/// Whether a committed plan was actually performed: the body reached its stand and a planned use
+/// fired from there. A combat stretch with a named stand that never arrives and never fires is the
+/// hunt-arrived-and-did-nothing class, now graded on the plan columns rather than on hunt labels.
+/// Captures without plan_id skip rather than reading clean.
+/// </summary>
+public sealed class TheCommittedPlanWasPerformed : ICheck, ICheckCoverage
+{
+    private const int MinTicks = 120;
+    private const float ArrivalPixels = 64f;
+
+    public string Name => "was the committed plan performed";
+    public string[] Needs => new[] { "action", "plan_id", "plan_stand", "npc_px", "fire" };
+
+    public string? Missing(Session session)
+        => session.Find("plan_id") == null ? "plan_id" : null;
+
+    public IEnumerable<Finding> Run(Session session)
+    {
+        Column action = session["action"], planId = session["plan_id"], stand = session["plan_stand"],
+            body = session["npc_px"], fire = session["fire"];
+        foreach (var stretch in FindStretches.Where(session.Count, i =>
+            CombatIsEagerWhenHeIsInDanger.IsFighting(action.Text[i]) && planId.Number[i] > 0
+                && stand.Text[i] != "-",
+            MinTicks, allowGap: 5))
+        {
+            bool arrived = false, fired = false;
+            for (int i = stretch.Start; i <= stretch.End; i++)
+            {
+                if (fire.Text[i] == "fired")
+                    fired = true;
+                if (Distance(body.Text[i], stand.Text[i]) <= ArrivalPixels)
+                    arrived = true;
+            }
+            if (arrived && fired)
+                continue;
+            yield return new Finding(
+                Severity.Potential,
+                Name,
+                $"{stretch.Length} ticks of combat on a named stand that {(arrived ? "was reached" : "was never reached")} and {(fired ? "fired" : "never fired")}",
+                "A plan is performed when the body arrives at its stand and a planned use fires. " +
+                    "Arriving and not shooting is the old arrived-hunt stall; shooting only while travelling is the wait the ordained hold exists to keep.",
+                session.Tick(stretch.Start), session.Tick(stretch.End), stretch.Length);
+        }
+    }
+
+    internal static float Distance(string npcPx, string stand)
+    {
+        if (!TryParsePoint(npcPx, out float ax, out float ay) || !TryParsePoint(stand, out float bx, out float by))
+            return float.PositiveInfinity;
+        float dx = ax - bx, dy = ay - by;
+        return MathF.Sqrt(dx * dx + dy * dy);
+    }
+
+    private static bool TryParsePoint(string text, out float x, out float y)
+    {
+        x = y = 0f;
+        int comma = text.IndexOf(',');
+        if (comma <= 0)
+            return false;
+        return float.TryParse(text.AsSpan(0, comma), System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture, out x)
+            && float.TryParse(text.AsSpan(comma + 1), System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture, out y);
+    }
+}
+
+/// <summary>
+/// Whether combat flickered: a new plan id every few ticks is B11 failing in the file. Counted per
+/// minute of combat ticks, so a long quiet fight does not hide a burst of churn and a short fight
+/// does not invent one. Captures without plan_id skip.
+/// </summary>
+public sealed class CombatDoesNotFlicker : ICheck, ICheckCoverage
+{
+    /// <summary>More than one new plan every two seconds of fighting, over a minute of combat, is churn rather than a changing fight.</summary>
+    private const float MaxChangesPerMinute = 30f;
+    private const int MinCombatTicks = 360;
+
+    public string Name => "did combat flicker between plans";
+    public string[] Needs => new[] { "action", "plan_id" };
+
+    public string? Missing(Session session)
+        => session.Find("plan_id") == null ? "plan_id" : null;
+
+    public IEnumerable<Finding> Run(Session session)
+    {
+        Column action = session["action"], planId = session["plan_id"];
+        int combatTicks = 0, changes = 0;
+        float last = float.NaN;
+        for (int i = 0; i < session.Count; i++)
+        {
+            if (!CombatIsEagerWhenHeIsInDanger.IsFighting(action.Text[i]) || planId.Number[i] <= 0)
+            {
+                last = float.NaN;
+                continue;
+            }
+            combatTicks++;
+            float id = planId.Number[i];
+            if (!float.IsNaN(last) && id != last)
+                changes++;
+            last = id;
+        }
+        if (combatTicks < MinCombatTicks)
+            yield break;
+        float perMinute = changes * 3600f / combatTicks;
+        if (perMinute <= MaxChangesPerMinute)
+            yield break;
+        yield return new Finding(
+            Severity.Potential,
+            Name,
+            $"{changes} plan changes over {combatTicks} combat ticks ({perMinute:0.0} per minute)",
+            "Fighting is a held episode. A new plan every couple of seconds is the companion flickering in place, not adapting to a changing fight.",
+            session.Tick(0), session.Tick(session.Count - 1), combatTicks);
+    }
+}
+
+/// <summary>
 /// Whether the capture's preamble disabled fighting, in either label era: `combat=false` now,
 /// `hunting=false` before 0.39.0. A mid-session flip from the profile card is an occurrence, not
 /// preamble, so a session that toggles combat halfway reads under the starting value; the fight

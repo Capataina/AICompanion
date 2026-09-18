@@ -68,6 +68,12 @@ public abstract class CompanionWeapon
     public abstract int ManaCost { get; }
 
     /// <summary>
+    /// Throws left in this slot. <see cref="int.MaxValue"/> when using the item does not spend it —
+    /// a bow's ammo is free, a sword is not consumed. A grenade is the stack the player handed.
+    /// </summary>
+    public virtual int UsesRemaining => int.MaxValue;
+
+    /// <summary>
     /// Whether the game pushes this weapon's hits away from their owner, the player, rather than along the flight or the
     /// swing. <see cref="WeaponEffects.PushesAwayFromOwner"/> holds the game's list.
     /// </summary>

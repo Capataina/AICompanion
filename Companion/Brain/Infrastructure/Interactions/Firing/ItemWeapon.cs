@@ -146,6 +146,12 @@ public sealed class ItemWeapon : CompanionWeapon
 
     public override int ManaCost => Item.mana;
 
+    /// <summary>
+    /// A consumable's remaining throws are the stack in the slot. Ammo is free, so a bow is
+    /// unlimited even though arrows exist; a grenade is spent by using it.
+    /// </summary>
+    public override int UsesRemaining => Item.consumable ? Math.Max(0, Item.stack) : int.MaxValue;
+
     /// <summary>The launch speed one use fires at: the item's plus its free ammo's, the number the volley is expanded and the model flown with.</summary>
     public float LaunchSpeed => Item.shootSpeed + (ammo?.shootSpeed ?? 0f);
 

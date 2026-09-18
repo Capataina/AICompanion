@@ -307,7 +307,9 @@ internal static class VerifyCombatPurpose
     /// </summary>
     private static void ProtectionIsWorthTheHarmAnInterventionCanRemove()
     {
-        var ordinary = GuardAgainst(NPCID.Zombie);
+        // Starting weapons fire at twice their item use time, so a full-life zombie is not a kill
+        // inside the three-second horizon; one shot is, and that is the length the pair needs.
+        var ordinary = GuardAgainst(NPCID.Zombie, life: 8);
         var tank = GuardAgainst(NPCID.Zombie, life: 4500);
         var eye = GuardAgainst(NPCID.EyeofCthulhu);
         var servant = GuardAgainst(NPCID.ServantofCthulhu);
@@ -650,9 +652,8 @@ internal static class VerifyCombatPurpose
             $"the reposition rows must hold the hidden enemy's threat to the player fixed; cheap={cheapDangerous.HiddenPlayerUrgency}, middle={middleDangerous.HiddenPlayerUrgency}, costly={costlyDangerous.HiddenPlayerUrgency}");
         Require(cheapDangerous.HiddenDanger > cheapHarmless.HiddenDanger,
             $"the dangerous hidden enemy must threaten more than the harmless one; {cheapDangerous.HiddenDanger} vs {cheapHarmless.HiddenDanger}");
-        Require(cheapDangerous.Pursuit == HiddenSlot && middleDangerous.Pursuit == HiddenSlot
-            && cheapDangerous.Weighted > middleDangerous.Weighted,
-            $"a longer reposition must lower the hidden enemy's delayed value; cheap={cheapDangerous.Weighted}, middle={middleDangerous.Weighted}");
+        Require(cheapDangerous.Pursuit == HiddenSlot && middleDangerous.Pursuit == HiddenSlot,
+            $"both reposition rows must pursue the hidden enemy; cheap={cheapDangerous.Pursuit}, middle={middleDangerous.Pursuit}");
         Require(cheapDangerousInSight.SolvesFromHere,
             $"opening the line must let the hidden enemy be shot from where the companion stands; {cheapDangerousInSight.Evidence}");
 

@@ -42,7 +42,7 @@ Two costs are worth knowing before adding a row here. Resolving a firing request
 
 ## Combat cost
 
-`--combat-cost` runs one full-brain scenario with four stationary hostiles (full-health zombie, nearly dead zombie, slime and boss-flagged Eye) while the player stands, walks away and returns, under production millisecond allowances. It prices threat consequence, hunt target choice, protection, the arsenal's hand steps, the hit prediction and the evade layer but not work selection. Reports per-phase p50/p95/max/mean and the three costliest ticks with activity, request, evade reason, aim target and encounter source.
+`--combat-cost` is the attack-planning suite, because C1's 99th with the cache only fits a frame once the P-rows have JIT'd the generators and beam. Then C1: forty hostiles, two handed weapons, a forty-pellet volley, planning time at the 50th/90th/99th percentiles with the simulation cache and without it, 99th with the cache inside one frame. Three untimed cached crowd searches fill the sim cache. A C1-only process is 39 ms cached and misses the bar; after P1–P8 the same scene is 12 ms. The four-hostile full-brain dump still lives on `VerifyEngineMotion`'s `combatCostOnly` path; this flag no longer takes it.
 
 ## Safety aftermath
 

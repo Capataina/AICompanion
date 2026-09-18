@@ -134,10 +134,16 @@ public static class SimulateUse
         var specs = new List<VolleySpawn>(LearnVolleyShapes.ShapeFor(weapon.ItemType)
             .Expand(muzzle, aimPoint, launchDirection == Vector2.Zero ? Vector2.UnitX : Vector2.Normalize(launchDirection),
                 weapon.ProjectileFallback, weapon.Damage, weapon.Speed));
-        // Extra projectiles double the middle of the volley until mastery names their spacing: the count is what
-        // phase C needs, because no modifier exists yet to space.
+        // Extra projectiles copy the middle of the volley, offset a pellet-width across the aim line, so the
+        // added spawn has its own spacing and the same damage. Mastery will name a real spacing; until then
+        // this is the one extra the S5 plant asks for.
         for (int i = 0; i < modifiers.ExtraProjectiles && specs.Count > 0; i++)
-            specs.Add(specs[specs.Count / 2]);
+        {
+            VolleySpawn mid = specs[specs.Count / 2];
+            Vector2 along = mid.Velocity == Vector2.Zero ? Vector2.UnitX : Vector2.Normalize(mid.Velocity);
+            Vector2 across = new(-along.Y, along.X);
+            specs.Add(mid with { Position = mid.Position + across * 8f * (i + 1) });
+        }
         var life = new Dictionary<int, float>();
         foreach (EnemyForecast enemy in enemies)
             life[enemy.Slot] = enemy.Life;
@@ -361,8 +367,12 @@ public static class SimulateUse
                 }
             }
         }
-        use.Deaths.Add(new SimDeath(spec.ProjectileType, position + new Vector2(width, height) / 2f,
-            startTick + lifetime / Math.Max(1, updatesPerTick), DeathCause.Expired));
+        Vector2 expired = position + new Vector2(width, height) / 2f;
+        int expiredTick = startTick + lifetime / Math.Max(1, updatesPerTick);
+        use.Deaths.Add(new SimDeath(spec.ProjectileType, expired, expiredTick, DeathCause.Expired));
+        SpawnChildren(weapon, spec, model => model.Trigger == ChildTrigger.OnParentDeath, update, expiredTick,
+            position, velocity, world, enemies, life, modifiers, aimPoint, use, confidences, ref budget, depth);
+        ApplyArea(weapon, spec, expired, expiredTick, AreaTrigger.OnDeath, world, enemies, life, use);
     }
 
     private static void SpawnChildren(WeaponId weapon, VolleySpawn spec, Func<ChildModel, bool> trigger,

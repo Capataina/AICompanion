@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Terraria.ID;
 using Terraria.ModLoader;
 
@@ -18,18 +19,49 @@ namespace AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
 public class WeaponIdentity
 {
     private Dictionary<string, int>? items, projectiles, npcs, buffs;
+    private static readonly Dictionary<Type, Dictionary<int, string>> VanillaNames = new();
 
     public virtual string NameOfItem(int id)
-        => ItemID.Search.TryGetName(id, out string? name) && name != null ? name : $"item-{id}";
+        => ItemID.Search.TryGetName(id, out string? item) && !string.IsNullOrEmpty(item) ? item
+            : VanillaName(typeof(ItemID), id) ?? $"item-{id}";
 
     public virtual string NameOfProjectile(int id)
-        => ProjectileID.Search.TryGetName(id, out string? name) && name != null ? name : $"projectile-{id}";
+        => ProjectileID.Search.TryGetName(id, out string? projectile) && !string.IsNullOrEmpty(projectile) ? projectile
+            : VanillaName(typeof(ProjectileID), id) ?? $"projectile-{id}";
 
     public virtual string NameOfNpc(int id)
-        => NPCID.Search.TryGetName(id, out string? name) && name != null ? name : $"npc-{id}";
+        => NPCID.Search.TryGetName(id, out string? npc) && !string.IsNullOrEmpty(npc) ? npc
+            : VanillaName(typeof(NPCID), id) ?? $"npc-{id}";
 
     public virtual string NameOfBuff(int id)
-        => BuffID.Search.TryGetName(id, out string? name) && name != null ? name : $"buff-{id}";
+        => BuffID.Search.TryGetName(id, out string? buff) && !string.IsNullOrEmpty(buff) ? buff
+            : VanillaName(typeof(BuffID), id) ?? $"buff-{id}";
+
+    /// <summary>
+    /// The vanilla enum field name for this id. Headless EngineReplay never fills the game's Search
+    /// tables, and a bundle keyed as <c>projectile-1</c> would fail K10's name-keyed load. The
+    /// field name is the same string Search would have returned for an unmodded id.
+    /// </summary>
+    private static string? VanillaName(Type idClass, int id)
+    {
+        if (!VanillaNames.TryGetValue(idClass, out Dictionary<int, string>? byId))
+        {
+            byId = new Dictionary<int, string>();
+            foreach (FieldInfo field in idClass.GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                if (field.FieldType != typeof(short) && field.FieldType != typeof(int) && field.FieldType != typeof(ushort))
+                    continue;
+                object? value = field.GetValue(null);
+                if (value == null)
+                    continue;
+                int n = Convert.ToInt32(value);
+                if (!byId.ContainsKey(n))
+                    byId[n] = field.Name;
+            }
+            VanillaNames[idClass] = byId;
+        }
+        return byId.TryGetValue(id, out string? name) ? name : null;
+    }
 
     public virtual int? ItemOfName(string name) => Reverse(ref items, name, ItemLoader.ItemCount, NameOfItem);
 

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using Terraria;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
 
@@ -80,12 +81,14 @@ public static class PersistWeaponKnowledge
             if (!LearnVolleyShapes.Shapes.TryGetValue(item, out VolleyShape? shape))
                 continue;
             var slots = new List<VolleySlotDto>();
+            int fallback = ItemDefaultProjectile(item);
             foreach (VolleySlot slot in shape.Slots)
             {
-                if (slot.ProjectileType is { } slotType)
+                int? type = slot.ProjectileType ?? (fallback > 0 ? fallback : null);
+                if (type is { } slotType)
                     projectileClosure.Add(slotType);
                 slots.Add(new VolleySlotDto(
-                    slot.ProjectileType is { } named ? identity.NameOfProjectile(named) : null,
+                    type is { } named ? identity.NameOfProjectile(named) : null,
                     slot.AngleFromAimLine.Samples.ToArray(), slot.SpeedRatio.Samples.ToArray(),
                     slot.DamageShare.Samples.ToArray(), (int)slot.Origin,
                     slot.OriginAlong.Samples.ToArray(), slot.OriginAcross.Samples.ToArray(),
@@ -341,6 +344,13 @@ public static class PersistWeaponKnowledge
         AttackLearning.RestoreRevision(bundle.OutcomeRevision);
         WeaponEffects.RestoreRevision(bundle.EffectsRevision);
         return (installed, skipped);
+    }
+
+    private static int ItemDefaultProjectile(int itemType)
+    {
+        var item = new Item();
+        item.SetDefaults(itemType);
+        return item.shoot;
     }
 
     private static void ExpandClosure(HashSet<int> projectiles)

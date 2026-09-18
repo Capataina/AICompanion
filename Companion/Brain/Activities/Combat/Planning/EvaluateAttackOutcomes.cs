@@ -64,28 +64,35 @@ public static class EvaluateAttackOutcomes
     public readonly record struct PlanContext(int TravelTicks, float StandHarm, float TravelHarm,
         float PlayerLife, float CompanionLife, float ManaPool, float CompanyGap);
 
-    private const int MaxAttacks = 16;
+    public const int MaxAttacks = 16;
 
     public static Outcome Evaluate(Attack first, IReadOnlyList<Attack> alternatives,
-        IReadOnlyList<Target> targets, int cooldown, int horizon)
+        IReadOnlyList<Target> targets, int cooldown, int horizon,
+        Dictionary<int, int>? usesLeft = null)
     {
         var remaining = new Dictionary<int, float>();
         var facts = new Dictionary<int, Target>();
         Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs = null;
+        Dictionary<int, int>? throws = usesLeft == null ? null : new Dictionary<int, int>(usesLeft);
         foreach (Target target in targets) { remaining[target.Id] = target.Life; facts[target.Id] = target; }
         int fireAt = Math.Max(0, cooldown);
         Attack? attack = first;
         Outcome total = default;
         for (int step = 0; step < MaxAttacks && attack != null && fireAt < horizon; step++)
         {
+            if (throws != null && throws.TryGetValue(attack.Weapon, out int remainingThrows) && remainingThrows <= 0)
+                break;
             Outcome result = Value(attack, fireAt, horizon, remaining, facts, ref debuffs, apply: true);
             total = new Outcome(total.Damage + result.Damage, total.Kills + result.Kills,
                 total.PreventedHarm + result.PreventedHarm, total.Value + result.Value);
+            SpendThrow(throws, attack.Weapon);
             fireAt += Math.Max(1, attack.UseTicks);
             attack = null;
             float best = 0f;
             foreach (Attack candidate in alternatives)
             {
+                if (throws != null && throws.TryGetValue(candidate.Weapon, out int left) && left <= 0)
+                    continue;
                 Outcome next = Value(candidate, fireAt, horizon, remaining, facts, ref debuffs, apply: false);
                 if (next.Value > best) { best = next.Value; attack = candidate; }
             }
@@ -156,22 +163,35 @@ public static class EvaluateAttackOutcomes
     ///
     /// <paramref name="initialRemaining"/> starts the roll from an earlier piece's ending life instead of
     /// full life; the beam threads one segment's remainder into the next. Null is the whole fight from
-    /// full life, which is every level-one call.
+    /// full life, which is every level-one call. <paramref name="initialDebuffs"/> is the same threading
+    /// for debuff marks: an earlier piece's burst debuffs the bodies its hits wounded, and this piece's
+    /// later hits are priced with the boosted damage — without it a grenade-then-bow plan prices its bow
+    /// as if the burst never marked anything, and firing at arrival always wins. Marks are in this roll's
+    /// own frame, copied on entry because the roll extends them. Null is no earlier piece.
+    /// <paramref name="usesLeft"/> is remaining throws per weapon slot: a consumable's stack, copied on
+    /// entry. Null is unlimited, which is every non-consumable and every caller that does not plan a
+    /// throw. A slot missing from the map is unlimited; a slot at zero is skipped, so a second grenade
+    /// is never priced after the stack is spent.
     /// </summary>
     public static Valuation EvaluateVector(Attack first, IReadOnlyList<Attack> alternatives,
         IReadOnlyList<Target> targets, int cooldown, int horizon, PlanContext context, CombatWeights weights,
         int searchTick = 0, ICollection<(Attack Attack, int FireTick)>? sequence = null,
         ICollection<(int Target, int Tick)>? killTicks = null,
-        Dictionary<int, float>? initialRemaining = null)
+        Dictionary<int, float>? initialRemaining = null,
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? initialDebuffs = null,
+        int maxSteps = MaxAttacks,
+        Dictionary<int, int>? usesLeft = null)
     {
         var remaining = new Dictionary<int, float>();
         var facts = new Dictionary<int, Target>();
-        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs = null;
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs =
+            initialDebuffs == null ? null : new Dictionary<(int Target, int Weapon), (float Chance, int Until)>(initialDebuffs);
+        Dictionary<int, int>? throws = usesLeft == null ? null : new Dictionary<int, int>(usesLeft);
         float encounterLife = 0f;
         foreach (Target target in targets)
         {
-            remaining[target.Id] = initialRemaining != null && initialRemaining.TryGetValue(target.Id, out float left)
-                ? Math.Max(0f, left) : target.Life;
+            remaining[target.Id] = initialRemaining != null && initialRemaining.TryGetValue(target.Id, out float lifeLeft)
+                ? Math.Max(0f, lifeLeft) : target.Life;
             facts[target.Id] = target;
             encounterLife += Math.Max(0f, target.Life);
         }
@@ -184,10 +204,14 @@ public static class EvaluateAttackOutcomes
         float damage = 0f, threat = 0f, prevented = 0f, push = 0f, mana = 0f;
         int firstLanded = -1, lastImpact = fireAt0;
         Attack? attack = first;
-        for (int step = 0; step < MaxAttacks && attack != null && fireAt < horizon; step++)
+        int steps = Math.Clamp(maxSteps, 1, MaxAttacks);
+        for (int step = 0; step < steps && attack != null && fireAt < horizon; step++)
         {
+            if (throws != null && throws.TryGetValue(attack.Weapon, out int remainingThrows) && remainingThrows <= 0)
+                break;
             AttackParts parts = ValueParts(attack, fireAt, horizon, remaining, facts, ref debuffs, context, apply: true, searchTick, killTicks);
             sequence?.Add((attack, searchTick + fireAt));
+            SpendThrow(throws, attack.Weapon);
             damage += parts.Damage; threat += parts.Threat; prevented += parts.Prevented; push += parts.Push;
             mana += Math.Max(0f, attack.ManaCost);
             if (parts.Damage > 0f)
@@ -200,6 +224,8 @@ public static class EvaluateAttackOutcomes
             float best = 0f;
             foreach (Attack candidate in alternatives)
             {
+                if (throws != null && throws.TryGetValue(candidate.Weapon, out int left) && left <= 0)
+                    continue;
                 AttackParts next = ValueParts(candidate, fireAt, horizon, remaining, facts, ref debuffs, context, apply: false, searchTick, killTicks);
                 float gain = weights.Weighted(Marginal(next, candidate, fireAt, horizon, context, encounterLife));
                 if (gain > best) { best = gain; attack = candidate; }
@@ -236,14 +262,21 @@ public static class EvaluateAttackOutcomes
     /// earlier greedy run and are re-priced here without re-choosing. Fire ticks are search-relative,
     /// as the continuation's cursor reads them. Returns the vector with the raw damage, the last
     /// impact and the ending life, so the next piece starts where this one ended.
+    /// <paramref name="initialDebuffs"/> seeds the roll with an earlier subset's live marks, in this
+    /// roll's frame, copied on entry; <paramref name="endingDebuffs"/> takes the marks live at the
+    /// roll's end, in the same frame, which the beam threads into the next subset or piece beside the
+    /// ending life. Both null is a standalone roll, which marks and prices debuffs only within itself.
     /// </summary>
     public static Valuation RollFixed(IReadOnlyList<(Attack Attack, int FireTick)> uses,
         IReadOnlyList<Target> targets, int horizon, PlanContext context, int searchTick,
-        Dictionary<int, float>? initialRemaining = null, ICollection<(int Target, int Tick)>? killTicks = null)
+        Dictionary<int, float>? initialRemaining = null, ICollection<(int Target, int Tick)>? killTicks = null,
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? initialDebuffs = null,
+        IDictionary<(int Target, int Weapon), (float Chance, int Until)>? endingDebuffs = null)
     {
         var remaining = new Dictionary<int, float>();
         var facts = new Dictionary<int, Target>();
-        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs = null;
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs =
+            initialDebuffs == null ? null : new Dictionary<(int Target, int Weapon), (float Chance, int Until)>(initialDebuffs);
         float encounterLife = 0f;
         foreach (Target target in targets)
         {
@@ -270,6 +303,9 @@ public static class EvaluateAttackOutcomes
             }
         }
         int duration = Math.Max(1, lastImpact);
+        if (endingDebuffs != null && debuffs != null)
+            foreach (var entry in debuffs)
+                endingDebuffs[entry.Key] = entry.Value;
         return new Valuation(Assemble(damage, threat, prevented, push, mana, firstLanded, duration,
             context, horizon, encounterLife), damage, duration, remaining);
     }
@@ -282,6 +318,9 @@ public static class EvaluateAttackOutcomes
     /// is the first piece's whenever it dealt any: the second's fraction is normalised to its own shorter
     /// horizon, so a minimum would read a later impact as earlier. The second must have been rolled from
     /// the first's ending life, so nothing is removed twice.
+    /// Debuff marks cross the same way, but before the second rolls rather than here: the beam seeds the
+    /// second's roll with the first's live marks, because a merge after rolling could not re-price the
+    /// second's already-valued hits. Combine itself carries no marks, and needs none.
     /// </summary>
     public static Valuation Combine(Valuation first, Valuation second, IReadOnlyList<Target> targets,
         float companyGap, int secondOffsetTicks)
@@ -383,6 +422,12 @@ public static class EvaluateAttackOutcomes
             if (apply) remaining[hit.Target] = life - dealt;
         }
         return new AttackParts(damage, threat, prevented, push, first, last);
+    }
+
+    private static void SpendThrow(Dictionary<int, int>? throws, int weapon)
+    {
+        if (throws != null && throws.ContainsKey(weapon))
+            throws[weapon] = Math.Max(0, throws[weapon] - 1);
     }
 
     /// <summary>

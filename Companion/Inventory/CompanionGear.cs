@@ -58,21 +58,25 @@ public sealed class CompanionGear
 
     /// <summary>
     /// A stamp that changes whenever any slot's item changes, so the arsenal can re-enumerate its
-    /// weapons only when the gear did rather than on every tick. Type, prefix and stack together
-    /// name an item for this purpose; the same item with a new prefix is a different weapon.
+    /// weapons only when the gear did rather than on every tick. Type and prefix name an item for
+    /// this purpose; the same item with a new prefix is a different weapon. Stack is not in the
+    /// stamp: a throwing knife that spends one from the stack is still that knife, and counting
+    /// stack released every committed plan as gear-changed the moment a simulated use decremented it.
     /// </summary>
     public int Signature
     {
         get
         {
-            var hash = new HashCode();
+            // Deterministic in-process: System.HashCode's mixer is not a contract for "same
+            // items, same value" across calls, and a changing signature releases the committed
+            // plan as gear-changed before a stall can fire.
+            int s = 17;
             foreach (Item item in Slots)
             {
-                hash.Add(item.type);
-                hash.Add(item.prefix);
-                hash.Add(item.stack);
+                s = s * 31 + item.type;
+                s = s * 31 + item.prefix;
             }
-            return hash.ToHashCode();
+            return s;
         }
     }
 

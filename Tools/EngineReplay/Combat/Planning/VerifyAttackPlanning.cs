@@ -26,6 +26,13 @@ using WallResponse = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnow
 using WallKind = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.WallKind;
 using StandReason = live::AICompanion.Companion.Brain.Activities.Combat.Planning.StandReason;
 using ForecastUses = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ForecastUses;
+using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
+using CachePlanned = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CachePlannedSims;
+using CacheSims = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CacheSimulatedUses;
+using Modifiers = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers;
+using ModifierState = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState;
+using Persist = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.PersistWeaponKnowledge;
+using WeaponIdentity = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.WeaponIdentity;
 
 /// <summary>
 /// Planning rows (P): knowledge and forecasts planted, so they test planning and not learning.
@@ -254,7 +261,7 @@ internal static class VerifyAttackPlanning
     }
 
     /// <summary>Forty outcomes for the burst weapon, debuffed and plain in turn, from a seeded generator.</summary>
-    private static void TeachBurst(int item)
+    private static void TeachBurst(int item, int npc = NPCID.Zombie)
     {
         var random = new Random(11);
         for (int i = 0; i < 40; i++)
@@ -262,18 +269,18 @@ internal static class VerifyAttackPlanning
             bool debuffed = i % 2 == 0;
             float[] x = AttackLearning.Context(150f + 400f * (float)random.NextDouble(), 800f, 0f, 0.1f, (float)random.NextDouble(), 0,
                 (float)random.NextDouble(), 6f, debuffed);
-            AttackLearning.Observe(item, NPCID.Zombie, x, (debuffed ? 1.6f : .6f) + .05f * (2f * (float)random.NextDouble() - 1f));
+            AttackLearning.Observe(item, npc, x, (debuffed ? 1.6f : .6f) + .05f * (2f * (float)random.NextDouble() - 1f));
         }
     }
 
     /// <summary>
-    /// P3: a debuff weapon opens so the exploiting weapon lands its boosted hit. The platinum bow lands
-    /// six tenths of its forecast on a plain zombie and one and six tenths on one the wooden bow has
-    /// debuffed — planted, not learned here — so the weaker wooden bow opens and the platinum bow's later
-    /// hit is priced against the debuff. Clearing the wooden bow's debuff record — the file-8 mutation,
-    /// weapons priced independently because the interaction is gone — must flip the opener back to platinum.
+    /// P3: a shotgun that wins only close closes in at full life and holds range at low life. The
+    /// Boomstick's learned spread peaks on the box up close, so a healthy body takes that stand; a
+    /// wounded body pays the close stand's harm and keeps the far one. Holding the companion-harm
+    /// weight at its healthy base — the file-8 mutation, harm that does not rise with missing life —
+    /// must send the wounded body back in.
     /// </summary>
-    public static int ADebuffWeaponOpensForItsExploitingWeapon()
+    public static int SpreadClosesAtFullLifeAndHoldsRangeAtLowLife()
     {
         var companion = VerifyCompanionLifecycle.Create();
         Main.tileSolid[TileID.Dirt] = true;
@@ -286,12 +293,7 @@ internal static class VerifyAttackPlanning
             tile.IsHalfBlock = false;
             tile.LiquidAmount = 0;
         }
-        StandUpDamage();
-        var platinumSample = new Item();
-        platinumSample.SetDefaults(ItemID.PlatinumBow);
-        Terraria.ID.ContentSamples.ItemsByType[ItemID.PlatinumBow] = platinumSample;
-        TeachBurst(ItemID.PlatinumBow);
-        for (int i = 0; i < 8; i++) AttackLearning.ObserveDebuff(ItemID.WoodenBow, NPCID.Zombie, applied: true, 600);
+        SeedBoomstickSpread();
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2 = 100;
@@ -302,48 +304,57 @@ internal static class VerifyAttackPlanning
         companion.NPC.velocity = Vector2.Zero;
         companion.NPC.life = companion.NPC.lifeMax = 100;
         companion.NPC.active = true;
-        NPC zombie = Main.npc[30];
-        zombie.SetDefaults(NPCID.Zombie);
-        zombie.whoAmI = 30;
-        zombie.active = true;
-        zombie.velocity = Vector2.Zero;
-        zombie.life = zombie.lifeMax = 500;
-        zombie.Bottom = new Vector2(69 * 16f, 60 * 16f);
+        NPC boss = Main.npc[30];
+        boss.SetDefaults(NPCID.Zombie);
+        boss.whoAmI = 30;
+        boss.active = true;
+        boss.velocity = Vector2.Zero;
+        boss.damage = 14;
+        boss.Bottom = new Vector2(87 * 16f, 60 * 16f);
         companion.Brain.Senses.Update(companion.NPC, player);
         companion.Brain.Senses.Update(companion.NPC, player);
         VerifyOreWork.SettleReach(companion, player);
         var ctx = new C(companion, companion.Brain.Senses);
         var combat = companion.Combat;
         var gear = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
-        gear.Slots[0].SetDefaults(ItemID.PlatinumBow);
-        gear.Slots[1].SetDefaults(ItemID.WoodenBow);
+        gear.Slots[0].SetDefaults(ItemID.Boomstick);
+        gear.Slots[1] = new Item();
 
-        CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
-        Budget budget = Budget.Unbounded();
-        SearchPlans.SearchResult result = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
-            _ => true, weights, combat.NextPlanId++, ref budget);
-        Require(result.Plan != null, "the debuff scene offers nothing: " + result.Reason);
-        var uses = result.Plan.Segments[0].Uses;
-        Require(uses.Length >= 2, $"the debuff opening needs a later boosted hit; the segment holds {uses.Length} uses");
-        int opener = combat.Weapons[uses[0].WeaponSlot].ItemType;
-        Require(opener == ItemID.WoodenBow, $"the weaker debuffing bow must open; opener is {opener}");
-        bool platinumLater = false;
-        for (int i = 1; i < uses.Length; i++)
-            if (combat.Weapons[uses[i].WeaponSlot].ItemType == ItemID.PlatinumBow)
-                platinumLater = true;
-        Require(platinumLater, "the platinum bow must land its boosted hit later in the opening segment");
+        CombatWeights healthyWeights = WeighCombatObjectives.ForSenses(ctx);
+        Budget healthyBudget = Budget.Unbounded();
+        SearchPlans.SearchResult healthy = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
+            _ => true, healthyWeights, combat.NextPlanId++, ref healthyBudget);
+        Require(healthy.Plan != null, "the healthy shotgun search offers nothing: " + healthy.Reason);
+        float healthyDist = Vector2.Distance(healthy.Plan.Segments[0].Stand.Stand, boss.Center);
+        string p3stands = string.Join(",", System.Linq.Enumerable.Select(healthy.Assessed, a =>
+            a.Proposal.Reason + ":" + Vector2.Distance(a.Proposal.Stand, boss.Center).ToString("0") + "/" + a.Verdict.Reach));
+        Require(healthyDist < 400f, $"at full life the shotgun must close in; stand {healthyDist:0}px {healthy.Plan.Segments[0].Stand.Reason} w{healthy.Plan.Weighted:0.00} dps {healthy.Plan.Outcome.DamagePerSecond:0.00} harm {healthy.Plan.Outcome.CompanionHarmTaken:0.00} CH {healthyWeights.CompanionHarm:0.00} assessed {p3stands}");
 
-        AttackLearning.AssumeDebuff(ItemID.WoodenBow, NPCID.Zombie, struck: 0, applied: 0, ticks: 0);
-        CombatWeights plainWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget plainBudget = Budget.Unbounded();
-        SearchPlans.SearchResult plain = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
-            _ => true, plainWeights, combat.NextPlanId++, ref plainBudget);
-        Require(plain.Plan != null, "the debuff-less search offers nothing: " + plain.Reason);
-        int plainOpener = combat.Weapons[plain.Plan.Segments[0].Uses[0].WeaponSlot].ItemType;
-        Require(plainOpener == ItemID.PlatinumBow, $"without the debuff the burst bow must open; opener is {plainOpener}");
-        Require(result.Plan.Weighted > plain.Plan.Weighted,
-            $"the debuff-exploiting plan must beat the independent one; with {result.Plan.Weighted:0.00}, without {plain.Plan.Weighted:0.00}");
-        Console.WriteLine($"attack planning: wooden opens for a later platinum hit (value {result.Plan.Weighted:0.00}); without the debuff platinum opens (value {plain.Plan.Weighted:0.00})");
+        companion.NPC.life = 20;
+        companion.Brain.Senses.Update(companion.NPC, player);
+        ctx = new C(companion, companion.Brain.Senses);
+        CombatWeights hurtWeights = WeighCombatObjectives.ForSenses(ctx);
+        Budget hurtBudget = Budget.Unbounded();
+        SearchPlans.SearchResult hurt = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
+            _ => true, hurtWeights, combat.NextPlanId++, ref hurtBudget);
+        Require(hurt.Plan != null, "the wounded shotgun search offers nothing: " + hurt.Reason);
+        float hurtDist = Vector2.Distance(hurt.Plan.Segments[0].Stand.Stand, boss.Center);
+        string p3front = string.Join(";", System.Linq.Enumerable.Select(hurt.Front, p =>
+            p.Segments[0].Stand.Reason + "@" + Vector2.Distance(p.Segments[0].Stand.Stand, boss.Center).ToString("0")
+            + "w" + p.Weighted.ToString("0.00") + "h" + p.Outcome.CompanionHarmTaken.ToString("0.00")
+            + "d" + p.Outcome.DamagePerSecond.ToString("0.00")));
+        Require(hurtDist > 450f,
+            $"at low life the shotgun must hold range; stand {hurtDist:0}px {hurt.Plan.Segments[0].Stand.Reason} healthy {healthyDist:0}px w{healthy.Plan.Weighted:0.00} CH {healthyWeights.CompanionHarm:0.00}->{hurtWeights.CompanionHarm:0.00} front {p3front}");
+        Require(hurtDist > healthyDist + 80f, $"the wounded stand must sit clearly outside the healthy one; wounded {hurtDist:0}px, healthy {healthyDist:0}px");
+
+        CombatWeights constantHarm = hurtWeights with { CompanionHarm = Weights.CombatWeightCompanionHarm * 0.5f };
+        Budget mutationBudget = Budget.Unbounded();
+        SearchPlans.SearchResult mutated = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
+            _ => true, constantHarm, combat.NextPlanId++, ref mutationBudget);
+        Require(mutated.Plan != null, "the constant-harm search offers nothing: " + mutated.Reason);
+        float mutatedDist = Vector2.Distance(mutated.Plan.Segments[0].Stand.Stand, boss.Center);
+        Require(mutatedDist < 400f, $"a constant companion-harm weight must send the wounded body back in; stand {mutatedDist:0}px");
+        Console.WriteLine($"attack planning: healthy shotgun closes to {healthyDist:0}px, wounded holds {hurtDist:0}px, constant harm falls back to {mutatedDist:0}px");
         return 0;
     }
 
@@ -456,16 +467,10 @@ internal static class VerifyAttackPlanning
     }
 
     /// <summary>
-    /// P5: goon then boss. A weak goon holds behind a wall the body's own shots cannot
-    /// cross, while a killable boss holds in the open too far for the body to finish: level one
-    /// flies over the wall and clears the goon in one blast, and level two — proposed against the
-    /// enemies left alive — closes on the boss. Shotgun only with a wide cone; the wall is the gate,
-    /// not range, because four pellets at two damage each after armour cannot kill two goons inside
-    /// the horizon while missing from the body — the arithmetic is infeasible, so one goon carries
-    /// the phasing. The front holds the far-then-close two-segment plan, and depth one — the file-8
-    /// mutation, which can only stand once — holds none. B5's "beats both single segments" is about
-    /// harm the close stand avoids after the goons die; this row's scene has no harm, so the
-    /// single-goon plan wins the weighted sum on time and the phased plan earns its place on threat.
+    /// P5: a two-segment plan, far while goons live, close after. Weak high-damage goons sit on the
+    /// boss, so a close stand while they live is a beating; the bow from range clears them, and the
+    /// shotgun then closes on the boss they were covering. Depth one — the file-8 mutation, which
+    /// can only stand once — never produces the second segment.
     /// </summary>
     public static int GoonsThenBossEarnsTwoSegments()
     {
@@ -492,62 +497,57 @@ internal static class VerifyAttackPlanning
         companion.NPC.velocity = Vector2.Zero;
         companion.NPC.life = companion.NPC.lifeMax = 100;
         companion.NPC.active = true;
-        for (int y = 55; y < 60; y++)
-        {
-            Tile wall = Main.tile[50, y];
-            wall.HasTile = true;
-            wall.TileType = TileID.Dirt;
-            wall.Slope = 0;
-            wall.IsHalfBlock = false;
-            wall.LiquidAmount = 0;
-        }
-        NPC goonA = Main.npc[30];
-        goonA.SetDefaults(NPCID.Zombie);
-        goonA.whoAmI = 30;
-        goonA.active = true;
-        goonA.velocity = Vector2.Zero;
-        goonA.damage = 30;
-        goonA.life = goonA.lifeMax = 6;
-        goonA.Bottom = new Vector2(852f, 60 * 16f);
-        Main.npc[31].active = false;
+        NPC goon = Main.npc[30];
+        goon.SetDefaults(NPCID.Zombie);
+        goon.whoAmI = 30;
+        goon.active = true;
+        goon.velocity = Vector2.Zero;
+        goon.damage = 60;
+        goon.life = goon.lifeMax = 6;
+        goon.Bottom = new Vector2(87 * 16f, 60 * 16f);
+        NPC goonB = Main.npc[31];
+        goonB.SetDefaults(NPCID.Zombie);
+        goonB.whoAmI = 31;
+        goonB.active = true;
+        goonB.velocity = Vector2.Zero;
+        goonB.damage = 60;
+        goonB.life = goonB.lifeMax = 6;
+        goonB.Bottom = new Vector2(89 * 16f, 60 * 16f);
         NPC boss = Main.npc[32];
         boss.SetDefaults(NPCID.Zombie);
         boss.whoAmI = 32;
         boss.active = true;
         boss.velocity = Vector2.Zero;
-        boss.damage = 20;
-        boss.life = boss.lifeMax = 8;
-        boss.Bottom = new Vector2(452f, 60 * 16f);
+        boss.damage = 12;
+        boss.life = boss.lifeMax = 500;
+        boss.Bottom = new Vector2(88 * 16f, 60 * 16f);
         companion.Brain.Senses.Update(companion.NPC, player);
         companion.Brain.Senses.Update(companion.NPC, player);
         VerifyOreWork.SettleReach(companion, player);
         var ctx = new C(companion, companion.Brain.Senses);
         var combat = companion.Combat;
-        string threats = string.Join(";", System.Linq.Enumerable.Select(companion.Brain.Senses.Threats.Threats, t => t.Npc.whoAmI + ":" + t.Npc.type + ":d" + t.Npc.damage + ":l" + t.Npc.life));
-        Require(companion.Brain.Senses.Threats.Threats.Count >= 2, $"premise: goon and boss sensed as threats; got {threats}");
-        NPC goonCheck = Main.npc[30];
-        Require(goonCheck.CanBeChasedBy(), $"premise: the goon is damageable; active={goonCheck.active} life={goonCheck.life} friendly={goonCheck.friendly}");
+        Require(companion.Brain.Senses.Threats.Threats.Count >= 3, "premise: goons and boss sensed as threats");
         var gear = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
-        gear.Slots[0].SetDefaults(ItemID.Boomstick);
-        gear.Slots[1] = new Item();
+        gear.Slots[0].SetDefaults(ItemID.WoodenBow);
+        gear.Slots[1].SetDefaults(ItemID.Boomstick);
 
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
         Budget budget = Budget.Unbounded();
         SearchPlans.SearchResult result = SearchPlans.Search(ctx, combat, companion.Brain.Positioner,
             _ => true, weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the goons scene offers nothing: " + result.Reason);
-        AttackPlan? phased = null;
-        foreach (AttackPlan candidate in result.Front)
-            if (candidate.Segments.Length == 2)
-            {
-                float far = Vector2.Distance(candidate.Segments[0].Stand.Stand, boss.Center);
-                float near = Vector2.Distance(candidate.Segments[1].Stand.Stand, boss.Center);
-                if (far > 300f && near < 250f) { phased = candidate; break; }
-            }
-        string front = string.Join(";", System.Linq.Enumerable.Select(result.Front, p => p.Segments.Length + "@" + p.Segments[0].Stand.Stand.ToString()));
-        Require(phased != null, $"the front must hold a far-then-close two-segment plan; front {front}");
-        float firstDist = Vector2.Distance(phased.Segments[0].Stand.Stand, boss.Center);
-        float secondDist = Vector2.Distance(phased.Segments[1].Stand.Stand, boss.Center);
+        string p5front = string.Join(";", System.Linq.Enumerable.Select(result.Front, p =>
+            p.Segments.Length + ":" + p.Segments[0].Stand.Reason + "@" + Vector2.Distance(p.Segments[0].Stand.Stand, boss.Center).ToString("0")
+            + (p.Segments.Length > 1 ? ">" + p.Segments[1].Stand.Reason + "@" + Vector2.Distance(p.Segments[1].Stand.Stand, boss.Center).ToString("0") : "")
+            + "w" + p.Weighted.ToString("0.00")));
+        string p5deep = result.DeeperAssessed == null ? "" : string.Join(",", System.Linq.Enumerable.Select(result.DeeperAssessed, d =>
+            d.Proposal.Reason + ":" + Vector2.Distance(d.Proposal.Stand, boss.Center).ToString("0") + "/" + d.Verdict.Reach));
+        Require(result.Plan.Segments.Length == 2,
+            $"the committed plan must be far then close; got {result.Plan.Segments.Length} segment(s) {result.Plan.Segments[0].Stand.Reason} at {result.Plan.Segments[0].Stand.Stand} front {p5front} candidates {result.CandidatesEvaluated} deeper {p5deep}");
+        float firstDist = Vector2.Distance(result.Plan.Segments[0].Stand.Stand, boss.Center);
+        float secondDist = Vector2.Distance(result.Plan.Segments[1].Stand.Stand, boss.Center);
+        Require(firstDist > 300f, $"the first segment must stand off while goons live; {firstDist:0}px from the boss");
+        Require(secondDist < 250f, $"the second segment must close after; {secondDist:0}px from the boss");
 
         CombatWeights singleWeights = WeighCombatObjectives.ForSenses(ctx);
         Budget singleBudget = Budget.Unbounded();
@@ -556,7 +556,7 @@ internal static class VerifyAttackPlanning
         Require(single.Plan != null, "the depth-one search offers nothing: " + single.Reason);
         foreach (AttackPlan candidate in single.Front)
             Require(candidate.Segments.Length == 1, "depth one must offer only single segments");
-        Console.WriteLine($"attack planning: far {firstDist:0}px then close {secondDist:0}px on the front (best {result.Plan.Weighted:0.00}); depth one {single.Plan.Weighted:0.00}");
+        Console.WriteLine($"attack planning: far {firstDist:0}px then close {secondDist:0}px committed (value {result.Plan.Weighted:0.00}); depth one {single.Plan.Weighted:0.00}");
         return 0;
     }
 
@@ -667,26 +667,48 @@ internal static class VerifyAttackPlanning
             tile.IsHalfBlock = false;
             tile.LiquidAmount = 0;
         }
+        for (int x = 48; x <= 52; x++)
+        for (int y = 50; y < 60; y++)
+        {
+            Tile wall = Main.tile[x, y];
+            wall.HasTile = true;
+            wall.TileType = TileID.Dirt;
+            wall.Slope = 0;
+            wall.IsHalfBlock = false;
+            wall.LiquidAmount = 0;
+        }
         StandUpDamage();
         var pierce = new HitResponse { ProjectileType = ProjectileID.WoodenArrowFriendly };
         pierce.PierceRatio.Add(2f);
         LearnHits.AssumeResponse(pierce);
-        Laws.AssumeLaw(ProjectileID.WoodenArrowFriendly, FlightLaw.Straight(ProjectileID.WoodenArrowFriendly));
+        FlightLaw arrow = FlightLaw.Default(ProjectileID.WoodenArrowFriendly);
+        Require(arrow.Gravity != null, "premise: the arrow law carries gravity");
+        Laws.AssumeLaw(ProjectileID.WoodenArrowFriendly, arrow with
+        {
+            Wall = new WallResponse
+            {
+                ProjectileType = ProjectileID.WoodenArrowFriendly,
+                Kind = WallKind.Reflects,
+                RestitutionNormal = 1f,
+                RestitutionTangent = 1f,
+                BounceCount = 4,
+            },
+        });
         var grenadeSample = new Projectile();
         grenadeSample.SetDefaults(ProjectileID.Grenade);
         ContentSamples.ProjectilesByType[ProjectileID.Grenade] = grenadeSample;
         var boom = new HitResponse { ProjectileType = ProjectileID.Grenade };
-        boom.Area = new live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AreaResponse(80f, live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AreaTrigger.OnDeath);
+        boom.Area = new live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AreaResponse(120f, live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AreaTrigger.OnDeath);
         LearnHits.AssumeResponse(boom);
-        FlightLaw thrown = FlightLaw.Default(ProjectileID.Grenade);
-        Laws.AssumeLaw(ProjectileID.Grenade, thrown with { LifetimeUpdates = 60 });
+        Laws.AssumeLaw(ProjectileID.Grenade, FlightLaw.Straight(ProjectileID.Grenade) with { LifetimeUpdates = 16 });
+        for (int i = 0; i < 8; i++) AttackLearning.ObserveDebuff(ItemID.Grenade, NPCID.GreenSlime, applied: true, 600);
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2 = 100;
         player.statManaMax2 = 20;
         player.active = true;
-        player.Bottom = new Vector2(500f, 60 * 16f);
-        companion.NPC.Bottom = new Vector2(500f, 60 * 16f - 40f);
+        player.Bottom = new Vector2(950f, 60 * 16f);
+        companion.NPC.Bottom = new Vector2(640f, 901f);
         companion.NPC.velocity = Vector2.Zero;
         companion.NPC.life = companion.NPC.lifeMax = 100;
         companion.NPC.active = true;
@@ -696,7 +718,7 @@ internal static class VerifyAttackPlanning
         left.active = true;
         left.velocity = Vector2.Zero;
         left.damage = 10;
-        left.life = left.lifeMax = 150;
+        left.life = left.lifeMax = 200;
         left.Bottom = new Vector2(935f, 60 * 16f);
         NPC right = Main.npc[31];
         right.SetDefaults(NPCID.GreenSlime);
@@ -704,7 +726,7 @@ internal static class VerifyAttackPlanning
         right.active = true;
         right.velocity = Vector2.Zero;
         right.damage = 10;
-        right.life = right.lifeMax = 150;
+        right.life = right.lifeMax = 200;
         right.Bottom = new Vector2(965f, 60 * 16f);
         Main.npc[32].active = false;
         companion.Brain.Senses.Update(companion.NPC, player);
@@ -715,36 +737,84 @@ internal static class VerifyAttackPlanning
         Require(companion.Brain.Senses.Threats.Threats.Count >= 2, "premise: both slimes sensed as threats");
         var gear = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
         gear.Slots[0].SetDefaults(ItemID.Grenade);
-        gear.Slots[1].SetDefaults(ItemID.PlatinumBow);
+        gear.Slots[0].stack = 1;
+        gear.Slots[1].SetDefaults(ItemID.WoodenBow);
+        // One grenade wounds both (contact plus area ≈ 120 each). The bow has to finish the rest in
+        // a couple of pierce shots, or the drop is a complete plan and the flank is a longer way to
+        // deal the same damage. The launch fire-rate nerf makes a grenade occupy ninety ticks, so
+        // the hands are still busy when the burst lands and only one arrow fits the horizon — the
+        // row plants the grenade at its item cadence so the pierce has room.
+        foreach (var weapon in combat.Weapons)
+        {
+            if (weapon.ItemType == ItemID.WoodenBow)
+                weapon.AuditDamageOverride = 50f;
+            if (weapon.ItemType == ItemID.Grenade)
+                weapon.FireRateFactor = 1f;
+        }
 
-        string wlist = string.Join(";", System.Linq.Enumerable.Select(combat.Weapons, w => w.ItemType + ":" + w.ProjectileType));
-        bool ok0 = live::AICompanion.Companion.Inventory.CompanionGear.Accepts(live::AICompanion.Companion.Inventory.GearSlot.FirstWeapon, gear.Slots[0], out string why0);
-        System.Console.WriteLine($"  DEBUG p7 weapons={wlist} area={LearnHits.ResponseFor(ProjectileID.Grenade).Area.Radius:0} slot0={gear.Slots[0].type}:{gear.Slots[0].shoot} accepts={ok0}:{why0}");
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
         Budget budget = Budget.Unbounded();
         SearchPlans.SearchResult result = SearchPlans.Search(ctx, combat, companion.Brain.Positioner,
             _ => true, weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the grenade scene offers nothing: " + result.Reason);
-        Require(result.Plan.Segments.Length == 2, $"grenade then pierce earns two segments; got {result.Plan.Segments.Length}");
+        string p7front = string.Join(";", System.Linq.Enumerable.Select(result.Front, p =>
+            p.Segments.Length + ":" + string.Join("+", System.Linq.Enumerable.Select(p.Segments, s => s.Stand.Reason.ToString()))
+            + "w" + p.Weighted.ToString("0.00")));
+        string p7ass = string.Join(",", System.Linq.Enumerable.Select(result.Assessed, a => a.Proposal.Reason.ToString()));
+        string p7uses = result.Plan == null ? "" : string.Join(",", System.Linq.Enumerable.Select(result.Plan.Segments[0].Uses, u => u.WeaponSlot.ToString()));
+        string p7deep = result.DeeperAssessed == null ? "" : string.Join(",", System.Linq.Enumerable.Select(result.DeeperAssessed, d => d.Proposal.Reason.ToString()));
+        Require(result.Plan.Segments.Length >= 2,
+            $"grenade then pierce earns a drop then a flank; got {result.Plan.Segments.Length} {result.Plan.Segments[0].Stand.Reason}@{result.Plan.Segments[0].Stand.Stand} uses {p7uses} w{result.Plan.Weighted:0.00} candidates {result.CandidatesEvaluated} front {p7front} assessed {p7ass} deeper {p7deep}");
         StandReason first = result.Plan.Segments[0].Stand.Reason;
-        StandReason second = result.Plan.Segments[1].Stand.Reason;
-        Require(first == StandReason.AboveArea, $"the first segment must drop from above; got {first}");
-        Require(second == StandReason.FloorFlanks || second == StandReason.PierceLines,
-            $"the second segment must pierce the flank; got {second}");
-        float arrival = result.Plan.Segments[0].EndTick + result.Plan.Segments[1].Verdict.TravelTicks;
-        int start = result.Plan.Segments[1].StartTick;
-        Require(start > arrival, $"the pierce must wait for the burst, not fire at arrival; start {start}, arrival {arrival:0}");
-        Console.WriteLine($"attack planning: grenade above then {second} at {start} (arrival {arrival:0}, value {result.Plan.Weighted:0.00})");
+        Require(first == StandReason.AboveArea, $"the first segment must drop from above; got {first} front {p7front}");
+        Require(result.Plan.Segments[0].Uses.Length >= 1
+            && result.Plan.Segments[0].Uses[0].WeaponSlot == 0,
+            $"the drop throws the grenade; got slot {p7uses}");
+        int pierceAt = -1;
+        for (int i = 1; i < result.Plan.Segments.Length; i++)
+        {
+            StandReason reason = result.Plan.Segments[i].Stand.Reason;
+            if (reason != StandReason.FloorFlanks && reason != StandReason.PierceLines)
+                continue;
+            if (result.Plan.Segments[i].Uses.Length < 1 || result.Plan.Segments[i].Uses[0].WeaponSlot != 1)
+                continue;
+            Vector2 stand = result.Plan.Segments[i].Stand.Stand;
+            if (stand.Y <= 800f || (stand.X >= 900f && stand.X <= 1020f))
+                continue;
+            if (result.Plan.Segments[i].StartTick <= result.Plan.Segments[i].ArriveTick)
+                continue;
+            pierceAt = i;
+            break;
+        }
+        Require(pierceAt > 0,
+            $"a later segment must be a bow flank that waits for the burst; got {p7front}");
+        StandReason pierceReason = result.Plan.Segments[pierceAt].Stand.Reason;
+        float arrival = result.Plan.Segments[pierceAt].ArriveTick;
+        int start = result.Plan.Segments[pierceAt].StartTick;
+
+        Budget mutationBudget = Budget.Unbounded();
+        SearchPlans.SearchResult mutated = SearchPlans.Search(ctx, combat, companion.Brain.Positioner,
+            _ => true, weights, combat.NextPlanId++, ref mutationBudget,
+            new SearchPlans.SearchOptions(ArrivalStartsOnly: true));
+        Require(mutated.Plan != null, "the arrival-only search offers nothing: " + mutated.Reason);
+        bool timedPastArrival = false;
+        for (int i = 1; i < mutated.Plan.Segments.Length; i++)
+        {
+            StandReason reason = mutated.Plan.Segments[i].Stand.Reason;
+            if ((reason == StandReason.FloorFlanks || reason == StandReason.PierceLines)
+                && mutated.Plan.Segments[i].StartTick > mutated.Plan.Segments[i].ArriveTick)
+                timedPastArrival = true;
+        }
+        Require(!timedPastArrival, "starting segments at arrival only must not wait past arrival for the pierce");
+        Console.WriteLine($"attack planning: grenade above then {pierceReason} at {start} (arrival {arrival:0}, value {result.Plan.Weighted:0.00})");
         return 0;
     }
 
     /// <summary>
-    /// P8: a bank offer exists for a bouncing weapon and none for a straight one. A wall blocks the
-    /// body's direct line to a slime; the water bolt's reflecting law reaches around via the bank
-    /// sweep and commits to a BankShots stand, while the bow's dying law offers no bank from any
-    /// stand — B8's "offers none" is about bank offers, not plans, because a pocket stand behind
-    /// the wall still offers the bow a direct shot and no sealed pocket admits the bank either.
-    /// Disabling the bounce aims — the file-8 mutation — kills the bolt's bank too.
+    /// P8: a target behind a corner is planned with a bouncing weapon and not with a straight one.
+    /// A wall blocks the body's line; the water bolt's reflecting law commits to a BankShots stand,
+    /// and the bow's dying law never names a bank. Disabling bounce aims — the file-8 mutation —
+    /// kills the bolt's bank too.
     /// </summary>
     public static int ABankShotPlansWithABouncingWeaponOnly()
     {
@@ -759,9 +829,10 @@ internal static class VerifyAttackPlanning
             tile.IsHalfBlock = false;
             tile.LiquidAmount = 0;
         }
-        for (int y = 55; y < 60; y++)
+        for (int x = 48; x <= 52; x++)
+        for (int y = 50; y < 60; y++)
         {
-            Tile wall = Main.tile[50, y];
+            Tile wall = Main.tile[x, y];
             wall.HasTile = true;
             wall.TileType = TileID.Dirt;
             wall.Slope = 0;
@@ -833,6 +904,15 @@ internal static class VerifyAttackPlanning
             foreach (var segment in candidate.Segments)
                 Require(segment.Stand.Reason != StandReason.BankShots,
                     $"the straight weapon must offer no bank; got {segment.Stand.Stand}");
+
+        gear.Slots[0].SetDefaults(ItemID.WaterBolt);
+        Budget noBankBudget = Budget.Unbounded();
+        SearchPlans.SearchResult noBank = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
+            _ => true, bounceWeights, combat.NextPlanId++, ref noBankBudget,
+            new SearchPlans.SearchOptions(DisableBankAims: true));
+        if (noBank.Plan != null)
+            Require(noBank.Plan.Segments[0].Stand.Reason != StandReason.BankShots,
+                $"disabling bounce aims must kill the bolt's bank; got {noBank.Plan.Segments[0].Stand.Reason}");
         Console.WriteLine($"attack planning: bolt banks from {bounce.Plan.Segments[0].Stand.Stand} (value {bounce.Plan.Weighted:0.00}); bow banks nowhere");
         return 0;
     }
@@ -891,6 +971,147 @@ internal static class VerifyAttackPlanning
             Require(winner != "dominated", "no weight sweep lands the weighted choice on the dominated plan");
         }
         Console.WriteLine($"attack planning: the front holds 2 of 3, near-equals survive, and {sweeps.Count} weight sweeps never choose the dominated plan");
+        return 0;
+    }
+
+    /// <summary>
+    /// C1: forty hostiles, two handed weapons (the kit has two slots, not four) and a forty-pellet
+    /// volley, the full proposal set. Per-rescore planning time at the 50th, 90th and 99th
+    /// percentiles, with the simulation cache and without it. Phase E is not accepted until the
+    /// 99th with the cache fits inside one frame.
+    /// </summary>
+    public static int PlanningCostOnACrowdFitsAFrame()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 5; x < 95; x++)
+        {
+            Tile tile = Main.tile[x, 60];
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+            tile.Slope = 0;
+            tile.IsHalfBlock = false;
+            tile.LiquidAmount = 0;
+        }
+        StandUpDamage();
+        (float composedDamage, float composedSpeed) = LearnVolleys.ComposedStats(ItemID.Boomstick, ItemID.MusketBall);
+        int pelletDamage = Math.Max(1, (int)composedDamage / 40);
+        Vector2 shooter = new(1000f, 1000f), aim = new(1400f, 1000f);
+        var use = new Recording.ProjectileUse
+        {
+            Id = 1,
+            Shooter = Recording.Shooter.Player,
+            ItemType = ItemID.Boomstick,
+            StartTick = 100,
+            AimPoint = aim,
+            ShooterCentre = shooter,
+            BuffsAtStart = Array.Empty<int>(),
+            Complete = true,
+        };
+        for (int pellet = 0; pellet < 40; pellet++)
+            use.Spawns.Add(new Recording.UseSpawn(10 + pellet, ProjectileID.Bullet, 100, shooter,
+                new Vector2(composedSpeed, 0f).RotatedBy((pellet - 19.5f) * 0.02f), pelletDamage,
+                ItemID.MusketBall, shooter, aim));
+        LearnVolleys.Learn(use);
+        Laws.AssumeLaw(ProjectileID.Bullet, FlightLaw.Straight(ProjectileID.Bullet));
+        Player player = Main.player[0];
+        player.dead = false;
+        player.statLife = player.statLifeMax2 = 100;
+        player.statManaMax2 = 20;
+        player.active = true;
+        player.Bottom = new Vector2(50 * 16f, 60 * 16f);
+        companion.NPC.Bottom = new Vector2(47 * 16f, 60 * 16f - 40f);
+        companion.NPC.velocity = Vector2.Zero;
+        companion.NPC.life = companion.NPC.lifeMax = 100;
+        companion.NPC.active = true;
+        for (int i = 0; i < 40; i++)
+        {
+            NPC npc = Main.npc[30 + i];
+            npc.SetDefaults(NPCID.Zombie);
+            npc.whoAmI = 30 + i;
+            npc.active = true;
+            npc.velocity = Vector2.Zero;
+            npc.life = npc.lifeMax = 50;
+            npc.Bottom = new Vector2((20 + i % 50) * 16f, 60 * 16f);
+        }
+        companion.Brain.Senses.Update(companion.NPC, player);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        VerifyOreWork.SettleReach(companion, player);
+        var ctx = new C(companion, companion.Brain.Senses);
+        var combat = companion.Combat;
+        var gear = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
+        gear.Slots[0].SetDefaults(ItemID.Boomstick);
+        gear.Slots[1].SetDefaults(ItemID.WoodenBow);
+
+        CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
+        double[] WithCache(bool cache)
+        {
+            CachePlanned.Enabled = cache;
+            CacheSims.Enabled = cache;
+            CachePlanned.Clear();
+            CacheSims.Clear();
+            // P1–P8 run first under --combat-cost / --attack-planning and JIT the planning path.
+            // A couple of untimed crowd searches then fill the sim cache so p99 of twelve is not
+            // the compiling miss. Uncached needs no extra crowd searches: one warmup is enough.
+            int warmups = cache ? 3 : 1;
+            for (int w = 0; w < warmups; w++)
+            {
+                if (!cache)
+                {
+                    CachePlanned.Clear();
+                    CacheSims.Clear();
+                }
+                Budget warm = Budget.Unbounded();
+                SearchPlans.Search(ctx, combat, companion.Brain.Positioner, _ => true, weights,
+                    combat.NextPlanId++, ref warm);
+            }
+            var samples = new double[12];
+            for (int i = 0; i < samples.Length; i++)
+            {
+                if (!cache)
+                {
+                    CachePlanned.Clear();
+                    CacheSims.Clear();
+                }
+                Budget budget = Budget.Unbounded();
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                SearchPlans.Search(ctx, combat, companion.Brain.Positioner, _ => true, weights,
+                    combat.NextPlanId++, ref budget);
+                clock.Stop();
+                samples[i] = clock.Elapsed.TotalMilliseconds;
+            }
+            CachePlanned.Enabled = true;
+            CacheSims.Enabled = true;
+            System.Array.Sort(samples);
+            return samples;
+        }
+
+        double[] cached = WithCache(true);
+        double[] uncached = WithCache(false);
+        double Pct(double[] s, float p) => s[Math.Min(s.Length - 1, (int)Math.Floor(p * (s.Length - 1)))];
+        double cached99 = Pct(cached, 0.99f);
+        Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"attack planning cost: cache p50={Pct(cached, 0.5f):0.000} p90={Pct(cached, 0.9f):0.000} p99={cached99:0.000}; " +
+            $"no-cache p50={Pct(uncached, 0.5f):0.000} p90={Pct(uncached, 0.9f):0.000} p99={Pct(uncached, 0.99f):0.000}"));
+        Console.Out.Flush();
+        Require(cached99 < 16.67, $"the 99th percentile with the cache must fit a frame; got {cached99:0.000} ms");
+        return 0;
+    }
+
+    /// <summary>
+    /// The inspector's plan layer is a bit on the overlay, so a capture and a play can turn it on.
+    /// Missing the bit would draw nothing and look like a missing plan.
+    /// </summary>
+    public static int TheOverlayCarriesThePlanLayer()
+    {
+        Require((live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.AllLayers & 32768) != 0,
+            "AllLayers must include the plan bit");
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.Layers = 32768;
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.ShowPlan,
+            "bit 15 must switch the committed-plan layer on");
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.Layers =
+            live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.AllLayers;
+        Console.WriteLine("overlay: committed-plan layer is bit 15");
         return 0;
     }
 }

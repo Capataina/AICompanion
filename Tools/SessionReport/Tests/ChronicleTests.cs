@@ -59,6 +59,8 @@ public static class ChronicleTests
             ForeignCombatAuditIsNamed();
             EagernessFiresWhenDangerStandsUnfought();
             NotFightingFiresBesideATargetInRange();
+            CommittedPlanWasPerformedFiresWhenTheStandIsNeverReached();
+            CombatFlickerFiresOnANewPlanEveryTick();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
             Console.WriteLine("Chronicle self-tests passed (42 assertion groups).");
@@ -2280,6 +2282,60 @@ public static class ChronicleTests
             File.WriteAllText(file, body.ToString());
             findings = new NotFightingMeansNothingToShoot().Run(Session.Load(file)).ToArray();
             Require(findings.Length == 0, $"fired, far, unmeasured and downed rows must read clean, got {findings.Length}");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    private static void CommittedPlanWasPerformedFiresWhenTheStandIsNeverReached()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            var body = new StringBuilder();
+            body.AppendLine("tick\taction\tplan_id\tplan_stand\tnpc_px\tfire");
+            for (int i = 0; i < 130; i++)
+                body.AppendLine($"{i}\tcombat\t1\t800,400\t100,400\tcooldown");
+            File.WriteAllText(file, body.ToString());
+            Finding[] findings = new TheCommittedPlanWasPerformed().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 1, $"expected one unperformed-plan finding, got {findings.Length}");
+
+            body = new StringBuilder();
+            body.AppendLine("tick\taction\tplan_id\tplan_stand\tnpc_px\tfire");
+            for (int i = 0; i < 130; i++)
+                body.AppendLine($"{i}\tcombat\t1\t800,400\t800,400\tfired");
+            File.WriteAllText(file, body.ToString());
+            findings = new TheCommittedPlanWasPerformed().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 0, $"arriving and firing must read as performed, got {findings.Length}");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    private static void CombatFlickerFiresOnANewPlanEveryTick()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            var body = new StringBuilder();
+            body.AppendLine("tick\taction\tplan_id");
+            for (int i = 0; i < 400; i++)
+                body.AppendLine($"{i}\tcombat\t{1 + i / 2}");
+            File.WriteAllText(file, body.ToString());
+            Finding[] findings = new CombatDoesNotFlicker().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 1, $"expected one flicker finding, got {findings.Length}");
+
+            body = new StringBuilder();
+            body.AppendLine("tick\taction\tplan_id");
+            for (int i = 0; i < 400; i++)
+                body.AppendLine($"{i}\tcombat\t1");
+            File.WriteAllText(file, body.ToString());
+            findings = new CombatDoesNotFlicker().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 0, $"one held plan must read clean, got {findings.Length}");
         }
         finally
         {

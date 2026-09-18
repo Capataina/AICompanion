@@ -3,16 +3,29 @@
 ```
 WeaponKnowledge/
 ├─ CLAUDE.md                        this guide, and the engine hook order the learners are written against
+├─ WeaponIdentity.cs                a weapon named by its full item name, so a save survives shuffled numeric ids
+├─ PersistWeaponKnowledge.cs        the character tag: laws and shapes keyed by that name
+├─ KnowledgeRevision.cs             the stamp a plan is admitted against
 ├─ Recording/
 │  ├─ RecordProjectileFlights.cs    every use's flights watched to their death: steps, walls, hits, children, cause
 │  └─ GroupSpawnsIntoUses.cs        spawn samples grouped into the player and companion uses that spawned them
-└─ Learning/
-   ├─ LearnVolleyShapes.cs          what one use of one item puts into the world, learned from the player's uses
-   ├─ LearnWeaponEffectsOnEnemies.cs how far a weapon's hit pushes each enemy type and how much of its damage lands, with the game's arithmetic as the prior
-   └─ LearnAttackOutcomes.cs         what each weapon's attacks achieve against their forecast, learned per weapon from closed uses and sampled for every decision
+├─ Learning/
+│  ├─ LearnVolleyShapes.cs          what one use of one item puts into the world, learned from the player's uses
+│  ├─ FitFlightLaws.cs              gravity, bounce, homing, pierce, split, as fitted from traces
+│  ├─ LearnWallResponses.cs
+│  ├─ LearnHitResponses.cs          including learned area
+│  ├─ LearnChildSpawns.cs
+│  ├─ LearnWeaponEffectsOnEnemies.cs how far a weapon's hit pushes each enemy type and how much of its damage lands, with the game's arithmetic as the prior
+│  └─ LearnAttackOutcomes.cs         what each weapon's attacks achieve against their forecast, learned per weapon from closed uses and sampled for every decision
+└─ Simulation/
+   ├─ SimulateUse.cs                one use, the same expansion and laws the hand fires
+   ├─ SolveAims.cs                  intercept, lobs, banks
+   ├─ CacheSimulatedUses.cs         per tick, for the hands
+   ├─ CachePlannedSims.cs           across ticks, for the generators
+   └─ ApplyCompanionModifiers.cs    pierce and extra projectile; Current() is planted until mastery bonuses exist
 ```
 
-This folder answers one question for the layers above: what does this weapon actually do. It decides nothing. The arsenal in `../Interactions/Firing/` reads it every time it values an attack — the arithmetic is the prior and these tables correct it — and the firing interaction's hooks feed it every observation. That split landed in phase 0 of the combat plan, which moved the two learners out of the dissolved `Companion/Weapons/` with no logic change; phase B grew `Recording/` and the volley learner beside them on 16 September 2026, and phase C grows `Simulation/` and replaces the four-number arc with fitted flight laws.
+This folder answers one question for the layers above: what does this weapon actually do. It decides nothing. The arsenal in `../Interactions/Firing/` reads it every time it values an attack — the arithmetic is the prior and these tables correct it — and the firing interaction's hooks feed it every observation. That split landed in phase 0 of the combat plan, which moved the two learners out of the dissolved `Companion/Weapons/` with no logic change; phase B grew `Recording/` and the volley learner beside them on 16 September 2026, and phase C grew `Simulation/` and replaced the four-number arc with fitted flight laws. Knowledge survives a character save under the item's full name; a planted extra-projectile or pierce modifier changes the next simulated use without relearning.
 
 ## A hit pushes, and what it pushes into is charged to the shot
 
@@ -64,9 +77,9 @@ Phase B watches every projectile use, the player's included, because he fires mo
 
 `LearnVolleyShapes` keeps, per item, the count distribution and the slots ordered by delay then angle, each with its angle, speed ratio, damage share, origin and delay. The origin is whichever anchor — muzzle, aim point, a learned height above it, or around the shooter — leaves the smallest offset variance, so the sky-rain case is found without being named. Shapes learn only from the player's uses: the companion's own volleys are reproductions of the medians, and feeding them back would narrow every slot toward what it already fires. Uses under count-changing buffs the companion lacks are counted aside and teach nothing; no vanilla buff is verified to change a count, so the set is empty and the mechanism waits on it. The hand expands the shape at its medians when it fires.
 
-## Planned work — flight laws and the simulator
+## Current state — 18 September 2026
 
-`research/Combat System Plan/` phase C adds `Simulation/` (`SimulateUse`, learned wall, hit and child responses) beside `Learning/`, with `FitFlightLaws` replacing the four-number arc in `../Aiming/`. Files 2 and 3 of the plan specify it. Until it lands, the arc learner still aims every shot, fed by the recorder's use samples.
+`Simulation/` is built: `SimulateUse`, learned wall, hit and child responses, `FitFlightLaws` in place of the four-number arc. Knowledge saves by full item name and reloads under shuffled numeric ids. Pierce and extra-projectile modifiers change the next simulated use without relearning; `ApplyCompanionModifiers.Current()` is planted until a live mastery bonuses record exists.
 
 ## Fixtures
 

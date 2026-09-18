@@ -81,6 +81,8 @@ public static class Program
         new TheHandsWorkWhileThreatened(),
         new CombatIsEagerWhenHeIsInDanger(),
         new NotFightingMeansNothingToShoot(),
+        new TheCommittedPlanWasPerformed(),
+        new CombatDoesNotFlicker(),
         new TheChosenWeaponIsTheBetterOne(),
         new WeaponKnowledgeIsCalibrated(),
         new TheCompanionStaysUp(),
