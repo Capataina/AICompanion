@@ -287,17 +287,22 @@ public static class ProposeFiringStands
 
     /// <summary>
     /// Where the body is — free, always, no probe — and points inside his predicted region from which
-    /// a use reaches a target. The region samples are its centre and four cardinals at half extent;
-    /// each keeps the targets some weapon's probe lands on from it.
+    /// a use reaches a target. The body stays where it is (zero travel). Region samples walk toward
+    /// higher combined wall-and-enemy clearance inside the region before the probe, so a company
+    /// perch is not the dirt next to him. FloorFlanks and AboveArea keep their own geometry.
     /// </summary>
     private static void HereAndCompany(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
         List<ThreatRecord> targets, int[] allSlots, Vector2 body, List<StandProposal> proposals,
         HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
     {
+        PlayerIntentRegion region = ctx.Senses.Intent.Region;
+        float slack = Navigator.SettleRadius;
+        Vector2 CompanyPoint(Vector2 point)
+            => ClearanceHeat.PreferClearer(MovementQueries.World, point, p => region.Accepts(p, slack),
+                enemiesOnly: true);
         Emit(proposals, seen, body, StandReason.HereAndCompany, -1, allSlots);
         int stopAt = StopAt(ref budget, ref left);
-        PlayerIntentRegion region = ctx.Senses.Intent.Region;
         var points = new Vector2[]
         {
             region.Centre,
@@ -309,7 +314,8 @@ public static class ProposeFiringStands
         ModifierState modifiers = ApplyCompanionModifiers.Current();
         for (int p = 0; p < points.Length; p++)
         {
-            Vector2 muzzle = CompanionCombat.MuzzleAt(points[p]);
+            Vector2 stand = CompanyPoint(points[p]);
+            Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
             var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
             var reached = new List<int>();
             int serving = -1;
@@ -332,7 +338,7 @@ public static class ProposeFiringStands
                 }
             }
             if (reached.Count > 0)
-                Emit(proposals, seen, points[p], StandReason.HereAndCompany, serving, reached.ToArray());
+                Emit(proposals, seen, stand, StandReason.HereAndCompany, serving, reached.ToArray());
         }
     }
 

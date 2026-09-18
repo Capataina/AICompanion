@@ -61,13 +61,7 @@ public static class ClearanceHeat
             return point;
         Vector2 best = point;
         float bestClear = here;
-        const float step = 16f;
-        Vector2[] dirs =
-        {
-            new(step, 0f), new(-step, 0f), new(0f, step), new(0f, -step),
-            new(step, step), new(step, -step), new(-step, step), new(-step, -step),
-        };
-        foreach (Vector2 dir in dirs)
+        foreach (Vector2 dir in StepDirs)
         {
             Vector2 candidate = point + dir;
             if (CircleContact.Overlaps(world, candidate))
@@ -81,6 +75,64 @@ public static class ClearanceHeat
         }
         return best;
     }
+
+    /// <summary>
+    /// Walk toward higher clearance, one tile at a time, stopping at the cap or when no neighbour
+    /// is clearer. Never refuses a crack: a point that cannot improve is returned as it was.
+    /// <paramref name="accept"/> keeps a company or combat sample inside the region that admitted it.
+    /// <paramref name="enemiesOnly"/> is the combat read: walking off the floor created an air
+    /// perch that dominated the far shotgun and P3 closed at low life. Company uses walls and
+    /// enemies together; combat only steps away from bodies.
+    /// </summary>
+    public static Vector2 PreferClearer(ITileWorld world, Vector2 point, Func<Vector2, bool>? accept = null,
+        int maxSteps = ClearanceField.MaxTiles, bool enemiesOnly = false)
+    {
+        if (world == null)
+            return point;
+        IReadOnlyList<Rectangle> boxes = MovementQueries.Hazards;
+        float Score(Vector2 at) => enemiesOnly ? ToBoxes(at, boxes) : Combined(world, at, boxes);
+        Vector2 best = point;
+        float bestClear = Score(point);
+        if (bestClear >= MaxTiles - 0.05f)
+            return point;
+        for (int i = 0; i < maxSteps; i++)
+        {
+            Vector2 next = best;
+            float nextClear = bestClear;
+            foreach (Vector2 dir in StepDirs)
+            {
+                Vector2 candidate = best;
+                for (int s = 0; s < maxSteps; s++)
+                {
+                    candidate += dir;
+                    if (CircleContact.Overlaps(world, candidate))
+                        break;
+                    if (accept != null && !accept(candidate))
+                        break;
+                    float clearance = Score(candidate);
+                    if (clearance > nextClear + 0.05f)
+                    {
+                        nextClear = clearance;
+                        next = candidate;
+                        break;
+                    }
+                }
+            }
+            if (nextClear <= bestClear + 0.05f)
+                break;
+            best = next;
+            bestClear = nextClear;
+            if (bestClear >= MaxTiles - 0.05f)
+                break;
+        }
+        return best;
+    }
+
+    private static readonly Vector2[] StepDirs =
+    {
+        new(16f, 0f), new(-16f, 0f), new(0f, 16f), new(0f, -16f),
+        new(16f, 16f), new(16f, -16f), new(-16f, 16f), new(-16f, -16f),
+    };
 
     /// <summary>Zero inside or on the edge; otherwise the Euclidean distance to the nearest point on the box.</summary>
     public static float DistanceToBox(Vector2 point, Rectangle box)

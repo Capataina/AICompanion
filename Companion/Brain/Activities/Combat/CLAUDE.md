@@ -85,4 +85,4 @@ Wire mastery pierce and extra-projectile to a live bonuses record when one exist
 
 ## Cross-folder
 
-Observation owns chain heads (`ChainHeadOf` / `MarkChainRepresentatives`) and the danger product that used to count every segment. Position owns FireFrom admission (`PrepareOffer` rock fallback). Movement/FreeSpace owns eight-tile heat and `ClearanceHeat.NudgeOffTerrain` (combat stands step only when clearance is under one tile). Firing owns `FireBestFromHere`. Selection owns `WanderFloor` and `CombatAboveWander`.
+Observation owns chain heads (`ChainHeadOf` / `MarkChainRepresentatives`) and the danger product that used to count every segment. Position owns FireFrom admission (`PrepareOffer` rock fallback). Movement/FreeSpace owns eight-tile heat, `ClearanceHeat.NudgeOffTerrain` (combat stands step only when clearance is under one tile) and `PreferClearer` (company walk combined; combat HereAndCompany enemy-only). Firing owns `FireBestFromHere`. Selection owns `WanderFloor` and `CombatAboveWander`.

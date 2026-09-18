@@ -1346,6 +1346,38 @@ internal static class VerifyAttackPlanning
     }
 
     /// <summary>
+    /// Combat's HereAndCompany only steps away from enemy boxes. A point inside an inflated body
+    /// walks out; a region sample that starts on the slime is not emitted as the perch. Walking
+    /// off the floor is the company walk, not this generator — that lift dominated P3.
+    /// </summary>
+    public static int HereAndCompanyStandsOffABody()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 5; x < 95; x++)
+        {
+            Tile tile = Main.tile[x, 60];
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+            tile.Slope = 0;
+            tile.IsHalfBlock = false;
+            tile.LiquidAmount = 0;
+        }
+        var box = new Rectangle(40 * 16, 50 * 16, 32, 48);
+        box.Inflate(24, 24);
+        MovementQueries.Hazards = new[] { box };
+        Vector2 inside = new(box.Right - 8f, box.Center.Y);
+        float insideClear = ClearanceHeat.ToBoxes(inside, MovementQueries.Hazards);
+        Vector2 lifted = ClearanceHeat.PreferClearer(MovementQueries.World, inside, enemiesOnly: true);
+        float liftedClear = ClearanceHeat.ToBoxes(lifted, MovementQueries.Hazards);
+        Require(insideClear <= 0.05f, $"premise: the seed sits in the box; clearance {insideClear:0.0} at {inside}");
+        Require(liftedClear >= 2f,
+            $"PreferClearer(enemiesOnly) must walk out of the box; inside {insideClear:0.0} at {inside}, lifted {liftedClear:0.0} at {lifted}");
+        Console.WriteLine($"here-and-company: seed {insideClear:0.0} at {inside} walked to {liftedClear:0.0} at {lifted}");
+        return 0;
+    }
+
+    /// <summary>
     /// A worm is one enemy for danger: every segment is still on the list for pierce, and only the
     /// head is the representative that multiplies player danger.
     /// </summary>

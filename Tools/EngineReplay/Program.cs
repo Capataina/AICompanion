@@ -83,6 +83,7 @@ int AttackPlanning() =>
         + RunOneRow.Case("a hold survives creep and dumps a jump", () => VerifyAttackPlanning.AHoldSurvivesCreepAndDumpsAJump())
         + RunOneRow.Case("closeness to a body is a heat not a wall", () => VerifyAttackPlanning.ClosenessToABodyIsAHeatNotAWall())
         + RunOneRow.Case("company parks in clear air", () => VerifyAttackPlanning.CompanyParksInClearAir())
+        + RunOneRow.Case("HereAndCompany stands off a body", () => VerifyAttackPlanning.HereAndCompanyStandsOffABody())
         + RunOneRow.Case("a segmented body is one threat for danger", () => VerifyAttackPlanning.ASegmentedBodyIsOneThreatForDanger());
 if (args.Contains("--attack-planning"))
     return AttackPlanning();

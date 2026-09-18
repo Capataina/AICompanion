@@ -178,6 +178,17 @@ public sealed class Brain
         Navigator.UnsafeAtTick = Senses.Threats.Threats.Count == 0 && Senses.Projectiles.Threats.Count == 0 ? null : unsafeAtTick;
         ReflexMs = Lap();
 
+        // Hazards before choose: combat's HereAndCompany walk and the company park both read the
+        // same enemy boxes the route will, and a search that ran first saw last tick's boxes or none.
+        var obstacles = new System.Collections.Generic.List<Rectangle>();
+        foreach (var threat in Senses.Threats.Threats)
+        {
+            Rectangle box = threat.Npc.Hitbox;
+            box.Inflate(24, 24);
+            obstacles.Add(box);
+        }
+        Movement.SetObstacles(obstacles);
+
         CompanionAction? action = Chooser.Choose(ctx);
         ChoiceEvaluated = true;
         Chooser.Activity.BeginExecution();
@@ -188,16 +199,6 @@ public sealed class Brain
         bool reunionRequested = LastRequest.Kind == RequestKind.WithPlayer && action?.HandsBusy != true;
         if (TryFollowRecovery(companion, player, reunionRequested, out var selectedRecovery)) return selectedRecovery;
 
-        // Hazards before the park: standing reads the same enemy heat the route will, and a
-        // resolve that ran first saw last tick's boxes or none.
-        var obstacles = new System.Collections.Generic.List<Rectangle>();
-        foreach (var threat in Senses.Threats.Threats)
-        {
-            Rectangle box = threat.Npc.Hitbox;
-            box.Inflate(24, 24);
-            obstacles.Add(box);
-        }
-        Movement.SetObstacles(obstacles);
         Vector2? spot = Positioner.Resolve(LastRequest, Senses);
         PositionMs = Lap();
         Controls movement;

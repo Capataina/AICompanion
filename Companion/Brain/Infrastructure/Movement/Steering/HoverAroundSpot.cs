@@ -178,55 +178,69 @@ public sealed class HoverAroundSpot
 
         Vector2 from = previousTarget ?? live.Centre;
         bool Free(Vector2 point) => !refused(point) && CircleContact.SweptClear(world, from, point, OrbTerrain.Wall);
-        Vector2 target = centre + next;
-        if (!Free(target))
+        Vector2 StepAt(float heading) => InBox(acrossOffset + new Vector2(MathF.Cos(heading),
+            MathF.Sin(heading) * Weights.HoverVerticalShare) * Weights.AccompanyWanderSpeedPx);
+        float ClearanceOf(Vector2 point) => ClearanceHeat.Combined(world, point, MovementQueries.Hazards);
+
+        // Legal steps of the walk's own length, including the heading and the turns a blocked step
+        // already tried. Combined wall-and-enemy clearance picks among them; a crack is still taken
+        // when it is the only free step. Equal clearance keeps the wander heading, so once the cap
+        // is reached the walk crosses the box instead of twitching on a tied peak.
+        Vector2 bestOffset = next;
+        float bestHeading = acrossHeading, bestRate = acrossRate;
+        float bestClear = Free(centre + next) ? ClearanceOf(centre + next) : float.MinValue;
+        bool any = bestClear > float.MinValue;
+        foreach (float turn in Turns)
         {
-            // A blocked step turns the walk: round first, then across to either side, then back past either side, so a target
-            // pressed against a wall slides off it rather than stopping there.
-            bool turned = false;
-            foreach (float turn in Turns)
+            float heading = acrossHeading + turn;
+            Vector2 attempt = StepAt(heading);
+            if (!Free(centre + attempt)) continue;
+            float clearance = ClearanceOf(centre + attempt);
+            if (!any || clearance > bestClear + 0.05f)
             {
-                float heading = acrossHeading + turn;
-                Vector2 attempt = InBox(acrossOffset + new Vector2(MathF.Cos(heading),
-                    MathF.Sin(heading) * Weights.HoverVerticalShare) * Weights.AccompanyWanderSpeedPx);
-                if (!Free(centre + attempt)) continue;
-                acrossHeading = heading;
-                acrossRate = -acrossRate;
-                next = attempt;
-                target = centre + attempt;
-                turned = true;
-                break;
+                any = true;
+                bestClear = clearance;
+                bestOffset = attempt;
+                bestHeading = heading;
+                bestRate = -acrossRate;
             }
+        }
+        Vector2 target = centre + bestOffset;
+        if (any)
+        {
+            if (bestHeading != acrossHeading) acrossRate = bestRate;
+            acrossHeading = bestHeading;
+            next = bestOffset;
+        }
+        else
+        {
             // Nowhere a step away is allowed: the body is boxed in, or standing in the tiles the player is asking for. The target
             // then jumps to the nearest allowed place the body can fly straight to, looked for outward along both axes, because a
             // target left on the body asks for no motion and the body stops where it is — on the tile the player is building on,
             // or in a one-body-tall passage he is walking down. A step is a pixel and a half and a refused tile is sixteen, so
             // every turned step of a body standing in the footprint is refused too, and without this the body stays put.
-            if (!turned)
+            target = live.Centre;
+            next = live.Centre - centre;
+            float reachOut = MathF.Max(room.X, room.Y) * 2f;
+            // A place the escape may take is one no further outside the open part, on either axis, than the body already is. Exact
+            // membership is the wrong test, because the inside latch lets a body sit beyond the open part: a body resting on a
+            // passage floor below the inset box shares that overshoot with every place along the passage, and requiring
+            // membership refused all of them, so the body stayed on the tile the player was walking into for sixty ticks.
+            Vector2 body = live.Centre - centre;
+            bool NoFurtherOut(Vector2 offset)
+                => Beyond(offset.X, minX, maxX) <= Beyond(body.X, minX, maxX) + 1e-3f
+                    && Beyond(offset.Y, minY, maxY) <= Beyond(body.Y, minY, maxY) + 1e-3f;
+            for (float distance = EscapeStepPixels; distance <= reachOut && target == live.Centre; distance += EscapeStepPixels)
             {
-                target = live.Centre;
-                next = live.Centre - centre;
-                float reachOut = MathF.Max(room.X, room.Y) * 2f;
-                // A place the escape may take is one no further outside the open part, on either axis, than the body already is. Exact
-                // membership is the wrong test, because the inside latch lets a body sit beyond the open part: a body resting on a
-                // passage floor below the inset box shares that overshoot with every place along the passage, and requiring
-                // membership refused all of them, so the body stayed on the tile the player was walking into for sixty ticks.
-                Vector2 body = live.Centre - centre;
-                bool NoFurtherOut(Vector2 offset)
-                    => Beyond(offset.X, minX, maxX) <= Beyond(body.X, minX, maxX) + 1e-3f
-                        && Beyond(offset.Y, minY, maxY) <= Beyond(body.Y, minY, maxY) + 1e-3f;
-                for (float distance = EscapeStepPixels; distance <= reachOut && target == live.Centre; distance += EscapeStepPixels)
+                foreach (Vector2 axis in Axes)
                 {
-                    foreach (Vector2 axis in Axes)
-                    {
-                        Vector2 point = live.Centre + axis * distance;
-                        Vector2 offset = point - centre;
-                        if (!NoFurtherOut(offset) || refused(point) || !CircleContact.SweptClear(world, live.Centre, point, OrbTerrain.Wall))
-                            continue;
-                        target = point;
-                        next = offset;
-                        break;
-                    }
+                    Vector2 point = live.Centre + axis * distance;
+                    Vector2 offset = point - centre;
+                    if (!NoFurtherOut(offset) || refused(point) || !CircleContact.SweptClear(world, live.Centre, point, OrbTerrain.Wall))
+                        continue;
+                    target = point;
+                    next = offset;
+                    break;
                 }
             }
         }
