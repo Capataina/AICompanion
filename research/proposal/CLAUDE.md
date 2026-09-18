@@ -1,16 +1,61 @@
-# Three conditional routes from recorded behaviour to the intended companion
+# Ranked routes from recorded behaviour to the intended companion
 
-**Owner-selected direction, 12 September 2026: Path 1 combines three purpose families with explicit opportunity validity, activity progress and control ownership.** Each family uses shared utility machinery to offer its best eligible concrete activity before the top level chooses. The seven activities are mining, chopping, hunting, guarding, lighting, collecting and keeping company. Safety owns avoidance and sustained escape across families; company includes relaxed nearby movement, and separation weighs the current need for help and practical reunion. No independent exploration or Survival child remains. Path 2 is the strongest extension if a common execution framework is needed beyond Path 1's lightweight ownership. Path 3 becomes preferable when matched scenarios demonstrate consequential choices that immediate activity evaluation misses. All three retain the closed authored kit, NPC body, native integration boundaries and independent arsenal algorithms for this restructuring.
+**Owner-selected direction, 12 September 2026: Path 1 combines three purpose families with explicit opportunity validity, activity progress and control ownership.** Each family uses shared utility machinery to offer its best eligible concrete activity before the top level chooses. The seven activities are mining, chopping, hunting, guarding, lighting, collecting and keeping company — hunting and guarding later merged into one combat activity that alone fires. Safety owns avoidance across families; company includes relaxed nearby movement, and separation weighs the current need for help and practical reunion. No independent exploration or Survival child remains. Path 1 is implemented. Path 2 is the strongest extension if a common execution framework is needed beyond Path 1's lightweight ownership. Path 3 becomes preferable when matched scenarios demonstrate consequential choices that immediate activity evaluation misses.
 
-This folder contains exactly the requested four files. The owner authorised full implementation of Proposal 1. The three families and seven activities are the production chooser; the remaining observer contracts, tool-folder layout and README write-up landed 13 September 2026. The [implementation ledger](<../Evaluation and Observability/Proposal 1 Implementation Ledger.md>) names fixture evidence versus what still needs a playtest. Live play of 0.22.46 occurred on 13 September 2026 and is recorded in the Momentum research note; the evidence from those playtests informed the implementation ledger's fixture-versus-playtest assessment. The [discussion record](<../Decision Architecture/Purpose Families and Shared Companionship.md>) distinguishes accepted requirements, proposed mechanics, corrections and alternatives. These are conditional routes towards the full Expected Behaviour, with no guarantee of perfect results in future Terraria/mod combinations.
+**18 September 2026: Path 4 is the proposed next structural bet.** It mixes Path 2's continuing-job identity with Path 3's bounded sequences, under corrections the owner made the same night: a universal course of action, leftover against leftover, no hardcoded stickers, combat as a stretch of moves, last night's collect/torch swap as the primitive of a class rather than the class. 02 and 03 remain the source documents of those two bets; they are not retired and not rewritten. Keep-the-job membership on collect and torch is a necessary piece of last night and is not 04. Nothing of 04 is built.
+
+The owner authorised full implementation of Proposal 1. The three families are the production chooser; the remaining observer contracts, tool-folder layout and README write-up landed 13 September 2026. The [implementation ledger](<../Evaluation and Observability/Proposal 1 Implementation Ledger.md>) names fixture evidence versus what still needs a playtest. Live play of 0.22.46 occurred on 13 September 2026 and is recorded in the Momentum research note; the 0.30.6 play of 18 September 2026, capture `2026-09-18_18-57-09-481`, is the negative of the chaining and several-steps-ahead rows and the reason 04 exists. The [discussion record](<../Decision Architecture/Purpose Families and Shared Companionship.md>) distinguishes accepted requirements, proposed mechanics, corrections and alternatives. These are conditional routes towards the full Expected Behaviour, with no guarantee of perfect results in future Terraria/mod combinations.
 
 ```text
 proposal/
-├─ CLAUDE.md                                               aggregated results, ranking and reading order
-├─ 01 Preserve Utility and Repair Activity Contracts.md    implementation contracts, migration and conditional work packages
+├─ CLAUDE.md                                               ranking, reading order, this folder's mechanism
+├─ 01 Preserve Utility and Repair Activity Contracts.md    Path 1 implementation contracts; production chooser
 ├─ 02 Organise Utility Around Continuing Activities.md     stronger shared execution beneath existing families
-└─ 03 Add Bounded Planning for Consequential Choices.md     short consequence-aware plans under utility goals
+├─ 03 Add Bounded Planning for Consequential Choices.md     short consequence-aware plans under utility goals
+└─ 04 Plan a Course of Action and Follow It.md             mix of 02+03 under the 18 Sep 2026 corrections
 ```
+
+## How this folder works
+
+This folder is the ranking, not the brain. A reader who opens it to change selection code is in the wrong place: `Companion/Brain/Infrastructure/Selection/` is the chooser, `README.md` Expected Behaviour is the product, and a proposal here is a conditional route toward that product. 01 is the route that shipped. 02 and 03 are the routes that were ranked second and third and never built. 04 is the route that combines 02 and 03 under the 18 September 2026 corrections, written so the sitting that produced it can be gone through, and not an implementation licence.
+
+Reading order: this file for the ranking and the traps; 04 for the live design conversation (origin, last night's numbers, sentinels' Fail, owner criticisms, leftover inequality, what would refute it); 02 and 03 only when a claim in 04 needs the bet it mixed; 01 when the question is what Path 1 still owns. Do not edit 02 or 03 to say 04's product — that falsifies the ranking they were written under, which is why 04 is a fourth file.
+
+```text
+README Expected Behaviour          the product
+        ▲
+        │  04 would close chaining / several-steps-ahead
+        │
+proposal/04  ←  02 identity + 03 sequences, owner corrections
+        │
+Path 1 chooser (implemented)       generates candidates
+Selection/OrderNearbyTasks         permutes, discards the order
+OwnCurrentActivity                 one purpose, no stack
+```
+
+Sibling: `../Decision Architecture/` owns why Path 1 was selected. `../Evaluation and Observability/` owns E01–E16 and the implementation ledger. README Behaviour By Behaviour owns the rows 04 is for. Changing 04's leftover inequality without changing those rows is how the design and the product drift.
+
+## Current state — 2026-09-18
+
+Path 1 is production. Combat is one activity that fires; collect and lighting still re-prepare nearest; `OrderNearbyTasks` still discards the order; `Commitment` is still a constant. Capture `2026-09-18_18-57-09-481` (0.30.6, 12,062 ticks): collect↔torch 68 swaps, Exact 56 asked 7 reached, 53 torch attempts placed nothing, combat median run 13 against 1 on 0.30.5. 04 is written (566 lines, citations to capture `2026-09-18_18-57-09-481`, `2026-09-18_16-35-26-353`, hashes `9b402cb` through `9bfc67e`, sentinels `01a0b628-1904-7be1-809c-0acc435aae10` / `0ad3909a657b` / `0ae9f4786879`), not built. Implementation waits on the owner going through 04 and the README scenes.
+
+## Traps
+
+- **Last night is the primitive, not the product.** A patch that freezes collect and torch identities stops the 15-tick swap and fails seven-torch order, Eye-onto-zombies, two copper on the way home, and the jungle. The sentinels' Fail is true of last night. It is not 04.
+- **"Exactly four files" is stale the moment 04 lands.** This folder now has five. A sentence that still says four is this file lying.
+- **A sticker in 04 is 04 failing itself.** 15%, 1.15, 0.4, a maximum of five, combat-always-step-1, new-task-always-step-1. Leftover against leftover, or it is not this proposal.
+- **A queue or a resume stack is 8 September 2026 and `OwnCurrentActivity` forgotten.** Interrupted chop and mine finish inside the action. Missions were abandoned.
+- **Editing 02 or 03 to match 04 hides the sentinels' Fail behind a rewrite.** 04 is the mix. 02 and 03 are the bets.
+
+## Findings
+
+- `OrderNearbyTasks` (15 Sep 2026, `573d9d4`) already compares orders and already discards them. Its two-even-jobs fixture is green. Last night collect raw collapsed 0.77 → 0.23 at the same tiles; flying-shortens-time did not hold step 1.
+- Three isolated log readers plus the parent, 18 September 2026: the 0.30.6 loop was collect versus torch, not reunion (`keep-company_fin` ~0.08). Three sentinels then failed a frozen course-of-action list (new-task-as-step-1 plus nearest-identity re-enacts last night; resume-after-combat is a stack; dummy versus combat-always-step-1 unresolved). The parent shrink to keep-the-job was overruled the same sitting as too much emphasis on the primitive.
+- Same-two swap, a genuinely new identity becoming step 1, and dropping because the player left are three classes. Treating them as one recreates last night or forbids the jungle.
+
+## Planned work
+
+04 is design. The next move is the owner going through 04 and the README scenes, not an implementation. After a go: identity freeze on collect and torch is the first node of last night and lands inside 04, not instead of it; course leftover, recorder columns, and last-night-does-not-recur as a check come with the assembler, not after. The 01 split (rationale versus P00–P14) remains a candidate below; it does not block 04.
 
 ## Planned restructuring
 
@@ -35,7 +80,7 @@ The comparison axes come from the owner's accepted examples and concern about re
 | Evidence supporting adoption now | Multiple source defects and recorded handoff/destination mismatches; no selector-family impossibility demonstrated. | Production/research support for explicit execution state and separate outputs; no matched project win yet. | Planning research supports real enabling choices; project benefit remains unmeasured. |
 | Main reason it could lose | Families hide opportunities or duplicate preferences, or lightweight execution ownership remains insufficient. | A common executor adds complexity without removing defects beyond the grouped Path 1 baseline. | Short plans rely on inaccurate futures or add cost to decisions reactive selection already gets right. |
 
-Path 1 has the highest confidence **as the next investigative course**, not as a guarantee that the current selector and graph should survive unchanged forever. Path 2 has medium conditional confidence where lifecycle complexity proves dominant. Path 3 has medium conditional confidence for consequential subproblems and lower confidence as a whole-brain replacement. There is insufficient evidence to express these judgements as percentages.
+Path 1 has the highest confidence **as the implemented chooser**, not as a guarantee that the current selector and graph should survive unchanged forever. Path 2 has medium conditional confidence where lifecycle complexity proves dominant. Path 3 has medium conditional confidence for consequential subproblems and lower confidence as a whole-brain replacement. Path 4 has conditional confidence as the next structural bet: last night and the jungle as acceptance, leftover frozen with identity, no sticker. There is insufficient evidence to express these judgements as percentages. A shrink of 04 to keep-the-job membership is a rejected alternative of 18 September 2026, recorded in 04, not a pending simplification.
 
 ## The shared findings identify where churn has come from
 
@@ -59,14 +104,21 @@ flowchart TD
     C -->|No material gap in held-out acceptance| V[Validate and stop adding architecture]
     C -->|Repeated execution lifecycle defects| P2[Path 2: stronger shared activity execution]
     C -->|Missed enabling consequences| P3[Path 3: bounded plans under selected goals]
+    C -->|Class of ordering / leftover / several-steps-ahead| P4[Path 4: course of action, leftover vs leftover]
     P2 --> D{Measured improvement}
     D -->|Yes| V
     D -->|No additional execution benefit| P1
     D -->|Only future consequences remain| P3
+    D -->|The defect is the class 04 names| P4
     P3 --> E{Predictions and outcomes agree}
     E -->|Yes within scope| V
     E -->|No, model or horizon error| R[Refine the bounded model or withdraw planning from that scope]
     R --> P1
+    P4 --> F{Last night gone and jungle still missing}
+    F -->|Yes, only identity freeze shipped| X[That is the shrink; not 04]
+    F -->|Leftover inequality holds named hard cases| V
+    F -->|A sticker appears or a queue returns| R4[Withdraw the constant or the stack; keep leftover]
+    R4 --> P4
 ```
 
 The diagram is a decision graph, not a promise that each arrow is cheap. Every destination has a prepared discriminator in [Experiments and Recorder Requirements](<../Evaluation and Observability/Experiments and Recorder Requirements.md>). The individual proposals spell out what to change, what outcome to expect, what would refute it and where to go next.

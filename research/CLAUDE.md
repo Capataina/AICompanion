@@ -18,7 +18,7 @@ research/
 ├─ Navigation Research/                  platformer state, search, control and experience alternatives
 ├─ Implementation Evidence/              dated source contracts and source-level defects
 ├─ Evaluation and Observability/         recordings, reproducible measurements and proposed experiments
-└─ proposal/                             ranked synthesis and three conditional roadmaps
+└─ proposal/                             ranked synthesis: Path 1 implemented, 02/03 source bets, 04 the live mix
 ```
 
 ## Different evidence has different authority
@@ -29,13 +29,13 @@ The expanded investigation is anchored to research baseline `d60b92b` and gamepl
 
 Claims belong to their derivation: historical progression in Historical Evidence; source contracts in Implementation Evidence; measurements and future acceptance conditions in Evaluation and Observability; external mechanisms in the literature and case-study folders. Proposal files link those owners and explain the judgement, rather than creating another source ledger. The answer ledger routes every question to evidence or an explicit unresolved experiment.
 
-## The three roadmaps are alternatives that can earn promotion
+## The roadmaps are alternatives that can earn promotion
 
 The final Path 1 contract explicitly connects player-intent interpretation to alternative-route companionship and separates danger to each actor from the cost of delayed help. Its implementation completion gate includes a current-reality README write-out verified against the resulting source, while observed gameplay claims still require named recordings.
 
 Proposal 1 carries the concrete implementation roadmap, including target folders, existing-code migration, activity/offer/control records, tick order, P00–P14 dependencies, observer changes and failure-case traceability. Treat its source paths as a design anchored to its stated checkout, and refresh them before implementation. No planned package is marked complete by the presence of its documentation.
 
-The owner-selected starting direction combines three purpose families with Path 1's separation of candidate evaluation, chosen activity, control grants and productive outcomes. Each family uses shared utility machinery to expose its best eligible concrete activity before the parent chooses. Seven activities remain; shared safety owns escape and avoidance, local movement belongs to useful assistance/company, and contextual separation and cross-system cases J01–J16 are documented in the discussion record. The [follow-up discussion](<Decision Architecture/Purpose Families and Shared Companionship.md>) owns the grouping, shared safety/companionship, alternatives and corrections. Path 2 now considers a stronger shared execution framework beyond Path 1's lightweight activity ownership. Path 3 adds bounded planning only where delayed consequences defeat an accurate immediate comparison. These are ranked next investments, not measured probabilities of final success.
+The owner-selected starting direction combines three purpose families with Path 1's separation of candidate evaluation, chosen activity, control grants and productive outcomes. Each family uses shared utility machinery to expose its best eligible concrete activity before the parent chooses. Seven activities remain; shared safety owns escape and avoidance, local movement belongs to useful assistance/company, and contextual separation and cross-system cases J01–J16 are documented in the discussion record. The [follow-up discussion](<Decision Architecture/Purpose Families and Shared Companionship.md>) owns the grouping, shared safety/companionship, alternatives and corrections. Path 2 now considers a stronger shared execution framework beyond Path 1's lightweight activity ownership. Path 3 adds bounded planning only where delayed consequences defeat an accurate immediate comparison. Path 4, written 18 September 2026, is those two combined under the owner's corrections that night: a course of action, leftover against leftover, no stickers, last night's collect/torch swap as a member of the class rather than the class. These are ranked next investments, not measured probabilities of final success.
 
 The original surveys, 140-question ledger and dated evidence reports preserve the research as assessed before this follow-up. Where they describe family grouping as belonging only to Path 2, use the current proposal synthesis and discussion record for the selected direction. Their historical observations and sources are not retroactively changed by this architectural preference.
 
