@@ -41,7 +41,7 @@ Path 1 is production. Combat is one activity that fires; collect and lighting st
 
 ## Traps
 
-- **Last night is the primitive, not the product.** A patch that freezes collect and torch identities stops the 15-tick swap and fails seven-torch order, Eye-onto-zombies, two copper on the way home, and the jungle. The sentinels' Fail is true of last night. It is not 04.
+- **Last night is the primitive, not the product.** A patch that freezes collect and torch identities stops the 15-tick swap and fails seven-torch order, Demon-Eye-onto-zombies, two copper on the way home, and the jungle. The sentinels' Fail is true of last night. It is not 04.
 - **"Exactly four files" is stale the moment 04 lands.** This folder now has five. A sentence that still says four is this file lying.
 - **A sticker in 04 is 04 failing itself.** 15%, 1.15, 0.4, a maximum of five, combat-always-step-1, new-task-always-step-1. Leftover against leftover, or it is not this proposal.
 - **A queue or a resume stack is 8 September 2026 and `OwnCurrentActivity` forgotten.** Interrupted chop and mine finish inside the action. Missions were abandoned.
