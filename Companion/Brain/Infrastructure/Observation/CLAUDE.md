@@ -11,7 +11,7 @@ Observation/
 ├─ InferPlayerActivity.cs    bounded displacement/work evidence and travel confidence
 ├─ ObservePlayerIntentRegion.cs where the player is going, as a box that always holds him and sits mostly above him: where the companion lives, and what every separation measures to
 ├─ ObservePlayerWork.cs      player tool hits and terrain-change notification
-├─ ObserveThreats.cs         hostile records, reachability, danger and safety horizon
+├─ ObserveThreats.cs         hostile records, chain heads, reachability, danger and safety horizon
 ├─ ObserveEncounterContext.cs whether the world is about one boss or event, from native facts or inferred from sustained pressure
 ├─ EstimateEffectiveDamage.cs what one hit takes off the player or the companion after defence, by the game's arithmetic
 ├─ WeighThreatUrgency.cs     the one urgency rule — a hit against life left, arrival time and sight — read by the threat sense and by the arsenal's push charge
@@ -23,11 +23,16 @@ Observation/
 ├─ ObserveLight.cs           brightness per open-air tile on a lattice, read from the world's own light, and one tile's placement reading
 ├─ ReadWorldLight.cs         the world's own light, taken from the engine between its scan and its blur, where nothing anybody carries is in it yet
 ├─ ObserveReach.cs           where the orb can fly to, as one flood over free corners and a tri-state every consumer reads
-├─ ThreatRecord.cs           a hostile and its predicted hitbox
+├─ ThreatRecord.cs           a hostile, its predicted hitbox, ChainHead and IsChainRepresentative
+├─ ForecastEnemies.cs        the combat simulator's snapshot of one hostile this tick
 └─ LineOfSight.cs            the named game sight query: the single-tile walk, never the three-row beam a twenty-pixel body's own floor breaks
 ```
 
 `Senses.Update` runs player, the intent region, threats, the encounter, projectiles, loot, light and self observation in that order before selection reads any value; the intent region follows the player directly, because it reads his freshly observed intent and every consumer this tick must see one region rather than two, and the encounter follows threats because it reads them. The reach sense is the one member `Update` does not drive, for the reason given below. Player travel inference retains bounded two-axis displacement and local-work evidence. Net displacement relative to distance travelled distinguishes a journey from repeated local movement; sample support and recent work temper confidence. Both climbing and descent remain visible. Separate player and self danger are intentional: leaving a threatened player and walking into danger are different risks. Threats also derive a safety horizon, which selection uses to discount a behaviour that would keep the companion away too long.
+
+**A worm is one enemy for danger and still many records for pierce, and that is not the spawn-slot rule.** `ObserveThreats` still writes every harmful segment onto `Threats` — no distance filter, every piece of a Giant Worm or Eater of Worlds — so heat, forecasts and pierce can see the spine. After the list is built, `MarkChainRepresentatives` groups by `ChainHeadOf`: vanilla worms store the head in `npc.realLife`; a live head at that slot is the chain, otherwise the NPC itself. Exactly one record per chain is `IsChainRepresentative`: the head when it is on the list, else the loudest remaining segment. Player danger, companion danger, `MostUrgent`, `SetInterventionEstimate` and combat eligibility (Planning, outside this folder) walk representatives only, so eight body pieces no longer multiply as independent hazards. Pierce still reads every member. Eater of Worlds after a split is several chains, one per live head. Capping how many pieces are visible was refused: the parts are what pierce aims along.
+
+That grouping is not the encounter's spawn-slot count. Pressure still mirrors `NPC.CheckActive`: a segment that `DoesntDespawnToInactivity` (worm body and tail) contributes nothing, so the game already counted a worm as its head's `npcSlots`. `realLife` is never consulted there. The two agree on an intact Giant Worm and diverge when they should: a split is several representatives and several heads with slots; a head missing from the threat list still leaves one representative (the loudest piece) while spawn weight stays on whichever NPCs the inactivity check still counts. Treating them as one property would hide the case where danger used eight records while pressure already used one head.
 
 A threat's consequence is what its hit costs the body it would land on, not the attacker's raw number. `EstimateEffectiveDamage` reproduces the game's damage after defence — the player's defence at the effectiveness the game assigns by difficulty plus endurance, the companion's defence at the fixed NPC half — by calling the native modifier arithmetic directly, without running loader hit hooks, because a mod may spend a shield charge or play a sound inside a hook that exists for real hits. Each threat then weighs that effective hit against a quarter of the life the victim has left: armour lowers urgency, a wounded body raises it, and the player and the companion differ exactly where the game makes the same hit cost them differently (the companion copies the player's defence but keeps the NPC effectiveness). At full health with no defence the weight equals the older raw-damage share, so the danger thresholds keep the meaning they were tuned with for an unhurt, unarmoured body. Downstream of that weight sit player and companion danger, protection urgency, the safety horizon, guard pressure, hunt candidate ordering and the arsenal's candidate order and prevented-harm danger; the arsenal's own prevented-harm amount still reads raw expected damage, so its algorithm is unchanged while its inputs are not. Modded resistances applied through hit hooks are not reflected, and the estimate is the median hit because contact damage variation is left out.
 
@@ -129,3 +134,23 @@ The predictor primes itself from an observation, then measures its next observed
 - Never calculate a world fact inside a behaviour: selection runs every behaviour every tick and duplicated readings drift.
 - `PlayerDanger` and `SelfDanger` answer different questions. A formula of `1 - danger` must name whose danger it consumes.
 - The player's recorded trail can cross a gap a mount carried him over; it is evidence for a scenario, not proof the planner is defective.
+
+## Relates to
+
+Combat Planning consumes `IsChainRepresentative` and `ChainHead` for eligibility, the proposal cap and PierceLines; this folder owns the grouping, not the search. Selection reads `PlayerDanger` / `CompanionDanger` as the independent-hazard product over representatives. Movement heat still iterates the full `Threats` list. Encounter pressure does not read `ChainHead`.
+
+## Current state — 2026-09-18
+
+`4d44794` (0.30.4) grouped segmented NPCs. Replay: `--attack-planning` files `worm chain: records=8 representatives=1 player-danger=0.11`. Play of 0.30.3 had a Giant Worm as top threat for 1,156 ticks with danger treating ten-odd segments as separate hazards; that product is gone. Encounter inference is unchanged.
+
+## Findings
+
+The 0.30.3 cave play's worm ticks were budget-cut because PierceLines paired every segment and danger multiplied them. Listing every piece is required for pierce; counting them as ten enemies was the defect. Spawn-slot "worm as head" (`DoesntDespawnToInactivity`) already existed and did not fix danger. Built: `ChainHead` / `IsChainRepresentative` via `realLife`. Refused: a cap on visible segments.
+
+## Planned work
+
+none recorded — combat's use of the flags lives in Activities/Combat/Planning.
+
+## Operating
+
+No command is owned here. The worm grouping is exercised by `dotnet run --project Tools/EngineReplay -p:UseAppHost=false -- --attack-planning` from the repository root (needs `DYLD_LIBRARY_PATH` on this machine as the Combat Planning guide names). Decompile `Terraria.NPC` for `realLife` and `DoesntDespawnToInactivity`.
