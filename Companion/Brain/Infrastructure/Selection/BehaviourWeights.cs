@@ -377,8 +377,17 @@ public static class Weights
     /// </summary>
     public const int CombatBeamWidth = 4;
 
-    /// <summary>The milliseconds one rescore may spend searching attack plans; a cut search offers unresolved, never known-unusable.</summary>
+    /// <summary>The milliseconds one rescore may spend searching attack plans; a cut search offers unresolved, never known-unusable.
+    /// Compared to TickCount64 as milliseconds, not TimeSpan ticks.</summary>
     public const float CombatPlanningMilliseconds = 4f;
+
+    /// <summary>How much a known hostile's urgency may rise before the committed plan re-searches.
+    /// A pixel closer is the plan working; this is a real jump, not 0.01 of creep.</summary>
+    public const float CombatUrgencyHoldSlack = 0.15f;
+
+    /// <summary>A hostile the plan was not admitted against must reach this urgency before it dumps the hold.
+    /// A spawn at the edge of vision is not a new fight.</summary>
+    public const float CombatNewHostileUrgency = 0.2f;
 
     /// <summary>The simulated uses beside the milliseconds: the count cuts the same search at the same
     /// simulation on every machine, so a cut is reproducible and the audit replays it exactly. Sized from

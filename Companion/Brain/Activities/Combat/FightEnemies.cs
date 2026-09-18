@@ -319,9 +319,8 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         IReadOnlyList<RejectedPlan> rejected = search?.Rejected ?? Array.Empty<RejectedPlan>();
         GodsEyeEvents.RecordCombatPlan(ctx.Npc, plan.Id, "committed", plan.Segments[0].Stand.Stand, front,
             DescribeAttackPlan.Detail(plan, rejected, front, "none"));
-        PlanningBudget budget = spent ?? PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds, Weights.CombatPlanningMaxSimulations);
-        GodsEyeEvents.RecordCombatSnapshot(ctx.Npc, plan.Id, spent == null ? "rescore" : "commit",
-            ExportCombatSnapshot.Build(ctx, combat, plan, search, weights, budget, AllowanceRadius(), combatRunning));
+        // Snapshots are the 120-tick hold dump and the mark key, not every commit: last night wrote
+        // 189 KB per new plan, 546 MB in one session, because the hold never held.
     }
 
     /// <summary>

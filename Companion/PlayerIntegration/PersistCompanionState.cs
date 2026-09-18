@@ -92,9 +92,9 @@ public partial class CompanionPlayer : ModPlayer
         // The static work-policy readers are evaluated by the brain after spawning. Point them
         // at this character before that happens so changing worlds cannot use another save's UI.
         CompanionPreferences.Current = Preferences;
-        CompanionDiagnosticsConfig.Current.EnableBrainInspector = true;
-        CompanionDiagnosticsConfig.Current.RecordTelemetry = true;
-        BrainOverlay.Layers = BrainOverlay.AllLayers;
+        // Drawings off until he turns them on. Last night world-enter forced every overlay layer
+        // and the inspector, and the gold dots of every simulated hit hitching the frame.
+        BrainOverlay.ShowWorld = false;
         bool spawned = false;
         if (HasCompanion && CompanionNPC.Find() == null)
             spawned = CompanionNPC.Spawn(Player) < Main.maxNPCs;

@@ -747,8 +747,16 @@ public static class ProposeFiringStands
     private static void SafeRange(in ActionContext ctx, IReadOnlyList<CompanionWeapon> weapons,
         List<ThreatRecord> targets, List<StandProposal> proposals, HashSet<(int X, int Y)> seen)
     {
-        float missing = ctx.Npc.lifeMax > 0 ? 1f - ctx.Npc.life / (float)ctx.Npc.lifeMax : 0f;
-        if (missing + Math.Clamp(ctx.Senses.Threats.CompanionDanger, 0f, 1f) < 1f)
+        if (targets.Count == 0)
+            return;
+        bool anyFlyer = false;
+        foreach (ThreatRecord threat in targets)
+            if (threat.Class == MovementClass.Flyer || threat.Class == MovementClass.Phaser || threat.Npc.noGravity)
+            {
+                anyFlyer = true;
+                break;
+            }
+        if (!anyFlyer)
             return;
         float reach = 0f;
         int longest = -1;
@@ -763,16 +771,35 @@ public static class ProposeFiringStands
         Vector2 centroid = Vector2.Zero;
         foreach (ThreatRecord threat in targets)
             centroid += threat.Npc.Center;
-        centroid /= Math.Max(1, targets.Count);
-        Vector2 away = ctx.Player.Center - centroid;
-        away = away == Vector2.Zero ? Vector2.UnitX : Vector2.Normalize(away);
-        float edge = reach * 0.9f;
-        Emit(proposals, seen, centroid + away * edge, StandReason.SafeRange, longest,
-            AllSlots(targets));
-        Emit(proposals, seen, centroid + away.RotatedBy(1.0f) * edge, StandReason.SafeRange, longest,
-            AllSlots(targets));
-        Emit(proposals, seen, centroid + away.RotatedBy(-1.0f) * edge, StandReason.SafeRange, longest,
-            AllSlots(targets));
+        centroid /= targets.Count;
+        ThreatRecord loudest = targets[0];
+        float loud = 0f;
+        foreach (ThreatRecord threat in targets)
+        {
+            float urgency = MathF.Max(threat.Urgency, threat.UrgencyToCompanion);
+            if (urgency >= loud)
+            {
+                loud = urgency;
+                loudest = threat;
+            }
+        }
+        Vector2 path = loudest.PredictedPosition(45) - loudest.Npc.Center;
+        // Off the corridor by a body-and-a-half of travel, not 90% of bow reach: that 990 px
+        // stand stole the beam from FloorFlanks and the goons-then-close hop.
+        float edge = MathF.Min(reach * 0.9f, 160f);
+        int[] slots = AllSlots(targets);
+        if (path.LengthSquared() < 256f)
+        {
+            // Still: not on the body. Above, and either side, at weapon range.
+            Emit(proposals, seen, centroid - Vector2.UnitY * edge, StandReason.SafeRange, longest, slots);
+            Emit(proposals, seen, centroid + Vector2.UnitX * edge, StandReason.SafeRange, longest, slots);
+            Emit(proposals, seen, centroid - Vector2.UnitX * edge, StandReason.SafeRange, longest, slots);
+            return;
+        }
+        Vector2 along = Vector2.Normalize(path);
+        Vector2 perp = new(-along.Y, along.X);
+        Emit(proposals, seen, centroid + perp * edge, StandReason.SafeRange, longest, slots);
+        Emit(proposals, seen, centroid - perp * edge, StandReason.SafeRange, longest, slots);
     }
 
     private static int[] AllSlots(List<ThreatRecord> targets)

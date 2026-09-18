@@ -30,6 +30,8 @@ using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weigh
 using CachePlanned = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CachePlannedSims;
 using CacheSims = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CacheSimulatedUses;
 using Modifiers = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers;
+using Positioner = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner;
+using HostileAttackSources = live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources;
 using ModifierState = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState;
 using Persist = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.PersistWeaponKnowledge;
 using WeaponIdentity = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.WeaponIdentity;
@@ -1112,6 +1114,171 @@ internal static class VerifyAttackPlanning
         live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.Layers =
             live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.AllLayers;
         Console.WriteLine("overlay: committed-plan layer is bit 15");
+        return 0;
+    }
+
+    /// <summary>
+    /// The millisecond budget is compared to TickCount64, which is milliseconds. A configured 4 must
+    /// store 4, not 40 from a TimeSpan-tick conversion.
+    /// </summary>
+    public static int ThePlanningClockStoresMilliseconds()
+    {
+        Require(Budget.FromMilliseconds(4f).AllowanceMilliseconds == 4f,
+            $"a 4 ms budget must store 4 ms, got {Budget.FromMilliseconds(4f).AllowanceMilliseconds}");
+        Console.WriteLine("planning clock: 4 ms stores 4 ms");
+        return 0;
+    }
+
+    /// <summary>
+    /// SafeRange emits at full life, off a horizontal flyer's strip, not toward the player on the path.
+    /// </summary>
+    public static int SafeRangeStepsOffAHorizontalFlyer()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 5; x < 95; x++)
+        {
+            Tile tile = Main.tile[x, 60];
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+        }
+        Player player = Main.player[0];
+        player.dead = false;
+        player.active = true;
+        player.statLife = player.statLifeMax2 = 100;
+        player.Bottom = new Vector2(50 * 16f, 60 * 16f);
+        companion.NPC.Center = new Vector2(50 * 16f, 50 * 16f);
+        companion.NPC.life = companion.NPC.lifeMax = 100;
+        companion.NPC.active = true;
+        NPC eye = Main.npc[30];
+        eye.SetDefaults(NPCID.DemonEye);
+        eye.whoAmI = 30;
+        eye.active = true;
+        eye.Center = new Vector2(50 * 16f, 52 * 16f);
+        eye.velocity = new Vector2(6f, 0f);
+        eye.noGravity = true;
+        HostileAttackSources.Spawn(eye);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        VerifyOreWork.SettleReach(companion, player);
+        var ctx = new C(companion, companion.Brain.Senses);
+        var combat = companion.Combat;
+        Budget budget = Budget.Unbounded();
+        Require(eye.noGravity, "premise: a Demon Eye must read as noGravity");
+        Require(companion.Brain.Senses.Threats.Threats.Count > 0, "premise: the Eye must be a threat");
+        SearchPlans.SearchResult probe = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
+            _ => true, WeighCombatObjectives.ForSenses(ctx), combat.NextPlanId++, ref budget);
+        Require(probe.Assessed != null && probe.Assessed.Count > 0, "the flyer scene assessed nothing");
+        bool offStrip = false;
+        var reasons = new System.Text.StringBuilder();
+        foreach (var assessed in probe.Assessed)
+        {
+            reasons.Append(assessed.Proposal.Reason).Append('@').Append(
+                (assessed.Proposal.Stand.Y - eye.Center.Y).ToString("0")).Append(';');
+            if (assessed.Proposal.Reason != StandReason.SafeRange)
+                continue;
+            offStrip |= MathF.Abs(assessed.Proposal.Stand.Y - eye.Center.Y) > 32f;
+        }
+        Require(offStrip, "SafeRange at full life must stand off the Eye's horizontal strip; " + reasons);
+        Console.WriteLine("attack planning: SafeRange leaves a horizontal flyer's strip at full life");
+        return 0;
+    }
+
+    /// <summary>
+    /// Harm at a stand is path occupancy. On the body is a beating; 200 px off a still body is not.
+    /// </summary>
+    public static int HarmAtStandIsPathOccupancy()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 5; x < 95; x++)
+        {
+            Tile tile = Main.tile[x, 60];
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+        }
+        Player player = Main.player[0];
+        player.dead = false;
+        player.active = true;
+        player.Bottom = new Vector2(50 * 16f, 60 * 16f);
+        companion.NPC.Center = new Vector2(40 * 16f, 50 * 16f);
+        companion.NPC.life = companion.NPC.lifeMax = 100;
+        NPC zombie = Main.npc[30];
+        zombie.SetDefaults(NPCID.Zombie);
+        zombie.whoAmI = 30;
+        zombie.active = true;
+        zombie.Bottom = new Vector2(50 * 16f, 60 * 16f);
+        zombie.velocity = Vector2.Zero;
+        HostileAttackSources.Spawn(zombie);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        var senses = companion.Brain.Senses;
+        float onPath = Positioner.PredictedHarmAt(zombie.Center, senses, 100f);
+        float offPath = Positioner.PredictedHarmAt(zombie.Center + new Vector2(0f, -200f), senses, 100f);
+        Require(onPath > 0f, $"standing on a still zombie must occupy its path; harm {onPath}");
+        Require(offPath == 0f, $"200 px above a still zombie is not its path; harm {offPath}");
+        Console.WriteLine($"attack planning: path occupancy on-body {onPath:0.00}, 200px off {offPath:0.00}");
+        return 0;
+    }
+
+    /// <summary>
+    /// A known hostile creeping inside the slack keeps the plan; a jump past it, or a new urgent body,
+    /// dumps it. Last night's 32 plans per second of combat was the 0.01 creep.
+    /// </summary>
+    public static int AHoldSurvivesCreepAndDumpsAJump()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 5; x < 95; x++)
+        {
+            Tile tile = Main.tile[x, 60];
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+        }
+        Player player = Main.player[0];
+        player.dead = false;
+        player.active = true;
+        player.statLife = player.statLifeMax2 = 100;
+        player.Bottom = new Vector2(50 * 16f, 60 * 16f);
+        companion.NPC.Bottom = new Vector2(47 * 16f, 60 * 16f - 40f);
+        companion.NPC.velocity = Vector2.Zero;
+        companion.NPC.life = companion.NPC.lifeMax = 100;
+        companion.NPC.active = true;
+        NPC zombie = Main.npc[30];
+        zombie.SetDefaults(NPCID.Zombie);
+        zombie.whoAmI = 30;
+        zombie.active = true;
+        zombie.velocity = Vector2.Zero;
+        zombie.Bottom = new Vector2(55 * 16f, 60 * 16f);
+        HostileAttackSources.Spawn(zombie);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        VerifyOreWork.SettleReach(companion, player);
+        var ctx = new C(companion, companion.Brain.Senses);
+        var combat = companion.Combat;
+        Budget budget = Budget.Unbounded();
+        SearchPlans.SearchResult result = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
+            _ => true, WeighCombatObjectives.ForSenses(ctx), combat.NextPlanId++, ref budget);
+        Require(result.Plan != null, "the hold scene offers nothing: " + result.Reason);
+        combat.Planner.Commit(result.Plan);
+        float admitted = result.Plan.Validity.AdmittedMaxUrgency;
+        foreach (var threat in companion.Brain.Senses.Threats.Threats)
+        {
+            threat.Urgency = admitted + Weights.CombatUrgencyHoldSlack * 0.5f;
+            threat.UrgencyToCompanion = threat.Urgency;
+        }
+        Require(combat.Planner.Validate(ctx, companion.Brain.Positioner, _ => true, true),
+            "creep inside the slack must hold; dumped " + combat.Planner.LastInvalidation);
+        foreach (var threat in companion.Brain.Senses.Threats.Threats)
+        {
+            threat.Urgency = admitted + Weights.CombatUrgencyHoldSlack + 0.05f;
+            threat.UrgencyToCompanion = threat.Urgency;
+        }
+        Require(!combat.Planner.Validate(ctx, companion.Brain.Positioner, _ => true, true),
+            "a jump past the slack must dump");
+        Require(combat.Planner.LastInvalidation == "new-urgent-hostile",
+            "the jump must name new-urgent-hostile, got " + combat.Planner.LastInvalidation);
+        Console.WriteLine("attack planning: hold survives creep, dumps a jump");
         return 0;
     }
 }

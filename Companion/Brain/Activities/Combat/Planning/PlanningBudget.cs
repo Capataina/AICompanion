@@ -15,13 +15,13 @@ namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 /// </summary>
 public sealed class PlanningBudget
 {
-    private readonly long allowanceTicks;
+    private readonly long allowanceMs;
     private readonly int maxSimulations;
     private readonly long startedAt;
 
-    private PlanningBudget(long allowanceTicks, int maxSimulations)
+    private PlanningBudget(long allowanceMs, int maxSimulations)
     {
-        this.allowanceTicks = allowanceTicks;
+        this.allowanceMs = allowanceMs;
         this.maxSimulations = maxSimulations;
         startedAt = System.Environment.TickCount64;
     }
@@ -32,9 +32,10 @@ public sealed class PlanningBudget
     /// <summary>How many uses were simulated under this budget, for the cost strip.</summary>
     public int Simulations { get; private set; }
 
-    /// <summary>The allowance in milliseconds, for the snapshot: the audit replays the decision under the same budget.</summary>
-    public float AllowanceMilliseconds => allowanceTicks == long.MaxValue ? float.PositiveInfinity
-        : allowanceTicks * 1000f / System.TimeSpan.TicksPerMillisecond;
+    /// <summary>The allowance in milliseconds, compared to <see cref="System.Environment.TickCount64"/>.
+    /// A previous conversion stored TimeSpan ticks / 1000 and then compared them to TickCount64, so a
+    /// configured 4 ms ran as 40 ms — the night-crowd hitch of 18 September 2026.</summary>
+    public float AllowanceMilliseconds => allowanceMs == long.MaxValue ? float.PositiveInfinity : allowanceMs;
 
     /// <summary>The simulation count beside it, for the snapshot: a count cut replays exactly.</summary>
     public int AllowanceSimulations => maxSimulations;
@@ -42,7 +43,9 @@ public sealed class PlanningBudget
     public static PlanningBudget Unbounded() => new(long.MaxValue, int.MaxValue);
 
     public static PlanningBudget FromMilliseconds(float milliseconds, int maxSimulations = int.MaxValue)
-        => new((long)(milliseconds * System.TimeSpan.TicksPerMillisecond / 1000f), maxSimulations);
+        => new(float.IsPositiveInfinity(milliseconds) || milliseconds >= 1e12f
+            ? long.MaxValue
+            : (long)System.Math.Max(0.0, milliseconds), maxSimulations);
 
     /// <summary>True while the budget remains. Marks the budget cut the first time it does not: the count
     /// first, because it holds under the suite's lifted clock, then the clock behind the lift.</summary>
@@ -55,7 +58,7 @@ public sealed class PlanningBudget
             return false;
         }
         if (Infrastructure.Movement.LimitPlanningWork.Unbounded) return true;
-        if (System.Environment.TickCount64 - startedAt > allowanceTicks)
+        if (System.Environment.TickCount64 - startedAt > allowanceMs)
         {
             Cut = true;
             return false;

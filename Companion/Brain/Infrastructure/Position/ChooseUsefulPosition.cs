@@ -614,13 +614,10 @@ public sealed class Positioner
     }
 
     /// <summary>
-    /// The expected hit at this spot as a share of the companion's life: each threat's proximity times the
-    /// hit it lands on the body, summed. A sum rather than the exposure times the hardest hit anywhere,
-    /// because that product prices a distant lethal into every stand — a damage-100 body thirty tiles off
-    /// set the price of hits the mild zombie at the stand would land, and no fight beside any lethal was
-    /// ever worth starting. Inverse falls off from the stand, not from where the body is now, so a
-    /// shotgun stand next to a zombie is priced as a beating while the body is still far; a predicted
-    /// hitbox overlap is the same question at proximity one.
+    /// The expected hit at this spot as a share of the companion's life: each threat whose predicted
+    /// path occupies the cell, times the hit it lands, summed. Nearby-but-not-on-the-path is zero, so
+    /// a still slime is not a beating until its jump is predicted through the cell, and an Eye flying
+    /// past is a beating only on the strip it occupies.
     /// </summary>
     public static float PredictedHarmAt(Vector2 centre, Senses.Senses senses, float companionLife)
     {
@@ -633,14 +630,26 @@ public sealed class Positioner
 
     private static float ThreatProximity(ThreatRecord t, Vector2 centre, Rectangle body)
     {
-        for (int tick = 0; tick <= 40; tick += 10)
-            if (t.PredictedHitbox(tick).Intersects(body))
+        Vector2 origin = t.Npc.Center;
+        float speed = MathF.Max(1f, t.ObservedSpeed);
+        int step = Math.Max(1, (int)(CircleContact.Diameter / speed));
+        for (int tick = step; tick <= 90; tick += step)
+        {
+            Vector2 at = t.PredictedPosition(tick);
+            if ((at - origin).LengthSquared() < 16f)
+                continue;
+            Rectangle box = t.Npc.Hitbox;
+            box.Offset((int)(at.X - origin.X), (int)(at.Y - origin.Y));
+            if (box.Intersects(body))
                 return 1f;
-        float d = Vector2.Distance(t.Npc.Center, centre);
-        // Inverse is already this threat's distance to the stand. Gating it by the body's current
-        // urgency made every close stand look safe while the body was still far — the shotgun
-        // stand next to a zombie priced as harmless until the body was already there. Overlap
-        // stays ungated; the Inverse is the same question from the stand rather than from here.
+        }
+        // Flyers off the strip are zero. Walkers keep the 160 px contact pocket so a shotgun hug
+        // at low life is the beating P3 prices. A still body's current hitbox is Inverse, not 1.0
+        // occupancy, or the near-slime stand the company-gap mutation wants is a beating and the
+        // mutation never fires.
+        if (t.Class == MovementClass.Flyer || t.Class == MovementClass.Phaser)
+            return 0f;
+        float d = Vector2.Distance(origin, centre);
         return Consideration.Inverse(d, 160f) * 0.6f;
     }
 }

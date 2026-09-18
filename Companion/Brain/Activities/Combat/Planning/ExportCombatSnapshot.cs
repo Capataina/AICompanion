@@ -77,7 +77,7 @@ public static class ExportCombatSnapshot
     public sealed record SegmentDto(Vec Stand, int Reason, int WeaponSlot, int[] Targets, VerdictDto Verdict,
         int Arrive, int Start, int End, List<UseDto> Uses, int EndsWhen);
     public sealed record ValidityDto(int Terrain, int Knowledge, List<int[]> Targets, float MaxUrgency,
-        Vec RegionCentre, Vec RegionHalf, float Gap, int ProgressTick);
+        Vec RegionCentre, Vec RegionHalf, float Gap, int ProgressTick, List<int[]>? Hostiles = null);
     public sealed record PlanDto(int Id, List<SegmentDto> Segments, float[] Outcome, float Weighted,
         ValidityDto Validity, bool BudgetCut, List<int[]> Kills);
     public sealed record RejectedDto(Vec Stand, float Weighted, string Reason, string LostOn);
@@ -241,6 +241,13 @@ public static class ExportCombatSnapshot
         var targets = new List<int[]>();
         foreach ((int slot, int generation) in plan.Validity.Targets)
             targets.Add(new[] { slot, generation });
+        List<int[]>? hostiles = null;
+        if (plan.Validity.Hostiles != null)
+        {
+            hostiles = new List<int[]>();
+            foreach ((int slot, int generation) in plan.Validity.Hostiles)
+                hostiles.Add(new[] { slot, generation });
+        }
         var kills = new List<int[]>();
         if (plan.TargetKillTicks != null)
             foreach ((int slot, int tick) in plan.TargetKillTicks)
@@ -253,7 +260,7 @@ public static class ExportCombatSnapshot
             plan.Weighted,
             new ValidityDto(plan.Validity.TerrainRevision, plan.Validity.KnowledgeRevision, targets,
                 plan.Validity.AdmittedMaxUrgency, V(plan.Validity.RegionCentre), V(plan.Validity.RegionHalfSize),
-                plan.Validity.AdmittedCompanyGap, plan.Validity.LastProgressTick),
+                plan.Validity.AdmittedCompanyGap, plan.Validity.LastProgressTick, hostiles),
             plan.BudgetCut, kills);
     }
 

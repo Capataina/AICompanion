@@ -35,7 +35,7 @@ public enum StandReason
     AboveArea,
     /// <summary>Where a reflecting law's bank sweep reaches a target with no direct line.</summary>
     BankShots,
-    /// <summary>At the longest reach's far edge, when the companion's harm weight runs high.</summary>
+    /// <summary>Off the loudest hostile's predicted corridor, at the longest reach, so a fight is not stood in a path.</summary>
     SafeRange,
 }
 
@@ -73,7 +73,7 @@ public readonly record struct StandProposal(Vector2 Stand, StandReason Reason, i
 /// </summary>
 public sealed record PlanValidity(int TerrainRevision, int KnowledgeRevision, (int Slot, int Generation)[] Targets,
     float AdmittedMaxUrgency, Vector2 RegionCentre, Vector2 RegionHalfSize, float AdmittedCompanyGap,
-    int LastProgressTick);
+    int LastProgressTick, (int Slot, int Generation)[]? Hostiles = null);
 
 /// <summary>
 /// One segment of a plan: the stand held while its uses fire, the verdict that admitted it, when the body

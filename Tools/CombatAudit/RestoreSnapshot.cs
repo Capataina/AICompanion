@@ -498,8 +498,19 @@ internal static class RestoreSnapshot
             new CombatOutcome(outcome[0], outcome[1], outcome[2], outcome[3], outcome[4], outcome[5], outcome[6], outcome[7]),
             plan.Weighted,
             new PlanValidity(validity.Terrain, validity.Knowledge, targets, validity.MaxUrgency,
-                V(validity.RegionCentre) + shift, V(validity.RegionHalf), validity.Gap, validity.ProgressTick + tickDelta),
+                V(validity.RegionCentre) + shift, V(validity.RegionHalf), validity.Gap, validity.ProgressTick + tickDelta,
+                HostilesFrom(validity.Hostiles)),
             plan.BudgetCut, kills);
+    }
+
+    private static (int Slot, int Generation)[]? HostilesFrom(List<int[]>? hostiles)
+    {
+        if (hostiles == null || hostiles.Count == 0)
+            return null;
+        var listed = new (int Slot, int Generation)[hostiles.Count];
+        for (int i = 0; i < hostiles.Count; i++)
+            listed[i] = (hostiles[i][0], hostiles[i][1]);
+        return listed;
     }
 }
 

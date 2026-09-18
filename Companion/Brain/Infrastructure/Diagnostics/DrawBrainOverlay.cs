@@ -26,11 +26,11 @@ namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 public sealed class BrainOverlay : ModSystem
 {
     public static ModKeybind? ToggleKey;
-    public static bool Enabled, ShowWorld = true;
-    public static bool ShowThreats = true, ShowPredictions = true, ShowRoutes = true, ShowCandidates = true;
-    public static bool ShowProjectiles = true, ShowAiming = true, ShowMovement = true, ShowAttention = true, ShowRegion = true;
-    public static bool ShowFollow = true, ShowSenses = true, ShowCost = true, ShowClearance = true;
-    public static bool ShowPlan = true;
+    public static bool Enabled, ShowWorld;
+    public static bool ShowThreats, ShowPredictions, ShowRoutes, ShowCandidates;
+    public static bool ShowProjectiles, ShowAiming, ShowMovement, ShowAttention, ShowRegion;
+    public static bool ShowFollow, ShowSenses, ShowCost, ShowClearance;
+    public static bool ShowPlan;
     public const int AllLayers = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | 2048 | 8192 | 16384 | 32768;
 
     /// <summary>
@@ -85,11 +85,6 @@ public sealed class BrainOverlay : ModSystem
     {
         ToggleKey = null; Enabled = false;
         BrainInspectorSamples.Reset();
-    }
-    public override void OnWorldLoad()
-    {
-        if (CompanionDiagnosticsConfig.Current.EnableBrainInspector)
-            Layers = AllLayers;
     }
     public override void OnWorldUnload() { Close(); BrainInspectorSamples.Reset(); }
     /// <summary>
