@@ -28,7 +28,9 @@ threats, weapons, forecast
 ProposeFiringStands ──► HereAndCompany, BestRange, PierceLines,
                         FloorFlanks, AboveArea, BankShots, SafeRange
         │                 (half-tile dedup; AboveArea retags a drop the
-        │                  even grid already named, PierceLines a chain)
+        │                  even grid already named; PierceLines is one
+        │                  spine per segmented body plus lines between
+        │                  different enemies)
         ▼
 AssessStands ──► reach, travel, harm at the stand and along the flight, allowance
         │
@@ -59,7 +61,7 @@ The vector maximises damage-per-second (in encounter-life units), threat removed
 
 `CommitAttackPlan` holds one plan. It stays while the current segment's stand is still reachable (or the body is already there), the allowance still describes it, every targeted body is still alive or was killed by the plan, no *new* hostile above the notice floor has appeared and no known hostile has jumped past the hold slack (a pixel closer is the plan working), the intent region has not doubled the company gap, and the hands have made progress inside the stall window. Progress is a planned use leaving the hand or a planned hit landing on a planned generation. The clock runs from the segment's start: travel the plan ordained is not idleness. A stall defers every body the plan targeted, not only the primary. Suspension renews the window rather than consuming it.
 
-`PlanningBudget` is the one decision's allowance, in milliseconds compared to TickCount64. A previous conversion stored TimeSpan ticks / 1000, so a configured 4 ms ran as 40. A cut that already priced a stand keeps the best of those and offers it; only a cut that priced nothing is unresolved at value zero. The cross-tick sim cache still keys FireTick: a delayed bow after a grenade is not the same flight as firing now. Live HereAndCompany stands already cache at fire-delay 0; moving Eyes miss via the enemy hash. Company parks and routes pay the combined wall-and-enemy heat; combat stands still win on the vector, because putting that heat on the weighted pick broke the shotgun-close and grenade-drop rows.
+`PlanningBudget` is the one decision's allowance, in milliseconds compared to TickCount64. A previous conversion stored TimeSpan ticks / 1000, so a configured 4 ms ran as 40. A cut that already priced a stand keeps the best of those and offers it; only a cut that priced nothing is unresolved at value zero. The cross-tick sim cache still keys FireTick: a delayed bow after a grenade is not the same flight as firing now. Live HereAndCompany stands already cache at fire-delay 0; moving Eyes miss via the enemy hash. Company parks and routes pay the combined wall-and-enemy heat out to eight tiles. Combat stands are nudged one tile off terrain so a body is not cornered on a wall, without putting that heat on the weighted pick (which broke the shotgun-close and grenade-drop rows). A segmented body is one proposal target; pierce still flies along its spine.
 
 ## Relations
 
@@ -83,7 +85,7 @@ The vector maximises damage-per-second (in encounter-life units), threat removed
 
 ## Current state — 18 September 2026
 
-The seven generators, the beam, the overlay layer, C1 (cache p99 inside one frame after the P-rows), P1–P8, P9–P12 and the audit's A1–A4 are built. P7 commits an AboveArea grenade then a FloorFlanks bow that starts after arrival. SafeRange stands off the loudest corridor at full life; harm at a stand is path occupancy. The planning clock stores milliseconds; a level-one cut keeps priced stands; the cross-tick cache still keys FireTick; a hold survives urgency creep inside the slack. Company parks and routes pay the wall-and-enemy heat; combat stands still win on the vector. Weight constants are file 4's shapes, not yet swept over a play capture. `CombatValueScale` is 1.0. `--combat-cost` is the attack-planning suite, not C1 alone.
+The seven generators, the beam, the overlay layer, C1 (cache p99 inside one frame after the P-rows), P1–P8, P9–P12 and the audit's A1–A4 are built. P7 commits an AboveArea grenade then a FloorFlanks bow that starts after arrival. SafeRange stands off the loudest corridor at full life; harm at a stand is path occupancy. The planning clock stores milliseconds; a level-one cut keeps priced stands; the cross-tick cache still keys FireTick; a hold survives urgency creep inside the slack. Company parks and routes pay eight-tile wall-and-enemy heat; combat stands nudge off terrain. A chain is one proposal target. Weight constants are file 4's shapes. `--combat-cost` is the attack-planning suite, not C1 alone.
 
 ## Operating
 

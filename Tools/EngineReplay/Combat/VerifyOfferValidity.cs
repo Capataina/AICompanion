@@ -29,7 +29,7 @@ internal static class VerifyOfferValidity
         FireFromReportsUndecidedWhileTheFloodHasNotClaimedIt();
         FireFromRefusesSolidGround();
         FireFromRefusesADeadTarget();
-        Console.WriteLine("offer validity: a FireFrom stand holds its point, reports undecided on unclaimed ground, and refuses rock and dead targets");
+        Console.WriteLine("offer validity: a FireFrom stand holds its point, reports undecided on unclaimed ground, falls back to here from rock, and refuses a dead target");
         return 0;
     }
 
@@ -95,8 +95,10 @@ internal static class VerifyOfferValidity
             $"a refused stand must say the stand is unreachable; reason={positioner.ChoiceReason}");
 
         var offer = positioner.PrepareOffer(request, companion.Brain.Senses);
-        Require(offer.Destination == null && !offer.Undecided,
-            $"a stand inside rock is a settled refusal the chooser may brand on; reason={offer.Reason}, undecided={offer.Undecided}");
+        Require(offer.Destination != null && !offer.Undecided && offer.Reason == "fire-from-here",
+            $"a rock stand must fall back to firing from here so combat keeps the body; destination={offer.Destination}, reason={offer.Reason}, undecided={offer.Undecided}");
+        Require(Vector2.DistanceSquared(offer.Destination.Value, companion.NPC.Center) < 1f,
+            $"the fallback is the body, not a substitute pixel; here={offer.Destination} body={companion.NPC.Center}");
     }
 
     private static void FireFromRefusesADeadTarget()

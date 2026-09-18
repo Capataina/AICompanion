@@ -45,6 +45,43 @@ public static class ClearanceHeat
     public static float Combined(ITileWorld world, Vector2 point, IReadOnlyList<Rectangle> boxes)
         => MathF.Min(TerrainAt(world, point), ToBoxes(point, boxes));
 
+    /// <summary>
+    /// One tile toward clearer walls, only when the body is in a crack (under one tile of
+    /// clearance). Parking already prefers eight tiles of air; nudging every stand under the cap
+    /// moved shotgun-close. The step is one tile so FireFrom arrival still covers the original pixel.
+    /// </summary>
+    public static Vector2 NudgeOffTerrain(ITileWorld world, Vector2 point)
+    {
+        if (world == null)
+            return point;
+        float here = TerrainAt(world, point);
+        // Only a body that is actually in a crack: parking already prefers eight tiles of air,
+        // and nudging every stand that is merely under the cap moved shotgun-close P3.
+        if (here >= 1f)
+            return point;
+        Vector2 best = point;
+        float bestClear = here;
+        const float step = 16f;
+        Vector2[] dirs =
+        {
+            new(step, 0f), new(-step, 0f), new(0f, step), new(0f, -step),
+            new(step, step), new(step, -step), new(-step, step), new(-step, -step),
+        };
+        foreach (Vector2 dir in dirs)
+        {
+            Vector2 candidate = point + dir;
+            if (CircleContact.Overlaps(world, candidate))
+                continue;
+            float clearance = TerrainAt(world, candidate);
+            if (clearance > bestClear)
+            {
+                bestClear = clearance;
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
     /// <summary>Zero inside or on the edge; otherwise the Euclidean distance to the nearest point on the box.</summary>
     public static float DistanceToBox(Vector2 point, Rectangle box)
     {

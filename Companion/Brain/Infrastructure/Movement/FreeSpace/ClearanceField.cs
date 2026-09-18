@@ -20,7 +20,7 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 /// </summary>
 public sealed class ClearanceField
 {
-    public const int MaxTiles = 6;
+    public const int MaxTiles = 8;
     private const int ChunkSize = 16;
 
     private sealed class Chunk

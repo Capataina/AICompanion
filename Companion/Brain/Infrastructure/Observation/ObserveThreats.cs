@@ -223,8 +223,15 @@ public sealed class ThreatSense
             rec.UrgencyToCompanion = rec.CanReachCompanion
                 ? ThreatUrgency.ToCompanion(rec.EffectiveDamageToCompanion, companion.life, rec.IsBoss, rec.TicksToCompanion, rec.Shoots, rec.HasSightOnCompanion)
                 : 0f;
+            rec.ChainHead = ChainHeadOf(npc);
             Threats.Add(rec);
+        }
 
+        MarkChainRepresentatives();
+        foreach (ThreatRecord rec in Threats)
+        {
+            if (!rec.IsChainRepresentative)
+                continue;
             if (rec.Urgency > (MostUrgent?.Urgency ?? 0f))
                 MostUrgent = rec;
             if (rec.UrgencyToCompanion > (MostUrgentToCompanion?.UrgencyToCompanion ?? 0f))
@@ -237,6 +244,47 @@ public sealed class ThreatSense
         CompanionDanger = 1f - companionMiss;
     }
 
+    /// <summary>The head a segment belongs to, or the NPC itself. Vanilla worms store the head in <c>realLife</c>.</summary>
+    public static int ChainHeadOf(NPC npc)
+    {
+        int head = npc.realLife;
+        if ((uint)head < (uint)Main.maxNPCs)
+        {
+            NPC live = Main.npc[head];
+            if (live != null && live.active && live.life > 0)
+                return head;
+        }
+        return npc.whoAmI;
+    }
+
+    /// <summary>One representative per chain: the head when it is in the list, otherwise the loudest segment.</summary>
+    private void MarkChainRepresentatives()
+    {
+        var best = new Dictionary<int, int>();
+        for (int i = 0; i < Threats.Count; i++)
+        {
+            ThreatRecord rec = Threats[i];
+            rec.IsChainRepresentative = false;
+            int head = rec.ChainHead;
+            if (!best.TryGetValue(head, out int held))
+            {
+                best[head] = i;
+                continue;
+            }
+            ThreatRecord other = Threats[held];
+            bool thisIsHead = rec.Npc.whoAmI == head;
+            bool otherIsHead = other.Npc.whoAmI == head;
+            if (thisIsHead && !otherIsHead)
+                best[head] = i;
+            else if (!thisIsHead && otherIsHead)
+                continue;
+            else if (MathF.Max(rec.Urgency, rec.UrgencyToCompanion) > MathF.Max(other.Urgency, other.UrgencyToCompanion))
+                best[head] = i;
+        }
+        foreach (int i in best.Values)
+            Threats[i].IsChainRepresentative = true;
+    }
+
     public void SetInterventionEstimate(float ticks)
     {
         InterventionTicks = float.IsFinite(ticks) ? MathF.Max(0f, ticks) : float.PositiveInfinity;
@@ -244,6 +292,7 @@ public sealed class ThreatSense
         Horizon = float.MaxValue;
         foreach (ThreatRecord threat in Threats)
         {
+            if (!threat.IsChainRepresentative) continue;
             if (threat.Urgency <= 0f) continue;
             // The weapon estimate names the most urgent target, not every enemy in a crowd.
             // Other threats have no demonstrated intervention yet and cannot borrow that shot.

@@ -90,6 +90,7 @@ public static class ProposeFiringStands
     private static void Emit(List<StandProposal> proposals, HashSet<(int X, int Y)> seen,
         Vector2 stand, StandReason reason, int weaponSlot, int[] targetSlots)
     {
+        stand = ClearanceHeat.NudgeOffTerrain(MovementQueries.World, stand);
         if (seen.Add(HalfTile(stand)))
             proposals.Add(new StandProposal(stand, reason, weaponSlot, targetSlots));
     }
@@ -429,70 +430,152 @@ public static class ProposeFiringStands
         => weapon is ItemWeapon item ? MathF.Max(48f, item.SwingReach + 32f) : 80f;
 
     /// <summary>
-    /// For any weapon whose simulated pierce exceeds one, points on the extension of lines through
-    /// chains of predicted bodies — worm segments are a chain, because each is its own forecast — at
-    /// three distances along the line, both ends. Each candidate is proved by flying it: the sim must
-    /// strike two distinct bodies or the stand is not a pierce line.
+    /// For any weapon whose simulated pierce exceeds one: one spine through each segmented body
+    /// (head to tail, not every pair of segments), and one line between each pair of different
+    /// enemies. Each candidate is proved by flying it: the sim must strike two distinct bodies or
+    /// the stand is not a pierce line.
     /// </summary>
     private static void PierceLines(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
         List<ThreatRecord> targets, List<StandProposal> proposals,
         HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
     {
-        if (targets.Count < 2)
+        if (targets.Count < 1)
             return;
         int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
+        var groups = new Dictionary<int, List<ThreatRecord>>();
+        foreach (ThreatRecord t in targets)
+        {
+            int head = ThreatSense.ChainHeadOf(t.Npc);
+            if (!groups.TryGetValue(head, out List<ThreatRecord>? members))
+            {
+                members = new List<ThreatRecord>();
+                foreach (ThreatRecord sensed in ctx.Senses.Threats.Threats)
+                {
+                    if (sensed.Npc == null || !sensed.Npc.active)
+                        continue;
+                    if (ThreatSense.ChainHeadOf(sensed.Npc) == head)
+                        members.Add(sensed);
+                }
+                if (members.Count == 0)
+                    members.Add(t);
+                groups[head] = members;
+            }
+        }
+        var reps = new List<ThreatRecord>(groups.Count);
+        foreach (List<ThreatRecord> members in groups.Values)
+        {
+            ThreatRecord? rep = null;
+            foreach (ThreatRecord m in members)
+            {
+                if (m.IsChainRepresentative)
+                {
+                    rep = m;
+                    break;
+                }
+            }
+            reps.Add(rep ?? members[0]);
+        }
+
         for (int w = 0; w < weapons.Count; w++)
         {
             if (!Pierces(weapons[w]))
                 continue;
             float reach = MathF.Max(48f, weapons[w].Reach);
-            for (int a = 0; a < targets.Count; a++)
+            foreach (List<ThreatRecord> members in groups.Values)
             {
-                EnemyForecast? first = ForecastFor(enemies, targets[a].Npc.whoAmI);
-                if (first == null)
+                if (members.Count < 2)
                     continue;
-                for (int b = a + 1; b < targets.Count; b++)
+                if (!FarthestPair(members, enemies, out ThreatRecord a, out ThreatRecord b))
+                    continue;
+                if (!ProbePierceLine(ctx, weapons[w], w, enemies, a, b, reach, modifiers, stopAt,
+                        proposals, seen, ref budget))
+                    return;
+            }
+            for (int i = 0; i < reps.Count; i++)
+            {
+                for (int j = i + 1; j < reps.Count; j++)
                 {
-                    EnemyForecast? second = ForecastFor(enemies, targets[b].Npc.whoAmI);
-                    if (second == null)
-                        continue;
-                    Vector2 pa = first.PredictedCentre(GeometryTick);
-                    Vector2 pb = second.PredictedCentre(GeometryTick);
-                    Vector2 along = pb - pa;
-                    if (along == Vector2.Zero)
-                        continue;
-                    along = Vector2.Normalize(along);
-                    Vector2 mid = (pa + pb) / 2f;
-                    int[] chain = new[] { targets[a].Npc.whoAmI, targets[b].Npc.whoAmI };
-                    foreach (float end in new[] { 1f, -1f })
-                    {
-                        Vector2 best = mid;
-                        int bestBodies = 1;
-                        float bestDamage = 0f;
-                        foreach (float fraction in new[] { 0.35f, 0.65f, 0.95f })
-                        {
-                            if (budget.Simulations >= stopAt || !budget.Check())
-                                return;
-                            Vector2 stand = mid + along * end * reach * fraction;
-                            Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
-                            var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-                            float damage = ProbeYield(weapons[w], w, ctx, muzzle, first, world, enemies,
-                                modifiers, ref budget, out int bodies, out _);
-                            if (bodies > bestBodies || (bodies == bestBodies && damage > bestDamage + 1e-6f))
-                            {
-                                bestBodies = bodies;
-                                bestDamage = damage;
-                                best = stand;
-                            }
-                        }
-                        if (bestBodies >= 2)
-                            EmitPierce(proposals, seen, best, w, chain);
-                    }
+                    if (!ProbePierceLine(ctx, weapons[w], w, enemies, reps[i], reps[j], reach, modifiers, stopAt,
+                            proposals, seen, ref budget))
+                        return;
                 }
             }
         }
+    }
+
+    private static bool FarthestPair(List<ThreatRecord> members, IReadOnlyList<EnemyForecast> enemies,
+        out ThreatRecord first, out ThreatRecord second)
+    {
+        first = members[0];
+        second = members[0];
+        float best = -1f;
+        for (int i = 0; i < members.Count; i++)
+        {
+            EnemyForecast? fa = ForecastFor(enemies, members[i].Npc.whoAmI);
+            if (fa == null)
+                continue;
+            Vector2 pa = fa.PredictedCentre(GeometryTick);
+            for (int j = i + 1; j < members.Count; j++)
+            {
+                EnemyForecast? fb = ForecastFor(enemies, members[j].Npc.whoAmI);
+                if (fb == null)
+                    continue;
+                float d = Vector2.DistanceSquared(pa, fb.PredictedCentre(GeometryTick));
+                if (d > best)
+                {
+                    best = d;
+                    first = members[i];
+                    second = members[j];
+                }
+            }
+        }
+        return best > 0f;
+    }
+
+    private static bool ProbePierceLine(in ActionContext ctx, CompanionWeapon weapon, int weaponSlot,
+        IReadOnlyList<EnemyForecast> enemies, ThreatRecord a, ThreatRecord b, float reach,
+        ModifierState modifiers, int stopAt, List<StandProposal> proposals, HashSet<(int X, int Y)> seen,
+        ref PlanningBudget budget)
+    {
+        EnemyForecast? first = ForecastFor(enemies, a.Npc.whoAmI);
+        EnemyForecast? second = ForecastFor(enemies, b.Npc.whoAmI);
+        if (first == null || second == null)
+            return true;
+        Vector2 pa = first.PredictedCentre(GeometryTick);
+        Vector2 pb = second.PredictedCentre(GeometryTick);
+        Vector2 along = pb - pa;
+        if (along == Vector2.Zero)
+            return true;
+        along = Vector2.Normalize(along);
+        Vector2 mid = (pa + pb) / 2f;
+        int[] chain = new[] { a.Npc.whoAmI, b.Npc.whoAmI };
+        foreach (float end in new[] { 1f, -1f })
+        {
+            Vector2 best = mid;
+            int bestBodies = 1;
+            float bestDamage = 0f;
+            foreach (float fraction in new[] { 0.35f, 0.65f, 0.95f })
+            {
+                if (budget.Simulations >= stopAt || !budget.Check())
+                    return false;
+                Vector2 stand = mid + along * end * reach * fraction;
+                Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
+                var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
+                float damage = ProbeYield(weapon, weaponSlot, ctx, muzzle, first, world, enemies,
+                    modifiers, ref budget, out int bodies, out _);
+                if (bodies > bestBodies || (bodies == bestBodies && damage > bestDamage + 1e-6f))
+                {
+                    bestBodies = bodies;
+                    bestDamage = damage;
+                    best = stand;
+                }
+            }
+            if (bestBodies >= 2)
+                EmitPierce(proposals, seen, best, weaponSlot, chain);
+        }
+        return true;
     }
 
     /// <summary>

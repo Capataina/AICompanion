@@ -1287,19 +1287,22 @@ internal static class VerifyAttackPlanning
     }
 
     /// <summary>
-    /// Closer to a box costs more, inside is zero, six tiles out is the cap. Never a refusal.
+    /// Closer to a box costs more, inside is zero, MaxTiles out is the cap. Never a refusal.
     /// </summary>
     public static int ClosenessToABodyIsAHeatNotAWall()
     {
         var box = new Rectangle(100, 100, 20, 40);
         Rectangle[] boxes = { box };
+        int capTiles = ClearanceHeat.MaxTiles;
         Require(ClearanceHeat.ToBoxes(new Vector2(110, 120), boxes) == 0f, "inside a body is zero clearance");
+        float cap = ClearanceHeat.ToBoxes(new Vector2(110, 100 - capTiles * 16), boxes);
+        Require(MathF.Abs(cap - capTiles) < 0.05f, $"{capTiles} tiles above the box must cap at {capTiles}, got {cap}");
         float six = ClearanceHeat.ToBoxes(new Vector2(110, 100 - 6 * 16), boxes);
-        Require(MathF.Abs(six - 6f) < 0.05f, $"six tiles above the box must cap at 6, got {six}");
+        Require(six < cap - 0.5f, $"six tiles off must still cost more than the cap; six={six} cap={cap}");
         float near = ClearanceHeat.ToBoxes(new Vector2(110, 100 - 16), boxes);
         Require(near < six - 1f, $"one tile off must cost more than six tiles off; near={near} far={six}");
-        Require(ClearanceHeat.Penalty(0.5f) > ClearanceHeat.Penalty(6f), "a touch must cost more than the cap");
-        Console.WriteLine($"clearance heat: 1-tile {near:0.00}, 6-tile {six:0.00}, penalties {ClearanceHeat.Penalty(near):0.00}/{ClearanceHeat.Penalty(six):0.00}");
+        Require(ClearanceHeat.Penalty(0.5f) > ClearanceHeat.Penalty(capTiles), "a touch must cost more than the cap");
+        Console.WriteLine($"clearance heat: 1-tile {near:0.00}, 6-tile {six:0.00}, cap {cap:0.00}, penalties {ClearanceHeat.Penalty(near):0.00}/{ClearanceHeat.Penalty(cap):0.00}");
         return 0;
     }
 
@@ -1339,6 +1342,53 @@ internal static class VerifyAttackPlanning
         Require(aboveFloor >= 4 * 16f,
             $"open-air company must park at least four tiles off the floor, sat {aboveFloor / 16f:0.0} tiles up at {chosen} reason={pos.ChoiceReason}");
         Console.WriteLine($"company park: {aboveFloor / 16f:0.0} tiles above the floor, reason {pos.ChoiceReason}");
+        return 0;
+    }
+
+    /// <summary>
+    /// A worm is one enemy for danger: every segment is still on the list for pierce, and only the
+    /// head is the representative that multiplies player danger.
+    /// </summary>
+    public static int ASegmentedBodyIsOneThreatForDanger()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Player player = Main.player[0];
+        player.dead = false;
+        player.active = true;
+        player.statLife = player.statLifeMax2 = 400;
+        player.Center = companion.NPC.Center + new Vector2(48, 0);
+        const int headSlot = 10;
+        void Plant(int slot, int type, int realLife)
+        {
+            var npc = new NPC();
+            npc.SetDefaults(type);
+            npc.whoAmI = slot;
+            npc.active = true;
+            npc.friendly = false;
+            npc.life = npc.lifeMax = 80;
+            npc.realLife = realLife;
+            npc.Center = player.Center + new Vector2(160 + (slot - headSlot) * 18, 0);
+            npc.velocity = Vector2.Zero;
+            Main.npc[slot] = npc;
+        }
+        Plant(headSlot, NPCID.GiantWormHead, -1);
+        for (int s = 1; s <= 7; s++)
+            Plant(headSlot + s, NPCID.GiantWormBody, headSlot);
+        companion.Brain.Senses.Update(companion.NPC, player);
+        int records = 0, reps = 0;
+        foreach (var t in companion.Brain.Senses.Threats.Threats)
+        {
+            if (t.Npc == null || t.Npc.whoAmI < headSlot || t.Npc.whoAmI > headSlot + 7)
+                continue;
+            records++;
+            if (t.IsChainRepresentative)
+                reps++;
+        }
+        Require(records >= 8, $"the sense still lists every segment; got {records}");
+        Require(reps == 1, $"danger counts one representative; got {reps} of {records}");
+        float danger = companion.Brain.Senses.Threats.PlayerDanger;
+        Require(danger < 0.95f, $"a worm must not saturate player danger the way eight bodies would; danger={danger:0.00}");
+        Console.WriteLine($"worm chain: records={records} representatives={reps} player-danger={danger:0.00}");
         return 0;
     }
 }

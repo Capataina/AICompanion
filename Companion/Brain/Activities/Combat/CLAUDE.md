@@ -30,9 +30,9 @@ A committed plan is kept by membership, never by a bonus: terrain revision, know
 
 The funnel names every threat the preparation met, earliest stage first: not chaseable, outside the allowance, deferred, unplannable, outvalued, or offered. The offered plan's primary target is the use whose body had the highest sensed danger when the search named it, not the greedy opener of the first segment: a two-segment plan that farms a nearby zombie and then stands over the threat on the player is pursuing the latter.
 
-The value offered to the chooser is the plan's weighted outcome mapped into the utility band and lifted by the player's danger, so a threat on him can take the body from a vein. The companion's own danger is not a second skin on the score — it is `CompanionHarmTaken` inside the vector.
+The value offered to the chooser is a fight that actually hits, sitting strictly above the wander floor and then climbing with the plan's weighted outcome and the player's danger, so standing still cannot beat a real shot and a threat on him can take the body from a vein. A plan that never lands inside the horizon is not Usable. The companion's own danger is not a second skin on the score — it is `CompanionHarmTaken` inside the vector. A segmented body is one eligible threat (the head, or the loudest piece); pierce still sees every segment.
 
-`Execute` returns `FireFrom` at the current segment's stand, aimed at the primary target. A null resolution from the positioner invalidates the plan on the next rescore. The hands (`FireDueUse`) fire the plan's due use when the body is at the stand, and the best use from here at the plan's targets while travelling.
+`Execute` returns `FireFrom` at the current segment's stand, aimed at the primary target. A null resolution from the positioner invalidates the plan on the next rescore. The admission query does not dump the fight when that pixel is rock or unclaimed: unclaimed is unresolved, rock falls back to firing from here. The hands (`FireDueUse`) fire the plan's due use when the body is at the stand, and the best use from here that actually deals damage while travelling.
 
 ## What it deliberately does not do
 
@@ -52,7 +52,7 @@ The planner in `Planning/` is this folder's decision. `../../Infrastructure/Inte
 
 ## Current state — 18 September 2026
 
-The stance, the seven generators, the beam, the overlay's committed-plan layer, `CheckTheFight`'s performed and churn checks, name-keyed knowledge save/load, and the extra-projectile modifier seam are built. Headless: `sh Tools/verify.sh --case combat` (and `--case "attack planning"` / `--case weapon`) files no red row; C1's cache 99th percentile sits inside one frame. `CombatValueScale` is still 1.0, waiting on a play capture. Mastery pierce and extra-projectile bonuses are planted in the S5 row — there is no live bonuses record yet. Invalidation of a combat target is still the world's global edit counter rather than a spatial box.
+The stance, the seven generators, the beam, the overlay's committed-plan layer, `CheckTheFight`'s performed and churn checks, name-keyed knowledge save/load, and the extra-projectile modifier seam are built. Headless: `sh Tools/verify.sh --case combat` (and `--case "attack planning"` / `--case weapon`) files no red row; C1's cache 99th percentile sits inside one frame. A live play on 18 September 2026 (`2026-09-18_12-37-47-939`) showed usable plans losing to the wander floor and a Giant Worm counted as ten threats; the offer now refuses a no-hit plan, a hitting plan sits above the wander floor, and a chain is one threat for danger and eligibility. Mastery pierce and extra-projectile bonuses are planted in the S5 row — there is no live bonuses record yet. Invalidation of a combat target is still the world's global edit counter rather than a spatial box.
 
 ## Operating
 
@@ -67,4 +67,4 @@ Always `DYLD_LIBRARY_PATH` to tModLoader's native OSX libraries. Never launch Te
 
 ## Planned work
 
-Tune `CombatValueScale` and the objective-weight constants from a live capture — that is the owner's play, not a headless row. Wire mastery pierce and extra-projectile to a live bonuses record when one exists. Make combat-target invalidation spatial, with a box the flight simulation actually bounds.
+Wire mastery pierce and extra-projectile to a live bonuses record when one exists. Make combat-target invalidation spatial, with a box the flight simulation actually bounds.

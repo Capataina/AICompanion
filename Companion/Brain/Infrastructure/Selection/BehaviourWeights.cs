@@ -428,6 +428,8 @@ public static class Weights
     public const float HuntLeashToZero = 900f;
 
     public const float WanderFloor = 0.05f;
+    /// <summary>How far above the wander floor a fight that actually hits must sit, so Clamp-to-zero cannot lose to standing still.</summary>
+    public const float CombatAboveWander = 0.02f;
     /// <summary>
     /// The most rejoining the player can be worth short of the hard leash, and the most a job's separation can take from it.
     /// The owner ruled 0.5 after the third orb play of 15 September 2026, where rejoining at the full value any job can have

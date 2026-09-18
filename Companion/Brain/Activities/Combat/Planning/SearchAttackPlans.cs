@@ -578,7 +578,9 @@ public static class SearchAttackPlans
             NPC npc = threat.Npc;
             if (npc == null || !npc.active || npc.life <= 0 || !npc.CanBeChasedBy())
                 continue;
-            if (!inAllowance(npc.Bottom))
+            if (!threat.IsChainRepresentative)
+                continue;
+            if (!ChainInAllowance(ctx, threat, inAllowance))
                 continue;
             int generation = HostileAttackSources.Generation(npc);
             if (combat.Planner.IsDeferred(ctx, npc.whoAmI, generation, npc.Center))
@@ -596,6 +598,18 @@ public static class SearchAttackPlans
         for (int i = 0; i < scored.Count && targets.Count < Weights.CombatMaxProposalTargets; i++)
             targets.Add(scored[i].Threat);
         return targets;
+    }
+
+    private static bool ChainInAllowance(in ActionContext ctx, ThreatRecord representative, Func<Vector2, bool> inAllowance)
+    {
+        foreach (ThreatRecord member in ctx.Senses.Threats.Threats)
+        {
+            if (member.ChainHead != representative.ChainHead)
+                continue;
+            if (member.Npc != null && member.Npc.active && inAllowance(member.Npc.Bottom))
+                return true;
+        }
+        return inAllowance(representative.Npc.Bottom);
     }
 
     // Phase E proposes through ProposeFiringStands: the seven generators above this file's verdicts.

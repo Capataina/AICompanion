@@ -151,6 +151,23 @@ public sealed class Positioner
             if (!here && ReachOf(MovementQueries.Tile(request.Anchor)) == ReachVerdict.NotYet)
                 return new(null, PositionReasons.FireStandUndecided, "", senses.Tick);
             Vector2? destination = Resolve(request, senses);
+            if (destination == null)
+            {
+                Vector2 fromBody = senses.Companion.Center;
+                if (!CircleContact.Overlaps(MovementQueries.World, fromBody) && Allowed(MovementQueries.Tile(fromBody)))
+                {
+                    Chosen = fromBody;
+                    ChosenScore = 1f;
+                    ChoiceReason = "fire-from-here";
+                    LastResolveFailed = false;
+                    CandidateEvidence = "";
+                    EvaluatedCandidates = CandidateCount = ReachableCandidateCount = 1;
+                    RejectedCandidateCount = 0;
+                    EvidenceTick = senses.Tick;
+                    Region = SuccessRegion.Unscored(SuccessRegionKind.Undeclared, fromBody, senses.Tick, TerrainChanges.Revision);
+                    destination = fromBody;
+                }
+            }
             admitted = destination != null;
             return new(destination, ChoiceReason, CandidateEvidence, EvidenceTick);
         }

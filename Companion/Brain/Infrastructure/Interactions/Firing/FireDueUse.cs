@@ -229,11 +229,13 @@ public sealed class FireDueUse
         var context = TravelContext(ctx, muzzle);
         CombatWeights weights = FightWeights(ctx, combat);
         EvaluateAttackOutcomes.Attack? winner = null;
-        float best = 0f;
+        float best = float.NegativeInfinity;
         foreach (EvaluateAttackOutcomes.Attack attack in attacks)
         {
             CombatOutcome outcome = EvaluateAttackOutcomes.EvaluateVector(attack, attacks, evalTargets,
                 combat.CooldownTicks, CompanionCombat.HorizonTicks, context, weights).Outcome;
+            if (outcome.DamagePerSecond <= 0f)
+                continue;
             float value = weights.Weighted(outcome);
             if (value > best)
             {

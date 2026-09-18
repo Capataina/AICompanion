@@ -145,12 +145,14 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             NPC npc = threat.Npc;
             if (npc == null || !npc.active || npc.life <= 0)
                 continue;
+            if (!threat.IsChainRepresentative)
+                continue;
             if (!npc.CanBeChasedBy())
             {
                 Funnel.Add(Identity(threat), npc.Center.ToTileCoordinates(), threat.DistanceToCompanion, "", StageNotChaseable, "");
                 continue;
             }
-            if (!AllowsTarget(ctx, npc.Bottom))
+            if (!ChainAllowed(ctx, threat))
             {
                 Funnel.Add(Identity(threat), npc.Center.ToTileCoordinates(), threat.DistanceToCompanion, StageNotChaseable, StageAllowance, "");
                 continue;
@@ -258,8 +260,17 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         OfferedFrontSize = frontSize;
         OfferedCut = cut;
         OfferedSegment = Array.IndexOf(plan.Segments, plan.Current(PlanTick));
-        preparedValue = Weights.CombatValueScale * Math.Clamp(weighted, 0f, 1f)
-            * (1f + Weights.CombatPlayerDangerLift * Math.Clamp(ctx.Senses.Threats.PlayerDanger, 0f, 1f));
+        bool hits = outcome.DamagePerSecond > 0f && outcome.TimeToFirstDamage < 1f - 1e-5f;
+        if (!hits)
+        {
+            preparedValue = 0f;
+            Classify(OfferEligibility.KnownUnusable, "no-damage-in-horizon");
+            return;
+        }
+        float unit = Math.Clamp(weighted, 0f, 1f);
+        float lift = 1f + Weights.CombatPlayerDangerLift * Math.Clamp(ctx.Senses.Threats.PlayerDanger, 0f, 1f);
+        preparedValue = Weights.WanderFloor + Weights.CombatAboveWander
+            + (1f - Weights.WanderFloor) * Weights.CombatValueScale * unit * lift;
         foreach ((int slot, _) in plan.Validity.Targets)
         {
             foreach (ThreatRecord threat in ctx.Senses.Threats.Threats)
@@ -274,6 +285,19 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             }
         }
         Classify(OfferEligibility.Usable, "planned-attack");
+    }
+
+    /// <summary>A chain is in range when any of its bodies is. The head may sit around a corner while a segment is next to us.</summary>
+    private bool ChainAllowed(in ActionContext ctx, ThreatRecord representative)
+    {
+        foreach (ThreatRecord member in ctx.Senses.Threats.Threats)
+        {
+            if (member.ChainHead != representative.ChainHead)
+                continue;
+            if (member.Npc != null && member.Npc.active && AllowsTarget(ctx, member.Npc.Bottom))
+                return true;
+        }
+        return AllowsTarget(ctx, representative.Npc.Bottom);
     }
 
     /// <summary>

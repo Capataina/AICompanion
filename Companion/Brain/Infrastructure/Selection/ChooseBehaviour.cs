@@ -198,7 +198,8 @@ public sealed class Chooser
                 int row = LastScores.FindIndex(s => ReferenceEquals(s.Action, Actions[winner.Index]));
                 if (row >= 0) LastScores[row] = LastScores[row] with { MethodEvidence = methods[winner.Index],
                     Eligibility = offers[winner.Index].Eligibility, EligibilityReason = offers[winner.Index].Reason };
-                if (method.Destination == null) reason = "method-" + method.Reason;
+                if (method.Destination == null && !method.Undecided)
+                    reason = "method-" + method.Reason;
             }
             if (reason.Length == 0) { best = Actions[winner.Index]; break; }
             rejections[winner.Index] = reason;
@@ -264,7 +265,13 @@ public sealed class Chooser
         var shift = playerTravel * MathF.Min(ticks, Weights.PlayerProjectionCapTicks);
         var projected = region with { Centre = region.Centre + shift, Heading = region.Heading + shift };
         float gap = projected.GapBeyond(stand);
-        return 1f - (gap > 0f ? KeepCompany.PullAtGap(projected, gap + detour) : 0f);
+        // A stand still beside the region is with the player: a windy cave path to a pixel twelve
+        // tiles away is not leaving him. Detour only joins the pull once the stand is truly outside
+        // the box — the surface-zombie-while-he-dropped scene — so a fight in the cave he is in
+        // is not charged as if he had walked away.
+        float inner = MathF.Max(projected.HalfSize.X, projected.HalfSize.Y);
+        float charged = gap > inner ? gap + detour : gap;
+        return 1f - (gap > 0f ? KeepCompany.PullAtGap(projected, charged) : 0f);
     }
 
     /// <summary>

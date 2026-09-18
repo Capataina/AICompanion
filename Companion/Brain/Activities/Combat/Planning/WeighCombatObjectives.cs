@@ -73,6 +73,8 @@ public static class WeighCombatObjectives
         float total = 0f, alive = 0f, playerTotal = 0f, playerAddressed = 0f;
         foreach (ThreatRecord threat in threats.Threats)
         {
+            if (!threat.IsChainRepresentative)
+                continue;
             float danger = MathF.Max(threat.Urgency, threat.UrgencyToCompanion);
             total += danger;
             if (threat.Npc != null && threat.Npc.active && threat.Npc.life > 0)

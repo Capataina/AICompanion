@@ -12,6 +12,11 @@ public sealed class ThreatRecord
 {
     public NPC Npc = null!;
     public MovementClass Class;
+    /// <summary>The head of a segmented body, or this NPC when it is not a segment.
+    /// Danger, eligibility and proposal caps count one record per chain; pierce still reads every member.</summary>
+    public int ChainHead;
+    /// <summary>True on exactly one record per <see cref="ChainHead"/>: the head when it is in the list, else the loudest segment.</summary>
+    public bool IsChainRepresentative = true;
     public bool CanReachPlayer = true;
     public bool CanReachCompanion = true;
     public bool CanReachEither => CanReachPlayer || CanReachCompanion;
