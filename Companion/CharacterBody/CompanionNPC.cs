@@ -324,16 +324,25 @@ public class CompanionNPC : ModNPC
         reach.Inflate((int)PickupReach, (int)PickupReach);
         foreach (Item item in Main.ActiveItems)
         {
-            if (item.IsAir || item.noGrabDelay > 0 || !item.Hitbox.Intersects(reach))
+            if (item.IsAir || item.noGrabDelay > 0)
                 continue;
             // Hearts, mana stars and the like are consumed on touch by the player, never stored;
             // the companion leaves them for the player they heal.
             if (ItemID.Sets.IsAPickup[item.type])
                 continue;
+            var owner = Brain.Chooser.Activity;
+            // Arrival then hovers inside SettleRadius, which is larger than the prove slack. A gel the
+            // walk proved then sat on for 22 s of Arrived without a transfer was the body drifting
+            // outside PickupReach of a pose that still counted as arrived.
+            Rectangle itemReach = reach;
+            if (owner.AttemptOpen && owner.Current is global::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems walked
+                && walked.ClaimsDrop(item))
+                itemReach.Inflate((int)Navigator.SettleRadius, (int)Navigator.SettleRadius);
+            if (!item.Hitbox.Intersects(itemReach))
+                continue;
             Item snapshot = item.Clone();
             int before = item.stack;
             // Asked before the transfer, while the drop is still the object the attempt walked to; after it a whole stack is air.
-            var owner = Brain.Chooser.Activity;
             long claimingAttempt = owner.AttemptOpen && owner.Current is global::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems collect
                 && collect.ClaimsDrop(item) ? owner.AttemptId : 0;
             if (Bag.Collect(item, player))

@@ -127,6 +127,9 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
         {
             Item item = pickup.Item;
             if (!LootSense.IsWorldDrop(item)) continue;
+            // Hearts, stars and the other IsAPickup heals are consumed by the player, never stored.
+            // Contact pickup skips them; walking there anyway is the stand-on-a-heart freeze.
+            if (ItemID.Sets.IsAPickup[item.type]) continue;
             string identity = FormattableString.Invariant($"item{item.whoAmI}:{item.type}");
             Point at = item.Center.ToTileCoordinates();
             float cost = pickup.DistanceToCompanion;

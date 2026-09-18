@@ -55,6 +55,7 @@ internal static class VerifyCollectionContracts
         Each("I05 attribution by transfer", ADropLeavingTheWorldIsAttributedByWhatTheBagReceived);
         Each("I03 one trip unit", ADropsForecastIsTheWalkToAContactPose);
         Each("a drop below a ledge is not a contact pose on the ledge", ADropBelowALedgeIsNotAContactPoseOnTheLedge);
+        Each("a heart is not a collection trip", AHeartIsNotACollectionTrip);
         Each("D1 a reachable drop behind refused drops is offered", AReachableDropBehindRefusedDropsIsOffered);
         Each("D2 a drop merged into another world drop", ADropMergedIntoAnotherWorldDropIsNotAPurposeThatWentAway);
         Each("D3 a drop released in the air is offered at its forecast landing", ADropStillFallingIsOfferedAtItsForecastLanding);
@@ -535,6 +536,22 @@ internal static class VerifyCollectionContracts
             Require(collect.Method != "known-drop" && collect.Score() == 0,
                 $"a drop already taken by contact pickup must leave no collection trip; method={collect.Method} value={collect.Score()}");
         }
+    }
+
+    /// <summary>
+    /// Hearts are consumed by the player, never stored. Contact pickup skips them, so walking there is
+    /// the stand-on-a-heart freeze of 18 September 2026. Collection must not offer the trip.
+    /// </summary>
+    private static void AHeartIsNotACollectionTrip()
+    {
+        var ctx = SetUpFloor();
+        ctx.Player.statLife = ctx.Player.statLifeMax;
+        var collect = new CollectNearbyItems();
+        Item heart = Drop(ItemID.Heart, 1, ctx.Npc.Bottom);
+        Observe(ctx, heart);
+        collect.Prepare(ctx);
+        Require(collect.Method != "known-drop" && collect.Score() == 0,
+            $"a heart must not be a collection trip; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason} value={collect.Score()}");
     }
 
     /// <summary>A gel two tiles below the companion's floor is not something it is already standing on. The 13 Sep 0.22.43

@@ -29,7 +29,7 @@ internal static class VerifyShiftClickFillsTheBag
         var save = player.GetModPlayer<CompanionPlayer>();
         var bag = save.Bag;
         var gear = save.Gear;
-        MethodInfo cardSlotHandler = typeof(Bag).GetMethod("HandleWithoutTooltip", BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo cardSlotHandler = typeof(Bag).GetMethod("HandleSlot", BindingFlags.Static | BindingFlags.NonPublic)!;
         Item[] savedPlayer = player.inventory.Select(item => item.Clone()).ToArray();
         Item[] savedBag = bag.Items.Select(item => item.Clone()).ToArray();
         Item[] savedGear = gear.Slots.Select(item => item.Clone()).ToArray();

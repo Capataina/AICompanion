@@ -19,9 +19,10 @@ namespace AICompanion.Companion.Inventory;
 /// Quick Stack and Restock, are the page's title-bar actions, with the game's names and the game's semantics
 /// (<see cref="CompanionInventory"/>), and the bag sorts itself after every transfer.
 ///
-/// <para>There is no picture of the companion, no caption on either box, no filter, no detail panel and no hover text
-/// anywhere on the page, by the owner's rulings of 15 September 2026: information shown twice, or not needed at a
-/// glance, is clutter. The slots therefore take the game's click handling without its hover tooltip.</para>
+/// <para>There is no picture of the companion, no caption on either box, no filter and no detail panel, by the
+/// owner's rulings of 15 September 2026: information shown twice, or not needed at a glance, is clutter. Slot
+/// hover uses the game's own tooltip, the same one a chest slot raises, because an item you cannot read is
+/// an item you cannot manage. The bag sorts after a cursor drop inside it, as well as after every transfer.</para>
 /// </summary>
 public sealed class CompanionBagUI : UIState, ICardPage
 {
@@ -149,10 +150,11 @@ public sealed class CompanionBagUI : UIState, ICardPage
         DrawCardPrimitives.Text(sb, last, new Vector2(r.X + GridLeft, footerY + 4), DrawCardPrimitives.Muted, .68f);
     }
 
-    /// <summary>The game's slot handling without its hover tooltip: shift-click overrides, then the left and right clicks.</summary>
-    private static void HandleWithoutTooltip(ref Item item)
+    /// <summary>The game's slot handling: shift-click overrides, the vanilla hover tooltip, then the left and right clicks.</summary>
+    private static void HandleSlot(ref Item item)
     {
         ItemSlot.OverrideHover(ref item, ItemSlot.Context.BankItem);
+        ItemSlot.MouseHover(ref item, ItemSlot.Context.BankItem);
         ItemSlot.LeftClick(ref item, ItemSlot.Context.BankItem);
         ItemSlot.RightClick(ref item, ItemSlot.Context.BankItem);
     }
@@ -228,7 +230,7 @@ public sealed class CompanionBagUI : UIState, ICardPage
                 {
                     Main.LocalPlayer.mouseInterface = true;
                     refused = !Main.mouseItem.IsAir && !CompanionGear.Accepts(slot, Main.mouseItem, out _);
-                    if (!refused) HandleWithoutTooltip(ref items[index]);
+                    if (!refused) HandleSlot(ref items[index]);
                 }
                 // An item already in the slot that its predicate no longer accepts — a saved item whose mod has since
                 // unloaded — is kept and drawn dim, the same dim a refused cursor item gets, so the player sees it is idle
@@ -274,7 +276,11 @@ public sealed class CompanionBagUI : UIState, ICardPage
                 if (hovering)
                 {
                     Main.LocalPlayer.mouseInterface = true;
-                    HandleWithoutTooltip(ref items[Index]);
+                    bool cursorHeld = !Main.mouseItem.IsAir;
+                    int type = items[Index].type, stack = items[Index].stack;
+                    HandleSlot(ref items[Index]);
+                    if (Main.mouseItem.IsAir && (cursorHeld || items[Index].type != type || items[Index].stack != stack))
+                        owner.bag.Sort();
                 }
                 // Bank Draw selects brown art, and Inventory Draw assumes a player hotbar index and stamps a shortcut on
                 // single-item slots, so the game's blue texture and icon path are used directly, keeping native item hooks.
