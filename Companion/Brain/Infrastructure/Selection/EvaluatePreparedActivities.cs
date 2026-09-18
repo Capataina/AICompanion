@@ -53,7 +53,12 @@ public static class EvaluatePreparedActivities
             // urgency, and crowd pressure is the threats themselves. So the stronger of the two readings is
             // charged, never their product, and combat — the thing an encounter is about — pays urgency only.
             float danger = candidate.ServesEncounter ? context.ProtectionUrgency : Math.Max(context.ProtectionUrgency, context.EncounterIntensity);
-            float protection = candidate.IsExcursion && !context.Stranded ? 1 - danger : 1;
+            // A fight that still serves him is not leaving him. Discounting it as an excursion when
+            // he is in danger (or when the path to the stand is long) is how a hitting plan at raw 1.02
+            // became final 0.00 the next tick and company 0.05 took the body. The surface-zombie drop
+            // is ServesPlayerDirectly false, so it still pays.
+            bool withHim = candidate.ServesPlayerDirectly;
+            float protection = candidate.IsExcursion && !context.Stranded && !withHim ? 1 - danger : 1;
             float commitment = candidate.RawValue > 0 && candidate.IsIncumbent ? context.Commitment : 1;
             float horizon = 1;
             if (candidate.RawValue > 0)
@@ -73,7 +78,7 @@ public static class EvaluatePreparedActivities
             // for a long return estimate and was a second separation cost beside the work allowance.
             bool task = candidate.HasTarget && !candidate.IsFollowing && !candidate.ServesPlayerDirectly;
             float taskTicks = Math.Max(candidate.ForecastTicks, candidate.TaskTicks);
-            float reunion = candidate.IsExcursion || task ? candidate.Separation : 1;
+            float reunion = !withHim && (candidate.IsExcursion || task) ? candidate.Separation : 1;
             // Worth per time rather than flat worth: a job nearly done or on the way is worth nearly all of its value,
             // the same job across the room less, and no job reaches zero for being long.
             float time = task && candidate.RawValue > 0 && context.TaskWindowTicks > 0

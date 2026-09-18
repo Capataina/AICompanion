@@ -47,6 +47,14 @@ public sealed class PlanningBudget
             ? long.MaxValue
             : (long)System.Math.Max(0.0, milliseconds), maxSimulations);
 
+    /// <summary>
+    /// One greedy from-here price after the decision clock has already cut with nothing in the pool.
+    /// Count-capped and clock-free, so a crowd that exhausted the 4 ms search still offers a shot from
+    /// where the body is rather than Unresolved:budget-cut, and a replay of that fallback is the same
+    /// cut on every machine.
+    /// </summary>
+    public static PlanningBudget FromHereFallback() => new(long.MaxValue, 256);
+
     /// <summary>True while the budget remains. Marks the budget cut the first time it does not: the count
     /// first, because it holds under the suite's lifted clock, then the clock behind the lift.</summary>
     public bool Check()

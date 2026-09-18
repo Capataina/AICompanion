@@ -23,9 +23,10 @@ namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 /// leaves alive, starts segments at arrival and at the prefix's delayed landings, rolls each start
 /// from the prefix life as of that start, and values the whole plan. The answer is the best weighted
 /// plan among the undominated across every completed level, so a level wins only when moving is worth
-/// the travel. A cut inside level one keeps every stand it already priced and offers the best of those;
-/// only a cut that priced nothing is unresolved. A cut past level one keeps the deepest completed
-/// level's answer the same way.
+/// the travel. A cut inside level one keeps every stand it already priced and offers the best of those.
+/// A cut that priced nothing still offers one greedy from-here plan when a use from the body reaches,
+/// so a crowd cannot delete combat; only a from-here that also fails is unresolved. A cut past level
+/// one keeps the deepest completed level's answer the same way.
 /// </summary>
 public static class SearchAttackPlans
 {
@@ -124,9 +125,15 @@ public static class SearchAttackPlans
         if (pool.Count == 0)
         {
             if (budget.Cut)
+            {
+                SearchResult? fromHere = PriceFromHereFallback(ctx, combat, positioner, inAllowance, weights,
+                    enemies, evalTargets, targets, assessed, planId, tick, horizon, budget);
+                if (fromHere != null)
+                    return fromHere;
                 return new SearchResult(null, OfferEligibility.Unresolved, "budget-cut", 0,
                     Array.Empty<RejectedPlan>(), assessed, 0, budget.Simulations, Array.Empty<AttackPlan>(),
                     Cut: true);
+            }
             if (!sawReachable)
             {
                 if (sawUndecided)
@@ -628,6 +635,52 @@ public static class SearchAttackPlans
     private sealed record PricedPiece(AttackSegment Segment, EvaluateAttackOutcomes.Valuation Value,
         List<(EvaluateAttackOutcomes.Attack Attack, int FireTick)> Pairs,
         List<(int Target, int Tick)> Kills, EvaluateAttackOutcomes.PlanContext Context, HashSet<int> TargetSlots);
+
+    /// <summary>
+    /// After the decision clock cut with an empty pool, price the body stand on a count-capped
+    /// fallback budget. HereAndCompany emits that stand first and for free, so it is usually already
+    /// assessed; if the generators never ran, it is assessed now. A use from here is a fight; nothing
+    /// from here stays Unresolved:budget-cut.
+    /// </summary>
+    private static SearchResult? PriceFromHereFallback(in ActionContext ctx, CompanionCombat combat,
+        Positioner positioner, Func<Vector2, bool> inAllowance, CombatWeights weights,
+        IReadOnlyList<EnemyForecast> enemies, List<EvaluateAttackOutcomes.Target> evalTargets,
+        List<ThreatRecord> targets, List<AssessedStand> assessed,
+        int planId, int tick, int horizon, PlanningBudget spent)
+    {
+        AssessedStand? here = null;
+        foreach (AssessedStand stand in assessed)
+        {
+            if (stand.Proposal.Reason != StandReason.HereAndCompany)
+                continue;
+            if (stand.Verdict.Reach != ReachVerdict.Reachable)
+                continue;
+            here = stand;
+            break;
+        }
+        if (here == null)
+        {
+            var slots = new int[targets.Count];
+            for (int i = 0; i < targets.Count; i++)
+                slots[i] = targets[i].Npc.whoAmI;
+            var proposal = new StandProposal(ctx.Npc.Center, StandReason.HereAndCompany, -1, slots);
+            var verdicts = new List<StandVerdict>(1);
+            positioner.AssessStands(new[] { proposal }, ctx.Npc.Center, ctx.Senses, ctx.Npc.life, inAllowance, verdicts);
+            if (verdicts.Count == 0 || verdicts[0].Reach != ReachVerdict.Reachable)
+                return null;
+            here = new AssessedStand(proposal, verdicts[0]);
+            assessed.Add(here.Value);
+        }
+        PlanningBudget fallback = PlanningBudget.FromHereFallback();
+        BeamNode? node = PriceLevelOne(ctx, combat, enemies, evalTargets, targets, here.Value.Proposal,
+            here.Value.Verdict, weights, planId, tick, horizon, ref fallback);
+        if (node == null)
+            return null;
+        AttackPlan plan = node.Plan with { BudgetCut = true };
+        return new SearchResult(plan, OfferEligibility.Usable, "planned-attack", 1,
+            Array.Empty<RejectedPlan>(), assessed, 1, spent.Simulations + fallback.Simulations, new[] { plan },
+            Cut: true);
+    }
 
     /// <summary>
     /// The greedy segment from one stand at level one: every weapon against the proposal's targets at the

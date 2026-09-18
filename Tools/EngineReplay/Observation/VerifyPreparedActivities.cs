@@ -117,6 +117,17 @@ internal static class VerifyPreparedActivities
             "player protection must not inherit the optional-excursion cost");
         Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false, Separation = .5f } }, context)[0].Reunion == .5f,
             "a job somewhere that is not an excursion — a hunt shooting from where the orb hovers — still pays for keeping the companion apart");
+        var hittingFight = new Prepared(0, "combat", 1.02f, 227, true, true, false, true, Offer.Usable,
+            ServesEncounter: true, ServesPlayerDirectly: true, Separation: 0f);
+        var companyFloor = new Prepared(1, "company", .05f, 0, false, false, true, false, Offer.Usable,
+            ServesPlayerDirectly: true);
+        var held = Evaluator.Evaluate(new[] { hittingFight, companyFloor }, context);
+        Require(held[0].Reunion == 1 && held[0].Protection == 1 && held[0].Final > held[1].Final,
+            $"a hitting fight that still serves him is not zeroed by a long path to its stand (combat {held[0].Final:0.000} reunion {held[0].Reunion:0.000} vs company {held[1].Final:0.000})");
+        var urgent = context with { ProtectionUrgency = 1f };
+        var heldUrgent = Evaluator.Evaluate(new[] { hittingFight, companyFloor }, urgent);
+        Require(heldUrgent[0].Protection == 1 && heldUrgent[0].Final > heldUrgent[1].Final,
+            "player danger does not discount a fight that still serves him as if he were being left");
         Require(Evaluator.Evaluate(new[] { board[0] with { Separation = 1.5f } }, context)[0].Error == "invalid-separation",
             "a separation share outside zero to one is an error, not a bonus");
         VerifyTimeAndOrder();

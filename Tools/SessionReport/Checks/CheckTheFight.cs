@@ -482,6 +482,83 @@ public sealed class CombatDoesNotFlicker : ICheck, ICheckCoverage
 }
 
 /// <summary>
+/// Whether a hitting fight kept a positive final while another job ran. Capture
+/// 2026-09-18_16-35-26-353 dumped combat at raw 1.02 to final 0.00 via reunion on the tick after it
+/// won, and company 0.05 took the body. The evaluator no longer zeros a ServesPlayerDirectly fight
+/// for a long path to its stand; a stretch of this shape is that dump surviving in the file.
+/// </summary>
+public sealed class AHittingFightKeptItsScore : ICheck, ICheckCoverage
+{
+    private const float RawHeld = 0.5f;
+    private const float FinalGone = 0.02f;
+    private const int MinTicks = 30;
+
+    public string Name => "did a hitting fight keep its score while another job ran";
+    public string[] Needs => new[] { "action", "combat_raw", "combat_fin" };
+
+    public string? Missing(Session session)
+        => session.Find("combat_raw") == null ? "combat_raw" : session.Find("combat_fin") == null ? "combat_fin" : null;
+
+    public IEnumerable<Finding> Run(Session session)
+    {
+        Column action = session["action"], raw = session["combat_raw"], fin = session["combat_fin"];
+        foreach (var stretch in FindStretches.Where(session.Count, i =>
+            !CombatIsEagerWhenHeIsInDanger.IsFighting(action.Text[i])
+                && raw.Number[i] >= RawHeld && fin.Number[i] < FinalGone,
+            MinTicks, allowGap: 5))
+        {
+            yield return new Finding(
+                Severity.Potential,
+                Name,
+                $"{stretch.Length} ticks with combat raw {FindStretches.Mean(raw, stretch):0.00} collapsed to final {FindStretches.Mean(fin, stretch):0.00} while {FindStretches.Summarise(action, stretch)} ran",
+                "A hitting plan that still serves him must keep a positive final. Raw held and final near zero is the reunion (or protection) excursion zero that dumps the fight to company the next tick.",
+                session.Tick(stretch.Start), session.Tick(stretch.End), stretch.Length);
+        }
+    }
+}
+
+/// <summary>
+/// Whether combat stayed Unresolved:budget-cut while he was in danger with several hostiles in
+/// range. The 15-slime window of 2026-09-18_16-35-26-353 was 922 of 934 ticks unpriced, four Yellow
+/// Slime hits, life 100 to 40. A cut that priced nothing now offers from here; a stretch of this
+/// shape is the crowd still deleting the fight.
+/// </summary>
+public sealed class CombatWasPricedInACrowd : ICheck, ICheckCoverage
+{
+    private const float Unsafe = 0.25f;
+    private const int MinThreats = 3;
+    private const int MinTicks = 60;
+
+    public string Name => "was combat priced while he was in a crowd";
+    public string[] Needs => new[] { "action", "danger", "plan_reason", "threats" };
+
+    public string? Missing(Session session)
+        => session.Find("plan_reason") == null ? "plan_reason" : session.Find("threats") == null ? "threats" : null;
+
+    public IEnumerable<Finding> Run(Session session)
+    {
+        if (FightPreference.CombatDisabled(session))
+            yield break;
+        Column action = session["action"], danger = session["danger"], reason = session["plan_reason"],
+            threats = session["threats"];
+        foreach (var stretch in FindStretches.Where(session.Count, i =>
+            reason.Text[i] == "budget-cut"
+                && danger.Number[i] >= Unsafe
+                && threats.Number[i] >= MinThreats
+                && !CombatIsEagerWhenHeIsInDanger.IsFighting(action.Text[i]),
+            MinTicks, allowGap: 5))
+        {
+            yield return new Finding(
+                Severity.Potential,
+                Name,
+                $"{stretch.Length} ticks of budget-cut with {FindStretches.Max(threats, stretch):0} hostiles while {FindStretches.Summarise(action, stretch)} ran",
+                "A crowd that exhausts the search must still offer a from-here shot. Unresolved:budget-cut here is combat deleted, not a fight that lost a comparison.",
+                session.Tick(stretch.Start), session.Tick(stretch.End), stretch.Length);
+        }
+    }
+}
+
+/// <summary>
 /// Whether the capture's preamble disabled fighting, in either label era: `combat=false` now,
 /// `hunting=false` before 0.39.0. A mid-session flip from the profile card is an occurrence, not
 /// preamble, so a session that toggles combat halfway reads under the starting value; the fight

@@ -83,6 +83,8 @@ public static class Program
         new NotFightingMeansNothingToShoot(),
         new TheCommittedPlanWasPerformed(),
         new CombatDoesNotFlicker(),
+        new AHittingFightKeptItsScore(),
+        new CombatWasPricedInACrowd(),
         new TheChosenWeaponIsTheBetterOne(),
         new WeaponKnowledgeIsCalibrated(),
         new TheCompanionStaysUp(),

@@ -66,7 +66,7 @@ The planner in `Planning/` is this folder's decision. `../../Infrastructure/Inte
 
 ## Current state — 18 September 2026
 
-The stance, the seven generators, the beam, the overlay's committed-plan layer, `CheckTheFight`'s performed and churn checks, name-keyed knowledge save/load, and the extra-projectile modifier seam are built. Headless: `sh Tools/verify.sh --case combat` (and `--case "attack planning"` / `--case weapon`) files no red row; C1's cache 99th percentile sits inside one frame. 4d44794 (0.30.4) landed the hitting-fight band, the chain representative, travelling DPS-gated shots, and FireFrom-from-here. Mastery pierce and extra-projectile bonuses are planted in the S5 row — there is no live bonuses record yet. Invalidation of a combat target is still the world's global edit counter rather than a spatial box.
+The stance, the seven generators, the beam, the overlay's committed-plan layer, `CheckTheFight`'s performed and churn checks, name-keyed knowledge save/load, and the extra-projectile modifier seam are built. Headless: `sh Tools/verify.sh --case combat` (and `--case "attack planning"` / `--case weapon`) files no red row; C1's cache 99th percentile sits inside one frame. 4d44794 (0.30.4) landed the hitting-fight band, the chain representative, travelling DPS-gated shots, and FireFrom-from-here. 0.30.6 keeps a hitting `ServesPlayerDirectly` fight's score when the path to the stand is long, and a search cut that priced nothing still offers from here. Mastery pierce and extra-projectile bonuses are planted in the S5 row — there is no live bonuses record yet. Invalidation of a combat target is still the world's global edit counter rather than a spatial box.
 
 ## Operating
 
