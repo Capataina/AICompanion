@@ -24,7 +24,33 @@ internal static class VerifyCourseTravelScheduling
         + RunOneRow.Case("G15 captured motion and native defence produce timed contact harm", NativeContactPipeline)
         + RunOneRow.Case("G08 enemy models reject later observations without terrain edits", MotionObservationTime)
         + RunOneRow.Case("G14 native contact census preserves frozen geometry and incomplete coverage", ContactCensus)
-        + RunOneRow.Case("G11 course search obtains enemy motion from its captured observation", EnemySearchOwner);
+        + RunOneRow.Case("G11 course search obtains enemy motion from its captured observation", EnemySearchOwner)
+        + RunOneRow.Case("G15 captured victim channels preserve the native pre-geometry immunity gate", VictimChannels);
+
+    private static void VictimChannels()
+    {
+        var (_, context) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Opportunistic,
+            Terraria.ID.TileID.Copper, new Microsoft.Xna.Framework.Point(25, 59));
+        context.Player.immune = true; context.Player.immuneTime = 7; context.Player.hurtCooldowns[2] = 0;
+        context.Npc.immune[255] = 11;
+        var victim = CaptureContactVictim.Capture(context.Player, new(double.PositiveInfinity))!;
+        var companion = CaptureContactVictim.Capture(context.Npc, new(double.PositiveInfinity))!;
+        Require(CaptureContactVictim.Capture(context.Player, new(double.PositiveInfinity, 1)) == null,
+            "a cut player capture published incomplete immunity arrays");
+        context.Player.immuneTime = 0; context.Player.hurtCooldowns[2] = 9; context.Npc.immune[255] = 0;
+        victim = JsonSerializer.Deserialize<CapturedContactVictim>(JsonSerializer.Serialize(victim))!;
+        Require(victim.OrdinaryReadyTick == 7 && victim.ChannelReadyTicks[2] == 0 && companion.OrdinaryReadyTick == 11,
+            "victim capture mixed channels or retained live immunity arrays");
+        var enemy = new CapturedMeleeEnemy(576, new(400, 800), 40, 120, 1, 1, 15, 0, 0, 0);
+        var motion = new CapturedEnemyCourseMotion(1, 1, 576, 40, 120, 0, new[] { new CoursePoint(420, 860) }, "fixture");
+        var boxes = new[] { new ContactBox(0, 0, 2000, 2000) };
+        var ordinary = new ProjectMeleeContactGeometry(enemy, motion, boxes, victim.Defence, 20, -1,
+            victim.OrdinaryReadyTick, victim.ChannelReadyTicks, true).Continue(new(double.PositiveInfinity))!;
+        var special = new ProjectMeleeContactGeometry(enemy, motion, boxes, victim.Defence, 20, 1,
+            victim.OrdinaryReadyTick, victim.ChannelReadyTicks, true).Continue(new(double.PositiveInfinity))!;
+        Require(ordinary.Samples[0].ReadyTick == 7 && special.Samples[0].ReadyTick == 0,
+            "a geometry-selected channel bypassed the native earlier ordinary-immunity check");
+    }
 
     private static void EnemySearchOwner()
     {

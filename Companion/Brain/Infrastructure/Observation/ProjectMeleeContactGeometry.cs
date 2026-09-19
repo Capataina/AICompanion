@@ -52,7 +52,10 @@ public sealed class ProjectMeleeContactGeometry
             if (defence.IsPlayer && shape.HitChannel >= 0)
             {
                 if (shape.HitChannel >= channelReady.Length) supported = false;
-                else ready = channelReady[shape.HitChannel];
+                // Player.Update_NPCCollision checks ordinary immunity before melee
+                // geometry can select a different channel. A native base channel
+                // bypasses that first check; a channel selected by geometry does not.
+                else ready = Math.Max(baseChannel == -1 ? ordinaryReady : 0, channelReady[shape.HitChannel]);
             }
             // Player contact applies this native multiplier before DamageVar rounds;
             // NPC.BeHurtByOtherNPC uses the attacker's damage without that multiplier.
