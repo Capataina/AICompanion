@@ -10,6 +10,7 @@ Courses/
 ├─ MeasureCompanionshipGap.cs   the shared rectangular gap and captured-preference pull curve
 ├─ ForecastCompanionshipGap.cs  frozen region travel and piecewise companionship intervals
 ├─ ForecastCourseCompanionship.cs resumable bound-course and return-leg costs with input provenance
+├─ ForecastContactHarm.cs       first contact over captured geometry with explicit post-hit uncertainty
 ├─ ProjectCourseEffects.cs      sparse hypothetical state and once-only physical allocation
 ├─ ReadCourseTravel.cs          captured native route timing and arrival momentum, read through manifests
 ├─ TrackCourseDependencies.cs   tracked fact manifests and reverse dependency index
@@ -44,6 +45,8 @@ Search keeps its pending order and projection cursor across budget cuts. Suffix 
 Pending projection results carry travel requests through `SearchCourseOrders.RequiredTravel`, including requests emitted by a consequence provider. Terminal projection results clear them. The native observation owner drives request scheduling and model-only extensions; the pure search never reads terrain or creates another computation allowance.
 
 `CourseProjection.ConsequenceDependencies` records the facts behind whole-course harm, companionship and reunion costs. Its separate graph node depends on the trajectory's bindings and effects; a changed cost-only fact dirties that node without revoking an otherwise legal native use. Publication requires those reads to remain complete and current. Physical-effect reconciliation and observed execution advancement preserve the manifest, so neither operation silently discards cost provenance. An empty manifest represents a calculation with no captured inputs; concrete consequence providers must supply every input they consume.
+
+`ForecastContactHarm` consumes captured per-tick contact boxes, actor life and readiness, and effective damage per actor. It scans contacts under the shared allowance, in native hostile-slot order, and reports the first predicted hit for each actor as nominal harm. It stops that actor's continuation after a hit because immunity, knockback and hit hooks require a successor model; repeated box overlap cannot manufacture repeated damage. Missing geometry, unsupported geometry and an incomplete hostile census keep the tail unresolved. The native producer must supply actual contact shapes rather than assuming every enemy uses its visual box, and must carry these inputs into the whole-course consequence manifest. This component does not forecast projectiles or apply projected enemy kills; those remain part of the complete consequence integration.
 
 `BindCourseOrder` owns one frozen comparison's binding pipeline. It forks the initial state for each order, preserves the current domain cursor, and holds a completed binding across a cut before resource application. Resuming never recreates that use or repeats its simulation. Consumable capacity must be observed and declared by the binding. After the ordered uses project, `ICourseConsequenceForecast` prices the resulting trajectory and return; it runs even for an empty order and cannot replace the accepted sequence. The native consequence provider remains an integration obligation: a missing harm or reunion forecast must not become a zero-cost completed candidate.
 

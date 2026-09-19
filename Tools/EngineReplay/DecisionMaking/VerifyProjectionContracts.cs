@@ -27,7 +27,30 @@ internal static class VerifyProjectionContracts
         + RunOneRow.Case("G15 a missed parent censors but does not erase issued descendants", MissedPhysicalParent)
         + RunOneRow.Case("G11 one-operation discovery reaches every finite source", OneOperationFairness)
         + RunOneRow.Case("G08 receipt retirement retains duplicate floor and live credit", ReceiptRetirement)
-        + RunOneRow.Case("G08 consequence reads invalidate costs without revoking a legal use", ConsequenceReads);
+        + RunOneRow.Case("G08 consequence reads invalidate costs without revoking a legal use", ConsequenceReads)
+        + RunOneRow.Case("G15 contact harm stops at an unsupported post-hit successor", ContactHarm);
+
+    private static void ContactHarm()
+    {
+        var actorBoxes = Enumerable.Repeat(new ContactBox(0, 0, 20, 20), 5).ToArray();
+        var enemyBoxes = new[] { new ContactBox(40, 0, 20, 20), new ContactBox(20, 0, 20, 20),
+            new ContactBox(19, 0, 20, 20), new ContactBox(10, 0, 20, 20), new ContactBox(0, 0, 20, 20) };
+        var forecast = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
+            new[] { new ContactThreat(1, 1, 50, 25, enemyBoxes, true) }, 4, true);
+        ContactHarmResult? result = null;
+        for (int i = 0; i < 100 && result == null; i++)
+        {
+            var budget = new DecisionWorkBudget(double.PositiveInfinity, 1);
+            result = forecast.Continue(budget);
+            Require(budget.OperationsUsed <= 1, "contact forecasting exceeded its shared allowance");
+        }
+        Require(result != null && result.Harm.Count == 1 && result.Harm[0].Tick == 2
+            && result.Harm[0].Damage == 25 && result.Harm[0].CurrentLife == 100 && result.TailUnresolved,
+            "contact forecasting invented near-miss harm, repeated post-hit damage or a known successor");
+        var incomplete = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0, actorBoxes) },
+            Array.Empty<ContactThreat>(), 4, false).Continue(new(double.PositiveInfinity));
+        Require(incomplete!.TailUnresolved && incomplete.Harm.Count == 0, "an incomplete enemy census became a safe empty world");
+    }
 
     private static void ConsequenceReads()
     {
