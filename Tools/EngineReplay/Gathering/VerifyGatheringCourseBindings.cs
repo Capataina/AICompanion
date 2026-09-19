@@ -18,7 +18,30 @@ internal static class VerifyGatheringCourseBindings
 {
     public static int Run() => RunOneRow.Case("G09 tool binding preserves readiness between native uses", CooldownAndSuccessor)
         + RunOneRow.Case("G15 nominal tool travel cannot certify an enabling successor", NominalTravel)
-        + RunOneRow.Case("G15 captured pick binding predicts one actual native strike", NativePick);
+        + RunOneRow.Case("G15 captured pick binding predicts one actual native strike", NativePick)
+        + RunOneRow.Case("G03 partial reward cannot shrink a physical tool strike", PartialReward);
+
+    private static void PartialReward()
+    {
+        var site = Site();
+        var snapshot = Snapshot(site, 0, 0);
+        var original = Opportunity(snapshot);
+        var opportunity = new Opportunity(original.Key, original.Revision, original.Target, original.Admission,
+            original.Reason, original.Needs.Select(need => need with { RemainingAmount = 7.5 }),
+            original.Methods, original.Dependencies);
+        var state = new ProjectedCourseState(new(20, 30));
+        var gate = new BindOpportunity(new[] { new GatheringOpportunityBinder("mine-target") });
+        var binding = gate.Bind(opportunity, state, snapshot, new(), new(double.PositiveInfinity)).Binding
+            ?? throw new InvalidOperationException("partial useful work failed to bind");
+        var effect = binding.Effects.Single();
+        Require(effect.Amount == 20 && opportunity.Needs.Single().Worth(effect.Amount) == 7.5 / 200,
+            "physical damage and credited useful work were conflated");
+        Require(state.TryApply(binding, new Dictionary<string, double>(), out _), "partial reward projection failed");
+        var after = JsonSerializer.Deserialize<GatheringOpportunityFact>(state.Read(
+            new("mine-target", site.Target, site.Generation), snapshot.Track()).Text)!;
+        Require(after.Work!.DamageRemaining == 80 && after.RemainingAmount == 180,
+            "a fractional reward claim changed the native successor damage");
+    }
 
     private static void CooldownAndSuccessor()
     {

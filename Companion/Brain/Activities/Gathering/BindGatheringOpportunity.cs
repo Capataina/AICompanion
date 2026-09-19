@@ -60,8 +60,9 @@ public sealed class GatheringOpportunityBinder : IOpportunityBinder
         double amount = Math.Min(work.DamagePerHit, work.DamageRemaining);
         UsefulNeed? need = opportunity.Needs.SingleOrDefault(n => n.Key == Need(site));
         if (need == null) return Refuse("native-work-need-missing");
-        amount = Math.Min(amount, state.Remaining(need));
-        if (amount <= 0) return new(null, OpportunityAdmission.KnownUnusable, "native-work-already-projected", false);
+        if (state.Remaining(need) <= 0) return new(null, OpportunityAdmission.KnownUnusable, "native-work-already-projected", false);
+        // Reward allocation may have less left than a swing delivers. The native mechanism
+        // still applies its whole hit; CompareCourseOutcomes caps credited useful work.
         var afterWork = work with { DamageRemaining = Math.Max(0, work.DamageRemaining - (int)amount) };
         var after = site with
         {
