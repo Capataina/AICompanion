@@ -12,6 +12,11 @@ using AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
+public readonly record struct CapturedCourseMotion(float Speed, float Turn, float Acceleration)
+{
+    public static CapturedCourseMotion Current => new(OrbPace.MaxSpeed, OrbPace.Turn, OrbPace.SpeedChange);
+}
+
 /// <summary>One retained travel query from a physical pose and momentum, including hypothetical
 /// job-to-job legs. Observation runs the existing route, steering and contact implementation;
 /// pure course evaluation consumes the frozen result and never reads live terrain.</summary>
@@ -21,6 +26,7 @@ public sealed class CaptureCourseTravel
     private readonly ReadTravelTerrain world;
     private readonly float speed, turn, acceleration;
     private readonly long capabilityRevision;
+    private readonly int observationTerrainRevision;
     private FreeSpaceSearch? search;
     private Route? route;
     private Vector2 position, velocity;
@@ -30,12 +36,14 @@ public sealed class CaptureCourseTravel
     private readonly List<TimedCoursePose> timedRouteSamples = new();
 
     public CaptureCourseTravel(ITileWorld terrain, CoursePoint from, CoursePoint initialVelocity, CoursePoint to,
-        long capabilityRevision)
+        long capabilityRevision, CapturedCourseMotion? motion = null, int? observationTerrainRevision = null)
     {
         this.from = from; this.initialVelocity = initialVelocity; this.to = to;
         this.capabilityRevision = capabilityRevision;
         world = new(terrain); checkedRevision = terrain.Revision;
-        speed = OrbPace.MaxSpeed; turn = OrbPace.Turn; acceleration = OrbPace.SpeedChange;
+        this.observationTerrainRevision = observationTerrainRevision ?? terrain.Revision;
+        var capturedMotion = motion ?? CapturedCourseMotion.Current;
+        speed = capturedMotion.Speed; turn = capturedMotion.Turn; acceleration = capturedMotion.Acceleration;
         position = Vector(from); velocity = Vector(initialVelocity);
         timedRouteSamples.Add(new(0, from, initialVelocity));
     }
@@ -125,6 +133,14 @@ public sealed class CaptureCourseTravel
 
     private DecisionFact Finish(OpportunityAdmission admission, string reason)
     {
+        // The footprint can grow after an earlier slice checked the edit stream. Checking
+        // from the observation's revision catches edits to terrain first read in this slice,
+        // including edits that happened before a deferred query was constructed.
+        if (admission != OpportunityAdmission.Unresolved
+            && world.ChangedSince(observationTerrainRevision, world.ReadContains) != TerrainEditVerdict.Unchanged)
+        {
+            Stale = true; admission = OpportunityAdmission.Unresolved; reason = "travel-observation-terrain-changed";
+        }
         RecordTimedPose();
         var travel = new CapturedCourseTravel(from, initialVelocity, to, Point(velocity), simulationTicks,
             admission, reason, Array.AsReadOnly(route?.Points.Select(Point).ToArray() ?? Array.Empty<CoursePoint>()), capabilityRevision,

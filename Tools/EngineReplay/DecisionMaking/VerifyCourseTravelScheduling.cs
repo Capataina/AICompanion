@@ -3,6 +3,7 @@ extern alias live;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using live::AICompanion.Companion.Brain.Infrastructure.Movement;
 using live::AICompanion.Companion.Brain.Infrastructure.Observation;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
@@ -11,7 +12,55 @@ using live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 internal static class VerifyCourseTravelScheduling
 {
     public static int Run()
-        => RunOneRow.Case("G11 native travel queries share one-operation turns without evicting work", FairNativeQueries);
+        => RunOneRow.Case("G11 native travel queries share one-operation turns without evicting work", FairNativeQueries)
+        + RunOneRow.Case("G11 native model completion resumes a frozen companionship forecast", ModelOwner)
+        + RunOneRow.Case("G08 deferred queries cannot certify terrain edited since observation", DeferredTerrainEdit);
+
+    private static TextTileWorld World() => new(0, 0, new[]
+    {
+        "####################", "#..................#", "#..................#", "#..................#",
+        "#..................#", "#..................#", "#..................#", "#..................#",
+        "#..................#", "####################"
+    });
+    private static DecisionFactSnapshot Snapshot() => new(1, 1, 100, 1, 0, new[]
+    {
+        new DecisionFact(CapturedCompanionshipRegion.Key, 1, new(Text: JsonSerializer.Serialize(
+            new CapturedCompanionshipRegion(new(48, 80), new(20, 20), default, 100, 100, true))), FactEvidence.Observed)
+    });
+
+    private static void ModelOwner()
+    {
+        var original = Snapshot();
+        var owner = new RetainCourseModelQueries(original, World(), 1, 2);
+        var forecast = new ForecastCourseCompanionship(original, Array.Empty<StepBinding>(), new(48, 80), default, new(49, 80));
+        Require(forecast.Continue(original, new(double.PositiveInfinity)).Status == ProjectionStatus.Pending
+            && forecast.MissingTravel.HasValue, "the empty course did not request its native return model");
+        var query = forecast.MissingTravel!.Value;
+        Require(owner.RequestTravel(query), "model owner refused a free pending slot");
+        for (int i = 0; i < 1000 && owner.PendingCount > 0; i++) owner.Continue(new(double.PositiveInfinity, 1));
+        Require(owner.CompletedCount == 1 && owner.Snapshot.IsModelExtensionOf(original)
+            && !original.TryRead(query.Key, out _), "native completion mutated the old snapshot or failed to append its model");
+        Require(forecast.Continue(owner.Snapshot, new(double.PositiveInfinity)) is
+            { Status: ProjectionStatus.Complete, NominallyRejoined: true }, "native query completion failed to resume consequence costing");
+        Require(owner.RequestTravel(query) && owner.PendingCount == 0 && !owner.Continue(new(double.PositiveInfinity)),
+            "an already captured query was rescheduled or republished");
+        owner.Abandon();
+        bool refused = false;
+        try { owner.RequestTravel(query); } catch (InvalidOperationException) { refused = true; }
+        Require(refused, "an abandoned observation accepted more native work");
+    }
+
+    private static void DeferredTerrainEdit()
+    {
+        var world = World(); var owner = new RetainCourseModelQueries(Snapshot(), world, 1, 1);
+        world.Set(3, 5, '#');
+        var query = new CourseTravelRequest(new(48, 80), default, new(49, 80));
+        Require(owner.RequestTravel(query), "the deferred terrain fixture needs a pending query");
+        for (int i = 0; i < 1000 && owner.PendingCount > 0; i++) owner.Continue(new(double.PositiveInfinity, 1));
+        Require(owner.Snapshot.TryRead(query.Key, out var fact) && fact.Evidence == FactEvidence.Unresolved
+            && fact.Value.Text.Contains("travel-observation-terrain-changed", StringComparison.Ordinal),
+            "a query created after a terrain edit certified the new world as the earlier observation");
+    }
 
     private static void FairNativeQueries()
     {

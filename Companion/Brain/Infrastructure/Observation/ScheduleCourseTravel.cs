@@ -12,6 +12,8 @@ public sealed class ScheduleCourseTravel
 {
     private readonly ITileWorld world;
     private readonly long capabilityRevision;
+    private readonly int observationTerrainRevision;
+    private readonly CapturedCourseMotion motion;
     private readonly Dictionary<FactKey, CaptureCourseTravel> pending = new();
     private readonly Queue<FactKey> turns = new();
 
@@ -19,6 +21,7 @@ public sealed class ScheduleCourseTravel
     {
         if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
         this.world = world; this.capabilityRevision = capabilityRevision; Capacity = capacity;
+        observationTerrainRevision = world.Revision; motion = CapturedCourseMotion.Current;
     }
     public int Capacity { get; }
     public int PendingCount => pending.Count;
@@ -31,7 +34,8 @@ public sealed class ScheduleCourseTravel
     {
         if (pending.ContainsKey(request.Key)) return true;
         if (pending.Count == Capacity) { CapacityRefusals++; return false; }
-        pending.Add(request.Key, new(world, request.From, request.Velocity, request.To, capabilityRevision));
+        pending.Add(request.Key, new(world, request.From, request.Velocity, request.To, capabilityRevision,
+            motion, observationTerrainRevision));
         turns.Enqueue(request.Key);
         return true;
     }
