@@ -32,6 +32,8 @@ An edge costs its length times one plus a tunable over the clearance at its far 
 
 Every slice records the corners it read, and `Valid` asks the world's edit record whether anything landed inside that box since the search began, so a player mining a screen away does not restart a flood that never looked there. A search over a world that is not the process's live one names it in `WorldOverride`, which is how a headless tool runs the same class over a text world.
 
+When a decision allowance is active, each frontier removal borrows one operation from it before touching the queue. A zero allowance therefore leaves the frontier unchanged; later slices resume the same search. The local expansion limit remains a slice bound, not a second source of planning time. Direct headless callers without an active decision scope still use their explicit expansion allowance.
+
 ## Traps
 
 - `Point.GetHashCode` is `X ^ Y`, which on a grid collapses thousands of corners onto a few hundred hashes and turns every set lookup into a chain walk; every dictionary and set here is keyed through `CornerKey`, and one that is not will make a flood that finishes in a slice spend the slice hashing.

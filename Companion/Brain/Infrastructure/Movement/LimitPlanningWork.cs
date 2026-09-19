@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 
@@ -10,11 +11,20 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 public static class LimitPlanningWork
 {
     private static long deadline;
+    private static DecisionWorkBudget? current;
+    public static DecisionWorkBudget Current => current
+        ?? throw new InvalidOperationException("Decision work must begin before borrowing its budget.");
+    public static bool IsActive => current != null;
     /// <summary>Offline determinism only. Never set during play: an unbounded search can take a frame.</summary>
     public static bool Unbounded { get; set; }
-    public static void Begin(double milliseconds) => deadline = Unbounded ? 0 : Stopwatch.GetTimestamp()
-        + (long)(milliseconds * Stopwatch.Frequency / 1000d);
-    public static void End() => deadline = 0;
+    public static void Begin(double milliseconds) => Begin(new DecisionWorkBudget(Unbounded ? double.PositiveInfinity : milliseconds));
+    public static void Begin(DecisionWorkBudget budget)
+    {
+        if (current != null) throw new InvalidOperationException("A nested planner cannot replace the decision budget.");
+        current = budget ?? throw new ArgumentNullException(nameof(budget));
+        deadline = budget.DeadlineTimestamp == long.MaxValue ? 0 : budget.DeadlineTimestamp;
+    }
+    public static void End() { deadline = 0; current = null; }
 
     /// <summary>Tighten the shared deadline for one bounded piece of work, restoring the wider one
     /// when disposed, so every nested query inside (route, reach, approach) stops at the narrower
@@ -42,7 +52,7 @@ public static class LimitPlanningWork
         long own = milliseconds > 0 ? Stopwatch.GetTimestamp() + (long)(milliseconds * Stopwatch.Frequency / 1000d) : 0;
         return deadline == 0 ? own : own == 0 ? deadline : Math.Min(deadline, own);
     }
-    public static bool Expired => !Unbounded && deadline != 0 && Stopwatch.GetTimestamp() >= deadline;
+    public static bool Expired => current?.Exhausted == true || (!Unbounded && deadline != 0 && Stopwatch.GetTimestamp() >= deadline);
     /// <summary>For a consumer timing its own loop against a local allowance rather than a deadline.</summary>
     public static bool Spent(Stopwatch clock, double milliseconds) => !Unbounded && clock.Elapsed.TotalMilliseconds >= milliseconds;
 }

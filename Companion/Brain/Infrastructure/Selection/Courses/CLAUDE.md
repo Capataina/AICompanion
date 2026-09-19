@@ -1,0 +1,40 @@
+# One owner publishes a concrete course and repairs its conditional future
+
+This game-free core models a revisable sequence of physical effects. The course owner publishes one immutable revision only after its prefix validates; the existing activity owner still controls native execution. A speculative suffix cannot change grants. Useful effects and future harm/gap share the canonical plan's dimensionless discounted policy, with the base resting region traversal as its fixed episode time scale. This is an explicit product preference, not a derived universal exchange rate.
+
+```text
+Courses/
+├─ CLAUDE.md                    model and publication boundary
+├─ DescribeCourse.cs            immutable bindings, effects, resources, estimates and receipts
+├─ CompareCourseOutcomes.cs     frozen-census objective, bounds and boundary comparison
+├─ ProjectCourseEffects.cs      sparse hypothetical state and once-only physical allocation
+├─ ReadCourseTravel.cs          captured native route timing and arrival momentum, read through manifests
+├─ TrackCourseDependencies.cs   tracked fact manifests and reverse dependency index
+├─ RepairCourse.cs              resumable transitive dirtiness without partial publication
+├─ RetainCourse.cs              one current course, semantic boundaries and atomic revision
+└─ SearchCourseOrders.cs        insertion/removal/exchange and spatial alternatives
+```
+
+`DecisionFactSnapshot` is immutable observed input. `TrackedFactReader` records even absent facts; bindings must declare every read, so missing replay inputs cannot masquerade as an empty world. Predicted successor deltas stay in `ProjectedCourseState` and record their parent effects. Native receipts allocate actual physical amount once; a predicted torch placement alone cannot certify permanent coverage.
+
+Bindings and effects occupy one globally unique identity space. `CourseDependencyIndex.Build` registers a binding before its effects, with each effect depending on its owner and its declared causal predecessors. A later binding that reads a hypothetical value names that effect as a parent. The effect's own fact reads enter the same reverse index, so a changed enemy pose can dirty a projected impact and every use enabled by that impact. A read journal belongs to one binder invocation; inheriting previous invocations' reads would invent dependencies. An enabling delta becomes available at its finite justified latest time, and a child's earliest effect cannot precede that bound. A nominal-only prediction may contribute nominal value, but cannot certify a causal successor. Checking nominal times alone would turn an expected early hit into a guaranteed shove before the parent model promises it.
+
+The projection checks the physical resources before changing branch state. Every body phase shares one body and every hand phase shares one hand, regardless of the caller's pool name. Body and hand reservations fit the binding's absolute projected interval; mana and cargo retain their separately keyed capacities. Publication repeats projection validation rather than trusting a binder's success label. A consumable capacity is a captured `capacity` fact whose identity is the pool key, and the binding declares that read. Its reservation may end only when modelled restoration or disposal makes that capacity available again; interval non-overlap alone cannot establish replenishment. This restoration contract remains an integration obligation for the concrete producers. Repeating the same binding object changes nothing; a different object reusing its identity is refused.
+
+At a native execution boundary a legal nominal continuation may win without waiting for calibrated certainty. Between boundaries an admitted current prefix survives overlapping or absent comparison bounds; proven improvement or required repair can replace it. Route waypoints never create execution boundaries. Past flight and delivered effects do not enter a remaining-future comparison. Different target partitions conserve original needs. Slot reuse is a different generation.
+
+Re-observation may refresh forecasts for the same accepted uses in the same order. It cannot remove a prefix, exchange steps or change the concrete method, tool or pose. Those changes go through publication and its comparison. A dependency traversal that has not finished cannot be erased by publishing a partial repair; once it finishes, every retained binding and effect must have complete, current inputs before the replacement graph becomes visible. The next native use validates against realised facts; later uses remain conditional on their earlier effects.
+
+Damage and companionship costs carry numerical forecast ranges when their models can justify them. A model label without those ranges stays uncertain and cannot certify strict superiority. Native exact costs use their observed points; bounded damage pairs its minimum with the latest impact and its maximum with the earliest impact. Encounter interruption additionally requires the challenger's upper self-harm bound not to exceed the incumbent's lower bound. The frozen census must be complete before the objective claims justified bounds.
+
+Receipt deduplication retires behind a completed issued-ID floor supplied by the observation owner. That floor advances only after all earlier native dispatches have completed, which matters when a nested hit finishes before the outer hit. Replaying a retired receipt remains a duplicate without retaining every old ID; only live effects keep confirmation entries. World reset removes the floor as well as every course and receipt identity.
+
+Executable uses and dispatched physical effects have separate lifecycles. `ObserveExecution` advances the prefix only at an observed completed use, retaining only the effect IDs the native dispatch actually issued. The owner keeps these effects through release and replacement, so choosing to follow the player cannot despawn a projectile or reset its partial hit allocation. The projection carries outstanding effects and completed causal roots independently of `Steps`; the dependency graph can therefore retain an impact while a different binding executes. Physical forecasts retain their original observation-time origin and are rebased into each later snapshot instead of restarting their flight clocks. A native terminal observation ends their lifetime; an overdue unresolved impact cannot certify a successor. The next comparison after executor advancement requires a fresh remaining projection.
+
+Search keeps its pending order and projection cursor across budget cuts. Suffix depth is a storage/work bound; each observed site still receives a seed and a spatial alternative. The projector must price consequences after prior effects, prove native resources and expose unresolved tails. An empty order means companionship with its own projected costs, not an artificial zero-cost idle.
+
+Refresh validation identifies the failed node. A stale suffix queues repair without revoking an unaffected current use. Successful observed repair closes its dirty authority and advances the revision; it cannot authorise a later unrelated worse tail. Beginning the next retained use consumes its predecessor's completion boundary. An externally changed physical forecast remains owned but loses its certified delta; a missed parent censors already-issued descendants without pretending the parent succeeded.
+
+Projected state carries pose and momentum through each binding. Travel capture belongs to Observation and runs the existing route, steering and contact model under the shared allowance. `ReadCourseTravel` reads its frozen result through a manifest; a known route's nominal arrival does not promise freedom from future dodges or world changes.
+
+Integration under the complete implementation plan is ongoing. Arithmetic or pure-core tests do not establish native receipts, activity migration, whole-brain performance or live acceptance.

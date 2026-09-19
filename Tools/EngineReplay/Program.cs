@@ -98,6 +98,7 @@ if (args.Contains("--ore-work")) return VerifyEngineMotion.Run(workOnly: true);
 if (args.Contains("--follow")) return VerifyEngineMotion.Run(followOnly: true);
 if (args.Contains("--protection-recovery")) return VerifyEngineMotion.Run(protectionOnly: true);
 if (args.Contains("--observation")) return VerifyObservationLifecycle.Run();
+if (args.Contains("--retained-course-core")) return VerifyCourseCore.Run() + VerifyProjectionContracts.Run();
 if (args.Contains("--travel-episodes")) return VerifyTravelEpisodes.Run();
 if (args.Any(a => a == "--evidence-scenes" || a.StartsWith("--evidence-scenes=", StringComparison.Ordinal))) return RecordEvidenceScenes.Run(args);
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);

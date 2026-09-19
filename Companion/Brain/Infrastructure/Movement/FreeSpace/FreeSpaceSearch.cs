@@ -175,8 +175,13 @@ public sealed class FreeSpaceSearch
         if (Finished) return true;
         long deadline = LimitPlanningWork.Deadline(milliseconds);
         int spent = 0;
-        while (open.TryDequeue(out Point node, out _))
+        while (open.Count > 0)
         {
+            // All callers borrow the brain's allowance. Checking before removal keeps
+            // the frontier intact when a deterministic or wall-clock slice runs out.
+            if (LimitPlanningWork.IsActive && !LimitPlanningWork.Current.TrySpend("free-space"))
+            { Stop = StopReason.Deadline; return false; }
+            open.TryDequeue(out Point node, out _);
             if (closed.Contains(node)) continue;
             closed.Add(node);
             Expansions++;

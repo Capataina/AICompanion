@@ -48,6 +48,7 @@
     <Compile Include="../../Companion/Brain/Infrastructure/Movement/**/*.cs"
              Exclude="../../Companion/Brain/Infrastructure/Movement/TerrariaIntegration/**/*.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Selection/Computation/AllocateDecisionWork.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="FNA">
