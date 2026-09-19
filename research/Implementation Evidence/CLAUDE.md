@@ -1,6 +1,6 @@
 # Implementation evidence is a dated account of the running contracts
 
-This folder describes source and recordings at the research baseline `d60b92b`; gameplay source at that revision is unchanged from `4296f85`. Its claims do not automatically describe a later checkout. The durable design questions and conditional proposals refer here for their starting evidence.
+Each document names the source revision or working-tree checkpoint its evidence describes. The original architecture survey uses research baseline `d60b92b`, whose gameplay source is unchanged from `4296f85`; subsequent course investigations name their own baselines. None of these claims automatically describes a later checkout. The durable design questions and conditional proposals refer here for their starting evidence.
 
 ```text
 Implementation Evidence/
@@ -8,6 +8,7 @@ Implementation Evidence/
 ├─ Decisions, Activities and Shared Controls.md   observation, selection, work and control ownership
 ├─ Routes, Returnability and Physical Execution.md navigation contracts and their limitations
 ├─ Player Motion and External Effects for Course Repair.md intent, native receipts and repair inputs at d315bf2
+├─ Retained Course Core Counterexamples and Verification.md first implementation attacks, regression evidence and integration limits
 └─ Trace Course Decisions Through Existing Instruments.md telemetry, replay and evidence limits at d315bf2
 ```
 
