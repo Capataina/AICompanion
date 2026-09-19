@@ -61,6 +61,16 @@ public sealed class DecisionFactSnapshot
     public IReadOnlyList<DecisionFact> Facts { get; }
     public bool TryRead(FactKey key, out DecisionFact fact) => facts.TryGetValue(key, out fact!);
     public TrackedFactReader Track() => new(this);
+
+    /// <summary>Derived queries may finish after observation freezes. They can extend that
+    /// catalogue, but cannot change its clock, receipts, observed world, or an existing answer.</summary>
+    public bool IsModelExtensionOf(DecisionFactSnapshot previous)
+        => Id == previous.Id && WorldEpoch == previous.WorldEpoch && Tick == previous.Tick
+            && ObservationOrdinal == previous.ObservationOrdinal && ReceiptWatermark == previous.ReceiptWatermark
+            && facts.Count > previous.facts.Count
+            && previous.facts.All(pair => facts.TryGetValue(pair.Key, out var current) && current.Digest == pair.Value.Digest)
+            && facts.Values.Where(fact => !previous.facts.ContainsKey(fact.Key))
+                .All(fact => fact.Evidence is FactEvidence.Modelled or FactEvidence.Unresolved);
 }
 
 public sealed class TrackedFactReader

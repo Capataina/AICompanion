@@ -7,7 +7,7 @@ DecisionMaking/
 ├─ CLAUDE.md               evidence scope and execution
 ├─ VerifyCourseCore.cs     fixed objective, identity, bounds, resources, repair and budget cuts
 ├─ VerifyProjectionContracts.cs causal effect reads, resource phases, fair discovery and receipt retirement
-├─ VerifyCourseOrderProjection.cs one-operation cuts, empty-order cost handoff, frozen-input guards and shared region-curve equivalence
+├─ VerifyCourseOrderProjection.cs one-operation cuts, completed-query extensions, empty-order cost handoff, frozen-input guards and shared region-curve equivalence
 └─ VerifyCompanionshipForecast.cs region-crossing integration, subdivision invariance and nominal player-travel horizon
 ```
 

@@ -25,7 +25,7 @@ public sealed class BindCourseOrder : ICourseProjector
     private readonly BindOpportunity binder;
     private readonly ProjectedCourseState initial;
     private readonly ICourseConsequenceForecast forecast;
-    private readonly DecisionFactSnapshot snapshot;
+    private DecisionFactSnapshot snapshot;
     private readonly CourseComparisonEpisode comparison;
     private readonly List<StepBinding> steps = new();
     private readonly DecisionWorkCursor bindingCursor = new();
@@ -54,10 +54,11 @@ public sealed class BindCourseOrder : ICourseProjector
         DecisionFactSnapshot facts, CourseComparisonEpisode episode, DecisionWorkCursor cursor,
         DecisionWorkBudget budget)
     {
-        // Equal numeric IDs are insufficient: a caller must not replace a frozen input
-        // object while a domain's private search is still consuming its previous values.
-        if (!ReferenceEquals(facts, snapshot) || !ReferenceEquals(episode, comparison))
+        // A completed derived query can join a frozen catalogue. Existing answers and all
+        // observation metadata remain immutable, so accepted bindings keep their evidence.
+        if ((!ReferenceEquals(facts, snapshot) && !facts.IsModelExtensionOf(snapshot)) || !ReferenceEquals(episode, comparison))
             throw new InvalidOperationException("A course projector belongs to one frozen comparison snapshot.");
+        snapshot = facts;
         if (!ReferenceEquals(owner, cursor) || epoch != cursor.Epoch)
         {
             owner = cursor; epoch = cursor.Epoch; order = requested.ToArray();

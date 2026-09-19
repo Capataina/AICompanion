@@ -13,7 +13,8 @@ public sealed record CourseProjectionResult(ProjectionStatus Status, CourseProje
 public interface ICourseProjector
 {
     /// <summary>The cursor and private projection state resume the same order. Predictions
-    /// read the snapshot/overlay, never live engine state. A rejected order is not unfinished.</summary>
+    /// read the snapshot/overlay, never live engine state. Completed model answers may append
+    /// to frozen inputs. A rejected order is not unfinished.</summary>
     CourseProjectionResult Continue(IReadOnlyList<OpportunityKey> order, DecisionFactSnapshot facts,
         CourseComparisonEpisode episode, DecisionWorkCursor cursor, DecisionWorkBudget budget);
 }
@@ -43,6 +44,13 @@ public sealed class SearchCourseOrders
     public bool Exhausted { get; private set; }
     public bool DepthTruncated { get; private set; }
     public IReadOnlyList<OpportunityKey> PendingOrder => pendingOrder ?? Array.Empty<OpportunityKey>();
+
+    public void ExtendModelFacts(DecisionFactSnapshot extended)
+    {
+        if (facts == null || !extended.IsModelExtensionOf(facts))
+            throw new InvalidOperationException("Course search accepts only appended model answers for its frozen observation.");
+        facts = extended;
+    }
 
     public void Begin(DecisionFactSnapshot facts, CourseComparisonEpisode episode,
         IReadOnlyList<Opportunity> opportunities, IReadOnlyList<OpportunityKey> retained, ICourseProjector projector)

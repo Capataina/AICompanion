@@ -14,7 +14,38 @@ internal static class VerifyCourseOrderProjection
         => RunOneRow.Case("G11 order projection retains native bindings across one-operation cuts", SlicedOrder)
         + RunOneRow.Case("G03 empty orders retain unresolved companionship costs", EmptyOrder)
         + RunOneRow.Case("G08 projection refuses changed frozen inputs", FrozenInputs)
+        + RunOneRow.Case("G11 completed model answers resume a suspended course order", CompletedModelAnswer)
         + RunOneRow.Case("G03 captured companionship uses the live region curve", SharedCompanionshipCurve);
+
+    private static void CompletedModelAnswer()
+    {
+        var sites = new[] { Site("first"), Site("second") };
+        var observed = new DecisionFact(new("world", "fixture"), 1, new(Amount: 1), FactEvidence.Observed);
+        var facts = new DecisionFactSnapshot(1, 1, 100, 1, 0, new[] { observed });
+        var episode = Episode(sites);
+        var binder = new FixtureBinder { NeedsSecondModel = true };
+        var projector = new BindCourseOrder(facts, episode, sites, new(new[] { binder }), new(default(CoursePoint)), new UnknownForecast());
+        var search = new SearchCourseOrders(2);
+        search.Begin(facts, episode, sites, sites.Select(site => site.Key).ToArray(), projector);
+        search.Continue(new(double.PositiveInfinity));
+        Require(binder.Uses == 1 && search.Best == null && search.PendingOrder.Count == 2,
+            "an unanswered derived query did not preserve the partly bound order");
+        var model = new DecisionFact(new("fixture-model", "second"), 1, new(Amount: 1), FactEvidence.Modelled);
+        var extended = new DecisionFactSnapshot(1, 1, 100, 1, 0, new[] { observed, model });
+        Require(extended.IsModelExtensionOf(facts), "a derived answer changed no observations but was refused");
+        search.ExtendModelFacts(extended);
+        search.Continue(new(double.PositiveInfinity, 3));
+        Require(binder.Uses == 2 && search.Best?.Steps.Count == 2 && search.Best.Prefix!.Id == binder.FirstUse,
+            "model completion restarted or stranded the accepted prefix");
+        var changed = new DecisionFact(observed.Key, 2, new(Amount: 2), FactEvidence.Observed);
+        Require(!new DecisionFactSnapshot(1, 1, 100, 1, 0, new[] { changed, model }).IsModelExtensionOf(facts)
+            && !new DecisionFactSnapshot(1, 1, 101, 1, 0, new[] { observed, model }).IsModelExtensionOf(facts)
+            && !new DecisionFactSnapshot(1, 1, 100, 2, 0, new[] { observed, model }).IsModelExtensionOf(facts)
+            && !new DecisionFactSnapshot(1, 1, 100, 1, 1, new[] { observed, model }).IsModelExtensionOf(facts)
+            && !new DecisionFactSnapshot(1, 1, 100, 1, 0, new[] { observed,
+                new DecisionFact(model.Key, 1, model.Value, FactEvidence.Observed) }).IsModelExtensionOf(facts),
+            "model extension admitted a changed world, clock, receipt stream or new observation");
+    }
 
     private static void SharedCompanionshipCurve()
     {
@@ -102,13 +133,19 @@ internal static class VerifyCourseOrderProjection
     {
         public string Domain => "fixture";
         public int Uses { get; private set; }
+        public bool NeedsSecondModel { get; init; }
+        public long FirstUse { get; private set; }
         public BindingValidation ValidateNextUse(StepBinding binding, DecisionFactSnapshot facts)
             => new(OpportunityAdmission.KnownUsable, "fixture", false);
         public BindingResult Bind(Opportunity opportunity, ProjectedCourseState state, TrackedFactReader facts,
             DecisionWorkCursor cursor, DecisionWorkBudget budget)
         {
             if (!budget.TrySpend("fixture-bind")) return new(null, OpportunityAdmission.Unresolved, "budget-cut", true);
+            if (NeedsSecondModel && opportunity.Key.Target == "second"
+                && facts.Read(new("fixture-model", "second")).Evidence != FactEvidence.Modelled)
+                return new(null, OpportunityAdmission.Unresolved, "model-pending", true);
             Uses++; long id = CourseIdentity.Next();
+            if (Uses == 1) FirstUse = id;
             var effect = new PredictedEffect(CourseIdentity.Next(), opportunity.Needs.Single().Key, 1,
                 state.Tick + 1, state.Tick + 1, state.Tick + 1, EstimateStatus.ModelBound,
                 new[] { id }, Array.Empty<EffectDelta>(), facts.Manifest());
