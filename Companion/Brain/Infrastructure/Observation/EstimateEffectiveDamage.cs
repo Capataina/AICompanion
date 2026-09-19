@@ -28,28 +28,27 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 /// </summary>
 public static class EstimateEffectiveDamage
 {
-    public sealed class Captured
+    public readonly record struct Captured(bool IsPlayer, int Defence, float Effectiveness,
+        float FinalDamageMultiplier, bool SuperArmor, bool Ichor, bool BetsysCurse)
     {
-        private readonly Func<int, float> estimate;
-        internal Captured(bool player, Func<int, float> estimate) { IsPlayer = player; this.estimate = estimate; }
-        public bool IsPlayer { get; }
-        public float At(int rawDamage) => rawDamage <= 0 ? 0 : estimate(rawDamage);
+        public float At(int rawDamage)
+        {
+            if (rawDamage <= 0) return 0;
+            if (!IsPlayer)
+                return NpcModifiers(Defence, FinalDamageMultiplier, SuperArmor, Ichor, BetsysCurse)
+                    .GetDamage(rawDamage, crit: false, damageVariation: false);
+            var modifiers = new Player.HurtModifiers();
+            modifiers.FinalDamage *= FinalDamageMultiplier;
+            return modifiers.GetDamage(rawDamage, Defence, Effectiveness);
+        }
     }
 
     public static Captured Capture(Player player)
-    {
-        var modifiers = new Player.HurtModifiers();
-        modifiers.FinalDamage *= MathF.Max(1f - player.endurance, 0f);
-        int defence = player.statDefense;
-        float effectiveness = player.DefenseEffectiveness.Value;
-        return new(true, raw => modifiers.GetDamage(raw, defence, effectiveness));
-    }
+        => new(true, player.statDefense, player.DefenseEffectiveness.Value,
+            MathF.Max(1f - player.endurance, 0f), false, false, false);
 
     public static Captured Capture(NPC npc)
-    {
-        var modifiers = NpcModifiers(npc);
-        return new(false, raw => modifiers.GetDamage(raw, crit: false, damageVariation: false));
-    }
+        => new(false, npc.defense, 0, npc.takenDamageMultiplier, npc.SuperArmor, npc.ichor, npc.betsysCurse);
     public static float ToPlayer(Player player, int rawDamage)
     {
         if (rawDamage <= 0) return 0f;
@@ -61,17 +60,18 @@ public static class EstimateEffectiveDamage
     public static float ToNpc(NPC npc, int rawDamage)
     {
         if (rawDamage <= 0) return 0f;
-        return NpcModifiers(npc).GetDamage(rawDamage, crit: false, damageVariation: false);
+        return NpcModifiers(npc.defense, npc.takenDamageMultiplier, npc.SuperArmor, npc.ichor, npc.betsysCurse)
+            .GetDamage(rawDamage, crit: false, damageVariation: false);
     }
 
-    private static NPC.HitModifiers NpcModifiers(NPC npc)
+    private static NPC.HitModifiers NpcModifiers(int defence, float multiplier, bool superArmor, bool ichor, bool betsysCurse)
     {
-        var modifiers = new NPC.HitModifiers { SuperArmor = npc.SuperArmor };
-        modifiers.FinalDamage *= npc.takenDamageMultiplier;
-        if (npc.defense >= 0) modifiers.Defense.Base += npc.defense;
-        else modifiers.FlatBonusDamage += -npc.defense;
-        if (npc.ichor) modifiers.Defense.Flat -= 15f;
-        if (npc.betsysCurse) modifiers.Defense.Flat -= 40f;
+        var modifiers = new NPC.HitModifiers { SuperArmor = superArmor };
+        modifiers.FinalDamage *= multiplier;
+        if (defence >= 0) modifiers.Defense.Base += defence;
+        else modifiers.FlatBonusDamage += -defence;
+        if (ichor) modifiers.Defense.Flat -= 15f;
+        if (betsysCurse) modifiers.Defense.Flat -= 40f;
         return modifiers;
     }
 }

@@ -62,6 +62,21 @@ internal static class VerifyCourseTravelScheduling
         context.Npc.defense = 0; context.Npc.takenDamageMultiplier = 1;
         var playerDefence = EstimateEffectiveDamage.Capture(context.Player);
         var npcDefence = EstimateEffectiveDamage.Capture(context.Npc);
+        playerDefence = System.Text.Json.JsonSerializer.Deserialize<EstimateEffectiveDamage.Captured>(
+            System.Text.Json.JsonSerializer.Serialize(playerDefence));
+        npcDefence = System.Text.Json.JsonSerializer.Deserialize<EstimateEffectiveDamage.Captured>(
+            System.Text.Json.JsonSerializer.Serialize(npcDefence));
+        foreach (var defence in new[] {
+            new EstimateEffectiveDamage.Captured(true, 30, .75f, .8f, false, false, false),
+            new EstimateEffectiveDamage.Captured(false, -10, 0, 1.2f, false, true, true),
+            new EstimateEffectiveDamage.Captured(false, 100, 0, .5f, true, false, true) })
+        {
+            var restored = System.Text.Json.JsonSerializer.Deserialize<EstimateEffectiveDamage.Captured>(
+                System.Text.Json.JsonSerializer.Serialize(defence));
+            Require(restored == defence, "recorded defence lost native modifier inputs");
+            foreach (int raw in new[] { 0, 1, 20, 100 })
+                Require(restored.At(raw) == defence.At(raw), "replayed defence changed native damage arithmetic");
+        }
         float playerExpected = EstimateEffectiveDamage.ToPlayer(context.Player, 27);
         float npcExpected = EstimateEffectiveDamage.ToNpc(context.Npc, 20);
         context.Player.statDefense = Terraria.Player.DefenseStat.Default + 10000; context.Npc.defense = 10000;
