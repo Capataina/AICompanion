@@ -15,4 +15,6 @@ The census owns normalisation; enumeration order, cache occupancy and target par
 
 Domain migration remains in progress; until all adapters and the coordinator use these contracts, the presence of this folder is not a replacement of family selection.
 
+A pending binding exposes its missing native travel as typed requests. The shared gate requires every requested key to appear as missing in that invocation's tracked reads, and forbids requests alongside a completed binding. A concluded unresolved answer is not a pending request: repeating it would consume the shared allowance without adding evidence.
+
 `DiscoverAssistanceOpportunities` reads `collect-target`, `light-target` and `pot-target` facts from immutable snapshots and resumes discovery under a borrowed allowance. `CaptureAssistanceOpportunities` owns the native reads. Its drop census freezes item content before slicing contact work; target generations distinguish observed replacements, while replacement between observations remains unknown. The pot and light capture paths are provisional: their current geometry and coverage do not establish the full native course-binding contract, so they must not be treated as completed domain migration.

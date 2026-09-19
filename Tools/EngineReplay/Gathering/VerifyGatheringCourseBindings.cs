@@ -19,7 +19,30 @@ internal static class VerifyGatheringCourseBindings
     public static int Run() => RunOneRow.Case("G09 tool binding preserves readiness between native uses", CooldownAndSuccessor)
         + RunOneRow.Case("G15 nominal tool travel cannot certify an enabling successor", NominalTravel)
         + RunOneRow.Case("G15 captured pick binding predicts one actual native strike", NativePick)
-        + RunOneRow.Case("G03 partial reward cannot shrink a physical tool strike", PartialReward);
+        + RunOneRow.Case("G03 partial reward cannot shrink a physical tool strike", PartialReward)
+        + RunOneRow.Case("G09 missing tool travel requests resume without retrying concluded uncertainty", MissingTravel);
+
+    private static void MissingTravel()
+    {
+        var site = Site() with { StandX = 40 };
+        var complete = Snapshot(site, 5, 0);
+        var key = ReadCourseTravel.Key(new(20, 30), default, new(40, 30));
+        var missing = new DecisionFactSnapshot(1, 1, 100, 1, 0, complete.Facts.Where(fact => fact.Key != key));
+        var gate = new BindOpportunity(new[] { new GatheringOpportunityBinder("mine-target") });
+        var opportunity = Opportunity(missing);
+        var state = new ProjectedCourseState(new(20, 30));
+        var cursor = new DecisionWorkCursor();
+        var pending = gate.Bind(opportunity, state, missing, cursor, new(double.PositiveInfinity));
+        Require(pending.Pending && pending.RequiredTravel?.Single().Key == key,
+            "missing native travel did not supply its exact physical query");
+        Require(gate.Bind(opportunity, state, complete, cursor, new(double.PositiveInfinity)).Binding != null,
+            "a completed travel extension failed to resume the native tool binding");
+        var unresolved = new DecisionFactSnapshot(1, 1, 100, 1, 0, complete.Facts.Select(fact => fact.Key == key
+            ? new DecisionFact(fact.Key, fact.Version, fact.Value, FactEvidence.Unresolved) : fact));
+        var refused = gate.Bind(opportunity, state, unresolved, new(), new(double.PositiveInfinity));
+        Require(!refused.Pending && refused.Binding == null && refused.RequiredTravel == null,
+            "a concluded unresolved route was requeued as an unfinished query");
+    }
 
     private static void PartialReward()
     {

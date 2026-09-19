@@ -48,7 +48,13 @@ public sealed class GatheringOpportunityBinder : IOpportunityBinder
         var pose = new CoursePoint(site.StandX, site.StandY);
         if (!double.IsFinite(pose.X) || !double.IsFinite(pose.Y)) return Refuse("native-working-pose-invalid");
         CapturedCourseTravel? travel = ReadCourseTravel.Read(state, pose, facts);
-        if (travel == null) return Refuse("native-travel-unresolved", true);
+        if (travel == null)
+        {
+            var request = new CourseTravelRequest(state.Pose, state.Velocity, pose);
+            return facts.Read(request.Key).Evidence == FactEvidence.Missing
+                ? new(null, OpportunityAdmission.Unresolved, "native-travel-pending", true, new[] { request })
+                : Refuse("native-travel-unresolved");
+        }
         if (travel.Admission != OpportunityAdmission.KnownUsable)
             return new(null, travel.Admission, travel.Reason, travel.Admission == OpportunityAdmission.Unresolved);
         if (facts.Read(readyKey).Evidence != FactEvidence.Observed) return Refuse("native-tool-readiness-missing");

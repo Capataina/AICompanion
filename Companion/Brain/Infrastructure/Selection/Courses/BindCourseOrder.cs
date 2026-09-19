@@ -37,6 +37,7 @@ public sealed class BindCourseOrder : ICourseProjector
     private ProjectedCourseState state;
     private CourseProjectionResult? terminal;
     private StepBinding? awaitingApplication;
+    public IReadOnlyList<CourseTravelRequest> MissingTravel { get; private set; } = Array.Empty<CourseTravelRequest>();
 
     public BindCourseOrder(DecisionFactSnapshot snapshot, CourseComparisonEpisode comparison,
         IEnumerable<Opportunity> opportunities, BindOpportunity binder, ProjectedCourseState initial,
@@ -63,6 +64,7 @@ public sealed class BindCourseOrder : ICourseProjector
         {
             owner = cursor; epoch = cursor.Epoch; order = requested.ToArray();
             steps.Clear(); state = initial.Fork(); terminal = null; awaitingApplication = null;
+            MissingTravel = Array.Empty<CourseTravelRequest>();
             bindingCursor.Bind(++bindingEpoch, "course-prefix");
             forecastCursor.Bind(bindingEpoch, "course-consequences");
         }
@@ -77,6 +79,7 @@ public sealed class BindCourseOrder : ICourseProjector
                 if (!opportunities.TryGetValue(order[steps.Count], out var opportunity))
                     return Finish(ProjectionStatus.Rejected, null, "opportunity-not-in-frozen-census", cursor);
                 var result = binder.Bind(opportunity, state, facts, bindingCursor, budget);
+                MissingTravel = Array.AsReadOnly((result.RequiredTravel ?? Array.Empty<CourseTravelRequest>()).ToArray());
                 if (result.Pending) return new(ProjectionStatus.Pending, null, result.Reason);
                 if (result.Binding == null || result.Admission != OpportunityAdmission.KnownUsable)
                     return Finish(ProjectionStatus.Rejected, null, result.Reason, cursor);

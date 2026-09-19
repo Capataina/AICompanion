@@ -85,11 +85,16 @@ public sealed class CombatOpportunityBinder:IOpportunityBinder
         while(cursor.Offset<uses.Length) {
             if(!budget.TrySpend("combat-opportunity-bind-use")) return new(null,OpportunityAdmission.Unresolved,"budget-cut",true);
             DecisionFact raw=uses[cursor.Offset];
-            cursor.Advance();
             var planned=CombatCourseFacts.Read<CombatCourseFacts.Use>(facts.Read(raw.Key));
             if(planned==null||planned.TargetSlot!=slot||planned.TargetGeneration!=generation
-                ||!float.IsFinite(planned.ExpectedTargetDamage)||planned.ExpectedTargetDamage<=0||planned.TargetImpactTicks<=0) continue;
+                ||!float.IsFinite(planned.ExpectedTargetDamage)||planned.ExpectedTargetDamage<=0||planned.TargetImpactTicks<=0) { cursor.Advance(); continue; }
             var capturedTravel=ReadCourseTravel.Read(state,new CoursePoint(planned.StandX,planned.StandY),facts);
+            if(capturedTravel==null) {
+                var request=new CourseTravelRequest(state.Pose,state.Velocity,new(planned.StandX,planned.StandY));
+                if(facts.Read(request.Key).Evidence==FactEvidence.Missing)
+                    return new(null,OpportunityAdmission.Unresolved,"combat-travel-pending",true,new[]{request});
+            }
+            cursor.Advance();
             if(capturedTravel==null||capturedTravel.Admission!=OpportunityAdmission.KnownUsable) continue;
             return BindUse(opportunity,state,facts,targetKey,target,planned,capturedTravel,slot,generation);
         }

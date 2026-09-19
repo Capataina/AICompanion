@@ -105,7 +105,8 @@ public readonly record struct BindingValidation(OpportunityAdmission Admission, 
 {
     public bool CanUse => Admission == OpportunityAdmission.KnownUsable && !RequiresRepair;
 }
-public sealed record BindingResult(StepBinding? Binding, OpportunityAdmission Admission, string Reason, bool Pending);
+public sealed record BindingResult(StepBinding? Binding, OpportunityAdmission Admission, string Reason, bool Pending,
+    IReadOnlyList<CourseTravelRequest>? RequiredTravel = null);
 public readonly record struct ExecutionReceipt(long BindingId, long AttemptId, long ObservationOrdinal,
     string Requested, string Granted, string NativeUse, long NativeReceiptId, ExecutionBoundary Boundary, string Outcome);
 

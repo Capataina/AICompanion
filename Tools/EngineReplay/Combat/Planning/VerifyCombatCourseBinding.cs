@@ -41,6 +41,22 @@ internal static class VerifyCombatCourseBinding
             "The captured use was not discovered as a concrete usable opportunity.");
 
         var state = new ProjectedCourseState(new CoursePoint(32, 32));
+        var travelKey = ReadCourseTravel.Key(new CoursePoint(32, 32), default, new CoursePoint(32, 32));
+        var missing = new DecisionFactSnapshot(44, 8, 15, 1, 0, snapshot.Facts.Where(fact => fact.Key != travelKey));
+        var retainedCursor = new DecisionWorkCursor();
+        var gate = new BindOpportunity(new IOpportunityBinder[] { new CombatOpportunityBinder() });
+        var pending = gate.Bind(slice.Examined[0], state, missing, retainedCursor,
+            new DecisionWorkBudget(double.PositiveInfinity));
+        Require(pending.Pending && pending.RequiredTravel?.Single().Key == travelKey,
+            "A missing route did not leave the exact combat candidate pending with its query.");
+        var completed = new DecisionFactSnapshot(44, 8, 15, 1, 0, missing.Facts.Concat(new[]
+        {
+            new DecisionFact(travelKey, 1, snapshot.Facts.Single(fact => fact.Key == travelKey).Value, FactEvidence.Modelled)
+        }));
+        var resumed = gate.Bind(slice.Examined[0], state, completed, retainedCursor,
+            new DecisionWorkBudget(double.PositiveInfinity));
+        Require(resumed.Binding?.NativeUseId == useId,
+            "Completing the requested route lost the combat candidate behind an advanced cursor.");
         var bound = new BindOpportunity(new IOpportunityBinder[] { new CombatOpportunityBinder() }).Bind(slice.Examined[0], state,
             snapshot, new DecisionWorkCursor(), new DecisionWorkBudget(double.PositiveInfinity, 2, () => 0, 1));
         Require(bound.Binding != null && bound.Binding.Method == CombatCourseFacts.Method && bound.Binding.Tool == CombatCourseFacts.ToolId(0, 9, 2),

@@ -25,6 +25,12 @@ public sealed class BindOpportunity
         var reads = facts.Track();
         state.BeginReadTracking();
         var result = binder.Bind(opportunity, state, reads, cursor, budget);
+        if (result.RequiredTravel is { Count: > 0 } requests)
+        {
+            var pendingReads = reads.Manifest().Reads.Where(read => read.Evidence == FactEvidence.Missing).Select(read => read.Key).ToHashSet();
+            if (!result.Pending || result.Binding != null || requests.Any(request => !pendingReads.Contains(request.Key)))
+                throw new InvalidOperationException("A binding's travel requests must identify its pending missing fact reads.");
+        }
         if (result.Binding is not { } binding) return result;
         if (binding.Opportunity != opportunity.Key || binding.WorldEpoch != facts.WorldEpoch || binding.SnapshotId != facts.Id)
             throw new InvalidOperationException("The binder returned a different opportunity or observation epoch.");
