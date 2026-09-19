@@ -12,7 +12,7 @@ using WeighCombatObjectives = live::AICompanion.Companion.Brain.Activities.Comba
 using CombatWeights = live::AICompanion.Companion.Brain.Activities.Combat.Planning.CombatWeights;
 using SearchPlans = live::AICompanion.Companion.Brain.Activities.Combat.Planning.SearchAttackPlans;
 using AttackPlan = live::AICompanion.Companion.Brain.Activities.Combat.Planning.AttackPlan;
-using Budget = live::AICompanion.Companion.Brain.Activities.Combat.Planning.PlanningBudget;
+using Budget = live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation.DecisionWorkBudget;
 using C = live::AICompanion.Companion.Brain.Activities.ActionContext;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using LearnVolleys = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnVolleyShapes;
@@ -125,14 +125,14 @@ internal static class VerifyAttackPlanning
         var combat = companion.Combat;
         combat.AssumeCooldown(150);
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
-        Budget budget = Budget.Unbounded();
+        Budget budget = FixtureBudget();
         SearchPlans.SearchResult result = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the company scene offers nothing: " + result.Reason);
         Vector2 stand = result.Plan.Segments[0].Stand.Stand;
         Require(region.Contains(stand), $"the committed stand must stay inside the predicted region; got {stand} against centre {region.Centre} half {region.HalfSize}");
         CombatWeights noCompany = weights with { CompanyGap = 0f };
-        Budget mutationBudget = Budget.Unbounded();
+        Budget mutationBudget = FixtureBudget();
         SearchPlans.SearchResult mutated = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, noCompany, combat.NextPlanId++, ref mutationBudget);
         Require(mutated.Plan != null, "the company-gap-less search offers nothing: " + mutated.Reason);
@@ -236,7 +236,7 @@ internal static class VerifyAttackPlanning
         gear.Slots[0].SetDefaults(ItemID.WoodenBow);
         gear.Slots[1] = new Item();
         CombatWeights bowWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget bowBudget = Budget.Unbounded();
+        Budget bowBudget = FixtureBudget();
         SearchPlans.SearchResult bow = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, bowWeights, combat.NextPlanId++, ref bowBudget);
         Require(bow.Plan != null, "the bow search offers nothing: " + bow.Reason);
@@ -244,7 +244,7 @@ internal static class VerifyAttackPlanning
 
         gear.Slots[0].SetDefaults(ItemID.Boomstick);
         CombatWeights spreadWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget spreadBudget = Budget.Unbounded();
+        Budget spreadBudget = FixtureBudget();
         SearchPlans.SearchResult spread = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, spreadWeights, combat.NextPlanId++, ref spreadBudget);
         Require(spread.Plan != null, "the spread search offers nothing: " + spread.Reason);
@@ -252,7 +252,7 @@ internal static class VerifyAttackPlanning
 
         LearnVolleys.Reset();
         CombatWeights singleWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget singleBudget = Budget.Unbounded();
+        Budget singleBudget = FixtureBudget();
         SearchPlans.SearchResult single = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, singleWeights, combat.NextPlanId++, ref singleBudget);
         Require(single.Plan != null, "the unlearned-spread search offers nothing: " + single.Reason);
@@ -327,7 +327,7 @@ internal static class VerifyAttackPlanning
         gear.Slots[1] = new Item();
 
         CombatWeights healthyWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget healthyBudget = Budget.Unbounded();
+        Budget healthyBudget = FixtureBudget();
         SearchPlans.SearchResult healthy = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, healthyWeights, combat.NextPlanId++, ref healthyBudget);
         Require(healthy.Plan != null, "the healthy shotgun search offers nothing: " + healthy.Reason);
@@ -340,7 +340,7 @@ internal static class VerifyAttackPlanning
         companion.Brain.Senses.Update(companion.NPC, player);
         ctx = new C(companion, companion.Brain.Senses);
         CombatWeights hurtWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget hurtBudget = Budget.Unbounded();
+        Budget hurtBudget = FixtureBudget();
         SearchPlans.SearchResult hurt = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, hurtWeights, combat.NextPlanId++, ref hurtBudget);
         Require(hurt.Plan != null, "the wounded shotgun search offers nothing: " + hurt.Reason);
@@ -354,7 +354,7 @@ internal static class VerifyAttackPlanning
         Require(hurtDist > healthyDist + 80f, $"the wounded stand must sit clearly outside the healthy one; wounded {hurtDist:0}px, healthy {healthyDist:0}px");
 
         CombatWeights constantHarm = hurtWeights with { CompanionHarm = Weights.CombatWeightCompanionHarm * 0.5f };
-        Budget mutationBudget = Budget.Unbounded();
+        Budget mutationBudget = FixtureBudget();
         SearchPlans.SearchResult mutated = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, constantHarm, combat.NextPlanId++, ref mutationBudget);
         Require(mutated.Plan != null, "the constant-harm search offers nothing: " + mutated.Reason);
@@ -427,13 +427,14 @@ internal static class VerifyAttackPlanning
         gear.Slots[1] = new Item();
 
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
-        Budget budget = Budget.Unbounded();
+        Budget budget = FixtureBudget();
         SearchPlans.SearchResult result = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the pierce scene offers nothing: " + result.Reason);
         Vector2 stand = result.Plan.Segments[0].Stand.Stand;
         float lineY = (nearer.Center.Y + farther.Center.Y) / 2f;
         var enemies = combat.EnsureForecast(ctx);
+        using var decision = CombatFixture.BeginDecision();
         var probe = ForecastUses.Forecast(ctx, combat.Weapons[0], 0, nearer, new Vector2(950f, lineY), record: false, 0, enemies, out string probeRej, out _);
         Require(probe != null, "premise: a fixed line point forecasts a shot at the nearer: " + probeRej);
         bool probeNearer = false, probeFarther = false;
@@ -462,7 +463,7 @@ internal static class VerifyAttackPlanning
 
         LearnHits.AssumeResponse(new HitResponse { ProjectileType = ProjectileID.WoodenArrowFriendly });
         CombatWeights plainWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget plainBudget = Budget.Unbounded();
+        Budget plainBudget = FixtureBudget();
         SearchPlans.SearchResult plain = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, plainWeights, combat.NextPlanId++, ref plainBudget);
         Require(plain.Plan != null, "the pierce-less search offers nothing: " + plain.Reason);
@@ -538,7 +539,7 @@ internal static class VerifyAttackPlanning
         gear.Slots[1].SetDefaults(ItemID.Boomstick);
 
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
-        Budget budget = Budget.Unbounded();
+        Budget budget = FixtureBudget();
         SearchPlans.SearchResult result = SearchPlans.Search(ctx, combat, companion.Brain.Positioner,
             _ => true, weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the goons scene offers nothing: " + result.Reason);
@@ -556,7 +557,7 @@ internal static class VerifyAttackPlanning
         Require(secondDist < 250f, $"the second segment must close after; {secondDist:0}px from the boss");
 
         CombatWeights singleWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget singleBudget = Budget.Unbounded();
+        Budget singleBudget = FixtureBudget();
         SearchPlans.SearchResult single = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, singleWeights, combat.NextPlanId++, ref singleBudget);
         Require(single.Plan != null, "the depth-one search offers nothing: " + single.Reason);
@@ -641,7 +642,7 @@ internal static class VerifyAttackPlanning
         gear.Slots[1] = new Item();
 
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
-        Budget budget = Budget.Unbounded();
+        Budget budget = FixtureBudget();
         SearchPlans.SearchResult result = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the roller scene offers nothing: " + result.Reason);
@@ -759,7 +760,7 @@ internal static class VerifyAttackPlanning
         }
 
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
-        Budget budget = Budget.Unbounded();
+        Budget budget = FixtureBudget();
         SearchPlans.SearchResult result = SearchPlans.Search(ctx, combat, companion.Brain.Positioner,
             _ => true, weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the grenade scene offers nothing: " + result.Reason);
@@ -798,7 +799,7 @@ internal static class VerifyAttackPlanning
         float arrival = result.Plan.Segments[pierceAt].ArriveTick;
         int start = result.Plan.Segments[pierceAt].StartTick;
 
-        Budget mutationBudget = Budget.Unbounded();
+        Budget mutationBudget = FixtureBudget();
         SearchPlans.SearchResult mutated = SearchPlans.Search(ctx, combat, companion.Brain.Positioner,
             _ => true, weights, combat.NextPlanId++, ref mutationBudget,
             new SearchPlans.SearchOptions(ArrivalStartsOnly: true));
@@ -893,7 +894,7 @@ internal static class VerifyAttackPlanning
         gear.Slots[0].SetDefaults(ItemID.WaterBolt);
         gear.Slots[1] = new Item();
         CombatWeights bounceWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget bounceBudget = Budget.Unbounded();
+        Budget bounceBudget = FixtureBudget();
         SearchPlans.SearchResult bounce = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, bounceWeights, combat.NextPlanId++, ref bounceBudget);
         Require(bounce.Plan != null, "the bouncing weapon offers nothing: " + bounce.Reason);
@@ -903,7 +904,7 @@ internal static class VerifyAttackPlanning
         gear.Slots[0].SetDefaults(ItemID.WoodenBow);
         gear.Slots[1] = new Item();
         CombatWeights straightWeights = WeighCombatObjectives.ForSenses(ctx);
-        Budget straightBudget = Budget.Unbounded();
+        Budget straightBudget = FixtureBudget();
         SearchPlans.SearchResult straight = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, straightWeights, combat.NextPlanId++, ref straightBudget);
         foreach (AttackPlan candidate in straight.Front)
@@ -912,7 +913,7 @@ internal static class VerifyAttackPlanning
                     $"the straight weapon must offer no bank; got {segment.Stand.Stand}");
 
         gear.Slots[0].SetDefaults(ItemID.WaterBolt);
-        Budget noBankBudget = Budget.Unbounded();
+        Budget noBankBudget = FixtureBudget();
         SearchPlans.SearchResult noBank = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, bounceWeights, combat.NextPlanId++, ref noBankBudget,
             new SearchPlans.SearchOptions(DisableBankAims: true));
@@ -1067,7 +1068,7 @@ internal static class VerifyAttackPlanning
                     CachePlanned.Clear();
                     CacheSims.Clear();
                 }
-                Budget warm = Budget.Unbounded();
+                Budget warm = FixtureBudget();
                 SearchPlans.Search(ctx, combat, companion.Brain.Positioner, _ => true, weights,
                     combat.NextPlanId++, ref warm);
             }
@@ -1079,7 +1080,7 @@ internal static class VerifyAttackPlanning
                     CachePlanned.Clear();
                     CacheSims.Clear();
                 }
-                Budget budget = Budget.Unbounded();
+                Budget budget = FixtureBudget();
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 SearchPlans.Search(ctx, combat, companion.Brain.Positioner, _ => true, weights,
                     combat.NextPlanId++, ref budget);
@@ -1127,8 +1128,8 @@ internal static class VerifyAttackPlanning
     /// </summary>
     public static int ThePlanningClockStoresMilliseconds()
     {
-        Require(Budget.FromMilliseconds(4f).AllowanceMilliseconds == 4f,
-            $"a 4 ms budget must store 4 ms, got {Budget.FromMilliseconds(4f).AllowanceMilliseconds}");
+        Require(new Budget(4f, long.MaxValue, () => 0, 1).AllowanceMilliseconds == 4f,
+            $"a 4 ms budget must store 4 ms, got {new Budget(4f, long.MaxValue, () => 0, 1).AllowanceMilliseconds}");
         Console.WriteLine("planning clock: 4 ms stores 4 ms");
         return 0;
     }
@@ -1167,7 +1168,7 @@ internal static class VerifyAttackPlanning
         VerifyOreWork.SettleReach(companion, player);
         var ctx = new C(companion, companion.Brain.Senses);
         var combat = companion.Combat;
-        Budget budget = Budget.Unbounded();
+        Budget budget = FixtureBudget();
         Require(eye.noGravity, "premise: a Demon Eye must read as noGravity");
         Require(companion.Brain.Senses.Threats.Threats.Count > 0, "premise: the Eye must be a threat");
         SearchPlans.SearchResult probe = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
@@ -1260,7 +1261,7 @@ internal static class VerifyAttackPlanning
         VerifyOreWork.SettleReach(companion, player);
         var ctx = new C(companion, companion.Brain.Senses);
         var combat = companion.Combat;
-        Budget budget = Budget.Unbounded();
+        Budget budget = FixtureBudget();
         SearchPlans.SearchResult result = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
             _ => true, WeighCombatObjectives.ForSenses(ctx), combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the hold scene offers nothing: " + result.Reason);
@@ -1423,4 +1424,6 @@ internal static class VerifyAttackPlanning
         Console.WriteLine($"worm chain: records={records} representatives={reps} player-danger={danger:0.00}");
         return 0;
     }
+
+    private static Budget FixtureBudget() => new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
 }

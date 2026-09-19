@@ -10,6 +10,7 @@ using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
 
@@ -26,7 +27,7 @@ public static class ReevaluateAttackPlan
 /// against what the plan is worth now rather than what the search paid for it then.
 /// </summary>
 public static CombatOutcome? Reevaluate(in ActionContext ctx, CompanionCombat combat,
-    IReadOnlyList<EnemyForecast> enemies, AttackPlan plan, CombatWeights weights)
+    IReadOnlyList<EnemyForecast> enemies, AttackPlan plan, CombatWeights weights, ref DecisionWorkBudget budget)
 {
     int tick = ctx.Senses.Tick;
     int horizon = CompanionCombat.HorizonTicks;
@@ -59,8 +60,9 @@ public static CombatOutcome? Reevaluate(in ActionContext ctx, CompanionCombat co
         SimulatedUse sim;
         if (!CacheSimulatedUses.TryGet(id, modifiers, muzzle, use.AimPoint, fireTick, knowledge, world.RefreshCount, out SimulatedUse? cached) || cached == null)
         {
-            PlanningBudget simBudget = PlanningBudget.Unbounded();
-            sim = SimulateUse.Simulate(id, muzzle, use.AimPoint, use.LaunchDirection, world, enemies, modifiers, fireTick, ref simBudget);
+            sim = SimulateUse.Simulate(id, muzzle, use.AimPoint, use.LaunchDirection, world, enemies, modifiers, fireTick, ref budget);
+            if (budget.Cut)
+                return null;
             CacheSimulatedUses.Store(id, modifiers, muzzle, use.AimPoint, fireTick, knowledge, world.RefreshCount, sim);
         }
         else

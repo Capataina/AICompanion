@@ -109,6 +109,11 @@ if (args.Contains("--retained-course-recording")) return
     + RunOneRow.Case("G14 diagnostic sink faults remain visible", () => { if (VerifyDiagnosticTransport.InjectedWriteFailureStaysSticky() != 0) throw new InvalidOperationException("Sink failure was lost."); })
     + RunOneRow.Case("G14 in-flight and complete envelope bytes stay reserved", () => { if (VerifyDiagnosticTransport.InFlightBytesAndLegacyStringsAreCharged() != 0) throw new InvalidOperationException("Retained bytes escaped accounting."); })
     + RunOneRow.Case("G14 native events retain their writer chronology", () => { if (VerifyGodsEyeEvents.Run() != 0) throw new InvalidOperationException("Native event chronology failed."); });
+if (args.Contains("--retained-course-combat")) return
+    RunOneRow.Case("G04 captured combat use binds and validates exactly", () => VerifyCombatCourseBinding.CapturedUseBindsWithoutReadingLiveTerraria())
+    + RunOneRow.Case("G04 native planned use carries simulator damage", () => VerifyRetainedCombatBudget.PlannedUseCarriesSimulatorTargetDamage());
+if (args.Contains("--retained-course-budget")) return VerifyRetainedCombatBudget.SharedAllowanceCutsEveryConsumer()
+    + VerifyRetainedCombatBudget.AUsefulOpenerSurvivesABroaderSearchCut();
 if (args.Contains("--travel-episodes")) return VerifyTravelEpisodes.Run();
 if (args.Any(a => a == "--evidence-scenes" || a.StartsWith("--evidence-scenes=", StringComparison.Ordinal))) return RecordEvidenceScenes.Run(args);
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);

@@ -472,7 +472,7 @@ internal static class RestoreSnapshot
             {
                 S.UseDto use = segment.Uses[u];
                 uses[u] = new PlannedUse(use.Weapon, V(use.Muzzle) + shift, V(use.Aim) + shift, V(use.Launch),
-                    use.FireTick + tickDelta, use.Target);
+                    use.FireTick + tickDelta, use.Target, use.ExpectedTargetDamage, use.TargetImpactTicks);
             }
             S.VerdictDto verdict = segment.Verdict;
             var proposal = new StandProposal(V(segment.Stand) + shift, (StandReason)segment.Reason,

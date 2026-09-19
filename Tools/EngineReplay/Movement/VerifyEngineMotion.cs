@@ -93,6 +93,8 @@ internal static class VerifyEngineMotion
         ("terminal diagnostic write timeout remains incomplete", VerifyDiagnosticTransport.HeldWriteTimeoutStaysIncompleteAfterRelease),
         ("diagnostic sink faults remain visible", VerifyDiagnosticTransport.InjectedWriteFailureStaysSticky),
         ("in-flight and complete envelope bytes stay reserved", VerifyDiagnosticTransport.InFlightBytesAndLegacyStringsAreCharged),
+        ("combat and repair spend the same decision allowance", VerifyRetainedCombatBudget.SharedAllowanceCutsEveryConsumer),
+        ("a useful combat opener fires while broader search is cut", VerifyRetainedCombatBudget.AUsefulOpenerSurvivesABroaderSearchCut),
         ("a prepared comparison preserves its numbers", VerifyPreparedActivities.Run),
         ("each purpose family nominates its best child", VerifyFamilyOffers.Run),
         ("the orb flies its planned routes over native terrain and stops at what it cannot fit through", VerifyRoutes),

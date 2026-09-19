@@ -52,7 +52,8 @@ public enum SegmentEnd
 /// the tick to fire it, and the target slot. The launch travels with the aim so a re-evaluation against a
 /// new forecast re-flies the same use rather than re-solving it.
 /// </summary>
-public readonly record struct PlannedUse(int WeaponSlot, Vector2 Muzzle, Vector2 AimPoint, Vector2 LaunchDirection, int FireTick, int TargetSlot);
+public readonly record struct PlannedUse(int WeaponSlot, Vector2 Muzzle, Vector2 AimPoint, Vector2 LaunchDirection, int FireTick,
+    int TargetSlot, float ExpectedTargetDamage = float.NaN, int TargetImpactTicks = -1);
 
 /// <summary>
 /// One stand proposed for verdict: where, why, which weapon it serves when it serves one, and the hostile

@@ -7,6 +7,7 @@ using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Activities.Combat.Planning;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
@@ -122,7 +123,7 @@ public static class SimulateUse
 
     public static SimulatedUse Simulate(WeaponId weapon, Vector2 muzzle, Vector2 aimPoint, Vector2 launchDirection,
         CombatWorld world, IReadOnlyList<EnemyForecast> enemies, ModifierState modifiers, int fireTick,
-        ref PlanningBudget budget)
+        ref DecisionWorkBudget budget)
     {
         budget.NoteSimulation();
         var use = new SimulatedUse { ManaCost = weapon.ManaCost };
@@ -220,7 +221,7 @@ public static class SimulateUse
 
     private static void FlySpawn(WeaponId weapon, VolleySpawn spec, int depth, int startTick,
         CombatWorld world, IReadOnlyList<EnemyForecast> enemies, Dictionary<int, float> life,
-        ModifierState modifiers, Vector2 aimPoint, SimulatedUse use, List<float> confidences, ref PlanningBudget budget)
+        ModifierState modifiers, Vector2 aimPoint, SimulatedUse use, List<float> confidences, ref DecisionWorkBudget budget)
     {
         FlightLaw law = FitFlightLaws.LawFor(spec.ProjectileType);
         confidences.Add(LawConfidence(law));
@@ -379,7 +380,7 @@ public static class SimulateUse
         int update, int tick, Vector2 position, Vector2 velocity,
         CombatWorld world, IReadOnlyList<EnemyForecast> enemies, Dictionary<int, float> life,
         ModifierState modifiers, Vector2 aimPoint, SimulatedUse use, List<float> confidences,
-        ref PlanningBudget budget, int depth)
+        ref DecisionWorkBudget budget, int depth)
     {
         foreach (ChildModel child in LearnChildSpawns.ChildrenFor(spec.ProjectileType))
         {
@@ -393,7 +394,7 @@ public static class SimulateUse
         Vector2 position, Vector2 velocity,
         CombatWorld world, IReadOnlyList<EnemyForecast> enemies, Dictionary<int, float> life,
         ModifierState modifiers, Vector2 aimPoint, SimulatedUse use, List<float> confidences,
-        ref PlanningBudget budget, int depth)
+        ref DecisionWorkBudget budget, int depth)
     {
         if (depth >= MaxChildDepth) return;
         if (!budget.Check()) { use.Cut = true; return; }

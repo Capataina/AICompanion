@@ -14,7 +14,7 @@ using CombatWorld = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowl
 using ModifierState = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState;
 using EnemyForecast = live::AICompanion.Companion.Brain.Infrastructure.Observation.EnemyForecast;
 using ForecastEnemies = live::AICompanion.Companion.Brain.Infrastructure.Observation.ForecastEnemies;
-using PlanningBudget = live::AICompanion.Companion.Brain.Activities.Combat.Planning.PlanningBudget;
+using DecisionBudget = live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation.DecisionWorkBudget;
 
 /// <summary>
 /// The law a use is simulated under, held against Terraria's own <see cref="Projectile.VanillaAI"/>.
@@ -147,7 +147,7 @@ internal static class VerifyArcLearning
         CombatWorld world = CombatWorld.Current(muzzle, Main.LocalPlayer.Center, live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Revision);
         bool Lands()
         {
-            PlanningBudget budget = PlanningBudget.Unbounded();
+            DecisionBudget budget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
             return SolveAims.FirstLanding(weapon, muzzle, forecast, world, enemies, 0, ref budget) != null;
         }
         if (!Lands())
@@ -162,7 +162,7 @@ internal static class VerifyArcLearning
         static bool DirectHits(WeaponId weapon, Vector2 muzzle, EnemyForecast forecast, CombatWorld world, EnemyForecast[] enemies)
         {
             Vector2 aim = forecast.PredictedCentre(1);
-            PlanningBudget budget = PlanningBudget.Unbounded();
+            DecisionBudget budget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
             var use = Simulate.Simulate(weapon, muzzle, aim, Vector2.Normalize(aim - muzzle), world, enemies,
                 ModifierState.None, 0, ref budget);
             foreach (var hit in use.Hits)
@@ -178,13 +178,13 @@ internal static class VerifyArcLearning
         bool reopened = DirectHits(weapon, muzzle, forecast, world, enemies);
 
         // An accuracy rotation off a landing aim must miss: simulate the rotated launch itself.
-        PlanningBudget aimBudget = PlanningBudget.Unbounded();
+        DecisionBudget aimBudget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         var landed = SolveAims.FirstLanding(weapon, muzzle, forecast, world, enemies, 0, ref aimBudget);
         bool noisyMisses = landed == null;
         if (landed != null)
         {
             Vector2 rotated = landed.Value.Aim.LaunchDirection.RotatedBy(MathHelper.ToRadians(4f));
-            PlanningBudget simBudget = PlanningBudget.Unbounded();
+            DecisionBudget simBudget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
             var use = Simulate.Simulate(weapon, muzzle, landed.Value.Aim.AimPoint, rotated, world, enemies, ModifierState.None, 0, ref simBudget);
             noisyMisses = true;
             foreach (var hit in use.Hits)
@@ -264,7 +264,7 @@ internal static class VerifyArcLearning
         EnemyForecast forecast = ForecastEnemies.ForSingle(target);
         var enemies = new[] { forecast };
         CombatWorld world = CombatWorld.Current(muzzle, Main.LocalPlayer.Center, live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Revision);
-        PlanningBudget budget = PlanningBudget.Unbounded();
+        DecisionBudget budget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         var landed = SolveAims.FirstLanding(weapon, muzzle, forecast, world, enemies, 0, ref budget);
         if (landed == null)
             return false;

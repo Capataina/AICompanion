@@ -12,7 +12,7 @@ using WeaponId = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledg
 using CombatWorld = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CombatWorld;
 using ModifierState = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState;
 using EnemyForecast = live::AICompanion.Companion.Brain.Infrastructure.Observation.EnemyForecast;
-using PlanningBudget = live::AICompanion.Companion.Brain.Activities.Combat.Planning.PlanningBudget;
+using DecisionBudget = live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation.DecisionWorkBudget;
 using SimulatedUse = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.SimulatedUse;
 
 /// <summary>
@@ -426,7 +426,7 @@ internal static class VerifyFlightLaws
             ProjectileID.CrystalShard, false);
         CombatWorld world = CombatWorld.Current(muzzle, muzzle, 0);
         var enemies = new[] { Forecast(1, enemyCentre, 40, 40, 500f) };
-        PlanningBudget budget = PlanningBudget.Unbounded();
+        DecisionBudget budget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse use = Simulate.Simulate(weapon, muzzle, enemyCentre, Vector2.UnitX, world, enemies,
             ModifierState.None, 0, ref budget);
         Require(!use.Cut && !budget.Cut, "an unbounded sim of one beam must run to its lifetime");
@@ -509,7 +509,7 @@ internal static class VerifyFlightLaws
             Forecast(1, new Vector2(400f, 800f), 40, 80, 100f),
             Forecast(2, new Vector2(700f, 740f), 40, 120, 1000f),
         };
-        PlanningBudget budget = PlanningBudget.Unbounded();
+        DecisionBudget budget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse use = Simulate.Simulate(weapon, simMuzzle, new Vector2(1500f, 800f), Vector2.UnitX,
             world, enemies, ModifierState.None, 0, ref budget);
         Require(!use.Cut && !budget.Cut, "an unbounded sim of one splitting shot must run to its lifetime");
@@ -571,7 +571,7 @@ internal static class VerifyFlightLaws
             ProjectileID.WoodenArrowFriendly, false);
         CombatWorld calm = CombatWorld.Current(muzzle, muzzle, 0);
         var calmEnemies = new[] { Forecast(1, muzzle + new Vector2(300f, 0f), 40, 40, 500f) };
-        PlanningBudget calmBudget = PlanningBudget.Unbounded();
+        DecisionBudget calmBudget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse calmUse = Simulate.Simulate(bowId, muzzle, muzzle + new Vector2(300f, 0f), Vector2.UnitX,
             calm, calmEnemies, ModifierState.None, 0, ref calmBudget);
         Require(calmUse.Predictability == 0f,

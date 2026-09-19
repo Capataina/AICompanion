@@ -12,6 +12,7 @@ using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 
 namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 
@@ -36,7 +37,7 @@ public static class ProposeFiringStands
     private const int GeometryTick = 30;
 
     public static List<StandProposal> Propose(in ActionContext ctx, CompanionCombat combat,
-        IReadOnlyList<EnemyForecast> enemies, List<ThreatRecord> targets, ref PlanningBudget budget,
+        IReadOnlyList<EnemyForecast> enemies, List<ThreatRecord> targets, ref DecisionWorkBudget budget,
         Vector2? origin = null, bool disableBankAims = false)
     {
         var proposals = new List<StandProposal>();
@@ -67,10 +68,10 @@ public static class ProposeFiringStands
     /// left to run. Seven generators spending a fourteenth each leave the search half the decision;
     /// under an unbounded budget the share is effectively infinite and the candidate grids bind.
     /// </summary>
-    private static int Share(ref PlanningBudget budget, ref int left)
+    private static int Share(ref DecisionWorkBudget budget, ref int left)
     {
-        int remaining = budget.AllowanceSimulations == int.MaxValue ? int.MaxValue
-            : Math.Max(0, budget.AllowanceSimulations - budget.Simulations);
+        int remaining = budget.OperationAllowance >= int.MaxValue ? int.MaxValue
+            : Math.Max(0, (int)(budget.OperationAllowance - budget.OperationsUsed));
         left--;
         return remaining == int.MaxValue ? int.MaxValue : remaining / (2 * GeneratorCount);
     }
@@ -81,10 +82,10 @@ public static class ProposeFiringStands
     /// plain addition wraps negative past the first spent sim, which reads as already spent and
     /// silently disables every generator after the first for the whole suite.
     /// </summary>
-    private static int StopAt(ref PlanningBudget budget, ref int left)
+    private static int StopAt(ref DecisionWorkBudget budget, ref int left)
     {
         int share = Share(ref budget, ref left);
-        return share >= int.MaxValue - budget.Simulations ? int.MaxValue : budget.Simulations + share;
+        return share >= int.MaxValue - budget.OperationsUsed ? int.MaxValue : (int)budget.OperationsUsed + share;
     }
 
     private static void Emit(List<StandProposal> proposals, HashSet<(int X, int Y)> seen,
@@ -219,7 +220,7 @@ public static class ProposeFiringStands
     /// </summary>
     private static float ProbeYield(CompanionWeapon weapon, int slot, in ActionContext ctx, Vector2 muzzle,
         EnemyForecast target, CombatWorld world, IReadOnlyList<EnemyForecast> enemies,
-        ModifierState modifiers, ref PlanningBudget budget, out int bodies, out SimulatedUse? flown)
+        ModifierState modifiers, ref DecisionWorkBudget budget, out int bodies, out SimulatedUse? flown)
     {
         bodies = 0;
         flown = null;
@@ -254,7 +255,7 @@ public static class ProposeFiringStands
 
     private static float FlyProbe(WeaponId id, Vector2 muzzle, Vector2 aimPoint, Vector2 direction,
         int targetSlot, CombatWorld world, IReadOnlyList<EnemyForecast> enemies, ModifierState modifiers,
-        ref PlanningBudget budget, out int bodies, out SimulatedUse? flown)
+        ref DecisionWorkBudget budget, out int bodies, out SimulatedUse? flown)
     {
         bodies = 0;
         int knowledge = KnowledgeRevision.Current;
@@ -294,7 +295,7 @@ public static class ProposeFiringStands
     private static void HereAndCompany(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
         List<ThreatRecord> targets, int[] allSlots, Vector2 body, List<StandProposal> proposals,
-        HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
+        HashSet<(int X, int Y)> seen, ref DecisionWorkBudget budget, ref int left)
     {
         PlayerIntentRegion region = ctx.Senses.Intent.Region;
         float slack = Navigator.SettleRadius;
@@ -321,7 +322,7 @@ public static class ProposeFiringStands
             int serving = -1;
             for (int w = 0; w < weapons.Count; w++)
             {
-                if (budget.Simulations >= stopAt || !budget.Check())
+                if (budget.OperationsUsed >= stopAt || !budget.Check())
                     return;
                 foreach (ThreatRecord threat in targets)
                 {
@@ -355,7 +356,7 @@ public static class ProposeFiringStands
     private static void BestRange(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
         List<ThreatRecord> targets, Vector2 body, List<StandProposal> proposals,
-        HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
+        HashSet<(int X, int Y)> seen, ref DecisionWorkBudget budget, ref int left)
     {
         int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
@@ -393,7 +394,7 @@ public static class ProposeFiringStands
                 foreach (Vector2 line in bearings)
                     PeakAlongLine(ctx, weapons[w], w, forecast, threat.Npc.whoAmI, centre, line, reach, 2,
                         enemies, modifiers, proposals, seen, ref budget, stopAt);
-                if (budget.Simulations >= stopAt || !budget.Check())
+                if (budget.OperationsUsed >= stopAt || !budget.Check())
                     return;
             }
         }
@@ -402,7 +403,7 @@ public static class ProposeFiringStands
     private static void PeakAlongLine(in ActionContext ctx, CompanionWeapon weapon, int slot,
         EnemyForecast forecast, int targetSlot, Vector2 centre, Vector2 line, float reach, int samples,
         IReadOnlyList<EnemyForecast> enemies, ModifierState modifiers, List<StandProposal> proposals,
-        HashSet<(int X, int Y)> seen, ref PlanningBudget budget, int stopAt)
+        HashSet<(int X, int Y)> seen, ref DecisionWorkBudget budget, int stopAt)
     {
         Vector2 peak = centre;
         float peakYield = 0f;
@@ -415,7 +416,7 @@ public static class ProposeFiringStands
         for (int i = 0; i < n; i++)
         {
             float distance = i < samples ? reach * (i + 1) / samples : i == samples ? 96f : 48f;
-            if (distance < 32f || distance > reach || budget.Simulations >= stopAt || !budget.Check())
+            if (distance < 32f || distance > reach || budget.OperationsUsed >= stopAt || !budget.Check())
                 continue;
             Vector2 stand = centre + line * distance;
             Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
@@ -444,7 +445,7 @@ public static class ProposeFiringStands
     private static void PierceLines(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
         List<ThreatRecord> targets, List<StandProposal> proposals,
-        HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
+        HashSet<(int X, int Y)> seen, ref DecisionWorkBudget budget, ref int left)
     {
         if (targets.Count < 1)
             return;
@@ -543,7 +544,7 @@ public static class ProposeFiringStands
     private static bool ProbePierceLine(in ActionContext ctx, CompanionWeapon weapon, int weaponSlot,
         IReadOnlyList<EnemyForecast> enemies, ThreatRecord a, ThreatRecord b, float reach,
         ModifierState modifiers, int stopAt, List<StandProposal> proposals, HashSet<(int X, int Y)> seen,
-        ref PlanningBudget budget)
+        ref DecisionWorkBudget budget)
     {
         EnemyForecast? first = ForecastFor(enemies, a.Npc.whoAmI);
         EnemyForecast? second = ForecastFor(enemies, b.Npc.whoAmI);
@@ -564,7 +565,7 @@ public static class ProposeFiringStands
             float bestDamage = 0f;
             foreach (float fraction in new[] { 0.35f, 0.65f, 0.95f })
             {
-                if (budget.Simulations >= stopAt || !budget.Check())
+                if (budget.OperationsUsed >= stopAt || !budget.Check())
                     return false;
                 Vector2 stand = mid + along * end * reach * fraction;
                 Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
@@ -606,7 +607,7 @@ public static class ProposeFiringStands
     private static void FloorFlanks(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
         List<ThreatRecord> targets, Vector2 body, List<StandProposal> proposals,
-        HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
+        HashSet<(int X, int Y)> seen, ref DecisionWorkBudget budget, ref int left)
     {
         Vector2 centroid;
         {
@@ -652,7 +653,7 @@ public static class ProposeFiringStands
                 float bestYield = 0f;
                 foreach (float above in new[] { 32f, 80f, 128f })
                 {
-                    if (budget.Simulations >= stopAt || !budget.Check())
+                    if (budget.OperationsUsed >= stopAt || !budget.Check())
                         return;
                     Vector2 stand = centroid + across * side * flank - new Vector2(0f, above);
                     Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
@@ -679,7 +680,7 @@ public static class ProposeFiringStands
     private static void AboveArea(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
         List<ThreatRecord> targets, List<StandProposal> proposals,
-        HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
+        HashSet<(int X, int Y)> seen, ref DecisionWorkBudget budget, ref int left)
     {
         Vector2 centroid;
         {
@@ -715,7 +716,7 @@ public static class ProposeFiringStands
             bool bestCentred = false;
             foreach (float above in new[] { 64f, 128f, 192f })
             {
-                if (budget.Simulations >= stopAt || !budget.Check())
+                if (budget.OperationsUsed >= stopAt || !budget.Check())
                     return;
                 Vector2 stand = centroid - new Vector2(0f, above);
                 Vector2 muzzle = CompanionCombat.MuzzleAt(stand);
@@ -751,7 +752,7 @@ public static class ProposeFiringStands
     private static void BankShots(in ActionContext ctx, CompanionCombat combat,
         IReadOnlyList<CompanionWeapon> weapons, IReadOnlyList<EnemyForecast> enemies,
         List<ThreatRecord> targets, Vector2 origin, List<StandProposal> proposals,
-        HashSet<(int X, int Y)> seen, ref PlanningBudget budget, ref int left)
+        HashSet<(int X, int Y)> seen, ref DecisionWorkBudget budget, ref int left)
     {
         int stopAt = StopAt(ref budget, ref left);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
@@ -779,20 +780,20 @@ public static class ProposeFiringStands
                 EnemyForecast? forecast = ForecastFor(enemies, threat.Npc.whoAmI);
                 if (forecast == null)
                     continue;
-                if (budget.Simulations >= stopAt || !budget.Check())
+                if (budget.OperationsUsed >= stopAt || !budget.Check())
                     return;
                 if (SolveAims.FirstLanding(id, body, forecast, bodyWorld, enemies, 0, ref budget, planning: true) != null)
                     continue;
                 int knowledge = KnowledgeRevision.Current;
                 foreach (Vector2 point in points)
                 {
-                    if (budget.Simulations >= stopAt || !budget.Check())
+                    if (budget.OperationsUsed >= stopAt || !budget.Check())
                         return;
                     Vector2 muzzle = CompanionCombat.MuzzleAt(point);
                     var world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
                     foreach (AimCandidate bank in SolveAims.BankAims(muzzle, forecast, world, 1))
                     {
-                        if (budget.Simulations >= stopAt || !budget.Check())
+                        if (budget.OperationsUsed >= stopAt || !budget.Check())
                             return;
                         SimulatedUse use;
                         if (!CachePlannedSims.TryGet(id, modifiers, muzzle, bank.AimPoint, 1, knowledge,

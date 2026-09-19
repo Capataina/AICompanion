@@ -43,7 +43,8 @@ public static class EvaluateAttackOutcomes
         float DebuffChance = 0f, int DebuffTicks = 0, float InducedDangerToCompanion = 0f);
 
     /// <summary>One use of a weapon at a target. <paramref name="AimOffset"/> is how far off the solver's intercept the hands would aim, radians, as the learner chose it.</summary>
-    public sealed record Attack(int Weapon, int Target, int UseTicks, int ImpactTicks, Hit[] Hits, float AimOffset = 0f, float ManaCost = 0f);
+    public sealed record Attack(int Weapon, int Target, int UseTicks, int ImpactTicks, Hit[] Hits, float AimOffset = 0f,
+        float ManaCost = 0f, int TargetImpactTicks = -1);
     public readonly record struct Outcome(float Damage, int Kills, float PreventedHarm, float Value);
 
     /// <summary>

@@ -5,15 +5,19 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Activities;
+using AICompanion.Companion.Brain.Activities.Combat;
 using AICompanion.Companion.Brain.Activities.Combat.Planning;
 using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
+using AICompanion.Companion.Inventory;
+using AICompanion.Companion.PlayerIntegration;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 
@@ -41,6 +45,11 @@ public sealed class FireDueUse
 
     /// <summary>Fire the plan's due use, or the best from here while travelling. Returns true on a use.</summary>
     public bool Fire(in ActionContext ctx, CompanionCombat combat, AttackPlan? plan)
+        => Fire(ctx, combat, plan, null);
+
+    /// <summary>Consumes a course-approved use without allowing the legacy live selector to replace its
+    /// target, weapon or aim.  The caller owns revision after a refusal; firing never repairs by guessing.</summary>
+    public bool Fire(in ActionContext ctx, CompanionCombat combat, AttackPlan? plan, AcceptedCombatUse? accepted)
     {
         var weapons = combat.Weapons;
         if (weapons.Count == 0)
@@ -68,6 +77,8 @@ public sealed class FireDueUse
         bool arrived = Vector2.DistanceSquared(muzzle, segment.Stand.Stand)
             <= Weights.CombatStandArrivalPx * Weights.CombatStandArrivalPx;
         PlannedUse? due = DueUse(segment, tick);
+        if (accepted != null)
+            return FireAccepted(ctx, combat, plan, segment, due, accepted);
         if (arrived && due != null)
             return FirePlanned(ctx, combat, plan, segment, due.Value);
         if (arrived && HasFutureUse(segment, tick))
@@ -80,6 +91,42 @@ public sealed class FireDueUse
             return false;
         }
         return FireBestFromHere(ctx, combat, plan, segment);
+    }
+
+    private bool FireAccepted(in ActionContext ctx, CompanionCombat combat, AttackPlan plan, AttackSegment segment,
+        PlannedUse? due, AcceptedCombatUse accepted)
+    {
+        if (accepted.Method != CombatCourseFacts.Method || accepted.SegmentIndex < 0 || accepted.SegmentIndex >= plan.Segments.Length
+            || accepted.UseIndex < 0 || accepted.UseIndex >= plan.Segments[accepted.SegmentIndex].Uses.Length)
+            return RefuseAccepted(combat);
+        PlannedUse exact = plan.Segments[accepted.SegmentIndex].Uses[accepted.UseIndex];
+        if (!StringComparer.Ordinal.Equals(accepted.UseId, CombatCourseFacts.UseId(plan.Id, accepted.SegmentIndex, accepted.UseIndex))
+            || exact.TargetSlot != accepted.TargetSlot || exact.WeaponSlot != accepted.WeaponSlot)
+            return RefuseAccepted(combat);
+        if (due == null || !due.Value.Equals(exact))
+        {
+            combat.NoteWaiting();
+            return false;
+        }
+        if ((uint)exact.TargetSlot >= (uint)Main.maxNPCs || (uint)exact.WeaponSlot >= (uint)combat.Weapons.Count)
+            return RefuseAccepted(combat);
+        NPC target = Main.npc[exact.TargetSlot];
+        if (target == null || !target.active || target.life <= 0 || !target.CanBeChasedBy()
+            || HostileAttackSources.Generation(target) != accepted.TargetGeneration)
+            return RefuseAccepted(combat);
+        int exactPrefix = ctx.Player.GetModPlayer<CompanionPlayer>().Gear[(GearSlot)exact.WeaponSlot].prefix;
+        int acceptedPrefix = ctx.Player.GetModPlayer<CompanionPlayer>().Gear[(GearSlot)accepted.WeaponSlot].prefix;
+        if (CombatCourseFacts.ToolId(exact.WeaponSlot, combat.Weapons[exact.WeaponSlot].ItemType, exactPrefix) != CombatCourseFacts.ToolId(accepted.WeaponSlot, combat.Weapons[accepted.WeaponSlot].ItemType, acceptedPrefix))
+            return RefuseAccepted(combat);
+        bool fired = FirePlanned(ctx, combat, plan, segment, exact, allowReplacement: false, requireCapturedAim: true);
+        if (!fired) combat.NoteNoUseWorthFiring();
+        return fired;
+    }
+
+    private static bool RefuseAccepted(CompanionCombat combat)
+    {
+        combat.NoteNoUseWorthFiring();
+        return false;
     }
 
     private static bool HasFutureUse(AttackSegment segment, int tick)
@@ -127,7 +174,8 @@ public sealed class FireDueUse
     /// still holding an unusable weapon is how the companion died with thirteen hostiles on it and a bow in
     /// its hand.
     /// </summary>
-    private bool FirePlanned(in ActionContext ctx, CompanionCombat combat, AttackPlan plan, AttackSegment segment, PlannedUse due)
+    private bool FirePlanned(in ActionContext ctx, CompanionCombat combat, AttackPlan plan, AttackSegment segment, PlannedUse due,
+        bool allowReplacement = true, bool requireCapturedAim = false)
     {
         var weapons = combat.Weapons;
         if ((uint)due.WeaponSlot >= (uint)weapons.Count || due.TargetSlot < 0 || due.TargetSlot >= Main.maxNPCs)
@@ -152,10 +200,10 @@ public sealed class FireDueUse
         }
         IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);
         CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-        PlanningBudget aimBudget = PlanningBudget.Unbounded();
+        DecisionWorkBudget aimBudget = LimitPlanningWork.Current;
         ForecastUses.AimedUse? aimed = ForecastUses.BestAimUse(ctx, weapon, weaponSlot, target, muzzle, enemies, world, 0, record: true,
             planning: false, ref aimBudget);
-        if (aimed == null)
+        if (aimed == null && allowReplacement)
         {
             for (int w = 0; w < weapons.Count; w++)
             {
@@ -176,6 +224,12 @@ public sealed class FireDueUse
         {
             combat.NoteNoUseWorthFiring();
             RememberFailedTrace(ctx, target, muzzle);
+            return false;
+        }
+        if (requireCapturedAim && (Vector2.DistanceSquared(aimed.Value.Aim.AimPoint, due.AimPoint) > 0.01f
+            || Vector2.DistanceSquared(aimed.Value.Aim.LaunchDirection, due.LaunchDirection) > 0.0001f))
+        {
+            combat.NoteNoUseWorthFiring();
             return false;
         }
         int useIndex = UseIndex(segment, due);
@@ -204,7 +258,7 @@ public sealed class FireDueUse
             NPC target = Main.npc[use.TargetSlot];
             if (target == null || !target.active || target.life <= 0 || !target.CanBeChasedBy())
                 continue;
-            PlanningBudget aimBudget = PlanningBudget.Unbounded();
+            DecisionWorkBudget aimBudget = LimitPlanningWork.Current;
             for (int w = 0; w < weapons.Count; w++)
             {
                 ForecastUses.AimedUse? aimed = ForecastUses.BestAimUse(ctx, weapons[w], w, target, muzzle, enemies,

@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.Activities.Combat.Planning;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 
@@ -38,7 +39,7 @@ public static class SolveAims
     /// angle lands. Banks are not swept — a stand proved only by a bank waits for the planner's own generator.
     /// </summary>
     public static (AimCandidate Aim, SimulatedUse Use)? FirstLanding(WeaponId weapon, Vector2 muzzle, EnemyForecast target,
-        CombatWorld world, IReadOnlyList<EnemyForecast> enemies, int fireTick, ref PlanningBudget budget,
+        CombatWorld world, IReadOnlyList<EnemyForecast> enemies, int fireTick, ref DecisionWorkBudget budget,
         bool planning = false)
     {
         int aimTick = Math.Max(1, fireTick);
@@ -62,7 +63,7 @@ public static class SolveAims
 
     private static (AimCandidate Aim, SimulatedUse Use)? TryAngle(WeaponId weapon, Vector2 muzzle, float angle,
         float distance, EnemyForecast target, CombatWorld world, IReadOnlyList<EnemyForecast> enemies, int fireTick,
-        ref PlanningBudget budget, bool planning)
+        ref DecisionWorkBudget budget, bool planning)
     {
         Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
         var aim = new AimCandidate(muzzle + direction * distance, direction);
@@ -93,7 +94,7 @@ public static class SolveAims
     public const int BankSearchTiles = 12;
 
     public static IReadOnlyList<AimCandidate> For(WeaponId weapon, Vector2 muzzle, EnemyForecast target,
-        CombatWorld world, IReadOnlyList<EnemyForecast> enemies, int fireTick, ref PlanningBudget budget)
+        CombatWorld world, IReadOnlyList<EnemyForecast> enemies, int fireTick, ref DecisionWorkBudget budget)
     {
         int aimTick = Math.Max(1, fireTick);
         Vector2 toTarget = target.PredictedCentre(aimTick) - muzzle;

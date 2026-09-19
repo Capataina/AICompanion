@@ -9,7 +9,8 @@ using CombatWeapon = live::AICompanion.Companion.Brain.Infrastructure.Interactio
 using AttackPlan = live::AICompanion.Companion.Brain.Activities.Combat.Planning.AttackPlan;
 using SearchPlans = live::AICompanion.Companion.Brain.Activities.Combat.Planning.SearchAttackPlans;
 using Weigh = live::AICompanion.Companion.Brain.Activities.Combat.Planning.WeighCombatObjectives;
-using Budget = live::AICompanion.Companion.Brain.Activities.Combat.Planning.PlanningBudget;
+using Budget = live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation.DecisionWorkBudget;
+using PlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
 
@@ -24,14 +25,41 @@ internal static class CombatFixture
     public sealed record FiredUse(bool Fired, CombatWeapon? Weapon, AttackPlan? Plan);
 
     /// <summary>
+    /// Gives a direct fixture entry point the ambient decision allowance that a live brain tick owns.
+    /// Nested calls borrow an already-running tick unchanged; a fixture that starts outside a tick gets
+    /// one deterministic, operation-unbounded allowance and tears down only the allowance it created.
+    /// </summary>
+    public static IDisposable BeginDecision(Budget? fixtureBudget = null) => new FixtureDecision(fixtureBudget);
+
+    private sealed class FixtureDecision : IDisposable
+    {
+        private readonly bool ownsBudget;
+
+        public FixtureDecision(Budget? fixtureBudget)
+        {
+            if (PlanningWork.IsActive)
+                return;
+            PlanningWork.Begin(fixtureBudget ?? new Budget(double.PositiveInfinity, long.MaxValue, () => 0, 1));
+            ownsBudget = true;
+        }
+
+        public void Dispose()
+        {
+            if (ownsBudget)
+                PlanningWork.End();
+        }
+    }
+
+    /// <summary>
     /// One plan searched the way the activity searches, but unbounded and allow-all. Depth is the
     /// row's independent variable: level-one rows pin one segment, the beam rows pass two or three.
     /// </summary>
     public static AttackPlan? Search(CompanionNPC companion, C ctx, int maxDepth = 1)
     {
+        using var decision = BeginDecision();
         var combat = companion.Combat;
         var weights = Weigh.ForSenses(ctx);
-        Budget budget = Budget.Unbounded();
+        Budget budget = PlanningWork.Current;
         // Prime the reach region to completion before searching: the search answers on the flood's
         // verdicts, and no fixture here ever resolves anything, so without priming every stand but
         // the body's reads undecided and no reposition is ever priced — a state live play leaves
@@ -49,6 +77,7 @@ internal static class CombatFixture
     /// <summary>Search, commit and fire once, returning what the hand did and with which weapon.</summary>
     public static FiredUse FireOnce(CompanionNPC companion, C ctx)
     {
+        using var decision = BeginDecision();
         var combat = companion.Combat;
         AttackPlan? plan = Search(companion, ctx);
         if (plan == null)

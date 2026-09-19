@@ -12,6 +12,7 @@ using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Position;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
 using AICompanion.Companion.Inventory;
@@ -73,7 +74,8 @@ public static class ExportCombatSnapshot
     /// origin-relative, so the origin is part of the recorded answer. Null on snapshots whose search
     /// never expanded past level one, which replay at depth one.</summary>
     public sealed record DeeperVerdictDto(Vec Origin, VerdictDto Verdict);
-    public sealed record UseDto(int Weapon, Vec Muzzle, Vec Aim, Vec Launch, int FireTick, int Target);
+    public sealed record UseDto(int Weapon, Vec Muzzle, Vec Aim, Vec Launch, int FireTick, int Target,
+        float ExpectedTargetDamage = float.NaN, int TargetImpactTicks = -1);
     public sealed record SegmentDto(Vec Stand, int Reason, int WeaponSlot, int[] Targets, VerdictDto Verdict,
         int Arrive, int Start, int End, List<UseDto> Uses, int EndsWhen);
     public sealed record ValidityDto(int Terrain, int Knowledge, List<int[]> Targets, float MaxUrgency,
@@ -92,7 +94,7 @@ public static class ExportCombatSnapshot
         List<DeeperVerdictDto>? Deeper = null);
 
     public static string Build(in ActionContext ctx, CompanionCombat combat, AttackPlan? plan,
-        SearchAttackPlans.SearchResult? search, CombatWeights weights, PlanningBudget budget,
+        SearchAttackPlans.SearchResult? search, CombatWeights weights, DecisionWorkBudget budget,
         float allowanceRadius, bool combatRunning)
     {
         var identity = new WeaponIdentity();
@@ -205,7 +207,7 @@ public static class ExportCombatSnapshot
                 player.statDefense, player.endurance, player.DefenseEffectiveness.Value),
             ExportTerrain(bounds),
             verdicts,
-            budget.AllowanceMilliseconds, budget.Simulations, budget.Cut,
+            (float)budget.AllowanceMilliseconds, (int)budget.OperationsUsed, budget.Cut,
             search?.CandidatesEvaluated ?? 0, search?.FrontSize ?? 0,
             new[] { weights.Damage, weights.ThreatRemoved, weights.PlayerHarmPrevented, weights.CompanionHarm,
                 weights.PushDanger, weights.CompanyGap, weights.TimeToFirstDamage, weights.Mana },
@@ -213,7 +215,7 @@ public static class ExportCombatSnapshot
             ExportRejected(search?.Rejected),
             ForecastUses.Explore(ctx),
             combat.CooldownTicks, deferred, hits, allowanceRadius, TerrainChanges.Revision,
-            combat.Planner.ExportProgressTick(), combatRunning, budget.AllowanceSimulations, prefixes,
+            combat.Planner.ExportProgressTick(), combatRunning, (int)Math.Min(int.MaxValue, budget.OperationAllowance), prefixes,
             stats, scaledDamage, deeper);
         return JsonSerializer.Serialize(snapshot, Json);
     }
@@ -233,7 +235,7 @@ public static class ExportCombatSnapshot
             var uses = new List<UseDto>(segment.Uses.Length);
             foreach (PlannedUse use in segment.Uses)
                 uses.Add(new UseDto(use.WeaponSlot, V(use.Muzzle), V(use.AimPoint), V(use.LaunchDirection),
-                    use.FireTick, use.TargetSlot));
+                    use.FireTick, use.TargetSlot, use.ExpectedTargetDamage, use.TargetImpactTicks));
             segments.Add(new SegmentDto(V(segment.Stand.Stand), (int)segment.Stand.Reason, segment.Stand.WeaponSlot,
                 segment.Stand.TargetSlots, ExportVerdict(segment.Stand, segment.Verdict),
                 segment.ArriveTick, segment.StartTick, segment.EndTick, uses, (int)segment.EndsWhen));

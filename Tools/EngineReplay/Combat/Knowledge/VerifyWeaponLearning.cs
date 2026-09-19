@@ -766,6 +766,7 @@ internal static class VerifyWeaponLearning
         int Establish()
         {
             for (int i = 0; i < 16; i++) Restate(scene.Companion, player, scene.Threats);
+            using var decision = CombatFixture.BeginDecision();
             fight.Prepare(scene.Ctx);
             int id = combat.Planner.Committed?.Id ?? -1;
             Require(id >= 0, "premise: a plan is committed");
@@ -776,6 +777,7 @@ internal static class VerifyWeaponLearning
             int before = combat.Planner.Committed?.Id ?? -1;
             change();
             Restate(scene.Companion, player, scene.Threats);
+            using var decision = CombatFixture.BeginDecision();
             fight.Prepare(scene.Ctx);
             return (combat.Planner.Committed?.Id ?? -2) != before;
         }

@@ -732,7 +732,11 @@ internal static class SelfTest
         {
             scene.Companion.Brain.Senses.AssumeTick(scene.Companion.Brain.Senses.Tick + 30);
             scene.Companion.Brain.Senses.Update(scene.Companion.NPC, Main.player[Main.myPlayer]);
-            fight.Prepare(scene.Ctx);
+            // Audit replays invoke preparation without CoordinateBrainTick, so they own the same
+            // deterministic decision scope that a live tick would have installed.
+            LimitPlanningWork.Begin(double.PositiveInfinity);
+            try { fight.Prepare(scene.Ctx); }
+            finally { LimitPlanningWork.End(); }
             Require(ReferenceEquals(combat.Planner.Committed, held),
                 $"rescore {rescore} drops the plan: {combat.Planner.LastInvalidation}");
             Require(combat.NextPlanId == afterCommit, $"rescore {rescore} researches");

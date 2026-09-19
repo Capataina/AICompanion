@@ -11,8 +11,12 @@ using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
+using AICompanion.Companion.Inventory;
+using AICompanion.Companion.PlayerIntegration;
 
 namespace AICompanion.Companion.Brain.Activities.Combat;
 
@@ -25,6 +29,47 @@ namespace AICompanion.Companion.Brain.Activities.Combat;
 /// </summary>
 public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
 {
+    /// <summary>The one course-approved native use. Firing must refuse rather than substitute when it no longer matches.</summary>
+    public AcceptedCombatUse? AcceptedUse { get; private set; }
+    private AttackPlan? acceptedPlan;
+
+    /// <summary>The native plan associated with the accepted binding.  Course integration passes this
+    /// exact plan to firing; it must not recover a different committed plan by target similarity.</summary>
+    public AttackPlan? AcceptedPlan => AcceptedUse != null ? acceptedPlan : null;
+
+    public bool ActivateCourseBinding(StepBinding binding, AttackPlan plan)
+    {
+        if (binding.Method != CombatCourseFacts.Method || binding.Opportunity.Domain != CombatCourseFacts.Domain || combat == null)
+            return false;
+        PlannedUse use = default;
+        int segmentIndex = -1, useIndex = -1;
+        for (int segment = 0; segment < plan.Segments.Length && segmentIndex < 0; segment++)
+            for (int index = 0; index < plan.Segments[segment].Uses.Length; index++)
+                if (StringComparer.Ordinal.Equals(binding.NativeUseId, CombatCourseFacts.UseId(plan.Id, segment, index)))
+                {
+                    use = plan.Segments[segment].Uses[index];
+                    segmentIndex = segment;
+                    useIndex = index;
+                    break;
+                }
+        if (segmentIndex < 0 || use.TargetSlot < 0 || use.TargetSlot >= Main.maxNPCs
+            || (uint)use.WeaponSlot >= (uint)combat.Weapons.Count)
+            return false;
+        int generation = HostileAttackSources.Generation(Main.npc[use.TargetSlot]);
+        int prefix = Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Gear[(GearSlot)use.WeaponSlot].prefix;
+        if (binding.Tool != CombatCourseFacts.ToolId(use.WeaponSlot, combat.Weapons[use.WeaponSlot].ItemType, prefix))
+            return false;
+        AcceptedUse = new(binding.Id, binding.SnapshotId, use.TargetSlot, generation, use.WeaponSlot,
+            binding.NativeUseId, segmentIndex, useIndex, binding.Method);
+        acceptedPlan = plan;
+        return true;
+    }
+
+    public void ClearAcceptedUse(string reason)
+    {
+        AcceptedUse = null;
+        acceptedPlan = null;
+    }
     public override string Name => "combat";
     public override PurposeFamily Family => PurposeFamily.Combat;
 
@@ -182,7 +227,8 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         AttackPlan? plan = combat.Planner.Committed;
         if (plan != null && combat.Planner.Validate(ctx, positioner, allows, running))
         {
-            CombatOutcome? fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, plan, weights);
+            DecisionWorkBudget heldBudget = LimitPlanningWork.Current;
+            CombatOutcome? fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, plan, weights, ref heldBudget);
             if (fresh != null)
             {
                 OfferFromPlan(ctx, plan, fresh.Value, weights, frontSize: 1, cut: false);
@@ -193,7 +239,8 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         }
         if (plan == null && preparedPlan != null && combat.Planner.CheckPrepared(ctx, positioner, allows, preparedPlan))
         {
-            CombatOutcome? fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, preparedPlan, weights);
+            DecisionWorkBudget preparedBudget = LimitPlanningWork.Current;
+            CombatOutcome? fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, preparedPlan, weights, ref preparedBudget);
             if (fresh != null)
             {
                 OfferFromPlan(ctx, preparedPlan, fresh.Value, weights, frontSize: 1, cut: false);
@@ -208,7 +255,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             preparedPlan = null;
             preparedSearch = null;
         }
-        PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds, Weights.CombatPlanningMaxSimulations);
+        DecisionWorkBudget budget = LimitPlanningWork.Current;
         SearchAttackPlans.SearchResult result = SearchAttackPlans.Search(ctx, combat, positioner, allows,
             weights, combat.NextPlanId++, ref budget);
         lastSearch = result;
@@ -318,7 +365,8 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         {
             CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
             AttackPlan plan = combat.Planner.Committed;
-            if (ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, plan, weights) == null)
+            DecisionWorkBudget validationBudget = LimitPlanningWork.Current;
+            if (ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, plan, weights, ref validationBudget) == null)
                 combat.Planner.Release("uses-stopped-solving");
             else
                 combat.Planner.Release(refusal);
@@ -332,7 +380,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// priced a tick that has passed; the snapshot says so by its rescore trigger.
     /// </summary>
     private void CommitAndRecord(in ActionContext ctx, CompanionCombat combat, AttackPlan plan,
-        SearchAttackPlans.SearchResult? search, PlanningBudget? spent, CombatWeights weights, bool combatRunning)
+        SearchAttackPlans.SearchResult? search, DecisionWorkBudget? spent, CombatWeights weights, bool combatRunning)
     {
         combat.Planner.Commit(plan);
         lastSnapshotTick = ctx.Senses.Tick;
@@ -367,7 +415,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         if (!mark && (committed == null || ctx.Senses.Tick - lastSnapshotTick < 120))
             return;
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
-        PlanningBudget budget = PlanningBudget.FromMilliseconds(Weights.CombatPlanningMilliseconds, Weights.CombatPlanningMaxSimulations);
+        DecisionWorkBudget budget = LimitPlanningWork.Current;
         GodsEyeEvents.RecordCombatSnapshot(ctx.Npc, committed?.Id ?? -1, mark ? "mark" : "rescore",
             ExportCombatSnapshot.Build(ctx, combat, committed, lastSearch, weights, budget, AllowanceRadius(), running));
         lastSnapshotTick = ctx.Senses.Tick;
@@ -399,6 +447,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
 
     public override void Exit(in ActionContext ctx)
     {
+        ClearAcceptedUse("activity-exited");
         ctx.Companion.Combat.Planner.Release("activity-exited");
         preparedPlan = null;
         preparedSearch = null;

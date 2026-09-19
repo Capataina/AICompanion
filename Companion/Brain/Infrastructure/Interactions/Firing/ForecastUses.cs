@@ -11,6 +11,7 @@ using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
@@ -48,7 +49,7 @@ public static class ForecastUses
     /// </summary>
     public static AimedUse? BestAimUse(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target,
         Vector2 muzzle, IReadOnlyList<EnemyForecast> enemies, CombatWorld world, int fireTick, bool record,
-        bool planning, ref PlanningBudget budget)
+        bool planning, ref DecisionWorkBudget budget)
     {
         EnemyForecast? forecast = null;
         foreach (EnemyForecast enemy in enemies)
@@ -127,7 +128,7 @@ public static class ForecastUses
         if (!weapon.InReach(muzzle, target)) return null;
         int fireTick = Math.Max(0, targetTickOffset);
         CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-        PlanningBudget aimBudget = PlanningBudget.Unbounded();
+        DecisionWorkBudget aimBudget = LimitPlanningWork.Current;
         AimedUse? aimed = BestAimUse(ctx, weapon, slot, target, muzzle, enemies, world, fireTick, record,
             planning: false, ref aimBudget);
         if (aimed == null)
@@ -162,6 +163,7 @@ public static class ForecastUses
         bool aimedDebuffed = ShotOutcomes.DebuffedByOther(target, weapon.ItemType);
         float aimOffset = MathHelper.WrapAngle(aim.LaunchDirection.ToRotation() - intercept.LaunchDirection.ToRotation());
         var hits = new List<EvaluateAttackOutcomes.Hit>();
+        int targetImpactTick = int.MaxValue;
         float priorDamage = 0f, charge = 0f;
         foreach (SimHit sim in use.Hits)
         {
@@ -172,12 +174,15 @@ public static class ForecastUses
             priorDamage += sim.Damage;
             charge += toPlayer + toCompanion;
             hits.Add(LearnedHit(ctx, weapon, body, sim.Damage, toPlayer + toCompanion, toCompanion, inputs, aimOffset, explore));
+            if (sim.Slot == target.whoAmI)
+                targetImpactTick = Math.Min(targetImpactTick, sim.Tick);
         }
         rejection = hits.Count == 0 ? "no-damageable-intercept" : "accepted";
         if (hits.Count == 0) return null;
         prior = new ForecastPrior(priorDamage, hits.Count, charge, inputs, aimOffset, aimedDebuffed);
         return new(slot, target.whoAmI, weapon.UseTime, Math.Max(1, use.ImpactTick - fireTick), hits.ToArray(), aimOffset,
-            ManaCost: weapon.ManaCost);
+            ManaCost: weapon.ManaCost,
+            TargetImpactTicks: targetImpactTick == int.MaxValue ? -1 : Math.Max(1, targetImpactTick - fireTick));
     }
 
     /// <summary>

@@ -17,7 +17,7 @@ using WeaponId = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledg
 using CombatWorld = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CombatWorld;
 using ModifierState = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState;
 using EnemyForecast = live::AICompanion.Companion.Brain.Infrastructure.Observation.EnemyForecast;
-using PlanningBudget = live::AICompanion.Companion.Brain.Activities.Combat.Planning.PlanningBudget;
+using DecisionBudget = live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation.DecisionWorkBudget;
 using SimulatedUse = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.SimulatedUse;
 
 /// <summary>
@@ -175,7 +175,7 @@ internal static class VerifySimulatedUses
         var weapon = new WeaponId(ItemID.DemonScythe, 0, false, 30, speed, 5f, 20, 10, 0f,
             ProjectileID.DemonSickle, false);
         CombatWorld world = CombatWorld.Current(muzzle, muzzle, 0);
-        PlanningBudget budget = PlanningBudget.Unbounded();
+        DecisionBudget budget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse use = Simulate.Simulate(weapon, muzzle, new Vector2(1500f, 1100f), Vector2.UnitX,
             world, enemies, ModifierState.None, 0, ref budget);
         Require(!use.Cut && !budget.Cut, "an unbounded sim of one scythe must run to its lifetime");
@@ -209,7 +209,7 @@ internal static class VerifySimulatedUses
         var weapon = new WeaponId(ItemID.FlintlockPistol, 0, false, whole, composedSpeed, 5f, 20, 0, 0f,
             ProjectileID.Bullet, false);
         CombatWorld world = CombatWorld.Current(muzzle, muzzle, 0);
-        PlanningBudget budget = PlanningBudget.Unbounded();
+        DecisionBudget budget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse use = Simulate.Simulate(weapon, muzzle, aim, Vector2.UnitX, world, enemies,
             ModifierState.None, 0, ref budget);
         Require(!use.Cut && !budget.Cut, "an unbounded sim of one volley must run to its lifetime");
@@ -260,7 +260,7 @@ internal static class VerifySimulatedUses
         var weapon = new WeaponId(ItemID.FlintlockPistol, 0, false, 20, 10f, 5f, 20, 0, 0f,
             ProjectileID.Bullet, false);
         CombatWorld world = CombatWorld.Current(muzzle, muzzle, 0);
-        PlanningBudget budget = PlanningBudget.Unbounded();
+        DecisionBudget budget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse use = Simulate.Simulate(weapon, muzzle, new Vector2(1500f, 1100f), Vector2.UnitX,
             world, enemies, ModifierState.None, 0, ref budget);
         Require(!use.Cut && !budget.Cut, "an unbounded sim of one timed volley must run to its lifetime");
@@ -320,8 +320,8 @@ internal static class VerifySimulatedUses
         var weapon = new WeaponId(ItemID.FlintlockPistol, 0, false, whole, composedSpeed, 5f, 20, 0, 0f,
             ProjectileID.Bullet, false);
         CombatWorld world = CombatWorld.Current(muzzle, muzzle, 0);
-        PlanningBudget firstBudget = PlanningBudget.Unbounded();
-        PlanningBudget secondBudget = PlanningBudget.Unbounded();
+        DecisionBudget firstBudget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
+        DecisionBudget secondBudget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse first = Simulate.Simulate(weapon, muzzle, aim, Vector2.UnitX, world, enemies,
             ModifierState.None, 0, ref firstBudget);
         SimulatedUse second = Simulate.Simulate(weapon, muzzle, aim, Vector2.UnitX, world, enemies,
@@ -383,12 +383,12 @@ internal static class VerifySimulatedUses
         var weapon = new WeaponId(ItemID.FlintlockPistol, 0, false, whole, composedSpeed, 5f, 20, 0, 0f,
             ProjectileID.Bullet, false);
         CombatWorld world = CombatWorld.Current(muzzle, muzzle, 0);
-        PlanningBudget noneBudget = PlanningBudget.Unbounded();
+        DecisionBudget noneBudget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse none = Simulate.Simulate(weapon, muzzle, aim, Vector2.UnitX, world, enemies,
             ModifierState.None, 0, ref noneBudget);
         live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers.Planted =
             new ModifierState(1, 0);
-        PlanningBudget extraBudget = PlanningBudget.Unbounded();
+        DecisionBudget extraBudget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse extra = Simulate.Simulate(weapon, muzzle, aim, Vector2.UnitX, world, enemies,
             live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers.Current(),
             0, ref extraBudget);
@@ -398,7 +398,7 @@ internal static class VerifySimulatedUses
         Require(extra.TotalDamage > none.TotalDamage,
             $"the prediction must change at once; extra {extra.TotalDamage:0} vs none {none.TotalDamage:0}");
 
-        PlanningBudget afterBudget = PlanningBudget.Unbounded();
+        DecisionBudget afterBudget = new(double.PositiveInfinity, long.MaxValue, () => 0, 1);
         SimulatedUse flown = Simulate.Simulate(weapon, muzzle, aim, Vector2.UnitX, world, enemies,
             ModifierState.None, 0, ref afterBudget);
         var plantedAfter = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ApplyCompanionModifiers.Current();
