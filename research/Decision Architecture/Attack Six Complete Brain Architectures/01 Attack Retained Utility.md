@@ -1,6 +1,6 @@
 # Architecture attack A — retained reactive utility with concrete continuation and local ordering
 
-**Reviewed surface:** approach A only: retain reactive utility, bind the incumbent to a concrete continuation with causal ownership and real progress, compare local orders, and do not add a general long-consequence search. The checkout was `b3a4ad94f1f9ea503fca829e45a1ce63c12eb852` (build 0.30.6) when inspected. `research/proposal/04 Plan a Course of Action and Follow It.md` was already modified and ten ledger files were untracked; none was changed or treated as evidence for this review. No production file, Slate record, memory, build, game process or visible UI was touched.
+**Reviewed surface:** approach A only: retain reactive utility, bind the incumbent to a concrete continuation with causal ownership and real progress, compare local orders, and do not add a general long-consequence search. The checkout was `b3a4ad94f1f9ea503fca829e45a1ce63c12eb852` (build 0.30.6) when inspected. `research/Historical Evidence/Archived Brain Proposals/04 Plan a Course of Action and Follow It.md` was already modified and ten ledger files were untracked; none was changed or treated as evidence for this review. No production file, Slate record, memory, build, game process or visible UI was touched.
 
 ## The unasked question
 

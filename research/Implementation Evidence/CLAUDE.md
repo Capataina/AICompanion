@@ -6,7 +6,9 @@ This folder describes source and recordings at the research baseline `d60b92b`; 
 Implementation Evidence/
 ├─ CLAUDE.md                                      evidence boundary and reading order
 ├─ Decisions, Activities and Shared Controls.md   observation, selection, work and control ownership
-└─ Routes, Returnability and Physical Execution.md navigation contracts and their limitations
+├─ Routes, Returnability and Physical Execution.md navigation contracts and their limitations
+├─ Player Motion and External Effects for Course Repair.md intent, native receipts and repair inputs at d315bf2
+└─ Trace Course Decisions Through Existing Instruments.md telemetry, replay and evidence limits at d315bf2
 ```
 
 Read a producer before interpreting its consumers or recorded fields. Source establishes what a mechanism computes, a recording establishes what a captured run emitted, and an isolated intervention would establish whether changing that mechanism changes the symptom. These are different claims. Each suspected defect below states which claim has actually been established.

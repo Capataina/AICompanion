@@ -1,4 +1,4 @@
-This is the separate review of Proposal 05 and its subsequent recheck. Original line references name the earlier draft `RecommendedBrainArchitecture.md`; the findings are retained as history and the appended recheck points to the durable proposal. The [current proposal](<../../proposal/05 Retain a Course and Repair Its Future.md>) incorporates the corrections. A pass here means discussion-ready architecture, not measured gameplay.
+This is the separate review of Proposal 05 and its subsequent recheck. Original line references name the earlier draft `RecommendedBrainArchitecture.md`; the findings are retained as history and the appended recheck points to the durable proposal. The [current proposal](<../Retained Course Design Rationale.md>) incorporates the corrections. A pass here means discussion-ready architecture, not measured gameplay.
 
 # Adversarial review — combined retained-course recommendation
 
@@ -152,7 +152,7 @@ No reviewed history demonstrates this combined architecture in play. The capture
 
 ## Recheck disposition — 19 September 2026
 
-**Surface rechecked:** the five landed conditions above, against the durable proposal at `research/proposal/05 Retain a Course and Repair Its Future.md`. This was a narrow document recheck. No implementation, runtime, build, game or broader research evidence was added.
+**Surface rechecked:** the five landed conditions above, against the durable proposal at `research/Decision Architecture/Retained Course Design Rationale.md`. This was a narrow document recheck. No implementation, runtime, build, game or broader research evidence was added.
 
 | Prior finding | Revised proposal evidence | Disposition | Remaining caveat |
 |---|---|---|---|

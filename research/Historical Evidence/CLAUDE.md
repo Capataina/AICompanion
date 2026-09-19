@@ -13,6 +13,7 @@ Historical Evidence/
 │                complete dated commit coverage through the research baseline
 ├─ Pivotal Decisions and Conversation Evidence.md
 │                owner-request, interpretation and outcome reconstruction
-└─ Diagnostic Instruments, Contradictions and Open Questions.md
-                 instrument origins, reversals and Q9–16 historical closure
+├─ Diagnostic Instruments, Contradictions and Open Questions.md
+│                instrument origins, reversals and Q9–16 historical closure
+└─ Archived Brain Proposals/ earlier 01–04 arguments preserved as resources
 ```

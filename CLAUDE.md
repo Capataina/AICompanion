@@ -116,13 +116,15 @@ AICompanion/
 │  │  └─ Probes/                  reproducible capture counts and mathematical decision counterexamples
 │  ├─ Implementation Evidence/     what this codebase was measured doing
 │  ├─ Historical Evidence/         the commit chronology and coverage ledger
+│  │  └─ Archived Brain Proposals/ historical 01–04 resources
 │  ├─ Game and Mod Case Studies/   how other games solved the same problems
-│  └─ proposal/                    the ranked architecture proposals
+│  └─ proposal/                    the single retained-course implementation plan
+│     └─ Modules/                  conditional extensions with activation evidence
 ├─ runs/                     gitignored; agent-harness session logs, tens of megabytes each
 └─ Telemetry/                gitignored; runtime session records written by the mod
 ```
 
-Architectural research and the trade-offs under discussion are indexed in [research/CLAUDE.md](<research/CLAUDE.md>); the retained-course recommendation is [Proposal 05](<research/proposal/05 Retain a Course and Repair Its Future.md>). Research hypotheses remain separate from accepted gameplay decisions. The choice/commitment architecture is under investigation; the orb's free-space route search is the implemented navigation contract.
+Architectural research and the trade-offs under discussion are indexed in [research/CLAUDE.md](<research/CLAUDE.md>); the selected retained-course design is [Implement the Retained Course Brain](<research/proposal/Implement the Retained Course Brain.md>). Its complete implementation awaits the owner's later instruction; the earlier proposals and six-way rationale remain research evidence. Predicted effects, random-event repair, player weaving/departure, a shared objective/budget and diagnostic gates are core V1 requirements; the orb's free-space route search is the implemented navigation contract.
 
 ## Operating manual
 

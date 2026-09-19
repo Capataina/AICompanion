@@ -1,6 +1,6 @@
 # Decision-architecture research distinguishes choice, commitment and control ownership
 
-This folder compares decision mechanisms that can be combined rather than substituted wholesale. Purpose Families and Shared Companionship preserves the earlier selected direction and J01–J16 cases; its implementation state is historical, not the state of the current orb. The [six complete approach attacks](<Attack Six Complete Brain Architectures/CLAUDE.md>) are the current course-planning investigation at their named source baseline. [Proposal 05](<../proposal/05 Retain a Course and Repair Its Future.md>) owns the resulting recommendation, which remains unaccepted and unimplemented.
+This folder compares decision mechanisms that can be combined rather than substituted wholesale. Purpose Families and Shared Companionship preserves the earlier selected direction and J01–J16 cases; its implementation state is historical, not the state of the current orb. The [six complete approach attacks](<Attack Six Complete Brain Architectures/CLAUDE.md>) preserve the course-planning investigation at their named source baseline. The [retained-course rationale](<Retained Course Design Rationale.md>) owns that investigation's synthesis; the selected direction and concrete build contract live in the [single implementation plan](<../proposal/Implement the Retained Course Brain.md>). The gameplay implementation remains unbuilt.
 
 ```text
 Decision Architecture/
@@ -8,6 +8,7 @@ Decision Architecture/
 ├─ Decision, Commitment and Computation.md external evidence and separating experiments
 ├─ Behaviour, Opportunities and Comparison Criteria.md product contract and ranking dimensions
 ├─ Purpose Families and Shared Companionship.md selected direction, local utility and discussion alternatives
+├─ Retained Course Design Rationale.md    former Proposal 05, evidence and conditional recommendation
 └─ Attack Six Complete Brain Architectures/ independent limitations, costs, sources and reopening conditions
 ```
 

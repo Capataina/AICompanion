@@ -1,158 +1,26 @@
-# Ranked routes from recorded behaviour to the intended companion
+# One implementation plan owns the retained course brain
 
-**19 September 2026: read [05 Retain a Course and Repair Its Future](<05 Retain a Course and Repair Its Future.md>) for the current recommendation.** Six complete approaches have now been attacked at `b3a4ad94f`; their [reports](<../Decision Architecture/Attack Six Complete Brain Architectures/CLAUDE.md>) preserve the alternatives and costs. The recommendation combines a concrete retained course, event-driven repair, one contextual objective and bounded local consequence planning. It remains a proposal for discussion, not an implementation licence. Its numerical cross-outcome policy, successor-model fidelity and actual runtime envelope remain gates. 04 is preserved as the preceding unfinished conversation, including its user's uncommitted edits.
-
-The dated ranking and investigation instructions below record what was known before that attack. Statements that the next sitting must attack 04 have been discharged by the six reports; statements that 04/05 are unbuilt still hold. The current reading route is 05 → its evidence and attacks → 04 for the originating argument → 02/03 for the bets it combined → 01 for the implemented contracts. Do not repeat a proposed experiment as though its presence here proves it ran.
-
-**Owner-selected direction, 12 September 2026: Path 1 combines three purpose families with explicit opportunity validity, activity progress and control ownership.** Each family uses shared utility machinery to offer its best eligible concrete activity before the top level chooses. The seven activities are mining, chopping, hunting, guarding, lighting, collecting and keeping company — hunting and guarding later merged into one combat activity that alone fires. Safety owns avoidance across families; company includes relaxed nearby movement, and separation weighs the current need for help and practical reunion. No independent exploration or Survival child remains. Path 1 is implemented. Path 2 is the strongest extension if a common execution framework is needed beyond Path 1's lightweight ownership. Path 3 becomes preferable when matched scenarios demonstrate consequential choices that immediate activity evaluation misses.
-
-**18 September 2026: Path 4 is a work-in-progress discussion, not a decided bet and not an implementation plan.** It is the mix of Path 2 and Path 3 this sitting reached on paper, with receipts, owner corrections, sentinels' Fail, Drake/Baron constraints, and named holes (zero-work ping-pong, urgency versus leftover, site-grain versus family-grain, slime-on-the-drop). Combining 02 and 03 has not been shown to be the right next move. The next sitting attacks it and runs `where-next`; it does not type it. 02 and 03 remain the source documents of those two bets. Keep-the-job membership on collect and torch is a necessary piece of last night and is not 04. Nothing of 04 is built.
-
-The owner authorised full implementation of Proposal 1. The three families are the production chooser; the remaining observer contracts, tool-folder layout and README write-up landed 13 September 2026. The [implementation ledger](<../Evaluation and Observability/Proposal 1 Implementation Ledger.md>) names fixture evidence versus what still needs a playtest. Live play of 0.22.46 occurred on 13 September 2026 and is recorded in the Momentum research note; the 0.30.6 play of 18 September 2026, capture `2026-09-18_18-57-09-481`, is the negative of the chaining and several-steps-ahead rows and the reason 04 exists. The [discussion record](<../Decision Architecture/Purpose Families and Shared Companionship.md>) distinguishes accepted requirements, proposed mechanics, corrections and alternatives. These are conditional routes towards the full Expected Behaviour, with no guarantee of perfect results in future Terraria/mod combinations.
+[Implement the Retained Course Brain](<Implement the Retained Course Brain.md>) is the single active implementation plan, formerly Proposal 05. The owner selected this direction and requested a complete design on 19 September 2026. The game-code build awaits the later implementation instruction; writing a plan does not implement it.
 
 ```text
 proposal/
-├─ CLAUDE.md                                               ranking, reading order, this folder's mechanism
-├─ 01 Preserve Utility and Repair Activity Contracts.md    Path 1 implementation contracts; production chooser
-├─ 02 Organise Utility Around Continuing Activities.md     stronger shared execution beneath existing families
-├─ 03 Add Bounded Planning for Consequential Choices.md     short consequence-aware plans under utility goals
-├─ 04 Plan a Course of Action and Follow It.md             mix of 02+03 under the 18 Sep 2026 corrections
-└─ 05 Retain a Course and Repair Its Future.md             six-way attack synthesis, contract, gates and limits
+├─ CLAUDE.md                              active scope, reading order and implementation boundary
+├─ Implement the Retained Course Brain.md complete V1 contracts, folder migration and acceptance gates
+└─ Modules/                              conditional extensions with measured activation criteria
 ```
 
-## How this folder works
+The plan owns the concrete objective, conditional predictions, stable purposes, replaceable bindings, native receipts, repair, player weaving/departure, one computation owner and the telemetry/replay contract. Its internal construction gates form one end-to-end implementation, followed by one final live acceptance; they do not request playtests between unfinished thirds.
 
-This folder is the ranking, not the brain. A reader who opens it to change selection code is in the wrong place: `Companion/Brain/Infrastructure/Selection/` is the chooser, `README.md` Expected Behaviour is the product, and a proposal here is a conditional route toward that product. 01 is the route that shipped. 02 and 03 are the routes that were ranked second and third and never built. 04 is the handoff discussion of combining 02 and 03, written so the next sitting can attack it, and not an implementation licence.
+Read the [rationale](<../Decision Architecture/Retained Course Design Rationale.md>) for the evidence and six-way comparison, the [architecture attacks](<../Decision Architecture/Attack Six Complete Brain Architectures/CLAUDE.md>) for limitations and counterexamples, and [the archived proposals](<../Historical Evidence/Archived Brain Proposals/CLAUDE.md>) for earlier decisions and attempts. Their source baselines and historical status remain intact. The active plan supersedes unresolved-design language in the rationale; its measured evidence remains dated evidence.
 
-Reading order: this file for the ranking and the traps; 04 for the live design conversation (origin, last night's numbers, sentinels' Fail, owner criticisms, leftover inequality, what would refute it); 02 and 03 only when a claim in 04 needs the bet it mixed; 01 when the question is what Path 1 still owns. Do not edit 02 or 03 to say 04's product — that falsifies the ranking they were written under, which is why 04 is a fourth file.
+Modules enrich one existing interface only after their stated symptom and comparator justify the cost. Ordinary random events, interference, missed effects, cave departure and repeated reversals belong to V1, never an optional module. There are no module runtime stubs to implement pre-emptively.
 
-```text
-README Expected Behaviour          the product
-        ▲
-        │  04 would close chaining / several-steps-ahead
-        │
-proposal/04  ←  02 identity + 03 sequences, owner corrections
-        │
-Path 1 chooser (implemented)       generates candidates
-Selection/OrderNearbyTasks         permutes, discards the order
-OwnCurrentActivity                 one purpose, no stack
-```
+## Findings that constrain implementation
 
-Sibling: `../Decision Architecture/` owns why Path 1 was selected. `../Evaluation and Observability/` owns E01–E16 and the implementation ledger. README Behaviour By Behaviour owns the rows 04 is for. Changing 04's leftover inequality without changing those rows is how the design and the product drift.
+Retaining an activity name cannot order concrete torch/drop/enemy targets. Predicted effects are not native receipts. A future's value must be evaluated after the preceding effects rather than summing independent benefits. Unknown reach is not absence. A local tactical planner may refine an accepted combat binding, but cannot secretly perform a different action. A nominal search deadline does not bound setup, held-plan reevaluation or fallback work.
 
-## Current state — 2026-09-18
-
-Path 1 is production. Combat is one activity that fires; collect and lighting still re-prepare nearest; `OrderNearbyTasks` still discards the order; `Commitment` is still a constant. Capture `2026-09-18_18-57-09-481` (0.30.6, 12,062 ticks): collect↔torch 68 swaps, Exact 56 asked 7 reached, 53 torch attempts placed nothing, combat median run 13 against 1 on 0.30.5. 04 is written as an unfinished discussion (handoff, Drake/Baron, holes, `where-next` before any code), citations to capture `2026-09-18_18-57-09-481`, `2026-09-18_16-35-26-353`, hashes `9b402cb` through `9bfc67e`, sentinels `01a0b628-1904-7be1-809c-0acc435aae10` / `0ad3909a657b` / `0ae9f4786879`. Not built. The next sitting attacks it; it does not implement it.
-
-## Traps
-
-- **Last night is the primitive, not the product.** A patch that freezes collect and torch identities stops the 15-tick swap and fails seven-torch order, Demon-Eye-onto-zombies, two copper on the way home, and the jungle. The sentinels' Fail is true of last night. It is not 04.
-- **"Exactly four files" is stale the moment 04 lands.** This folder now has five. A sentence that still says four is this file lying.
-- **A sticker in 04 is 04 failing itself.** 15%, 1.15, 0.4, a maximum of five, combat-always-step-1, new-task-always-step-1. Leftover against leftover, or it is not this proposal.
-- **A queue or a resume stack is 8 September 2026 and `OwnCurrentActivity` forgotten.** Interrupted chop and mine finish inside the action. Missions were abandoned.
-- **Editing 02 or 03 to match 04 hides the sentinels' Fail behind a rewrite.** 04 is the mix. 02 and 03 are the bets.
-
-## Findings
-
-- `OrderNearbyTasks` (15 Sep 2026, `573d9d4`) already compares orders and already discards them. Its two-even-jobs fixture is green. Last night collect raw collapsed 0.77 → 0.23 at the same tiles; flying-shortens-time did not hold step 1.
-- Three isolated log readers plus the parent, 18 September 2026: the 0.30.6 loop was collect versus torch, not reunion (`keep-company_fin` ~0.08). Three sentinels then failed a frozen course-of-action list (new-task-as-step-1 plus nearest-identity re-enacts last night; resume-after-combat is a stack; dummy versus combat-always-step-1 unresolved). The parent shrink to keep-the-job was overruled the same sitting as too much emphasis on the primitive.
-- Same-two swap, a genuinely new identity becoming step 1, and dropping because the player left are three classes. Treating them as one recreates last night or forbids the jungle.
+The first-version numerical preference policy is an explicit design hypothesis constrained by the README contrasts. Its central function and tests own corrections; private activity bonuses and category priorities would recreate the architecture this plan replaces. The live executor, course owner and native body each have one authority.
 
 ## Planned work
 
-04 is an unfinished discussion. The next move is attacking it and `where-next`, not an implementation. A later go, if one comes: identity freeze on collect and torch is still last night's first node; it is not 04 by itself. The 01 split (rationale versus P00–P14) remains a candidate below; it does not block that discussion.
-
-## Planned restructuring
-
-Candidate for split: `01 Preserve Utility and Repair Activity Contracts.md` (811 lines, 5.6× folder median). The file carries two reader intents — readers seeking "how do I implement Proposal 1" (the P00-P14 roadmap, lines 294–505) and readers seeking "why did we choose this direction" (the design rationale, lines 7–291 and 506–811) — that deserve separate surfaces. However, the current organization interleaves supporting context with packages; a line-range extraction at line 294 would strand essential design material on both sides and break anchor references to sections in the packages half (`#a-chosen-family-must-have-a-concrete-activity-to-deliver` at line 670 is referenced from two external files). Splitting requires: (1) moving the overview and all design context into a rationale/principles document; (2) extracting P00–P14 into a focused roadmap; (3) re-anchoring the four external references (`research/Evaluation and Observability/Experiments and Recorder Requirements.md`, `research/Decision Architecture/Purpose Families and Shared Companionship.md` [two references], and the map in `CLAUDE.md`); (4) verifying the README's proposed dependencies still flow correctly. Gate: structural threshold is crossed (two reader intents), but enumeration reveals the reference surface and restructuring complexity requires a full orientation before execution. Mark as complete when split lands with all references updated.
-
-## The ranking uses product requirements rather than attachment to the code
-
-Proposal 1's final implementation contract keeps self-risk, player risk and companionship distinct, and requires player activity interpretation to inform useful reunion destinations as well as activity value. P14 includes a source-verified plain-language README of the implemented tick flow, seven behaviours, families and shared responsibilities. That documentation step preserves the separation between expected behaviour, recorded gameplay and code reality; it cannot be completed by copying the proposal into the current-system section before implementation.
-
-Proposal 1 is the implementation roadmap: target ownership and folder maps, source-to-target migration, shared data contracts, tick ordering, fifteen dependent work packages P00–P14, recorder/inspector/report schemas, all 64 retained failure-case owners plus the sixteen J01–J16 interaction cases, verification commands and rollback conditions. Each package requires evidence at its stated scope; a landed prerequisite or passing narrower fixture does not complete the package. The existing research rationale remains in the same file after the implementation sections. The family/activity icon HUD is included; level/XP UI and broader profile refinement remain later work, and unbuilt mastery abilities are explicit dependencies rather than claimed current-kit acceptance.
-
-The comparison axes come from the owner's accepted examples and concern about repeated churn: expressive fit, truthful feasibility, coherent simultaneous actions, runtime cost, compatibility, diagnosis, reversibility and capability growth. Their derivation is in [Behaviour, Opportunities and Comparison Criteria](<../Decision Architecture/Behaviour, Opportunities and Comparison Criteria.md>). The ranking is an engineering judgement from current evidence, not a numerical prediction of eventual success.
-
-| Axis | Path 1: three families and explicit contracts | Path 2: stronger shared activity execution | Path 3: bounded consequential planning |
-|---|---|---|---|
-| Desired contextual choices | Three families compare concrete opportunities and remaining work with shared companionship and safety. | Adds reusable execution and uniform interruption semantics beneath those same offers. | Adds comparison of future effects and alternative methods. |
-| Immediate recorded defects | Reaches candidate omissions, misleading progress, invalid destinations and handoffs directly. | Reaches lifecycle/ownership failures, after the same evidence repairs. | Inherits evidence repairs; planning alone does not fix the recorded failures. |
-| Concurrency | Explicit grants preserve travel/aiming and coherent tools. | Activity phases make grants/abort boundaries visible. | Plans must declare shared resources and still use the same grants. |
-| Physical reliability | Refines current directed graph, local proof and native execution as evidence requires. | Uses the same physical oracle beneath activity execution. | Uses the same oracle for plan preconditions/effects; uncertainty becomes more consequential. |
-| Capability growth | Shared capability authority changes eligibility/cost/proofs. | New child activities or local options can isolate ability-specific execution. | Alternative ability methods can be selected by their consequences. |
-| New complexity | Family offer preparation plus targeted candidate/state repair, with a flat comparison reference. | A shared executor and reusable local-action lifecycle beyond the lightweight Path 1 contracts. | Largest modelling, search, invalidation and debugging burden. |
-| Evidence supporting adoption now | Multiple source defects and recorded handoff/destination mismatches; no selector-family impossibility demonstrated. | Production/research support for explicit execution state and separate outputs; no matched project win yet. | Planning research supports real enabling choices; project benefit remains unmeasured. |
-| Main reason it could lose | Families hide opportunities or duplicate preferences, or lightweight execution ownership remains insufficient. | A common executor adds complexity without removing defects beyond the grouped Path 1 baseline. | Short plans rely on inaccurate futures or add cost to decisions reactive selection already gets right. |
-
-Path 1 has the highest confidence **as the implemented chooser**, not as a guarantee that the current selector and graph should survive unchanged forever. Path 2 has medium conditional confidence where lifecycle complexity proves dominant. Path 3 has medium conditional confidence for consequential subproblems and lower confidence as a whole-brain replacement. Path 4 is an unfinished discussion, not a ranked bet: last night and the jungle as the product picture, leftover frozen with identity and no sticker as sitting refusals, holes still open. There is insufficient evidence to express these judgements as percentages. A shrink of 04 to keep-the-job membership is a rejected alternative of 18 September 2026, recorded in 04, not a pending simplification. Implementing 04 is not the next sitting.
-
-## The shared findings identify where churn has come from
-
-The historical record shows both progress and recurrence. Native collision comparisons, actual-entry proof, retained search and directed experience produced useful bounded results. The same record repeatedly promoted a graph result into a physical promise, a body-level signal into task progress, or a retained diagnostic into a current outcome. These are representational and interface mistakes that another chooser would inherit.[^history]
-
-The new source/telemetry audit sharpens the first work. A sampled hunt-position search can omit a usable location yet return absence. A reverse-search timeout can pass the ordinary one-way filter without proving returnability. A navigator can arrive at a destination that does not enable the intended interaction. Mining candidate status and a tool invocation can be mistaken for productive work. The analyser's mixed weapon evidence can be turned into a false universal range diagnosis. Some findings are proven source properties; their contribution to each old playtest is still an unisolated hypothesis.[^implementation][^episodes]
-
-External sources support composition but do not select a universal winner. RimWorld mods show work priorities, incidental detours, job continuation and compatibility conflicts; Starsector AI code separates manoeuvre, attack and firing-sequence targets; platformer research separates state representation, simulation and search. BTs, options and BDI offer explicit continuation concepts; planning and learning need additional models and evidence. None supplies a direct controlled comparison on this companion.[^cases][^decision][^navigation]
-
-## The roadmaps share evidence and diverge where evidence earns a new mechanism
-
-```mermaid
-flowchart TD
-    A[Reproduce and instrument the observed failure] --> B{First broken contract}
-    B -->|Observation or attribution| O[Correct the observer and recapture]
-    O --> A
-    B -->|Candidate, purpose, destination or control| P1[Path 1: three families and repaired shared contracts]
-    B -->|Physical transition or search| N[Compare representation, search and native execution]
-    N --> P1
-    P1 --> C{Remaining behaviour gap}
-    C -->|No material gap in held-out acceptance| V[Validate and stop adding architecture]
-    C -->|Repeated execution lifecycle defects| P2[Path 2: stronger shared activity execution]
-    C -->|Missed enabling consequences| P3[Path 3: bounded plans under selected goals]
-    C -->|Class of ordering / leftover / several-steps-ahead| P4[Path 4: course of action, leftover vs leftover]
-    P2 --> D{Measured improvement}
-    D -->|Yes| V
-    D -->|No additional execution benefit| P1
-    D -->|Only future consequences remain| P3
-    D -->|The defect is the class 04 names| P4
-    P3 --> E{Predictions and outcomes agree}
-    E -->|Yes within scope| V
-    E -->|No, model or horizon error| R[Refine the bounded model or withdraw planning from that scope]
-    R --> P1
-    P4 --> F{Last night gone and jungle still missing}
-    F -->|Yes, only identity freeze shipped| X[That is the shrink; not 04]
-    F -->|Leftover inequality holds named hard cases| V
-    F -->|A sticker appears or a queue returns| R4[Withdraw the constant or the stack; keep leftover]
-    R4 --> P4
-```
-
-The diagram is a decision graph, not a promise that each arrow is cheap. Every destination has a prepared discriminator in [Experiments and Recorder Requirements](<../Evaluation and Observability/Experiments and Recorder Requirements.md>). The individual proposals spell out what to change, what outcome to expect, what would refute it and where to go next.
-
-## All paths begin with one concrete experiment
-
-The initial discriminators are **E01 and E02 on the ore/pot stall and arrived-without-shot hunt**. Correct the analyser's evidence semantics, add fresh decision/activity/attempt identities and productive outcomes, then compare the full brain with a held purpose and a native-valid held destination. Preserve native physics and control interruption in the test. Consult the current fixtures and their commit evidence before repeating an implementation experiment.
-
-If holding the purpose resolves the stall, inspect selection/continuation. If only a validated destination resolves it, inspect candidate generation and purpose success. If even that destination fails, inspect actual-entry proof, controls and native execution. If the original signature cannot be reproduced, obtain the missing capture instead of tuning against an invented surrogate. This first fork is useful under every proposed architecture.
-
-## Full behavioural acceptance remains wider than the immediate bug fixes
-
-The [Proposal 1 failure matrix](<../Evaluation and Observability/Proposal 1 Failure Cases and Diagnostic Contracts.md>) adds prospective top-level, family and activity failures to the existing experiments. It makes the raised-lip mining case and the split between pursuit and firing explicit, and records the requested family-left/activity-right health bar. Its remedies are shared contracts with diagnostic evidence; the cases are not evidence that the corresponding bugs all exist.
-
-The roadmaps continue through player-relative autonomy, spatial light opportunities, incidental pots/loot, risk-sensitive work, effective protection, boss/event policy, capability scaling, returnability, courtesy, downing/recovery, inventory/protection and readable diagnostics. The [Behavioural Acceptance Matrix](<../Evaluation and Observability/Behavioural Acceptance Matrix.md>) provides positive cases, changed circumstances and failure branches for all twenty-seven README responsibilities, complementing the eighteen synthesised requirements. A companion that mines reliably but still wanders after unreachable enemies has not completed the work.
-
-Some acceptance criteria require owner judgement after observable evidence is available: how much small damage is acceptable for work, how much independence feels companionable, and how aggressive unfamiliar-threat caution should be. Those are narrower choices than another open-ended requirements interview. Existing research can prepare their comparisons, but cannot honestly claim to have made the owner's future playtest judgement.
-
-## Re-evaluate dated evidence without discarding the research
-
-Source findings are pinned to `d60b92b`/gameplay `4296f85`; runtime observations name older captures and hashes. A change to the related implementation triggers a re-read of those findings, not a rewrite of the product requirements or the algorithm literature. Each path gives a reversal condition so a failed hypothesis remains informative rather than disappearing beneath its replacement.
-
-The [140-question answer ledger](<../Evaluation and Observability/Question Answers and Remaining Evidence.md>) records where desk/source research provides an answer and where an explicit experiment or inaccessible evidence remains. “Research complete” means the questions have evidence-based answers or bounded unknowns with a way to resolve them; it does not mean the unbuilt proposals have passed their experiments.
-
-## Appendix: evidence feeding the ranking
-
-[^history]: [Pivotal Decisions and Conversation Evidence](<../Historical Evidence/Pivotal Decisions and Conversation Evidence.md>), [complete commit coverage](<../Historical Evidence/Commit Chronology and Coverage Ledger.md>) and [diagnostic history](<../Historical Evidence/Diagnostic Instruments, Contradictions and Open Questions.md>). Includes pre-utility rationale, rejected diagnoses, route-memory gains/limits and commitment-proxy reversal.
-[^implementation]: [Decisions, Activities and Shared Controls](<../Implementation Evidence/Decisions, Activities and Shared Controls.md>) and [Routes, Returnability and Physical Execution](<../Implementation Evidence/Routes, Returnability and Physical Execution.md>). These identify exact producer/consumer contracts and distinguish source counterexamples from captured causes.
-[^episodes]: [Recorded Episodes and Measurement Limits](<../Evaluation and Observability/Recorded Episodes and Measurement Limits.md>) and [input inventory](<../Evaluation and Observability/Recording Inventory and Reproduction.md>). Old-build recordings do not constitute an after-test of present source.
-[^cases]: [RimWorld](<../Game and Mod Case Studies/RimWorld Work Scheduling.md>), [Starsector](<../Game and Mod Case Studies/Starsector Ship and Weapon AI.md>) and [Terraria](<../Game and Mod Case Studies/Terraria NPC and Companion Boundaries.md>), with primary source links, version limits and counterevidence.
-[^decision]: [Decision, Commitment and Computation](<../Decision Architecture/Decision, Commitment and Computation.md>) and [Utility AI and Its Alternatives](<../Utility AI and Its Alternatives.md>), covering utility, HFSM/BT, BDI, options, GOAP/HTN and bounded learning.
-[^navigation]: [Dynamic Platformer Navigation](<../Navigation Research/Dynamic Platformer Navigation.md>), covering A*, LPA*/D* Lite, anytime/real-time search, state representation, experience and conditional safe prefixes.
+The full implementation is specified in the plan's dependency order and G01a–G15 gates. No gameplay portion is complete from this documentation checkpoint. Known separate product work—mastery effects, unsupported firing mechanisms, gear discoverability and closed-door route representation—retains its own scope and cannot be reported as solved by planning.

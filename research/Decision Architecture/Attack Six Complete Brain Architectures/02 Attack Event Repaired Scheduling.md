@@ -28,7 +28,7 @@ Without that boundary, B either becomes an unresponsive macro queue that fights 
 | Avoid planner-induced starvation under arrivals and budget cuts | Handed | Fair opportunity discovery, retained executable prefix, and a named policy for persistent backlog | Current preparation rotates optional activities to prevent a family from spending every comparison (`ScheduleOpportunityQueries.cs:11-18`, `:42-64`). That fairness does not extend to concrete sites or an incrementally repaired suffix. |
 | Remain inside real 4 ms-scale planning pressure | Handed; history | Deadline-aware incremental search with cost telemetry and a usable answer at every cut | `457b168` establishes that the intended combat clock is 4 ms and that 40 ms was a unit bug. `03986f0` measured a warmed 40-hostile combat search around 12.4 ms p99 and no-cache around 1 second; global exhaustive sequencing cannot be added as if combat were free. |
 | Preserve the navigation/body contract | Handed; README | Schedule requests goals; movement remains authoritative for 2x2 legality and clearance preference | Expected requires two-tile passages and centred travel (`README.md:692`). No scheduler should duplicate route search; it should consume travel estimates and submit one destination through the existing boundary. |
-| Decide different output sets without hidden category priorities | Handed; proposal hole; derived | A small explicit policy surface, Pareto/dominance treatment, and deterministic unresolved ties | Proposal 04 admits that leftover time cannot decide urgency (`research/proposal/04 Plan a Course of Action and Follow It.md:29-34`, `:610-617`). “Player time saved” or a normalized scalar would still encode category conversion weights. |
+| Decide different output sets without hidden category priorities | Handed; proposal hole; derived | A small explicit policy surface, Pareto/dominance treatment, and deterministic unresolved ties | Proposal 04 admits that leftover time cannot decide urgency (`research/Historical Evidence/Archived Brain Proposals/04 Plan a Course of Action and Follow It.md:29-34`, `:610-617`). “Player time saved” or a normalized scalar would still encode category conversion weights. |
 
 ### Actual chain traced
 
@@ -360,7 +360,7 @@ print("old_done",old_done,"trace_tail",trace[-5:])'
 # old_done False trace_tail [(15, 'new-expiring'), ..., (19, 'new-expiring')]
 
 git status --short
-# M research/proposal/04 Plan a Course of Action and Follow It.md
+# M research/Historical Evidence/Archived Brain Proposals/04 Plan a Course of Action and Follow It.md
 # ?? ten pre-existing Tools/Ledger/runs/c2eac88-*.jsonl files
 ```
 

@@ -4,7 +4,7 @@
 
 The attraction is not a tidier diagram. It is the possibility that a continuing activity becomes the one place where the system can explain what it is trying to achieve, what has actually advanced, which resources it needs and why it stopped. If the present actions can expose those facts clearly with smaller changes, Path 1 remains preferable.
 
-The [follow-up discussion](<../Decision Architecture/Purpose Families and Shared Companionship.md>) owns the changed ranking and family membership. In simple language, Path 1 makes each job's facts and promises consistent; Path 2 gives jobs a common way to perform and interrupt their smaller steps. The following lifecycle and hierarchy experiments remain relevant as controls, but the decision for this path is whether stronger shared execution earns its additional structure.
+The [follow-up discussion](<../../Decision Architecture/Purpose Families and Shared Companionship.md>) owns the changed ranking and family membership. In simple language, Path 1 makes each job's facts and promises consistent; Path 2 gives jobs a common way to perform and interrupt their smaller steps. The following lifecycle and hierarchy experiments remain relevant as controls, but the decision for this path is whether stronger shared execution earns its additional structure.
 
 ## Evidence that makes this a serious alternative
 
@@ -146,5 +146,5 @@ Finish at E16 with the full README responsibility matrix, held-out terrain/capab
 
 This route makes a larger structural bet on reusable execution machinery beneath the already-grouped utility decisions. It can make capability growth and coherent interruption easier to author, but its cost is another abstraction whose semantics must be verified. Path 1 includes lightweight activity identity, phases and grants already; Path 2 earns its place only when centralising reusable execution removes recurring defects or authoring costs beyond those repairs.
 
-[^internal]: [Decision/control implementation evidence](<../Implementation Evidence/Decisions, Activities and Shared Controls.md>), [recorded episodes](<../Evaluation and Observability/Recorded Episodes and Measurement Limits.md>) and [commit/conversation history](<../Historical Evidence/Pivotal Decisions and Conversation Evidence.md>).
-[^external]: [Decision, Commitment and Computation](<../Decision Architecture/Decision, Commitment and Computation.md>) includes primary BDI/options/BT/Halo sources; [RimWorld](<../Game and Mod Case Studies/RimWorld Work Scheduling.md>) and [Starsector](<../Game and Mod Case Studies/Starsector Ship and Weapon AI.md>) provide pinned implementation cases and their limitations.
+[^internal]: [Decision/control implementation evidence](<../../Implementation Evidence/Decisions, Activities and Shared Controls.md>), [recorded episodes](<../../Evaluation and Observability/Recorded Episodes and Measurement Limits.md>) and [commit/conversation history](<../Pivotal Decisions and Conversation Evidence.md>).
+[^external]: [Decision, Commitment and Computation](<../../Decision Architecture/Decision, Commitment and Computation.md>) includes primary BDI/options/BT/Halo sources; [RimWorld](<../../Game and Mod Case Studies/RimWorld Work Scheduling.md>) and [Starsector](<../../Game and Mod Case Studies/Starsector Ship and Weapon AI.md>) provide pinned implementation cases and their limitations.

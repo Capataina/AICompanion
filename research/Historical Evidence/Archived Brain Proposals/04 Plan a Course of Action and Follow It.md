@@ -8,13 +8,13 @@ Confidence is low on completeness. The leftover inequality, frozen identity, and
 
 In plain language: the companion should have a game plan, start following it, and when it thinks the plan should change, ask whether finishing what it is already doing is easier than starting the new thing, including the cost of the switch. That question is the same at every scale the product cares about — which of seven torches, which of three enemies, which fifteen combat moves, whether to pick up a gel on the way to ore, whether to mine two copper on the way home, whether to drop a slime and come because the player has gone down a cave. Last night's collect-versus-torch ping-pong is the most primitive member of that class, not the class.
 
-The [folder synthesis](CLAUDE.md) ranks the original three paths. This file is the live discussion of the gap those three left: Path 1 picks a job every tick, Path 2 would hold the job, Path 3 would compare short sequences, and neither 2 nor 3 as written is the product the owner described on 18 September 2026. The mix is what we have on paper. The next sitting starts by attacking it, not by typing it.
+The [folder synthesis](../../proposal/CLAUDE.md) ranks the original three paths. This file is the live discussion of the gap those three left: Path 1 picks a job every tick, Path 2 would hold the job, Path 3 would compare short sequences, and neither 2 nor 3 as written is the product the owner described on 18 September 2026. The mix is what we have on paper. The next sitting starts by attacking it, not by typing it.
 
 ## This file is a handoff, not a licence to build
 
 The owner, same session, after the first draft of 04: this is not "save the plan and implement tomorrow." It is the context dump so the next sitting can pick up without re-deriving last night, the sentinels, the shrink, and the corrections. The receipts are here because a sitting that forgets them will churn the same mistakes. The holes are here because a sitting that treats 04 as finished will ship keep-the-job, or a queue, or family-level sequencing, and call it the jungle.
 
-The objective, as the owner named it this sitting: **maximise the amount of work actually done.** Work, in this product, is a closed list: collecting drops, placing torches, breaking pots, combat, chopping wood, mining ore. Keeping company is not work. Following the player is leftover. A body that ping-pongs between two jobs does **zero** work, and that is the worst case — last night's 68 collect↔torch swaps in `2026-09-18_18-57-09-481`, 53 torch attempts all `Attempted`, Exact 56 asked 7 reached. A body that picks the slower chain still does the work; that is better than zero. A body that picks the faster chain is better still. Urgency can make the slower chain the right one (a torch that is more urgent than a drop, even if drop-then-torch-at-his-feet is fewer tiles). Those three outcomes — zero, slower, faster-or-more-urgent — are the scale the next sitting has to hold. 04's leftover inequality is one candidate for that scale. It has not been shown to be the one.
+The objective, as the owner named it this sitting: **maximise the amount of work actually done. Although, even that is concept to change. The goal of the handoff is to clear up everything, from the objective, what we are trying to figure out, how do we prevent the problems we have faced before and prevent future issues within this class happening in the future and everything all in the same plan.** Work, in this product, is a closed list: collecting drops, placing torches, breaking pots, combat, chopping wood, mining ore. Keeping company is not work. Following the player is leftover. A body that ping-pongs between two jobs does **zero** work, and that is the worst case — last night's 68 collect↔torch swaps in `2026-09-18_18-57-09-481`, 53 torch attempts all `Attempted`, Exact 56 asked 7 reached. A body that picks the slower chain still does the work; that is better than zero. A body that picks the faster chain is better still. Urgency can make the slower chain the right one (a torch that is more urgent than a drop, even if drop-then-torch-at-his-feet is fewer tiles). Those three outcomes — zero, slower, faster-or-more-urgent — are the scale the next sitting has to hold. 04's leftover inequality is one candidate for that scale. It has not been shown to be the one.
 
 ### League of Legends, Drake and Baron — the two pictures this sitting uses
 
@@ -27,15 +27,10 @@ The objective, as the owner named it this sitting: **maximise the amount of work
 These are not "open questions with a default." They are reasons 04 is unfinished. A sitting that implements leftover-vs-leftover without answering them is jumping.
 
 1. **Stick versus come.** How does the companion stick to mining without wasting the trip when it should have come? A hold that cannot drop is the slime-then-you-went-down-the-cave picture. A hold that drops too early is the surface zombie. Leftover of finishing-then-coming versus coming is the candidate. It has not been scored against a live vein and a walking player.
-
 2. **Combat as an endless step 1.** How do we stop a fight from eating the tick forever so torches and drops never happen? Combat-always-step-1 freezes on a Super Dummy. A dummy that deals nothing should not be work. A 1,500 HP / 5 DPS body versus two-hit ore is the same arithmetic. 04 says remaining harm arriving before remaining work ends. That sentence has not been made into a quantity the brain already computes, against a fight that is *real* work (kills, not a dummy) that still outlasts a torch.
-
 3. **Urgency versus raw time.** Drop, then fly to the player, then torch at his feet, can be fewer tiles than torch, then drop, then fly home. The torch can still be more urgent. 04's leftover is time and travel. Urgency is not leftover. Nothing in this file says how a dark tile next to the player outranks a drop that is closer if the two disagree. Inventing a sticker for urgency is the 15% failure again.
-
 4. **A slime lands on the drop.** The companion went to the drop because being with the player soon, hands free, beat torch-first. A slime drops on it. Kill the slime then its drops? Leave the slime and torch? Torch then come back for the slime? 04 says leftover. It does not say which leftover, frozen when, against a new identity that appeared on top of step 1.
-
 5. **Family sequencing is the wrong grain.** "Combat, then lighting, then collect" is not the product. The product is which torch tile, which enemy, which drop, which vein, in one list, at the same time. Nearby assistance as a family, lighting as a task, torch tiles as sub-tasks, is the nested shape 04 has not chosen (open question 4 still has a default). Sequencing families is a lower-level plan than the owner asked for. Sequencing specific sites is the higher-level one. This file still reads, in places, as if leftover of *jobs* is enough.
-
 6. **Is 02+03 even the system?** Maybe the next move is simplify (OrderNearbyTasks already permutes; keep the order, freeze identity, stop). Maybe it is keep Path 1 and only freeze collect/torch membership. Maybe it is abstract a missing fact (work delivered per remaining tick, urgency as a sense). Maybe it is replace utility for this layer. `where-next` is the skill that picks from that palette against the history. This sitting did not run it to a committed pick. 04 is one candidate on that palette, written down so the pick has something to attack.
 
 Until those are closed, "designate a course and follow it" is a direction, not a design complete enough to type.
@@ -44,32 +39,38 @@ Until those are closed, "designate a course and follow it" is a direction, not a
 
 Nothing in this file is allowed to live only in the sitting that wrote it. Each kind of claim has a home:
 
-| Kind of claim | Where it lives | How to re-read it |
-|---|---|---|
-| What the owner asked for, in his words | Session `01a0b174-9a46-7631-a405-61f10cd975a7`, compaction `segment_010.md` (the 0.30.6 play report and the "too much emphasis" turn), and the same session's later user turn that asked for this file | The compaction INDEX is `compaction/INDEX.md` under that session. Do not treat a summary of a turn as the turn. |
-| What last night's body did | `Telemetry/2026-09-18_18-57-09-481.tsv` (schema 0.40.0, 12,062 rows), its `-events.jsonl`, its `-census.txt` | Header comments name mod 0.30.6, world Lilalio, started 18:57:09 UTC. Columns cited below. Telemetry is gitignored; a clone without the capture cannot re-derive the numbers. |
-| What the afternoon before did | `Telemetry/2026-09-18_16-35-26-353.tsv` (0.30.5, 22,919 rows) | Combat median run 1; tick 2402/2403 dump; ticks 19,446–20,379 crowd. |
-| What a commit was for, and what it proved | `git log -1 --format='%B' <hash>` | Bodies cited below. A subject line is not the proof. |
-| What the three sentinels returned | Session `01a0b174-9a46-7631-a405-61f10cd975a7`, seats `01a0b628-1904-7be1-809c-0acc435aae10` (Terraria-play), `01a0b628-1904-7be1-809c-0ad3909a657b` (git-history), `01a0b628-1904-7be1-809c-0ae9f4786879` (logic) | All three Fail. Convergence is in `segment_010.md` under Problem Solving. |
-| What the three 0.30.5 log readers returned | Seats `01a0b56d-d274-7f23-bb6e-60a02c3ebc3c`, `01a0b56d-d274-7f23-bb6e-60b81f59f131`, `01a0b56d-d274-7f23-bb6e-60ced5c3e46f` | Flicker and crowd as two roots, not one "commit more" patch. |
-| What the fixture already holds | `Tools/EngineReplay/Observation/VerifyPreparedActivities.cs` line 327, `two even jobs must not trade the lead while the body flies toward the one it chose` | Green on the Euclidean leftover. Last night is the live negative. |
-| What Path 1/2/3 were | `01`, `02`, `03` in this folder; ranking in `CLAUDE.md` | 04 does not rewrite them. |
+
+| Kind of claim                              | Where it lives                                                                                                                                                                                                     | How to re-read it                                                                                                                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What the owner asked for, in his words     | Session `01a0b174-9a46-7631-a405-61f10cd975a7`, compaction `segment_010.md` (the 0.30.6 play report and the "too much emphasis" turn), and the same session's later user turn that asked for this file             | The compaction INDEX is `compaction/INDEX.md` under that session. Do not treat a summary of a turn as the turn.                                                               |
+| What last night's body did                 | `Telemetry/2026-09-18_18-57-09-481.tsv` (schema 0.40.0, 12,062 rows), its `-events.jsonl`, its `-census.txt`                                                                                                       | Header comments name mod 0.30.6, world Lilalio, started 18:57:09 UTC. Columns cited below. Telemetry is gitignored; a clone without the capture cannot re-derive the numbers. |
+| What the afternoon before did              | `Telemetry/2026-09-18_16-35-26-353.tsv` (0.30.5, 22,919 rows)                                                                                                                                                      | Combat median run 1; tick 2402/2403 dump; ticks 19,446–20,379 crowd.                                                                                                          |
+| What a commit was for, and what it proved  | `git log -1 --format='%B' <hash>`                                                                                                                                                                                  | Bodies cited below. A subject line is not the proof.                                                                                                                          |
+| What the three sentinels returned          | Session `01a0b174-9a46-7631-a405-61f10cd975a7`, seats `01a0b628-1904-7be1-809c-0acc435aae10` (Terraria-play), `01a0b628-1904-7be1-809c-0ad3909a657b` (git-history), `01a0b628-1904-7be1-809c-0ae9f4786879` (logic) | All three Fail. Convergence is in `segment_010.md` under Problem Solving.                                                                                                     |
+| What the three 0.30.5 log readers returned | Seats `01a0b56d-d274-7f23-bb6e-60a02c3ebc3c`, `01a0b56d-d274-7f23-bb6e-60b81f59f131`, `01a0b56d-d274-7f23-bb6e-60ced5c3e46f`                                                                                       | Flicker and crowd as two roots, not one "commit more" patch.                                                                                                                  |
+| What the fixture already holds             | `Tools/EngineReplay/Observation/VerifyPreparedActivities.cs` line 327, `two even jobs must not trade the lead while the body flies toward the one it chose`                                                        | Green on the Euclidean leftover. Last night is the live negative.                                                                                                             |
+| What Path 1/2/3 were                       | `01`, `02`, `03` in this folder; ranking in `CLAUDE.md`                                                                                                                                                            | 04 does not rewrite them.                                                                                                                                                     |
+
 
 Replay of last night's swap, from this directory, against the capture that is on disk:
 
-    python3 -c "
-    from pathlib import Path
-    from collections import Counter
-    p=Path('Telemetry/2026-09-18_18-57-09-481.tsv')
-    lines=[l for l in p.read_text(encoding='utf-8-sig').splitlines() if l and not l.startswith('#')]
-    cols=lines[0].split('\t'); i={c:k for k,c in enumerate(cols)}
-    rows=[l.split('\t') for l in lines[1:]]
-    print(Counter(r[i['action']] for r in rows))
-    "
+```
+python3 -c "
+from pathlib import Path
+from collections import Counter
+p=Path('Telemetry/2026-09-18_18-57-09-481.tsv')
+lines=[l for l in p.read_text(encoding='utf-8-sig').splitlines() if l and not l.startswith('#')]
+cols=lines[0].split('\t'); i={c:k for k,c in enumerate(cols)}
+rows=[l.split('\t') for l in lines[1:]]
+print(Counter(r[i['action']] for r in rows))
+"
+```
 
 Expected: `combat` 5886, `keep-company` 3590, `collect` 1347, `place-torches` 1239. Census file beside it: `Exact: asked 56, reached 7, abandoned 49`. Events: 53 `place-torches` attempt-outcomes, all channel `Attempted`.
 
 ---
+
+
 
 ## Owner criticisms of the drafts this sitting, kept as constraints
 
@@ -89,6 +90,8 @@ The parent drafts that died on (1), (2), (3) as combat-always-step-1, (4) as a f
 
 ---
 
+
+
 ## What the owner asked for
 
 A competent friend playing Terraria is not asking "what is the best single action from where I stand." They are thinking several steps ahead. The extreme version of that, said as a picture rather than as a mission system, is: go right, drop into the cave, enter the caverns, mine this ore, grind these, craft this, come back, spawn the boss, kill it, go to the biome, break that ore. The product version, the one this companion is for, is the same shape of thinking applied to the scene it is actually in.
@@ -107,26 +110,30 @@ A reading, cheap to reject: the ten-steps-ahead picture is the shape of thinking
 
 ---
 
+
+
 ## Origin
 
 Path 1 was selected on 12 September 2026 (`ad8343b`): three purpose families, seven activities, lightweight ownership, shared safety. Path 2 was the stronger executor if lifecycle defects survived that. Path 3 was bounded planning if immediate evaluation missed enabling consequences. They were sequential investments, not a menu. The owner authorised Path 1 in full. It landed 13 September 2026. The three-family chooser is production.
 
 The same week, and then the orb week, produced a pile of continuation machinery that is not a course of action:
 
-| When | Hash | What the body of that commit established | What it actually holds today |
-|---|---|---|---|
-| 8 Sep 2026 | Slate ruling | Interrupted chop and mine finish inside the action. A queue was refused because it would recreate priority. | Still the rule. 04 must not bring a queue back. |
-| 8 Sep | `85961ee` | "The incumbent action keeps a 1.15 bonus so scores do not flicker." Utility chooser replaces the state machine. | Tick comparison. No sequence. The 1.15 is still `Weights.Commitment`. |
-| 11 Sep | `9b402cb` | Stall-conditioned commitment "tripled the churn it was written to cure": 0.14.0 17:22 held 55.5 ticks/decision, 0.15.0 18:30 held 22.3; 1,197 of 1,727 switches fired on a stalled predecessor while stall was 4.5% of ticks. "the *body not covering ground* is the wrong evidence." | Flat 1.15 again. Last night the raw collapsed 3×, so the sticker still loses. |
-| 12 Sep | `b89abee` | Primary activities retain identity across shared movement. | `OwnCurrentActivity`: one purpose, no intention stack. Resume-after-combat as a stored tail is this hash forgotten. |
-| 12 Sep | `ad8343b` | Family plan. Seven activities, safety shared. | Production chooser. Hunting and guarding later merged into one combat activity (`03986f0`). |
-| 14 Sep | `6892189` | "a chosen destination is kept until it stops belonging to its own region." | A follow spot, a firing stand, a partial-progress tile. Not a collect item. Not a torch tile. |
-| 14 Sep | `7a6b473` | "keep-company deciding it has arrived mid-jump no longer drops the jump in the air." | The body finishes the committed move. Not a job plan. |
-| 15 Sep | `16a39de` | `VerifyResponsiveFollowing` settle row: 39 method changes in 600 ticks at 3× speed, ceiling of one. Four rounds to wait for arrival. | Company methods, not jobs. |
-| 15 Sep | `573d9d4` | Capture `2026-09-15_10-27-40-531`: slime-then-torch because lighting inherited a zero forecast; surface zombie ticks 7308–7735 paid no separation. Added worth-per-time, reunion on all tasks, `OrderNearbyTasks`. Fixture: "two even jobs with the body flying toward the incumbent over 12 rescores produce no lead change." | The order is discarded every comparison. Last night is the live negative of that fixture. |
-| 18 Sep | `457b168` | Combat holds a plan. 4 ms budget is 4 ms. | A fight keeps its plan. Collect and torch do not. |
-| 18 Sep | `145be5a` | Capture `2026-09-18_16-35-26-353`: "a 10-tick local stand became a 227-tick FireFrom and reunion hit 0." Crowd: empty pool after 4 ms. Hitting `ServesPlayerDirectly` keeps reunion at 1; from-here fallback on an empty cut. 400 px drop still zeros. | Combat only. Last night's collect/torch swap is not this dump. |
-| 18 Sep | `9bfc67e` | Same 0.30.5 play: hearts walked to, gel Arrived 22 s without transfer. PrepareDrop skips `IsAPickup`; CollectTouchedItems +SettleRadius. | Collect identity is still the live item, re-prepared every tick. |
+
+| When       | Hash         | What the body of that commit established                                                                                                                                                                                                                                                                                       | What it actually holds today                                                                                        |
+| ---------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| 8 Sep 2026 | Slate ruling | Interrupted chop and mine finish inside the action. A queue was refused because it would recreate priority.                                                                                                                                                                                                                    | Still the rule. 04 must not bring a queue back.                                                                     |
+| 8 Sep      | `85961ee`    | "The incumbent action keeps a 1.15 bonus so scores do not flicker." Utility chooser replaces the state machine.                                                                                                                                                                                                                | Tick comparison. No sequence. The 1.15 is still `Weights.Commitment`.                                               |
+| 11 Sep     | `9b402cb`    | Stall-conditioned commitment "tripled the churn it was written to cure": 0.14.0 17:22 held 55.5 ticks/decision, 0.15.0 18:30 held 22.3; 1,197 of 1,727 switches fired on a stalled predecessor while stall was 4.5% of ticks. "the *body not covering ground* is the wrong evidence."                                          | Flat 1.15 again. Last night the raw collapsed 3×, so the sticker still loses.                                       |
+| 12 Sep     | `b89abee`    | Primary activities retain identity across shared movement.                                                                                                                                                                                                                                                                     | `OwnCurrentActivity`: one purpose, no intention stack. Resume-after-combat as a stored tail is this hash forgotten. |
+| 12 Sep     | `ad8343b`    | Family plan. Seven activities, safety shared.                                                                                                                                                                                                                                                                                  | Production chooser. Hunting and guarding later merged into one combat activity (`03986f0`).                         |
+| 14 Sep     | `6892189`    | "a chosen destination is kept until it stops belonging to its own region."                                                                                                                                                                                                                                                     | A follow spot, a firing stand, a partial-progress tile. Not a collect item. Not a torch tile.                       |
+| 14 Sep     | `7a6b473`    | "keep-company deciding it has arrived mid-jump no longer drops the jump in the air."                                                                                                                                                                                                                                           | The body finishes the committed move. Not a job plan.                                                               |
+| 15 Sep     | `16a39de`    | `VerifyResponsiveFollowing` settle row: 39 method changes in 600 ticks at 3× speed, ceiling of one. Four rounds to wait for arrival.                                                                                                                                                                                           | Company methods, not jobs.                                                                                          |
+| 15 Sep     | `573d9d4`    | Capture `2026-09-15_10-27-40-531`: slime-then-torch because lighting inherited a zero forecast; surface zombie ticks 7308–7735 paid no separation. Added worth-per-time, reunion on all tasks, `OrderNearbyTasks`. Fixture: "two even jobs with the body flying toward the incumbent over 12 rescores produce no lead change." | The order is discarded every comparison. Last night is the live negative of that fixture.                           |
+| 18 Sep     | `457b168`    | Combat holds a plan. 4 ms budget is 4 ms.                                                                                                                                                                                                                                                                                      | A fight keeps its plan. Collect and torch do not.                                                                   |
+| 18 Sep     | `145be5a`    | Capture `2026-09-18_16-35-26-353`: "a 10-tick local stand became a 227-tick FireFrom and reunion hit 0." Crowd: empty pool after 4 ms. Hitting `ServesPlayerDirectly` keeps reunion at 1; from-here fallback on an empty cut. 400 px drop still zeros.                                                                         | Combat only. Last night's collect/torch swap is not this dump.                                                      |
+| 18 Sep     | `9bfc67e`    | Same 0.30.5 play: hearts walked to, gel Arrived 22 s without transfer. PrepareDrop skips `IsAPickup`; CollectTouchedItems +SettleRadius.                                                                                                                                                                                       | Collect identity is still the live item, re-prepared every tick.                                                    |
+
 
 `OrderNearbyTasks` is the one piece that already tries to order jobs. It exists because on 15 September 2026 the owner said a slime on the way to a dark corner should be killed, its drops collected, and then the corner lit, and a chooser that valued each job only from where the body stood flew past the slime. What it does: every task within a share of the best, every permutation up to a maximum, first step of the best order leads, the order is thrown away, leftover is Euclidean distance over speed plus work, flying toward the first job is supposed to shorten its time so the next comparison favours it, company is not a task. The fixture "two even jobs, no lead change over 12 rescores" is green. Last night falsified the flying-shortens-time assumption: collect raw collapsed from about 0.77 to 0.23 at the same tiles, and the body sat in the middle of two Exact destinations swapping every fifteen ticks.
 
@@ -137,6 +144,8 @@ This file is that overruling, written down.
 The sitting that produced the overruling ran as diagnosis, not as a patch. After the 0.30.6 play the owner asked to confirm a go-away-come-back loop. Three isolated log readers plus the parent agreed the loop was collect versus torch at about fifteen ticks, Exact 3404,570 against Exact 3433,606, collect raw collapsing 0.77 → 0.23 at the same tiles, company final about 0.08, zero companion torches. They disagreed with the owner's first picture only on the yank: it was not reunion pulling the body home. The owner then asked whether fleshed 02 and 03 would cut the class; then to combine them under the name course of action, with no magic multipliers, relative leftover, finish-C, opportunistic inserts, adaptive interrupts rather than "only combat." A first combined plan still had combat-always-step-1, new-task-rewrites-step-1, and lighting-on-the-way-home as special. Three sentinels failed that plan. A second combined plan shrank to keep-the-job. The owner failed the shrink for being the primitive. 04 is the third combined plan, and it is the first that treats last night as a member of the class the owner named rather than as the class.
 
 ---
+
+
 
 ## The class, not the instance
 
@@ -182,6 +191,8 @@ The same class, other pictures, already in the record:
 
 ---
 
+
+
 ## What the tree has instead
 
 ```text
@@ -226,6 +237,8 @@ What 0.30.x already does properly, so 04 does not redo it: the combat stance is 
 
 ---
 
+
+
 ## How many times this class was "fixed"
 
 The historical record the folder synthesis already names is the same pattern at a different layer: a graph result promoted into a physical promise, a body-level signal into task progress, a retained diagnostic into a current outcome. Continuation has the same pattern.
@@ -248,33 +261,41 @@ Slate on 8 September 2026 already refused a queue. Interrupted chop and mine fin
 
 ---
 
+
+
 ## What the three sentinels found
 
 Three independent sentinels attacked the merged Path-2/3 course-of-action list on 18 September 2026, in session `01a0b174-9a46-7631-a405-61f10cd975a7`. They did not see each other's briefs.
 
-| Seat | Id | Lens |
-|---|---|---|
+
+| Seat          | Id                                     | Lens                                                    |
+| ------------- | -------------------------------------- | ------------------------------------------------------- |
 | Terraria-play | `01a0b628-1904-7be1-809c-0acc435aae10` | Would this survive a jungle, a dummy, last night's cave |
-| git-history | `01a0b628-1904-7be1-809c-0ad3909a657b` | What the log already tried and tore out |
-| logic | `01a0b628-1904-7be1-809c-0ae9f4786879` | Whether the rules contradict each other |
+| git-history   | `01a0b628-1904-7be1-809c-0ad3909a657b` | What the log already tried and tore out                 |
+| logic         | `01a0b628-1904-7be1-809c-0ae9f4786879` | Whether the rules contradict each other                 |
+
 
 All three Fail. Convergence, as filed in compaction `segment_010.md` under Problem Solving: first node is collect/torch not keeping a membership identity, not a missing planner; rule "new task becomes step 1" plus lighting/collect nearest-identity re-enacts last night; combat-always-step-1 versus the five-minute dummy is unresolved; switching-cost leftover is the Euclidean leftover `OrderNearbyTasks` throws away, and route estimates jump (10 versus 227, the `145be5a` dump); way-home fights `AllowsTarget` and company-as-scored-rival; resume-after-combat is a stack `OwnCurrentActivity` forbids; Path 1 already has the cheaper move for last night. They converged on findings the shrink then treated as the design, and which the owner then treated as a diagnosis of last night rather than as the product.
 
 The 0.30.5 sitting the same afternoon is the prior member of the same class, not a different bug. Three log readers (`01a0b56d-d274-7f23-bb6e-60a02c3ebc3c`, `01a0b56d-d274-7f23-bb6e-60b81f59f131`, `01a0b56d-d274-7f23-bb6e-60ced5c3e46f`) plus the parent split flicker and crowd as two roots and refused a mixed "commit more" patch. `145be5a` landed the hitting-fight keep and the from-here fallback; `9bfc67e` landed hearts, gel, bag. 0.30.6 play then showed collect/torch swapping. Hold of a fight improved. Ordering did not. That is why 04 is not another combat-hold patch.
 
-| Finding they converged on | What it is true of | What it is not |
-|---|---|---|
-| The first node that is wrong for last night is collect/torch not keeping a membership identity, unlike mining's vein and combat's plan. | Last night's swap. PrepareDrop nulls the candidate; lighting identity is the nearest point. | The product. Membership hold on two activities is the primitive, not the jungle. |
-| Rule "a new task may become step 1" plus nearest-identity re-enacts last night. | If the "new" task is the other of the same two. | A genuinely new task becoming step 1. The owner named this split: last night was the same two swapping, a different class. |
-| Resume-after-combat is a stack `OwnCurrentActivity` forbids. | A stored "and then the vein" behind a fight. | A fight that is step 1 of a course, after which the remaining steps are regenerated from what is still there. |
-| Combat-always-step-1 versus the five-minute dummy is unresolved. | A priority rule. | Relative leftover: remaining harm arriving before remaining work ends. |
-| Switching-cost leftover is the Euclidean leftover `OrderNearbyTasks` throws away, and route estimates jump (10 ticks versus 227). | A leftover that jitters will swap for the same reason the scores swapped. | The idea of leftover. Freeze the leftover with the identity, the way a vein's remaining hits do not re-count the flood every tick. |
-| Way-home fights `AllowsTarget` and company-as-scored-rival. | A job that has to win the chooser to exist on the way home. | Opportunistic work on a path that is already being flown, valued against the leftover of flying past it. |
-| Path 1 already has the cheaper move for last night: give collect/torch the hold vein and combat have. | Last night, cheaply. | Seven torches' order, three enemies' order, fifteen combat moves, two copper on the way home, the jungle. |
+
+| Finding they converged on                                                                                                               | What it is true of                                                                          | What it is not                                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| The first node that is wrong for last night is collect/torch not keeping a membership identity, unlike mining's vein and combat's plan. | Last night's swap. PrepareDrop nulls the candidate; lighting identity is the nearest point. | The product. Membership hold on two activities is the primitive, not the jungle.                                                   |
+| Rule "a new task may become step 1" plus nearest-identity re-enacts last night.                                                         | If the "new" task is the other of the same two.                                             | A genuinely new task becoming step 1. The owner named this split: last night was the same two swapping, a different class.         |
+| Resume-after-combat is a stack `OwnCurrentActivity` forbids.                                                                            | A stored "and then the vein" behind a fight.                                                | A fight that is step 1 of a course, after which the remaining steps are regenerated from what is still there.                      |
+| Combat-always-step-1 versus the five-minute dummy is unresolved.                                                                        | A priority rule.                                                                            | Relative leftover: remaining harm arriving before remaining work ends.                                                             |
+| Switching-cost leftover is the Euclidean leftover `OrderNearbyTasks` throws away, and route estimates jump (10 ticks versus 227).       | A leftover that jitters will swap for the same reason the scores swapped.                   | The idea of leftover. Freeze the leftover with the identity, the way a vein's remaining hits do not re-count the flood every tick. |
+| Way-home fights `AllowsTarget` and company-as-scored-rival.                                                                             | A job that has to win the chooser to exist on the way home.                                 | Opportunistic work on a path that is already being flown, valued against the leftover of flying past it.                           |
+| Path 1 already has the cheaper move for last night: give collect/torch the hold vein and combat have.                                   | Last night, cheaply.                                                                        | Seven torches' order, three enemies' order, fifteen combat moves, two copper on the way home, the jungle.                          |
+
 
 The sentinels did their job. Last night's first node is collect/torch re-auditioning. A keep-the-job patch would stop that swap. It would not knock a Demon Eye onto three zombies, would not place seven torches in an order, would not mine two copper on the way home unless lighting had a special case, and would not drop a slime when the player had gone. The owner said so. The shrink is recorded here as a rejected alternative, not as a pending simplification.
 
 ---
+
+
 
 ## What to take from Path 2 and Path 3, and what to refuse
 
@@ -305,6 +326,8 @@ refuse from 2                       refuse from 3
 The mix is one course of action: Path 2's identity is each step, Path 3's sequence is the course, Path 1's families still generate the candidates, and the comparison that used to pick a job now picks a course — or, more cheaply, keeps the current course until a rival course wins on leftover, not on a sticker.
 
 ---
+
+
 
 ## The proposed structure
 
@@ -363,6 +386,8 @@ Company is not a step. Reunion is not a job. The meeting place is a destination 
 
 ---
 
+
+
 ## No hardcoded values
 
 The failure mode of a sticker is specific. `Commitment = 1.15` exists so a near-tie does not oscillate. Last night the two jobs were not a near-tie on the live raw: one collapsed by a factor of three because preparation re-aimed. `GuardUrgency = 1.25` exists so guard can beat `1.00 × Commitment`. `TaskOrderShare = 0.4` decides who even enters the permutation. `TaskOrderMaximum = 5` decides how many. Each of those is a scene waiting to happen.
@@ -407,6 +432,8 @@ World-change recommit is not a sticker either. A player-placed torch, water brea
 
 ---
 
+
+
 ## Inside a job, and inside combat
 
 Ordering seven torch sites is the same comparison as ordering a torch and a gel. Each site is a step with leftover (placement plus travel from the previous site). The course is the order that delivers soonest, which is what `OrderNearbyTasks` already scores, except the order is kept, the leftover is frozen, and the identity of each site is the tile, not "nearest dark point" which becomes a different tile every time the body moves.
@@ -418,6 +445,8 @@ Weapon switch is a step. Bow (knockback off the body) then shurikens (damage) is
 A reading of the combat stance: File 8's held plan, the seven generators, the undominated front, are Path 3 applied inside one activity. This proposal is that application, lifted to every activity and to the joints between them, so the jungle is one course rather than a combat plan that wins the chooser and then ignores the ore underfoot until the last body is dead.
 
 ---
+
+
 
 ## Opportunistic work is universal
 
@@ -440,6 +469,8 @@ The brown-versus-pink leftover picture from earlier in the sitting is this gate.
 
 ---
 
+
+
 ## Dropping is a first-class course
 
 Sticking to a task is not always best. The owner's scene: the companion takes a slime, the player goes into the cave and down and down, the slime dies, the companion now has to make its way all the way back. A hold that cannot drop produces that. A rule "always drop when the player moves" produces the surface-zombie of 15 September, where a fight worth having was dumped because he took a step.
@@ -460,17 +491,19 @@ The surface-zombie after a four-hundred-pixel drop lost because reunion zeroed t
 
 ---
 
+
+
 ## Same-set stability, new identities, world change
 
 Three classes the owner split, because treating them as one recreates last night or forbids the jungle.
 
 1. **The set of identities is unchanged, and step 1 swaps with step 2.** Last night. Forbidden by construction: the course is kept; leftover is frozen; preparation may not replace the identity of a live step with "nearest." Collect's identity is the item, not whichever drop `PrepareDrop` likes this tick. Lighting's identity is the committed tile, not the nearest dark point. Combat's identity is the held timeline, already.
-
 2. **A genuinely new identity appears.** A hornet enters. A slime drops from the ceiling. The player exposes a vein. This may become step 1, and it should, when leftover of the updated course plus the switch is better than leftover of the current course. A rule that forbids new-task-as-step-1 would not have prevented last night (nothing new appeared) and would prevent the jungle (the new slime mid-ore is exactly this). The sentinels were right that a *rule* "new task becomes step 1" plus nearest-identity re-enacts last night. They were right about the rule. The comparison is not the rule.
-
 3. **An identity is gone because the world changed.** The drop was picked up, the torch tile is now lit, the player placed a torch, water broke a torch, the vein is mined, the enemy died. The step ends. The course is the tail. This is not a rewrite of step 1. Re-preparing a live step because a global edit counter ticked somewhere else is the combat-target invalidation the tree already files as a defect; it must not become the course's invalidation.
 
 ---
+
+
 
 ## What Path 1 still owns
 
@@ -481,6 +514,8 @@ What Path 1 stops owning is the tick winner among live jobs. The winner is a cou
 If the course assembler, given truthful leftovers, produces the same first step Path 1 already produces on ordinary single-job ticks, that is success, not a reason to skip the assembler. Last night, the jungle, seven torches, and two copper on the way home are the ticks where they differ.
 
 ---
+
+
 
 ## Hard cases, named so they cannot be "fixed" with a rule
 
@@ -500,6 +535,8 @@ If the course assembler, given truthful leftovers, produces the same first step 
 
 ---
 
+
+
 ## Acceptance
 
 The README Expected Behaviour carries the player-language scenes. This list is the same claims as checks, so a build cannot pass the primitive and miss the class.
@@ -517,6 +554,8 @@ A fixture that passes last-night-does-not-recur and fails seven-torches-have-an-
 
 ---
 
+
+
 ## What would refute this route
 
 - The same two identities swap again on a recording whose leftover was frozen. Then the first node is not identity, and this file's diagnosis of last night is wrong.
@@ -529,6 +568,8 @@ A fixture that passes last-night-does-not-recur and fails seven-torches-have-an-
 - Keep-the-job ships as 04. Then the owner's overruling of the shrink was forgotten.
 
 ---
+
+
 
 ## Recorder and inspector
 
@@ -546,6 +587,8 @@ God's-eye and SessionReport gain one check family: a pair of identities that rem
 
 ---
 
+
+
 ## Conditions for promoting, shrinking, or withdrawing
 
 Do not promote this to an implementation plan in the sitting that opens this file. Attack it first. Run `where-next`. Close the holes above, or name a different move. Promote a *later* revision of this mix above "give collect/torch a membership hold and stop" only when the owner still wants the jungle after that attack, and the leftover-versus-urgency and site-grain questions have answers that are not stickers.
@@ -558,29 +601,26 @@ Complete through a recorded play of the jungle picture and the leftover-on-the-w
 
 ---
 
+
+
 ## Open questions for the sitting that goes through this file
 
 These are forks that change the design. Defaults below are what *this draft* would pick if forced, not what the next sitting is bound to. Several of them are the holes named above; a default does not close a hole.
 
 1. **Session-scale intent.** Does the companion invent a playthrough (craft, spawn a boss, travel to a biome), or does it apply several-steps-ahead thinking only to the scene it is in, reading the player's journey as the intent region already does? Draft default: scene, job, and move. The ten-steps picture is the shape, not a mission. Independent gathering was abandoned.
-
 2. **Is the combat stance's timeline the combat course, or does a later mix replace it?** Draft default: it is the combat course. Extend it so a course may mix combat steps with other steps, and so a weapon switch is a step. Do not run two planners.
-
 3. **Who is the tick winner — a course assembler, or Path 1 among courses?** Draft default: Path 1 prepares candidates; the assembler sequences them and holds the running course. Unresolved: leftover does not yet carry urgency, so this default can pick the faster chain when the slower urgent one was right.
-
 4. **Inside-job order as steps versus as a nested order on one step.** The owner this sitting: lighting is a task, torch tiles are within-task, and the list has to hold specific tiles, specific enemies, specific veins at once — not "combat then lighting then collect." Draft default: the same comparison at that grain. Unresolved: 04 still talks in jobs more than in sites.
-
 5. **Computational bound.** Draft default: the tick's planning deadline, three-valued (kept current course if unfinished). No maximum of five, no share of 0.4.
-
 6. **Urgency versus leftover.** When drop-then-torch-at-his-feet is fewer tiles, and torch-then-drop is more urgent, which wins? No default. A sticker is refused.
-
 7. **A new identity on top of step 1.** Slime on the drop. Kill, skip, torch-first? No default that survives both last night and the jungle.
-
 8. **Is 02+03 the move at all?** `where-next` against the history: replace, simplify, upgrade, abstract, extend, keep, patch. This file is one candidate. The pick has not been made.
 
 Nothing in those is a licence to add a constant, a combat-always rule, a lighting-only leftover, a queue, a stack, or to start typing.
 
 ---
+
+
 
 ## How this file relates to the README
 
@@ -596,6 +636,8 @@ Expected Behaviour is the product. A row goes into Behaviour By Behaviour first,
 Current Behaviour of 18 September 2026, 0.30.6, is the negative of those rows. Potential Improvements used to say chaining is Proposal 3 only. That sentence is what this file retires.
 
 ---
+
+
 
 ## Appendix: why this is a fourth file rather than an edit of 02 or 03
 
