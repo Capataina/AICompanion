@@ -52,6 +52,7 @@ public sealed class TileMiner
         => player.GetModPlayer<global::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear.Pickaxe;
 
     public bool Ready => swingCooldown <= 0;
+    public int CooldownTicks => Math.Max(0, swingCooldown);
 
     public RemainingToolWork? EstimateRemaining(Point tile, Item pickaxe)
     {

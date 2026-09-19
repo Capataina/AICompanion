@@ -54,6 +54,12 @@ internal static class VerifyCombatCourseBinding
             { CombatCourseFacts.ManaCapacityKey(), CombatCourseFacts.TargetKey(12, 3), CombatCourseFacts.UseKey(useId), CombatCourseFacts.WeaponKey(0),
               ReadCourseTravel.Key(new CoursePoint(32, 32), default, new CoursePoint(32, 32)) }.OrderBy(key => key)),
             "The binding omitted a captured input dependency.");
+        Require(state.TryApply(bound.Binding, new System.Collections.Generic.Dictionary<string, double>(), out _),
+            "the nominal combat prefix could not enter projected state");
+        var dependent = new BindOpportunity(new IOpportunityBinder[] { new CombatOpportunityBinder() }).Bind(slice.Examined[0],
+            state, snapshot, new DecisionWorkCursor(), new DecisionWorkBudget(double.PositiveInfinity));
+        Require(dependent.Binding == null && dependent.Reason == "combat-target-successor-unresolved",
+            "a later shot treated the old observed target as the outcome of an uncertain earlier hit");
         var unsupported = use with { ExpectedTargetDamage = 0 };
         var unsupportedSnapshot = new DecisionFactSnapshot(45, 8, 16, 2, 0, new[]
         {

@@ -36,6 +36,7 @@ public sealed class TileChopper
         => player.GetModPlayer<global::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear.Axe;
 
     public bool Ready => swingCooldown <= 0;
+    public int CooldownTicks => System.Math.Max(0, swingCooldown);
 
     public RemainingToolWork? EstimateRemaining(Microsoft.Xna.Framework.Point tile, Item axe)
     {

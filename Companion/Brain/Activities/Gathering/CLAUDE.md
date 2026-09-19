@@ -15,10 +15,13 @@ Gathering/
 ├─ ChopTree.cs            separate-tree preference and retained reachable trunk work
 ├─ GatheringCourseOpportunities.cs resumable native ore census and the pure frozen-fact mine/tree source
 ├─ CaptureTreeOpportunities.cs sliced native trunk census with axe progress, access and policy evidence
+├─ BindGatheringOpportunity.cs exact native swing bindings, readiness and conditional work successors
 └─ DescribeOreJobEnd.cs   original bounded vein state at job end, with separate removal attribution
 ```
 
 Both activities declare PurposeFamily.Gathering and register once in `../../Infrastructure/Selection/ChooseBehaviour.cs`. They use the common activity contract and the thin policy readers in `../WorkPolicies.cs`; persistent preferences remain owned by PlayerIntegration. Native tools remain in WorldInteractions, and recovery or downing can interrupt either activity without becoming a gathering child.
+
+`GatheringOpportunityBinder` reads only captured facts and hypothetical state. Each binding names one native swing at an exact tile/material and pose with the captured tool identity, power and cadence. Wider vein totals remain the census denominator; only the bound tile's own remaining work can be credited by that use. Tool readiness is a separate absolute native tick fact, projected across uses, so the hand is reserved at the actual use rather than throughout an earlier cooldown. An immediate application of the captured closed tool law has a conditional model successor; a nominal travel forecast cannot supply a finite latest effect time, so a later use depending on its result remains unresolved. Validation preserves the accepted tile/tool/pose rather than substituting another candidate. Native execution still needs the latest policy, access and readiness checks at its own call boundary.
 
 Retained-course discovery observes individual ore components and tree bottoms before those activities select a winner. Tree scanning spends the shared allowance per cell and deduplicates branches by native trunk identity. Its quantity is remaining native axe damage on the bottom, with tool, permission, access and player-work evidence carried beside it; height and predicted wood drops do not create extra reward. A partial rectangle publishes coverage only. Local edits, axe changes and observed axe effects reopen the census; geometry changes reopen a completed scan without erasing every intermediate slice. The common source treats missing coverage and unresolved target evidence as unresolved admission. These adapters remain inputs for the course migration; their existence does not replace the legacy chooser or prove final binding and execution.
 

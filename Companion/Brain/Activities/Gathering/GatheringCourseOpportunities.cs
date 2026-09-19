@@ -22,7 +22,10 @@ namespace AICompanion.Companion.Brain.Activities.Gathering;
 /// deserializes this value; live tiles, policies and reachability are deliberately absent there.</summary>
 public sealed record GatheringOpportunityFact(string Domain, string Target, long Generation, int TileX, int TileY,
     int Material, string Purpose, double RemainingAmount, double CensusAmount, string Admission, string Reason,
-    string Detail, double StandX = 0, double StandY = 0);
+    string Detail, double StandX = 0, double StandY = 0, CapturedToolWork? Work = null);
+
+/// <summary>The native mechanism's next physical application, separate from the complete vein census.</summary>
+public sealed record CapturedToolWork(int ItemType, int Prefix, int Power, int UseTime, int DamagePerHit, int DamageRemaining);
 
 /// <summary>Capture coverage is a fact in its own right.  A bounded native scan has observed a
 /// prefix, never proved the rest of the rectangle empty.</summary>
@@ -40,7 +43,7 @@ public sealed class CaptureGatheringOpportunities
     private HashSet<string> visibleLastCapture = new(StringComparer.Ordinal);
     private readonly HashSet<string> visibleThisCapture = new(StringComparer.Ordinal);
     private sealed record ObservedOre(string Identity, long Generation, Point Tile, int Material, double Remaining,
-        string Admission, string Reason, string Detail, Vector2 Stand, bool Complete);
+        string Admission, string Reason, string Detail, Vector2 Stand, bool Complete, CapturedToolWork? Work);
     private Rectangle? oreArea;
     private long oreOffset;
     private readonly Dictionary<string, ObservedOre> observedOres = new(StringComparer.Ordinal);
@@ -56,6 +59,8 @@ public sealed class CaptureGatheringOpportunities
     {
         var facts = new List<DecisionFact>();
         CaptureOres(context, budget, facts, visibleThisCapture);
+        facts.Add(new(GatheringOpportunityBinder.ReadyKey("mine-target"), 0,
+            new(Amount: context.Companion.Miner.CooldownTicks > 0 ? (double)Main.GameUpdateCount + context.Companion.Miner.CooldownTicks : 0), FactEvidence.Observed));
         return facts.OrderBy(fact => fact.Key).ToArray();
     }
 
@@ -124,8 +129,11 @@ public sealed class CaptureGatheringOpportunities
             bool remainingKnown = estimates.All(estimate => estimate != null);
             double remaining = remainingKnown ? estimates.Sum(estimate => estimate!.Value.DamageRemaining) : 0;
             if (!remainingKnown) { admission = "unknown"; reason = "native-remaining-unresolved"; }
+            RemainingToolWork? targetWork = miner.EstimateRemaining(target, pick);
+            CapturedToolWork? work = targetWork is { } next
+                ? new(pick.type, pick.prefix, pick.pick, pick.useTime, next.DamagePerHit, next.DamageRemaining) : null;
             observedOres[identity] = new(identity, generation, target, material, remaining, admission, reason,
-                $"vein-complete={vein.Complete};remaining-known={remainingKnown};pick={pick.pick};listed={listed};policy={WorkPolicies.Mining};reach={reach}", stand, vein.Complete && remainingKnown);
+                $"vein-complete={vein.Complete};remaining-known={remainingKnown};pick={pick.pick};listed={listed};policy={WorkPolicies.Mining};reach={reach}", stand, vein.Complete && remainingKnown, work);
         }
         bool complete = oreOffset == cells;
         // A partial scan proves no denominator.  It publishes only coverage, so it cannot rescale
@@ -137,7 +145,7 @@ public sealed class CaptureGatheringOpportunities
             {
                 double census = observedOres.Values.Where(other => other.Material == ore.Material).Sum(other => other.Remaining);
                 var value = new GatheringOpportunityFact("mine-target", ore.Identity, ore.Generation, ore.Tile.X, ore.Tile.Y, ore.Material, "mine",
-                    ore.Remaining, census, ore.Admission, ore.Reason, ore.Detail, ore.Stand.X, ore.Stand.Y);
+                    ore.Remaining, census, ore.Admission, ore.Reason, ore.Detail, ore.Stand.X, ore.Stand.Y, ore.Work);
                 facts.Add(Fact(value, ore.Complete ? FactEvidence.Observed : FactEvidence.Unresolved));
             }
         }
@@ -237,12 +245,12 @@ public sealed class GatheringOpportunitySource : IOpportunitySource
             if (observed.Evidence == FactEvidence.Unresolved || !captureComplete)
                 admission = OpportunityAdmission.Unresolved;
             var key = new OpportunityKey(domain, site.Purpose, site.Target, site.Generation);
-            double amount = Math.Max(0, site.RemainingAmount);
+            double amount = Math.Max(0, site.Work?.DamageRemaining ?? site.RemainingAmount);
             double census = Math.Max(1, site.CensusAmount);
             CoursePoint workingPose = site.StandX != 0 || site.StandY != 0 ? new(site.StandX, site.StandY) : new(site.TileX * 16 + 8, site.TileY * 16 + 8);
             IEnumerable<UsefulNeed> needs = site.Reason == "native-remaining-unresolved"
                 ? Array.Empty<UsefulNeed>()
-                : new[] { new UsefulNeed(new(NeedKind.NativeWork, site.Target, site.Generation), amount, census,
+                : new[] { new UsefulNeed(GatheringOpportunityBinder.Need(site), amount, census,
                     admission == OpportunityAdmission.KnownUsable ? 1 : 0) };
             examined.Add(new Opportunity(key, observed.Version, workingPose, admission, site.Reason,
                 needs, new[] { site.Purpose }, reader.Manifest()));

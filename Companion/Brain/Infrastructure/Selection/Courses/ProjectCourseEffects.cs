@@ -61,6 +61,10 @@ public sealed class ProjectedCourseState
     /// <summary>A binder owns one causal read journal. Forked branches start with no
     /// pending journal because a later binder must declare only the effects it read.</summary>
     public void BeginReadTracking() => readEffects.Clear();
+    /// <summary>A nominal successor cannot be replaced by the old observation when a later
+    /// use depends on the value it might have changed.</summary>
+    public bool HasUnresolvedChange(FactKey key)
+        => overlay.TryGetValue(key, out var changes) && changes.Any(change => !double.IsFinite(change.At));
     public FactValue Read(FactKey key, TrackedFactReader facts)
     {
         if (overlay.TryGetValue(key, out var changes))

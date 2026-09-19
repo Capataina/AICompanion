@@ -82,7 +82,8 @@ public sealed class CaptureTreeOpportunities
             string admission = reason == "observed-native-tree" ? "usable" : reason == "approach-not-yet" ? "unknown" : "unusable";
             trees[bottom] = new("chop-target", $"tree:{material}:{bottom.X},{bottom.Y}", identity.Generation,
                 bottom.X, bottom.Y, material, "chop", remaining?.DamageRemaining ?? 0, 0, admission, reason,
-                $"axe={axe.axe};policy={policy};reach={reach};native-bottom-work=true", stand.X, stand.Y);
+                $"axe={axe.axe};policy={policy};reach={reach};native-bottom-work=true", stand.X, stand.Y,
+                remaining is { } work ? new(axe.type, axe.prefix, axe.axe, axe.useTime, work.DamagePerHit, work.DamageRemaining) : null);
         }
         bool complete = offset == total;
         var facts = new List<DecisionFact>();
@@ -100,6 +101,9 @@ public sealed class CaptureTreeOpportunities
         facts.Add(Fact(new("chop-coverage", "native-census"),
             new GatheringCoverageFact("chop-coverage", 0, offset, complete, $"{wanted.Left},{wanted.Top}:{wanted.Width}x{wanted.Height}"),
             complete ? FactEvidence.Observed : FactEvidence.Unresolved));
+        facts.Add(new(GatheringOpportunityBinder.ReadyKey("chop-target"), 0,
+            new(Amount: context.Companion.Chopper.CooldownTicks > 0 ? (double)Main.GameUpdateCount + context.Companion.Chopper.CooldownTicks : 0),
+            FactEvidence.Observed));
         return facts.OrderBy(fact => fact.Key).ToArray();
     }
 

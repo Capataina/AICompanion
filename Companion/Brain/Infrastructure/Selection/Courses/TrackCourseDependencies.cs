@@ -70,6 +70,7 @@ public sealed class TrackedFactReader
     public TrackedFactReader(DecisionFactSnapshot snapshot) => this.snapshot = snapshot;
     public long SnapshotId => snapshot.Id;
     public long WorldEpoch => snapshot.WorldEpoch;
+    public long Tick => snapshot.Tick;
     /// <summary>The immutable census may be enumerated to find domain candidates; every value a
     /// binder consumes still goes through <see cref="Read"/> so the manifest is complete.</summary>
     public IReadOnlyList<DecisionFact> Facts => snapshot.Facts;

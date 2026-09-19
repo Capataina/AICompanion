@@ -10,11 +10,14 @@ Gathering/
 ├─ VerifyMiningList.cs           the list's known ores, marks and mode, and mining refusing what it leaves
 ├─ VerifyGatheringOpportunityDiscovery.cs frozen source contracts and sliced native ore progress/removal capture
 ├─ VerifyTreeOpportunityCapture.cs sliced trunk deduplication, native axe progress, policy changes and missing coverage
+├─ VerifyGatheringCourseBindings.cs native-use credit, cooldown phases, conditional successors and exact tool validation
 ├─ VerifyGatheringCooperation.cs working beside the player without competing with him
 └─ VerifyWorkAccounting.cs       what a job reports against what the world shows
 ```
 
 ## The mining list: every refusal carries its own control
+
+`--retained-course-tools` binds frozen work through the production binder. A current-pose case requires delayed readiness, a one-tick hand phase, a causal successor and a changed-tool refusal. A travelling case allows a nominal useful prefix but refuses to certify its later enabling successor. The native pick case takes the actual captured tile/tool facts, invokes the existing pick mechanism and compares predicted work with realised damage or removal. The tests do not replace full accepted-grant execution or whole-course ordering checks.
 
 `--retained-course-trees` drives the new native tree capture through one-operation slices, using two separate multi-cell trunks. It requires one job per bottom, a shared native-work denominator, unchanged fact versions on an unchanged completed capture, reduced remaining work after an actual axe hit, and refusal after chopping is disabled. Its empty-snapshot control requires missing census coverage to remain unresolved. These checks prove the observation/source boundary, not course execution or preservation of original job units across every later tree replacement.
 

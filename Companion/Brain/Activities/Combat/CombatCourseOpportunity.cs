@@ -75,7 +75,9 @@ public sealed class CombatOpportunityBinder:IOpportunityBinder
     public string Domain=>CombatCourseFacts.Domain;
     public BindingResult Bind(Opportunity opportunity,ProjectedCourseState state,TrackedFactReader facts,DecisionWorkCursor cursor,DecisionWorkBudget budget) {
         if(!TryTarget(opportunity.Key,out int slot,out int generation))return new(null,OpportunityAdmission.KnownUnusable,"opportunity-identity-invalid",false);
-        FactKey targetKey=CombatCourseFacts.TargetKey(slot,generation); DecisionFact observed=facts.Read(targetKey); var target=CombatCourseFacts.Read<CombatCourseFacts.Target>(state.Read(targetKey,facts));
+        FactKey targetKey=CombatCourseFacts.TargetKey(slot,generation);
+        if(state.HasUnresolvedChange(targetKey)) return new(null,OpportunityAdmission.Unresolved,"combat-target-successor-unresolved",false);
+        DecisionFact observed=facts.Read(targetKey); var target=CombatCourseFacts.Read<CombatCourseFacts.Target>(state.Read(targetKey,facts));
         if(target==null||observed.Evidence!=FactEvidence.Observed)return new(null,OpportunityAdmission.Unresolved,"target-capture-missing",false);
         if(target.Generation!=generation||target.Life<=0)return new(null,OpportunityAdmission.KnownUnusable,"captured-target-changed",false);
         DecisionFact[] uses=facts.Facts.Where(f=>f.Key.Kind=="combat-use").OrderBy(f=>f.Key).ToArray();
