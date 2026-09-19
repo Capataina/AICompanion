@@ -40,7 +40,7 @@ public sealed class CaptureEnemyCourseMotion
         this.horizon = horizon; generation = enemy.Generation; this.modelRevision = modelRevision;
         slot = enemy.Slot; type = enemy.Shape.Type; width = enemy.Shape.Width; height = enemy.Shape.Height;
         motion = PredictObservedMotion.RestoreCaptured(enemy.Motion, width, height);
-        Key = new("enemy-course-motion", FormattableString.Invariant($"{slot}/ticks:{horizon}"), generation);
+        Key = new CourseEnemyMotionRequest(slot, generation, horizon, modelRevision).Key;
     }
 
     public FactKey Key { get; }

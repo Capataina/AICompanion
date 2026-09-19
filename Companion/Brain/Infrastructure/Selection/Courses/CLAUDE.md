@@ -13,6 +13,7 @@ Courses/
 ├─ ForecastContactHarm.cs       first contact over captured geometry with explicit post-hit uncertainty
 ├─ ProjectCourseEffects.cs      sparse hypothetical state and once-only physical allocation
 ├─ ReadCourseTravel.cs          captured native route timing and arrival momentum, read through manifests
+├─ RequestEnemyCourseMotion.cs  typed enemy-model requests naming generation, horizon and model revision
 ├─ SampleContactTrajectory.cs   budgeted contact boxes from the shared coarse course timeline
 ├─ TrackCourseDependencies.cs   tracked fact manifests and reverse dependency index
 ├─ RepairCourse.cs              resumable transitive dirtiness without partial publication
@@ -39,7 +40,7 @@ Receipt deduplication retires behind a completed issued-ID floor supplied by the
 
 Executable uses and dispatched physical effects have separate lifecycles. `ObserveExecution` advances the prefix only at an observed completed use, retaining only the effect IDs the native dispatch actually issued. The owner keeps these effects through release and replacement, so choosing to follow the player cannot despawn a projectile or reset its partial hit allocation. The projection carries outstanding effects and completed causal roots independently of `Steps`; the dependency graph can therefore retain an impact while a different binding executes. Physical forecasts retain their original observation-time origin and are rebased into each later snapshot instead of restarting their flight clocks. A native terminal observation ends their lifetime; an overdue unresolved impact cannot certify a successor. The next comparison after executor advancement requires a fresh remaining projection.
 
-Search keeps its pending order and projection cursor across budget cuts. Suffix depth is a storage/work bound; each observed site still receives a seed and a spatial alternative. The projector must price consequences after prior effects, prove native resources and expose unresolved tails. An empty order means companionship with its own projected costs, not an artificial zero-cost idle.
+Search keeps its pending order and projection cursor across budget cuts. Pending projections expose travel and enemy-motion requests to the observation owner; each completed model answer extends the same frozen catalogue before projection resumes. Enemy request identity includes slot, generation, horizon and model revision, so another prediction law cannot reuse an older answer. A missing captured enemy produces unresolved model evidence rather than a live lookup or endless pending request. Suffix depth is a storage/work bound; each observed site still receives a seed and a spatial alternative. The projector must price consequences after prior effects, prove native resources and expose unresolved tails. An empty order means companionship with its own projected costs, not an artificial zero-cost idle.
 
 `BindCourseOrder.MissingTravel` forwards the suspended domain binder's requests to the observation's model-query owner. The domain cursor remains on the candidate needing that answer; completing a query must resume that candidate rather than discover that enumeration already skipped it. Starting another order clears the former order's requests.
 

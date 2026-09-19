@@ -2,13 +2,19 @@ using System;
 using System.Collections.Generic;
 using Terraria;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
+using System.Text.Json;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
 public sealed record CapturedContactEnemy(int Slot, long Generation, CapturedMeleeEnemy Shape, int Damage,
     PredictObservedMotion.ExportedTrack Motion);
 public sealed record CapturedContactCensus(ulong Tick, int ExaminedSlots, int TotalSlots,
-    IReadOnlyList<CapturedContactEnemy> Enemies, bool Complete);
+    IReadOnlyList<CapturedContactEnemy> Enemies, bool Complete)
+{
+    public static FactKey Key => new("contact-census", "native-slots");
+    public DecisionFact ToFact(long revision) => new(Key, revision, new(Text: JsonSerializer.Serialize(this)), FactEvidence.Observed);
+}
 
 /// <summary>Copies potential hostile contact sources in native slot order during one
 /// observation. Eligibility against either victim and future AI remain separate questions.</summary>

@@ -23,7 +23,55 @@ internal static class VerifyCourseTravelScheduling
         + RunOneRow.Case("G15 captured melee shapes match native victim-dependent geometry", NativeMeleeShapes)
         + RunOneRow.Case("G15 captured motion and native defence produce timed contact harm", NativeContactPipeline)
         + RunOneRow.Case("G08 enemy models reject later observations without terrain edits", MotionObservationTime)
-        + RunOneRow.Case("G14 native contact census preserves frozen geometry and incomplete coverage", ContactCensus);
+        + RunOneRow.Case("G14 native contact census preserves frozen geometry and incomplete coverage", ContactCensus)
+        + RunOneRow.Case("G11 course search obtains enemy motion from its captured observation", EnemySearchOwner);
+
+    private static void EnemySearchOwner()
+    {
+        var prior = Terraria.Main.npc[1];
+        try
+        {
+            Terraria.Main.npc[1] = new Terraria.NPC { whoAmI = 1, type = 1, active = true, damage = 20,
+                position = new(48, 80), velocity = new(2, 0), width = 20, height = 20, noGravity = true, noTileCollide = true };
+            var census = CaptureCourseContactCensus.Capture(new(double.PositiveInfinity));
+            foreach (bool included in new[] { true, false })
+            {
+                var snapshot = new DecisionFactSnapshot(1, 1, (long)Terraria.Main.GameUpdateCount, 1, 0,
+                    included ? new[] { census.ToFact(1) } : Array.Empty<DecisionFact>());
+                var request = new CourseEnemyMotionRequest(1, census.Enemies.Single(e => e.Slot == 1).Generation, 2, 1);
+                var projector = new AwaitEnemy(request);
+                var search = new SearchCourseOrders(1);
+                var owner = new RetainCourseModelQueries(snapshot, World(), 1, 1);
+                search.Begin(snapshot, new(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "fixture"),
+                    Array.Empty<Opportunity>(), Array.Empty<OpportunityKey>(), projector);
+                for (int i = 0; i < 30 && !search.Exhausted; i++)
+                {
+                    var budget = new DecisionWorkBudget(double.PositiveInfinity, 1);
+                    owner.ContinueSearch(search, budget);
+                    Require(budget.OperationsUsed <= 1, "enemy model transport created a private allowance");
+                }
+                Require(search.Exhausted && search.RequiredEnemyMotion.Count == 0 && owner.CompletedCount == 1
+                    && projector.Evidence == (included ? FactEvidence.Modelled : FactEvidence.Unresolved),
+                    "enemy requests failed to resume or missing capture became endless pending/known absence");
+                Require(!snapshot.TryRead(request.Key, out _), "enemy completion mutated the original snapshot");
+            }
+        }
+        finally { Terraria.Main.npc[1] = prior; PredictObservedMotion.Forget(1); }
+    }
+
+    private sealed class AwaitEnemy(CourseEnemyMotionRequest request) : ICourseProjector
+    {
+        public FactEvidence Evidence = FactEvidence.Missing;
+        public CourseProjectionResult Continue(IReadOnlyList<OpportunityKey> order, DecisionFactSnapshot facts,
+            CourseComparisonEpisode episode, DecisionWorkCursor cursor, DecisionWorkBudget budget)
+        {
+            if (!budget.TrySpend("fixture-enemy-projector")) return new(ProjectionStatus.Pending, null, "budget-cut");
+            if (!facts.TryRead(request.Key, out var answer))
+                return new(ProjectionStatus.Pending, null, "enemy-query-pending", RequiredEnemyMotion: new[] { request });
+            Evidence = answer.Evidence;
+            return new(ProjectionStatus.Rejected, null, "fixture-transport-complete");
+        }
+    }
 
     private static void ContactCensus()
     {

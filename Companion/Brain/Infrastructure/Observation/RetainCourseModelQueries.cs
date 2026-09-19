@@ -1,4 +1,6 @@
 using System.Linq;
+using System.Collections.Generic;
+using System.Text.Json;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
@@ -10,11 +12,20 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 public sealed class RetainCourseModelQueries
 {
     private readonly ScheduleCourseModels travel;
+    private readonly Dictionary<(int Slot, long Generation), CapturedContactEnemy> contactEnemies = new();
     private bool abandoned;
     public RetainCourseModelQueries(DecisionFactSnapshot snapshot, ITileWorld world, long capabilityRevision, int pendingCapacity)
     {
         Snapshot = snapshot;
         travel = new(world, capabilityRevision, pendingCapacity);
+        if (snapshot.TryRead(CapturedContactCensus.Key, out var fact) && fact.Evidence == FactEvidence.Observed)
+        {
+            var census = JsonSerializer.Deserialize<CapturedContactCensus>(fact.Value.Text)
+                ?? throw new System.InvalidOperationException("The captured contact census is empty.");
+            if (snapshot.Tick < 0 || census.Tick != (ulong)snapshot.Tick || census.Enemies.Any(enemy => enemy.Motion.Tick != census.Tick))
+                throw new System.InvalidOperationException("Contact inputs must share the frozen observation tick.");
+            foreach (var enemy in census.Enemies) contactEnemies.Add((enemy.Slot, enemy.Generation), enemy);
+        }
     }
 
     public DecisionFactSnapshot Snapshot { get; private set; }
@@ -28,11 +39,13 @@ public sealed class RetainCourseModelQueries
     public void ContinueSearch(SearchCourseOrders search, DecisionWorkBudget budget)
     {
         foreach (var request in search.RequiredTravel) RequestTravel(request);
+        foreach (var request in search.RequiredEnemyMotion) RequestEnemyMotion(request);
         if (Continue(budget)) search.ExtendModelFacts(Snapshot);
         search.Continue(budget);
         // Requests discovered on the final operation remain queued for the next frame.
         // Capacity refusals leave requests on the search, where the next call retries them.
         foreach (var request in search.RequiredTravel) RequestTravel(request);
+        foreach (var request in search.RequiredEnemyMotion) RequestEnemyMotion(request);
     }
 
     public bool RequestTravel(CourseTravelRequest request)
@@ -48,6 +61,14 @@ public sealed class RetainCourseModelQueries
         // the observation in which that enemy's pose was captured.
         travel.ValidateEnemyMotion(query);
         return Snapshot.TryRead(query.Key, out _) || travel.RequestEnemyMotion(query);
+    }
+
+    public bool RequestEnemyMotion(CourseEnemyMotionRequest request)
+    {
+        if (abandoned) throw new System.InvalidOperationException("An abandoned observation cannot request models.");
+        if (Snapshot.TryRead(request.Key, out _)) return true;
+        contactEnemies.TryGetValue((request.Slot, request.Generation), out var enemy);
+        return travel.RequestEnemyMotion(request, enemy);
     }
 
     /// <summary>Publishes a new immutable catalogue only when models complete. The previous

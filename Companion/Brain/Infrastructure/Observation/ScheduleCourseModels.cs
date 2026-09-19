@@ -53,6 +53,29 @@ public sealed class ScheduleCourseModels
         return true;
     }
 
+    public bool RequestEnemyMotion(CourseEnemyMotionRequest request, CapturedContactEnemy? enemy)
+    {
+        if (request.Horizon < 0 || request.Horizon > PredictObservedMotion.MaximumForecastTicks)
+            throw new ArgumentOutOfRangeException(nameof(request));
+        if (enemy != null)
+        {
+            if (request.Slot != enemy.Slot || request.Generation != enemy.Generation)
+                throw new ArgumentException("An enemy query must name its captured source.", nameof(request));
+            if (enemy.Motion.Tick != observationTick)
+                throw new InvalidOperationException("An enemy query cannot import another observation's motion.");
+            if (pending.ContainsKey(request.Key)) return true;
+            if (pending.Count == Capacity) { CapacityRefusals++; return false; }
+            return RequestEnemyMotion(new CaptureEnemyCourseMotion(enemy, world, request.Horizon,
+                request.ModelRevision, observationTerrainRevision));
+        }
+        if (pending.ContainsKey(request.Key)) return true;
+        if (pending.Count == Capacity) { CapacityRefusals++; return false; }
+        pending.Add(request.Key, budget => budget.TrySpend("course-enemy-input")
+            ? new DecisionFact(request.Key, request.ModelRevision, new(Text: "enemy-capture-missing"), FactEvidence.Unresolved) : null);
+        turns.Enqueue(request.Key);
+        return true;
+    }
+
     internal void ValidateEnemyMotion(CaptureEnemyCourseMotion query)
     {
         if (!query.BelongsTo(world, observationTerrainRevision, observationTick))
