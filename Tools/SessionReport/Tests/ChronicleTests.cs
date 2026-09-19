@@ -1,9 +1,12 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
+using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 
 namespace AICompanion.Tools.SessionReport;
 
@@ -61,9 +64,11 @@ public static class ChronicleTests
             NotFightingFiresBesideATargetInRange();
             CommittedPlanWasPerformedFiresWhenTheStandIsNeverReached();
             CombatFlickerFiresOnANewPlanEveryTick();
+            CourseSnapshotRequiresActualValuesAndMatchingDigests();
+            CourseReaderRejectsMixedAndDigestOnlySnapshots();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
-            Console.WriteLine("Chronicle self-tests passed (42 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (44 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -71,6 +76,73 @@ public static class ChronicleTests
             Console.Error.WriteLine($"Chronicle self-test failed: {error.Message}");
             return 1;
         }
+    }
+
+    private static void CourseSnapshotRequiresActualValuesAndMatchingDigests()
+    {
+        var context = new CourseTraceContext(1, "brain", 1, 1, 1, 1, 1, "fixture", 1, 0, "world", "source", "policy", "config");
+        string value = "actual-fact";
+        var expected = new[] { new CourseManifestEntry("fact", 2, CourseDecisionSnapshotCoverage.Digest(value), "expected") };
+        var complete = CourseDecisionSnapshot.Create(context, "model", "scheduler", "random", expected,
+            new[] { new CourseManifestEntry("fact", 2, CourseDecisionSnapshotCoverage.Digest(value), "captured", value) });
+        Require(CourseDecisionSnapshotCoverage.Assess(complete).ExactInputComplete, "a complete snapshot with an actual hashed value was refused");
+        var digestOnly = CourseDecisionSnapshot.Create(context, "model", "scheduler", "random", expected,
+            new[] { new CourseManifestEntry("fact", 2, CourseDecisionSnapshotCoverage.Digest(value), "captured") });
+        Require(!CourseDecisionSnapshotCoverage.Assess(digestOnly).ExactInputComplete, "a digest-only fact certified exact replay");
+    }
+
+    private static void CourseReaderRejectsMixedAndDigestOnlySnapshots()
+    {
+        var context = new CourseTraceContext(1, "brain", 1, 1, 1, 1, 1, "fixture", 1, 0, "world", "source", "policy", "config");
+        string value = "actual", digest = CourseDecisionSnapshotCoverage.Digest(value);
+        CourseDecisionSnapshot good = CourseDecisionSnapshot.Create(context, "model", "scheduler", "random",
+            new[] { new CourseManifestEntry("fact", 1, digest, "expected") }, new[] { new CourseManifestEntry("fact", 1, digest, "captured", value) });
+        CourseDecisionSnapshot bad = CourseDecisionSnapshot.Create(context, "model", "scheduler", "random",
+            new[] { new CourseManifestEntry("fact", 1, digest, "expected") }, new[] { new CourseManifestEntry("fact", 1, digest, "captured") });
+        string Line(int seq, string kind, object? snapshot) => JsonSerializer.Serialize(new { v = 1, seq, tick = 1, wall_elapsed_ms = 0d, kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f, expected_x = 0f, expected_y = 0f, amount = 0, detail = "", payload_kind = "course-decision-snapshot", payload_version = 1, phase = "brain", observation_ordinal = 1L, receipt_watermark = 0L, snapshot });
+        void Check(string name, object?[] snapshots, bool complete, bool gap = false,
+            string? footer = "# end=fixture;rows=1;diagnostics-incomplete=False\n")
+        {
+            string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+            try
+            {
+                File.WriteAllText(tsv, "# schema=0.41.0\ntick\n1\n" + footer);
+                var lines = new List<string> { Line(0, "session", null) };
+                int sequence = gap ? 2 : 1;
+                foreach (var snapshot in snapshots) lines.Add(Line(sequence++, "course-decision-snapshot", snapshot));
+                lines.Add(Line(sequence, "session-end", null));
+                File.WriteAllLines(events, lines);
+                var result = ReadCourseChronicle.Read(Session.Load(tsv), tsv);
+                Require(result.Coverage == (complete ? "exact-input-complete" : "explanatory-partial"),
+                    name + ": " + result.Coverage + "; " + string.Join("; ", result.Problems));
+            }
+            finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+        }
+        System.Text.Json.Nodes.JsonNode Corrupt(Action<System.Text.Json.Nodes.JsonNode> edit)
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(good))!;
+            edit(node); return node;
+        }
+        Check("complete writer-format snapshot", new object?[] { good }, true);
+        Check("missing transport closure", new object?[] { good }, false, footer: null);
+        Check("transport timeout", new object?[] { good }, false, footer: "# end=fixture;rows=1;diagnostics-incomplete=True\n");
+        Check("wrong terminal row count", new object?[] { good }, false, footer: "# end=fixture;rows=2;diagnostics-incomplete=False\n");
+        Check("corrected terminal status", new object?[] { good }, false,
+            footer: "# end=fixture;rows=1;diagnostics-incomplete=False\n# end=fixture;rows=1;diagnostics-incomplete=True\n");
+        Check("mixed complete and digest-only", new object?[] { good, bad }, false);
+        Check("null snapshot", new object?[] { good, null }, false);
+        Check("scalar snapshot", new object?[] { good, "invalid" }, false);
+        Check("array snapshot", new object?[] { good, new[] { 1 } }, false);
+        Check("sequence gap", new object?[] { good }, false, gap: true);
+        Check("null manifest entry", new object?[] { Corrupt(n => n["CapturedReads"]![0] = null) }, false);
+        Check("null fact key", new object?[] { Corrupt(n => n["CapturedReads"]![0]!["Key"] = null) }, false);
+        Check("bad value digest", new object?[] { Corrupt(n => n["CapturedReads"]![0]!["Value"] = "changed") }, false);
+        Check("duplicate expected key", new object?[] { Corrupt(n => n["ExpectedReads"]!.AsArray().Add(n["ExpectedReads"]![0]!.DeepClone())) }, false);
+        Check("duplicate captured key", new object?[] { Corrupt(n => n["CapturedReads"]!.AsArray().Add(n["CapturedReads"]![0]!.DeepClone())) }, false);
+        Check("wrong source tick", new object?[] { Corrupt(n => n["Context"]!["SourceTick"] = 2) }, false);
+        Check("tampered scheduler", new object?[] { Corrupt(n => n["SchedulerState"] = "changed") }, false);
+        Check("tampered policy", new object?[] { Corrupt(n => n["Context"]!["PolicyFingerprint"] = "changed") }, false);
+        Check("unsupported snapshot version", new object?[] { Corrupt(n => n["PayloadVersion"] = 2) }, false);
     }
 
     /// <summary>
@@ -1555,12 +1627,14 @@ public static class ChronicleTests
             // The producer literals these rules rest on.
             string project = File.ReadAllText("AICompanion.csproj");
             string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
+            string flush = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "FlushDiagnosticRecords.cs"));
             Require(project.Contains("git rev-parse HEAD", StringComparison.Ordinal) && project.Contains("BeforeTargets=\"GetAssemblyAttributes\"", StringComparison.Ordinal)
                     && project.Contains("<_Parameter1>SourceRevision</_Parameter1>", StringComparison.Ordinal) && project.Contains("<_Parameter1>SourceTree</_Parameter1>", StringComparison.Ordinal),
                 "the build no longer stamps the source revision and tree state the recorder reads");
-            Require(telemetry.Contains("writer.WriteLine($\"# source_revision={SourceProvenance}\");", StringComparison.Ordinal)
+            Require(telemetry.Contains("QueueDiagnosticRecords.TryEnqueueTsv($\"# source_revision={SourceProvenance}\");", StringComparison.Ordinal)
                     && telemetry.Contains("$\"character;mining={Mining};chopping={Chopping};combat=", StringComparison.Ordinal)
-                    && telemetry.Split("# end=").Length == 2 && telemetry.Contains("writer?.WriteLine($\"# end={reason};rows={rowsWritten};", StringComparison.Ordinal),
+                    && telemetry.Split("# end=").Length == 1 && telemetry.Contains("diagnosticWriter.Stop(TimeSpan.FromMilliseconds(100), reason, rowsWritten);", StringComparison.Ordinal)
+                    && flush.Split("# end=").Length == 2 && flush.Contains("tsv.WriteLine($\"# end={endReason}", StringComparison.Ordinal),
                 "the recorder's source line, configuration shape or single end-marker writer has changed");
         }
         finally { foreach (string file in files) File.Delete(file); }

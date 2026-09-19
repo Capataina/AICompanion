@@ -15,6 +15,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/CaptureDecisionSnapshot.cs" Link="Read/CaptureDecisionSnapshot.cs" />
     <!--
       The ledger's row writer, included as a source file rather than referenced as an assembly.
       The Tools projects are separate executables with incompatible needs — EngineReplay loads the

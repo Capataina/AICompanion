@@ -100,6 +100,15 @@ if (args.Contains("--protection-recovery")) return VerifyEngineMotion.Run(protec
 if (args.Contains("--observation")) return VerifyObservationLifecycle.Run();
 if (args.Contains("--retained-course-observation")) return VerifyRetainedCourseObservation.Run();
 if (args.Contains("--retained-course-core")) return VerifyCourseCore.Run() + VerifyProjectionContracts.Run();
+if (args.Contains("--retained-course-recording")) return
+    RunOneRow.Case("G14 ordered diagnostic transport", () => { if (VerifyDiagnosticTransport.RequiredAndOptionalRecordsPreserveOfferOrder() != 0) throw new InvalidOperationException("Diagnostic order failed."); })
+    + RunOneRow.Case("G14 diagnostic overflow stays incomplete", () => { if (VerifyDiagnosticTransport.LargeStringOverflowStaysSticky() != 0) throw new InvalidOperationException("Diagnostic overflow failed."); })
+    + RunOneRow.Case("G14 active diagnostic writer refuses replacement", () => { if (VerifyDiagnosticTransport.ClosingWriterRejectsSameGenerationReopen() != 0) throw new InvalidOperationException("Diagnostic lifecycle failed."); })
+    + RunOneRow.Case("G14 normal diagnostic closure retains row count", () => { if (VerifyDiagnosticTransport.NormalClosureWritesCompleteTerminalFooter() != 0) throw new InvalidOperationException("Normal closure failed."); })
+    + RunOneRow.Case("G14 terminal write timeout remains incomplete", () => { if (VerifyDiagnosticTransport.HeldWriteTimeoutStaysIncompleteAfterRelease() != 0) throw new InvalidOperationException("Terminal timeout failed."); })
+    + RunOneRow.Case("G14 diagnostic sink faults remain visible", () => { if (VerifyDiagnosticTransport.InjectedWriteFailureStaysSticky() != 0) throw new InvalidOperationException("Sink failure was lost."); })
+    + RunOneRow.Case("G14 in-flight and complete envelope bytes stay reserved", () => { if (VerifyDiagnosticTransport.InFlightBytesAndLegacyStringsAreCharged() != 0) throw new InvalidOperationException("Retained bytes escaped accounting."); })
+    + RunOneRow.Case("G14 native events retain their writer chronology", () => { if (VerifyGodsEyeEvents.Run() != 0) throw new InvalidOperationException("Native event chronology failed."); });
 if (args.Contains("--travel-episodes")) return VerifyTravelEpisodes.Run();
 if (args.Any(a => a == "--evidence-scenes" || a.StartsWith("--evidence-scenes=", StringComparison.Ordinal))) return RecordEvidenceScenes.Run(args);
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);

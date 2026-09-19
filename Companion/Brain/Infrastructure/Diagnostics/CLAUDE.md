@@ -10,12 +10,16 @@ Diagnostics/
 ├─ DescribeExecutionEvidence.cs the inspector's Execution lines and success-region boxes, read from retained brain state only
 ├─ RecordBrainTelemetry.cs   one tab-separated phase-labelled sample per companion tick, its actual elapsed wall time and a tile-window dump per failed plan or detected scenario
 ├─ RecordGodsEyeEvents.cs    sparse JSONL occurrence stream: stable spawn identities, shots, damage, pickups, native outcomes and each activity's candidate funnel when it changes
-├─ ObserveNativeCombatEvents.cs native spawn, projectile contact, damage and death hooks
+├─ ObserveNativeCombatEvents.cs native spawn, projectile contact, player/direct and projectile damage, and death hooks; each physical strike enters Observation's gameplay receipt queue once per local bracket
 ├─ ObserveTerrainChanges.cs  bounded rolling terrain chunks around both actors, refreshed after edits
 ├─ ObserveTravelEpisodes.cs one whole journey against its proven ticks and the player's own, and every stop on a route with the reason attributed as it happens
 ├─ CaptureMovementScenario.cs the six detectors that turn a playtest failure into a dump under their own reason; thresholds and cooldowns tune the instrument, not the brain
 └─ DrawSessionMap.cs         one zoomed-out picture of the whole session written on world unload: everywhere the body went, everywhere it was asked to go, and per ask whether the distance ever closed
 ```
+
+Retained-course evidence begins at telemetry schema 0.41.0. Course occurrences cross the diagnostic boundary as immutable data-only contexts, scalar payloads and decision snapshots. The snapshot manifest compares every expected fact key, version and digest with the captured value; an aggregate digest also binds the context, model, scheduler and random state. The reader recognises only supported payload versions. These checks establish complete captured inputs, not an executed replay or a proof that the producer declared every read. A missing, evicted, mismatched or historical field is partial coverage, never an empty decision.
+
+`QueueDiagnosticRecords` keeps required, optional and gap partitions bounded, charges the complete retained text and holds each reservation until its write resolves. `FlushDiagnosticRecords` alone owns both sinks through open, write, flush and disposal. A reader fence waits for queued records without adding a gameplay-thread disk write. A timed-out close retains worker ownership and marks the recording incomplete; if a clean terminal line was already being written, the worker appends an authoritative incomplete terminal line after that write resolves. The reader uses the last terminal status and verifies its row count before certifying input coverage. Injected sinks exercise held terminal writes and faults without involving Terraria or relying on a slow filesystem.
 
 ## Current state — 2026-09-15
 

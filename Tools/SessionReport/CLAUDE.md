@@ -15,7 +15,7 @@ The record was never the problem; the reading was. A session is tens of thousand
 ```
 SessionReport/
 ├─ CLAUDE.md
-├─ SessionReport.csproj   a plain console project; it compiles nothing from the mod tree
+├─ SessionReport.csproj   a console reader linking the pure course-snapshot contract, without Terraria
 ├─ Program.cs             resolve the file, run every check, exit non-zero on a definitive finding
 ├─ Session.cs             the parsed file — columns addressed by name
 ├─ Finding.cs             severities, the check contract, and the coverage contract

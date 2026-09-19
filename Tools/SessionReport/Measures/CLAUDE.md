@@ -13,6 +13,7 @@ Measures/
 └─ MeasureStillnessAndMotion.cs   how often the orb sat still while the player moved and who held it, how far it trailed, how roughly it moved, how long safety owned it
 ```
 
+
 `../Program.cs` runs them in the ordinary report and alone under `--measures <capture>`, which is what `../../backfill-capture.sh` calls.
 
 ## Why these exist at all, which is a defect rather than a design

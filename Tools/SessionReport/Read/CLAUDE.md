@@ -9,8 +9,11 @@ Read/
 ├─ DescribeSession.cs       session metadata, schema witness, closure status, recording cost, loss distribution, and each activity's candidate funnel by stage
 ├─ FindStretches.cs         runs of consecutive rows satisfying a predicate, with an optional gap allowance
 ├─ JoinAttemptEvidence.cs   reads attempt outcomes, grants and strikes by their process-wide identity counters
+├─ ReadCourseChronicle.cs   validates typed course snapshots and distinguishes complete input from missing evidence
 └─ ReadGodsEyeEvents.cs     keeps the last file read while path, write time and length are unchanged; streams events by line
 ```
+
+`ReadCourseChronicle.cs` is the retained-course gate. It treats a schema before 0.41.0 as historical-unavailable and a missing, malformed, truncated or envelope-incomplete sidecar as explanatory-partial. It never turns absent course records into an empty course timeline. Exact-input-complete additionally deserialises every immutable decision snapshot and runs the producer's manifest validator: actual values hash to their declared digests, every expected read has one matching captured value, and the aggregate digest covers context, model, scheduler, random state and manifests. Unknown payload versions are not replay inputs. The last terminal writer status must certify complete delivery and its row count must match the capture. A digest-only or empty manifest remains explanatory-partial. A snapshot occurrence with a null, missing or non-object snapshot is malformed, even beside another complete snapshot. Source tick, native phase, observation ordinal and receipt watermark must match the enclosing event. This validates recorded inputs; it does not execute a decision replay or certify that an uninstrumented producer recorded every dependency it should have read.
 
 ## There is one body, and the chronicle reads one position for it
 

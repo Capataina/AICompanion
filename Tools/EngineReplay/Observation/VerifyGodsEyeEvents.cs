@@ -12,19 +12,23 @@ internal static class VerifyGodsEyeEvents
 {
     public static int Run()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"aic-gods-eye-{Guid.NewGuid():N}.jsonl");
+        string stem = Path.Combine(Path.GetTempPath(), $"aic-gods-eye-{Guid.NewGuid():N}");
+        string path = stem + ".jsonl", tsv = stem + ".tsv";
         try
         {
-            return Verify(path);
+            File.WriteAllText(tsv, "");
+            using FlushDiagnosticRecords writer = FlushDiagnosticRecords.Start(tsv, path);
+            return Verify(path, writer);
         }
         finally
         {
             GodsEyeEvents.Close();
             if (File.Exists(path)) File.Delete(path);
+            if (File.Exists(tsv)) File.Delete(tsv);
         }
     }
 
-    private static int Verify(string path)
+    private static int Verify(string path, FlushDiagnosticRecords writer)
     {
         MovementQueries.World = new GameTileWorld();
         GodsEyeEvents.Open(path);
@@ -70,10 +74,10 @@ internal static class VerifyGodsEyeEvents
         RecordTerrainChunks.ObserveActors(reusedNpc, owner);
         var capture = new RecordTerrainChunks();
         for (int tick = 0; tick < 49; tick++) capture.PostUpdateEverything();
-        GodsEyeEvents.Flush();
+        writer.FlushForReader(TimeSpan.FromSeconds(1));
         int beforeEdit = Read(path).Count(record => record.Kind == "terrain-snapshot");
         terrainHooks.PlaceInWorld(21, 50, 1, new Item());
-        GodsEyeEvents.Flush();
+        writer.FlushForReader(TimeSpan.FromSeconds(1));
         int beforePostUpdate = Read(path).Count(record => record.Kind == "terrain-snapshot");
         Tile changed = Main.tile[21, 50];
         changed.HasTile = true;
@@ -84,6 +88,7 @@ internal static class VerifyGodsEyeEvents
         changed.TileFrameX = 36; changed.TileFrameY = 54;
         capture.PostUpdateEverything();
         GodsEyeEvents.Close();
+        writer.Stop(TimeSpan.FromSeconds(1), "fixture-complete");
 
         List<Event> events = Read(path);
         int failures = 0;

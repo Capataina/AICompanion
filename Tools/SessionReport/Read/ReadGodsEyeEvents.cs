@@ -13,7 +13,9 @@ namespace AICompanion.Tools.SessionReport;
 /// so a renamed writer field makes every line malformed rather than silently zero.
 /// </summary>
 public sealed record GodsEyeEvent(int v, int seq, long tick, double wall_elapsed_ms, string kind, int subject, string related, string label, string channel,
-    float pos_x, float pos_y, float vel_x, float vel_y, float expected_x, float expected_y, int amount, string detail)
+    float pos_x, float pos_y, float vel_x, float vel_y, float expected_x, float expected_y, int amount, string detail,
+    string? payload_kind = null, int? payload_version = null, string? phase = null, long? observation_ordinal = null, long? receipt_watermark = null,
+    JsonElement? context = null, JsonElement? payload = null, JsonElement? snapshot = null)
 {
     public string? Field(string key) => ReadGodsEyeEvents.Field(detail, key);
     public string? ChannelField(string key) => ReadGodsEyeEvents.Field(channel, key);

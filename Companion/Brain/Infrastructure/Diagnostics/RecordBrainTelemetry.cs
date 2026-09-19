@@ -37,6 +37,7 @@ public sealed class BrainTelemetry : ModSystem
     private const int FlushEveryTicks = 60;
 
     private static StreamWriter? writer;
+    private static FlushDiagnosticRecords? diagnosticWriter;
     private static int sinceFlush;
     private static bool headerWritten;
     private static string? censusPath;
@@ -94,7 +95,9 @@ public sealed class BrainTelemetry : ModSystem
     // `hunting=`. The `guard_*`, `hunt_*` and `pursuit_*` columns keep their names and meanings, now written from the one
     // activity. A 0.38.0 capture reads as it was written: every check addresses columns by name, accepts the old activity
     // labels, and skips one whose columns are absent.
-    private const string Schema = "0.40.0";
+    // 0.41.0 begins retained-course evidence. Older captures have no typed course payloads and
+    // SessionReport must call that historical-unavailable rather than infer an empty course.
+    private const string Schema = "0.41.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -164,6 +167,11 @@ public sealed class BrainTelemetry : ModSystem
     public override void OnWorldLoad()
     {
         Close("superseded-by-world-load");
+        if (diagnosticWriter is { Completed: false })
+        {
+            Mod.Logger.Warn("BrainTelemetry: previous recording is still closing; refusing a replacement capture.");
+            return;
+        }
         if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) return;
         try
         {
@@ -180,6 +188,8 @@ public sealed class BrainTelemetry : ModSystem
             lastRecordMs = double.NaN;
             sessionStartedUtc = DateTime.UtcNow;
             sessionClock.Restart();
+            writer?.Dispose(); writer = null;
+            diagnosticWriter = FlushDiagnosticRecords.Start(path, eventsPath);
             GodsEyeEvents.Open(eventsPath);
             WriteMetadata();
             GodsEyeEvents.RecordLifecycle("world-entry", "observed=ModSystem.OnWorldLoad;tag-load=not-yet-observed;outer-load=unobservable");
@@ -203,6 +213,9 @@ public sealed class BrainTelemetry : ModSystem
             catch (Exception closeError) { Mod.Logger.Warn($"BrainTelemetry: cleanup after open failure: {closeError.Message}"); }
             finally
             {
+                QueueDiagnosticRecords.Fail("recorder-initialization-failed");
+                diagnosticWriter?.Stop(TimeSpan.FromMilliseconds(100), "recorder-initialization-failed", rowsWritten);
+                if (diagnosticWriter?.Completed == true) diagnosticWriter = null;
                 writer = null;
                 plansPath = censusPath = mapPath = eventsPath = null;
                 sessionClock.Reset();
@@ -237,10 +250,10 @@ public sealed class BrainTelemetry : ModSystem
     {
         if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry)
         {
-            if (writer != null) Close("recording-disabled");
+            if (diagnosticWriter != null) Close("recording-disabled");
             return;
         }
-        if (writer == null || firstUpdateRecorded)
+        if (diagnosticWriter == null || firstUpdateRecorded)
             return;
         firstUpdateRecorded = true;
         GodsEyeEvents.RecordLifecycle("first-update", "observed=ModSystem.PostUpdateEverything;outer-load=unobservable");
@@ -281,6 +294,7 @@ public sealed class BrainTelemetry : ModSystem
     /// disposes the stream without coming here, so a capture that lacks the marker was interrupted.</summary>
     private static void Close(string reason)
     {
+        if (diagnosticWriter == null) return;
         // The census and the map are written here rather than per tick because both are one
         // artefact about the whole session; there is nothing to say until it is over. They land
         // beside the .tsv under the same stamp, so the session reader finds them without being
@@ -293,9 +307,8 @@ public sealed class BrainTelemetry : ModSystem
         GodsEyeEvents.Close();
         try
         {
-            writer?.WriteLine($"# end={reason};rows={rowsWritten};events-written={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions}");
-            writer?.Flush();
-            writer?.Dispose();
+            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions}");
+            diagnosticWriter.Stop(TimeSpan.FromMilliseconds(100), reason, rowsWritten);
         }
         catch (Exception e)
         {
@@ -305,6 +318,7 @@ public sealed class BrainTelemetry : ModSystem
         {
             sessionClock.Reset();
             writer = null;
+            if (diagnosticWriter?.Completed == true) diagnosticWriter = null;
             plansPath = null;
             censusPath = null;
             mapPath = null;
@@ -334,26 +348,25 @@ public sealed class BrainTelemetry : ModSystem
 
     private static void WriteMetadata()
     {
-        if (writer == null)
+        if (diagnosticWriter == null)
             return;
-        writer.WriteLine($"# schema={Schema}");
-        writer.WriteLine($"# started_utc={sessionStartedUtc:O}");
-        writer.WriteLine($"# terraria={Main.versionNumber};tml_assembly={typeof(Main).Assembly.GetName().Version};runtime={Environment.Version};os={Environment.OSVersion.Platform}");
-        writer.WriteLine("# mods=" + string.Join(";", (ModLoader.Mods ?? Array.Empty<Mod>()).Select(mod => mod.Name + "@" + mod.Version)));
-        writer.WriteLine($"# source_revision={SourceProvenance}");
-        writer.WriteLine($"# capabilities={DescribeCapabilities()}");
-        writer.WriteLine($"# world={DescribeWorld()}");
+        QueueDiagnosticRecords.TryEnqueueTsv($"# schema={Schema}");
+        QueueDiagnosticRecords.TryEnqueueTsv($"# started_utc={sessionStartedUtc:O}");
+        QueueDiagnosticRecords.TryEnqueueTsv($"# terraria={Main.versionNumber};tml_assembly={typeof(Main).Assembly.GetName().Version};runtime={Environment.Version};os={Environment.OSVersion.Platform}");
+        QueueDiagnosticRecords.TryEnqueueTsv("# mods=" + string.Join(";", (ModLoader.Mods ?? Array.Empty<Mod>()).Select(mod => mod.Name + "@" + mod.Version)));
+        QueueDiagnosticRecords.TryEnqueueTsv($"# source_revision={SourceProvenance}");
+        QueueDiagnosticRecords.TryEnqueueTsv($"# capabilities={DescribeCapabilities()}");
+        QueueDiagnosticRecords.TryEnqueueTsv($"# world={DescribeWorld()}");
         recordedConfiguration = RecordedConfiguration.Current();
-        writer.WriteLine($"# config={recordedConfiguration.Describe()}");
+        QueueDiagnosticRecords.TryEnqueueTsv($"# config={recordedConfiguration.Describe()}");
         // What a capture keeps and what it forgets, read from the constants that bound each store, so a reader can tell an
         // absence the recorder never kept from one that did not happen without knowing the code.
-        writer.WriteLine("# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered"
+        QueueDiagnosticRecords.TryEnqueueTsv("# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered"
             + $";terrain-snapshots-remembered={RecordTerrainChunks.MaximumRemembered};terrain-captures-per-tick={RecordTerrainChunks.CapturesPerTick}"
             + $";recent-attempt-outcomes={Infrastructure.Selection.OwnCurrentActivity.RecentAttemptCapacity};cargo-transfer-ledger={(global::AICompanion.Companion.Inventory.CompanionInventory.RecentTransferCapacity)}"
             + $";cosmetic-contacts-per-summary={GodsEyeEvents.CosmeticContactsPerSummary};inspector-traces={BrainInspectorSamples.Capacity};inspector-cost-ticks={BrainInspectorSamples.CostTicks};session-map-tiles={SessionMap.MaxTilesRemembered}"
             + $";plan-dump-every-ticks={DumpEveryTicks};flush-every-ticks={FlushEveryTicks}");
-        writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
-        writer.Flush();
+        QueueDiagnosticRecords.TryEnqueueTsv("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
     }
 
     /// <summary>
@@ -441,7 +454,7 @@ public sealed class BrainTelemetry : ModSystem
     /// </summary>
     private static void WriteWhole(string? path, Func<string> produce, string what)
     {
-        if (path == null || writer == null)
+        if (path == null || diagnosticWriter == null)
             return;
         try
         {
@@ -596,8 +609,8 @@ public sealed class BrainTelemetry : ModSystem
     /// </summary>
     public static void Record(CompanionNPC companion)
     {
-        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (writer != null) Close("recording-disabled"); return; }
-        if (writer == null)
+        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (diagnosticWriter != null) Close("recording-disabled"); return; }
+        if (diagnosticWriter == null)
             return;
         recordClock.Restart();
         var configuration = RecordedConfiguration.Current();
@@ -688,7 +701,7 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var a in brain.Chooser.Actions)
                 if (a is Activities.ICandidateFunnelSource) textColumns.Append(',').Append(a.Name).Append("_funnel");
             textColumns.Append(",torch_reference,torch_reference_dark,torch_reference_stage");
-            writer.WriteLine(textColumns.ToString());
+            QueueDiagnosticRecords.TryEnqueueTsv(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
             // every row; deriving wall time from game ticks would conceal pauses and lag.
@@ -789,7 +802,7 @@ public sealed class BrainTelemetry : ModSystem
             // lookahead tick at which the job's own flight met a hit (-1 for never), which candidate a bent tick flew, and how
             // many candidates each refusal removed. `evade_reason` and `evade_choice` are textual and declared in the preamble.
             h.Append("\tevade_reason\tevade_hit_tick\tevade_choice\tevade_refused_nowhere\tevade_refused_danger");
-            writer.WriteLine(h.ToString());
+            QueueDiagnosticRecords.TryEnqueueTsv(h.ToString());
             headerWritten = true;
         }
 
@@ -1183,20 +1196,18 @@ public sealed class BrainTelemetry : ModSystem
         // and take the companion with it; the record stops and the game goes on.
         try
         {
-            writer.WriteLine(sb.ToString());
+            QueueDiagnosticRecords.TryEnqueueTsv(sb.ToString());
             rowsWritten++;
             if (++sinceFlush >= FlushEveryTicks)
             {
                 sinceFlush = 0;
-                writer.Flush();
                 GodsEyeEvents.Flush();
             }
         }
         catch (Exception e)
         {
             ModContent.GetInstance<AICompanion>().Logger.Error($"BrainTelemetry: write failed, recording stops: {e.Message}");
-            try { writer.Dispose(); } catch { /* the stream is already broken */ }
-            writer = null;
+            diagnosticWriter?.Dispose(); diagnosticWriter = null;
         }
         lastRecordMs = recordClock.Elapsed.TotalMilliseconds;
     }

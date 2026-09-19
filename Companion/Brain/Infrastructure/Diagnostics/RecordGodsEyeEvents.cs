@@ -19,7 +19,6 @@ namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 /// </summary>
 public static class GodsEyeEvents
 {
-    private static StreamWriter? writer;
     private static readonly Dictionary<int, int> npcGenerations = new();
     private static readonly Dictionary<int, int> projectileGenerations = new();
     private static readonly Dictionary<int, int> itemGenerations = new();
@@ -34,7 +33,8 @@ public static class GodsEyeEvents
     private static int cosmeticContacts;
     private static Vector2 cosmeticFirst, cosmeticLast;
     private static long cosmeticFirstTick;
-    internal static bool Active => writer != null;
+    internal static bool Active => active;
+    private static bool active;
     // Set when a failed write stops the stream, cleared when a session opens: before Open and after a normal Close nothing
     // is being recorded, so an occurrence offered then is not a loss and is not counted as one.
     private static bool disabled;
@@ -49,7 +49,7 @@ public static class GodsEyeEvents
     /// <summary>Whether an occurrence can be written, counting it as dropped when the stream stopped after a failed write.</summary>
     private static bool Accepting()
     {
-        if (writer != null) return true;
+        if (active) return true;
         if (disabled) Dropped++;
         return false;
     }
@@ -162,7 +162,7 @@ public static class GodsEyeEvents
         // A telemetry stem is reserved by the TSV writer before its sidecars open. CreateNew is
         // still intentional here: a sidecar collision must fail loudly rather than turn a later
         // load retry into an apparently complete earlier session.
-        writer = new StreamWriter(new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read));
+        active = true;
         npcGenerations.Clear(); projectileGenerations.Clear(); itemGenerations.Clear(); sequence = 0;
         RecordTerrainChunks.Reset();
         lastMovementSteps = -1;
@@ -196,15 +196,23 @@ public static class GodsEyeEvents
     {
         FlushCosmeticContacts();
         Write("session-end", 0, "", "", "", Vector2.Zero, Vector2.Zero, Vector2.Zero, sequence, "normal-close");
-        try { writer?.Flush(); writer?.Dispose(); }
-        catch (Exception error) { Disable(error); }
-        finally { writer = null; }
+        active = false;
     }
 
     internal static void Flush()
     {
-        try { writer?.Flush(); }
-        catch (Exception error) { Disable(error); }
+        // The worker flushes after every bounded drain. Producers deliberately have no stream operation here.
+    }
+
+    /// <summary>Queues a typed retained-course occurrence on the same ordered sidecar as native receipts.</summary>
+    internal static bool RecordCourse(CourseTracePhase phase, CourseTraceContext context, CourseTracePayload payload,
+        bool required, CourseDecisionSnapshot? snapshot)
+    {
+        if (!Accepting()) { if (required) disabled = true; return false; }
+        var record = new EventRecord(1, sequence++, context.SourceTick, BrainTelemetry.ElapsedMilliseconds, "course-" + payload.Kind,
+            0, "", context.Producer, "", 0, 0, 0, 0, 0, 0, 0, "",
+            payload.Kind, payload.Version, phase.ToString(), context.ObservationOrdinal, context.ReceiptWatermark, context, payload, snapshot);
+        return QueueDiagnosticRecords.TryEnqueueCourse(record, required, QueueDiagnosticRecords.Estimate(context, payload, snapshot));
     }
 
     public static void RecordNpcSpawn(NPC npc) => Write("npc-spawn", Next(npcGenerations, npc.whoAmI), npc.type.ToString(CultureInfo.InvariantCulture), npc.TypeName, "", npc.Center, npc.velocity, Vector2.Zero, npc.life, FormattableString.Invariant($"slot={npc.whoAmI}"));
@@ -418,24 +426,23 @@ public static class GodsEyeEvents
     private static void Write(string kind, int subject, string related, string label, string channel, Vector2 position, Vector2 velocity, Vector2 expected, int amount, string detail)
     {
         if (!Accepting()) return;
-        try
-        {
-            long tick = Main.GameUpdateCount; double elapsed = BrainTelemetry.ElapsedMilliseconds;
-            writer.WriteLine(JsonSerializer.Serialize(new EventRecord(1, sequence++, tick, elapsed, kind, subject, related, label, channel,
-                position.X, position.Y, velocity.X, velocity.Y, expected.X, expected.Y, amount, detail)));
-        }
-        catch (Exception error) { Disable(error); }
+        var record = new EventRecord(1, sequence++, Main.GameUpdateCount, BrainTelemetry.ElapsedMilliseconds, kind, subject, related, label, channel,
+            position.X, position.Y, velocity.X, velocity.Y, expected.X, expected.Y, amount, detail);
+        if (!QueueDiagnosticRecords.TryEnqueueLegacy(record,
+            QueueDiagnosticRecords.EstimateLegacy(kind, related, label, channel, detail))) { Dropped++; disabled = true; }
     }
 
     private static void Disable(Exception error)
     {
-        var failed = writer;
-        writer = null;
+        active = false;
         disabled = true;
-        try { failed?.Dispose(); } catch (IOException) { }
         Terraria.ModLoader.ModContent.GetInstance<AICompanion>().Logger.Error($"GodsEyeEvents: recording stopped: {error.GetType().Name}: {error.Message}");
     }
 
     private readonly record struct EventRecord(int v, int seq, long tick, double wall_elapsed_ms, string kind, int subject, string related, string label, string channel,
-        float pos_x, float pos_y, float vel_x, float vel_y, float expected_x, float expected_y, int amount, string detail);
+        float pos_x, float pos_y, float vel_x, float vel_y, float expected_x, float expected_y, int amount, string detail,
+        string? payload_kind = null, int? payload_version = null, string? phase = null, long? observation_ordinal = null,
+        long? receipt_watermark = null, CourseTraceContext? context = null, CourseTracePayload? payload = null,
+        CourseDecisionSnapshot? snapshot = null);
+
 }

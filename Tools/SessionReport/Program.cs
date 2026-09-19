@@ -230,6 +230,7 @@ public static class Program
 
         Console.Write(DescribeSession.Of(session));
         Console.Write(DescribeGodsEyeEvents.Of(path, fullTimeline));
+        Console.Write(ReadCourseChronicle.Describe(session, path));
         Console.Write(JoinAttemptEvidence.Describe(path, session, fullTimeline));
         Console.Write(Chronicle.Of(session, fullTimeline));
         if (session.Count == 0)
