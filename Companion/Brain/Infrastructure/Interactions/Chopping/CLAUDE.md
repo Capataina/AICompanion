@@ -3,7 +3,7 @@
 ```
 Chopping/
 ├─ CLAUDE.md
-├─ TreeFinder.cs   native tree classification and trunk identity, with admitted trees ranked by distance and shared tool access from the actual companion
+├─ TreeFinder.cs   native tree classification, per-cell trunk identity for sliced capture and admitted nearest-tree access
 └─ TileChopper.cs  the companion's own HitTile and the vanilla axe formula (axe power × 1.2, × 3 on cactus); raises TileDamageWatcher.CompanionIsHitting around its KillTile so its own hits never read as the player's
 ```
 

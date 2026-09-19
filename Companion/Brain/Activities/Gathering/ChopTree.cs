@@ -32,7 +32,7 @@ public sealed class ChopTree : CompanionAction
     private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
 
     private const int KeepJobTicks = 120;
-    private const int SearchRadiusTiles = 40;
+    internal const int SearchRadiusTiles = 40;
     private const int SearchEveryTicks = 60;
 
     private TreeFinder.ChoppableTree? tree;

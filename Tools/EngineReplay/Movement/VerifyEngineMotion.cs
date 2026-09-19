@@ -87,6 +87,7 @@ internal static class VerifyEngineMotion
         ("projected effects preserve causality and physical resource capacity", VerifyProjectionContracts.Run),
         ("native course receipts preserve observation order and intent regions", VerifyRetainedCourseObservation.Run),
         ("native lighting projections preserve captured light and shared deficits", VerifyLightingOpportunityCapture.Run),
+        ("native tree census retains work across cuts and observes axe effects", VerifyTreeOpportunityCapture.Run),
         ("required and optional diagnostic records preserve offer order", VerifyDiagnosticTransport.RequiredAndOptionalRecordsPreserveOfferOrder),
         ("diagnostic overflow remains visible after the writer closes", VerifyDiagnosticTransport.LargeStringOverflowStaysSticky),
         ("an active diagnostic writer cannot lose ownership to its replacement", VerifyDiagnosticTransport.ClosingWriterRejectsSameGenerationReopen),

@@ -18,6 +18,13 @@ public static class TreeFinder
     /// <summary>A tree the companion can walk to: its bottom trunk tile and where to stand.</summary>
     public readonly record struct ChoppableTree(Point Bottom, Vector2 StandPosition, int FacingDirection);
 
+    /// <summary>One cell of resumable discovery, before admission or nearest-target filtering.</summary>
+    public static Point? TrunkAt(Point tile)
+    {
+        return WorldGen.InWorld(tile.X, tile.Y, 10) && IsTreeTile(tile.X, tile.Y)
+            ? TrunkBottom(tile.X, tile.Y) : null;
+    }
+
     /// <summary>
     /// The bottom trunk tile of the tree the player is currently swinging an axe at,
     /// or null. Reads the player's aim tile (Player.tileTargetX/Y), which is what the

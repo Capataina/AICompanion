@@ -13,11 +13,14 @@ Gathering/
 ├─ CLAUDE.md              job ownership, preparation and native evidence limits
 ├─ MineOre.cs             retained ore-only vein work under the chosen policy
 ├─ ChopTree.cs            separate-tree preference and retained reachable trunk work
-├─ GatheringCourseOpportunities.cs resumable native ore census and pure frozen-fact mine source; tree capture remains outside this partial seam
+├─ GatheringCourseOpportunities.cs resumable native ore census and the pure frozen-fact mine/tree source
+├─ CaptureTreeOpportunities.cs sliced native trunk census with axe progress, access and policy evidence
 └─ DescribeOreJobEnd.cs   original bounded vein state at job end, with separate removal attribution
 ```
 
 Both activities declare PurposeFamily.Gathering and register once in `../../Infrastructure/Selection/ChooseBehaviour.cs`. They use the common activity contract and the thin policy readers in `../WorkPolicies.cs`; persistent preferences remain owned by PlayerIntegration. Native tools remain in WorldInteractions, and recovery or downing can interrupt either activity without becoming a gathering child.
+
+Retained-course discovery observes individual ore components and tree bottoms before those activities select a winner. Tree scanning spends the shared allowance per cell and deduplicates branches by native trunk identity. Its quantity is remaining native axe damage on the bottom, with tool, permission, access and player-work evidence carried beside it; height and predicted wood drops do not create extra reward. A partial rectangle publishes coverage only. Local edits, axe changes and observed axe effects reopen the census; geometry changes reopen a completed scan without erasing every intermediate slice. The common source treats missing coverage and unresolved target evidence as unresolved admission. These adapters remain inputs for the course migration; their existence does not replace the legacy chooser or prove final binding and execution.
 
 Mimic triggers come from the tile damage watcher in `../../Infrastructure/Observation/`, which sees real axe and pickaxe hits through the game's KillTile hook. Opportunistic triggers discover nearby resources without requiring a player hit. Both read the player's held tool's numbers, with a basic tool fallback. The work itself is in `../../Infrastructure/Interactions/Chopping/` and `../../Infrastructure/Interactions/Mining/`.
 

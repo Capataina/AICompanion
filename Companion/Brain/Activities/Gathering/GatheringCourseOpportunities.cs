@@ -216,7 +216,8 @@ public sealed class GatheringOpportunitySource : IOpportunitySource
         DecisionFact[] sites = facts.Facts.Where(fact => fact.Key.Kind == domain).OrderBy(fact => fact.Key).ToArray();
         string coverageKind = domain == "mine-target" ? "mine-coverage" : "chop-coverage";
         DecisionFact coverageFact = facts.Track().Read(new FactKey(coverageKind, "native-census"));
-        GatheringCoverageFact? coverage = JsonSerializer.Deserialize<GatheringCoverageFact>(coverageFact.Value.Text);
+        GatheringCoverageFact? coverage = string.IsNullOrEmpty(coverageFact.Value.Text) ? null
+            : JsonSerializer.Deserialize<GatheringCoverageFact>(coverageFact.Value.Text);
         bool captureComplete = coverage?.Complete == true && coverageFact.Evidence == FactEvidence.Observed;
         var examined = new List<Opportunity>();
         while (cursor.Offset < sites.Length && budget.TrySpend(Name))
@@ -233,6 +234,8 @@ public sealed class GatheringOpportunitySource : IOpportunitySource
                 "usable" => OpportunityAdmission.KnownUsable, "unusable" => OpportunityAdmission.KnownUnusable,
                 "unknown" => OpportunityAdmission.Unresolved, _ => throw new InvalidOperationException("Unknown gathering admission: " + site.Admission)
             };
+            if (observed.Evidence == FactEvidence.Unresolved || !captureComplete)
+                admission = OpportunityAdmission.Unresolved;
             var key = new OpportunityKey(domain, site.Purpose, site.Target, site.Generation);
             double amount = Math.Max(0, site.RemainingAmount);
             double census = Math.Max(1, site.CensusAmount);

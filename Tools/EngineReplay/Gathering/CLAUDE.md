@@ -8,12 +8,17 @@ Gathering/
 ├─ VerifyOreWork.cs              ore jobs end to end: approach, reach, seals, attribution, departure
 ├─ VerifyRouteHomeFromEitherEnd.cs the route home a job pays for, read from beside the ore and from beside the player
 ├─ VerifyMiningList.cs           the list's known ores, marks and mode, and mining refusing what it leaves
-├─ VerifyGatheringOpportunityDiscovery.cs frozen gathering-source contracts; live ore capture fixture remains required before integration
+├─ VerifyGatheringOpportunityDiscovery.cs frozen source contracts and sliced native ore progress/removal capture
+├─ VerifyTreeOpportunityCapture.cs sliced trunk deduplication, native axe progress, policy changes and missing coverage
 ├─ VerifyGatheringCooperation.cs working beside the player without competing with him
 └─ VerifyWorkAccounting.cs       what a job reports against what the world shows
 ```
 
 ## The mining list: every refusal carries its own control
+
+`--retained-course-trees` drives the new native tree capture through one-operation slices, using two separate multi-cell trunks. It requires one job per bottom, a shared native-work denominator, unchanged fact versions on an unchanged completed capture, reduced remaining work after an actual axe hit, and refusal after chopping is disabled. Its empty-snapshot control requires missing census coverage to remain unresolved. These checks prove the observation/source boundary, not course execution or preservation of original job units across every later tree replacement.
+
+Native `WorldGen.GetTreeBottom` stops at `Main.maxTilesY - 50`. Multi-cell tree fixtures in the small replay world must place their trunk and supporting ground above that guard; otherwise the engine returns the queried segment rather than traversing to the bottom, and a census appears to duplicate a tree despite faithfully calling native identity. Single-tile tree fixtures do not expose this condition.
 
 `VerifyMiningList` builds its scenes with `VerifyOreWork.SetUp` and gives every row that shows an ore not being offered a second half in the same scene: the same ore offered once the mark or the mode says so, on the very next preparation. A refusal alone passes against a scene whose ore was never reachable, and the next-preparation timing is itself a property, because it is what the list's revision in the approach key buys. The allowed-ore-beside-a-left-one row first proves, list-blind, that the nearer ore is the one taken, so it cannot pass by the allowed ore simply being nearest. The known-ores row drives the real `CompanionPlayer.PostUpdate` rather than calling the list directly, so it fails if the hook is ever unwired. Each row was shown red against a planted mutation of the mechanism it names before it was trusted; the commit that added the file lists them.
 
