@@ -326,7 +326,13 @@ public sealed class LightSense
     /// </summary>
     public PlacementReading ReadForPlacement(Point tile, in Coverage coverage)
     {
-        if (!IsOpenAir(tile.X, tile.Y) || !coverage.Contains(tile.X, tile.Y) || WorldBrightness(tile.X, tile.Y) is not float world)
+        return ReadForPlacement(tile, coverage.Contains(tile.X, tile.Y) ? WorldBrightness(tile.X, tile.Y) : null);
+    }
+
+    /// <summary>Uses the same placement predicates with brightness from an immutable captured light model.</summary>
+    public PlacementReading ReadForPlacement(Point tile, float? capturedBrightness)
+    {
+        if (!IsOpenAir(tile.X, tile.Y) || capturedBrightness is not float world)
             return new(PlacementLight.Unread, 0f);
         float lit = Math.Clamp(world, 0f, 1f);
         if (DaylightReaches(tile.X, tile.Y)) return new(PlacementLight.Sky, lit);

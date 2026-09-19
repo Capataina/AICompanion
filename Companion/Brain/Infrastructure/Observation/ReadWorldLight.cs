@@ -1,10 +1,12 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.ID;
 using Terraria.Graphics.Light;
 using Terraria.ModLoader;
 
@@ -41,6 +43,9 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 public static class WorldLight
 {
     private static readonly LightMap Map = new();
+    // Brightness() blurs Map on demand.  Keep the pre-blur source separately so a
+    // counterfactual never starts from a previous reader's already-propagated map.
+    private static readonly LightMap RawMap = new();
     private static Rectangle area = Rectangle.Empty;
     private static bool blurred;
     private static bool armed = true;
@@ -95,9 +100,13 @@ public static class WorldLight
         }
         // The map is column-major (index x * Height + y), so its first Width * Height cells are every cell the engine reads.
         Map.SetSize(width, height);
+        RawMap.SetSize(width, height);
         Array.Copy(Handles.Colours(working), Handles.Colours(Map), width * height);
         Array.Copy(Handles.Masks(working), Handles.Masks(Map), width * height);
+        Array.Copy(Handles.Colours(working), Handles.Colours(RawMap), width * height);
+        Array.Copy(Handles.Masks(working), Handles.Masks(RawMap), width * height);
         Map.NonVisiblePadding = working.NonVisiblePadding;
+        RawMap.NonVisiblePadding = working.NonVisiblePadding;
         // The decay rates are set on the working map inside the blur we are ahead of, from the player's vision and the water
         // style; the active map carries the same rule applied one cycle earlier, which is the nearest reading there is.
         LightMap active = Handles.ActiveMap();
@@ -105,6 +114,7 @@ public static class WorldLight
         Map.LightDecayThroughSolid = active.LightDecayThroughSolid;
         Map.LightDecayThroughWater = active.LightDecayThroughWater;
         Map.LightDecayThroughHoney = active.LightDecayThroughHoney;
+        CopyDecay(Map, RawMap);
         area = scanned;
         blurred = false;
         Captures++;
@@ -127,6 +137,97 @@ public static class WorldLight
         }
         Vector3 colour = Map[x - area.X, y - area.Y];
         return Math.Max(0f, Lighting.GlobalBrightness * (colour.X + colour.Y + colour.Z) / 3f);
+    }
+
+    /// <summary>A native torch emission prepared for a hypothetical placement.  The style is the
+    /// placed tile's frame style: TileLightScanner reads ordinary torches with frameY / 22.</summary>
+    public readonly record struct PlannedTorch(Point Tile, short Style);
+
+    /// <summary>Runs the colour engine's own mask-aware blur over a private clone of the captured
+    /// pre-blur world light after seeding every planned torch by maximum.  All torches are composed
+    /// before the one blur; separately blurred maps cannot represent their overlap.</summary>
+    public static ProjectedLight ProjectTorches(IEnumerable<PlannedTorch> planned)
+        => CaptureProjectionSnapshot().ProjectTorches(planned);
+
+    /// <summary>Freezes the native pre-blur input once for every branch of one decision census.</summary>
+    public static ProjectionSnapshot CaptureProjectionSnapshot()
+    {
+        if (area.Width <= 0 || Lighting.Mode != LightMode.Color) return new(Rectangle.Empty, null, 0);
+        return new(area, CloneMap(RawMap), Lighting.GlobalBrightness);
+    }
+
+    private static LightMap CloneMap(LightMap source)
+    {
+        var copy = new LightMap();
+        copy.SetSize(source.Width, source.Height);
+        Array.Copy(Handles.Colours(source), Handles.Colours(copy), source.Width * source.Height);
+        Array.Copy(Handles.Masks(source), Handles.Masks(copy), source.Width * source.Height);
+        copy.NonVisiblePadding = source.NonVisiblePadding;
+        CopyDecay(source, copy);
+        return copy;
+    }
+
+    public sealed class ProjectionSnapshot
+    {
+        private readonly LightMap? raw;
+        private readonly float globalBrightness;
+        private readonly Vector3[] torchColours;
+        internal ProjectionSnapshot(Rectangle area, LightMap? raw, float globalBrightness)
+        {
+            Area = area; this.raw = raw; this.globalBrightness = globalBrightness;
+            torchColours = new Vector3[TorchID.Count];
+            for (short style = 0; style < torchColours.Length; style++)
+            {
+                TorchID.TorchColor(style, out float r, out float g, out float b);
+                torchColours[style] = new Vector3(r, g, b);
+            }
+        }
+        public Rectangle Area { get; }
+
+        public ProjectedLight ProjectTorches(IEnumerable<PlannedTorch> planned)
+        {
+            if (raw == null) return ProjectedLight.Unavailable;
+            LightMap copy = CloneMap(raw);
+            bool complete = true;
+            foreach (PlannedTorch torch in planned)
+            {
+                if (!Area.Contains(torch.Tile) || torch.Style < 0 || torch.Style >= TorchID.Count)
+                { complete = false; continue; }
+                int x = torch.Tile.X - Area.X, y = torch.Tile.Y - Area.Y;
+                copy[x, y] = Vector3.Max(copy[x, y], torchColours[torch.Style]);
+            }
+            long started = Stopwatch.GetTimestamp();
+            copy.Blur();
+            double milliseconds = (Stopwatch.GetTimestamp() - started) * 1000d / Stopwatch.Frequency;
+            return new(Area, copy, globalBrightness, milliseconds, complete);
+        }
+    }
+
+    private static void CopyDecay(LightMap from, LightMap to)
+    {
+        to.LightDecayThroughAir = from.LightDecayThroughAir;
+        to.LightDecayThroughSolid = from.LightDecayThroughSolid;
+        to.LightDecayThroughWater = from.LightDecayThroughWater;
+        to.LightDecayThroughHoney = from.LightDecayThroughHoney;
+    }
+
+    public sealed class ProjectedLight
+    {
+        internal static readonly ProjectedLight Unavailable = new(Rectangle.Empty, null, 0, 0, false);
+        private readonly LightMap? map;
+        private readonly float globalBrightness;
+        internal ProjectedLight(Rectangle area, LightMap? map, float globalBrightness, double blurMilliseconds, bool complete)
+        { Area = area; this.map = map; this.globalBrightness = globalBrightness; BlurMilliseconds = blurMilliseconds; Complete = complete; }
+        public Rectangle Area { get; }
+        public double BlurMilliseconds { get; }
+        /// <summary>False when the native pre-blur snapshot did not cover a requested torch.</summary>
+        public bool Complete { get; }
+        public float? Brightness(int x, int y)
+        {
+            if (map == null || !Area.Contains(x, y)) return null;
+            Vector3 colour = map[x - Area.X, y - Area.Y];
+            return Math.Max(0f, globalBrightness * (colour.X + colour.Y + colour.Z) / 3f);
+        }
     }
 
     /// <summary>The engine's private state, resolved once by name. A missing name is a game version that has moved it, and

@@ -13,11 +13,14 @@ Assistance/
 ├─ VerifyAssistanceTrips.cs       a trip goes and returns; hover sites; incidental pots
 ├─ VerifyCollectionContracts.cs   a drop is claimed only for what arrived
 ├─ VerifyAssistanceOpportunityDiscovery.cs immutable assistance census identity and fair-cut coverage
+├─ VerifyLightingOpportunityCapture.cs native sites, frozen projection, overlap identity and controlled blur comparison
 ├─ VerifyCapabilityRevision.cs    a capability change reaches the next preparation
 ├─ VerifyCompanyLocalMotion.cs    strolling without walking into hazards
 ├─ VerifyCourtesy.cs              getting out of the player's way, and staying out
 └─ VerifyCompanyIsTheFallback.cs  keeping company loses to a job worth doing and wins only against nothing
 ```
+
+`VerifyLightingOpportunityCapture` runs through `--retained-course-lighting` and the default table. It checks sliced native-site capture, shared darkness cells, unread coverage, private projection against an actual placed ordinary torch followed by a controlled native-blur scan, and snapshot isolation under later scans and global-brightness changes. The before and after maps must use identical masks and decay: `WriteMeasuredLight` deliberately disables propagation and cannot be the before-map for a normal-decay comparison. Unsupported styles, outside-map placement and zero operation allowance remain unresolved. This is a controlled model comparison, not a complete native tile-scanner or live-game acceptance test.
 
 ## Keeping company is the fallback, measured on the native brain
 
