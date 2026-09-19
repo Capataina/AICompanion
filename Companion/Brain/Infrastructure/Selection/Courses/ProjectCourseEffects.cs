@@ -145,7 +145,7 @@ public sealed class ProjectedCourseState
             }
         }
         reservations.AddRange(binding.Resources);
-        Pose = binding.Pose;
+        Pose = binding.ArrivalPose;
         Velocity = binding.ArrivalVelocity;
         Tick += binding.TravelTicks + binding.UseTicks;
         reason = "projected";

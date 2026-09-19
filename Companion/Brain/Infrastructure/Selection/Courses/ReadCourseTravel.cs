@@ -12,7 +12,11 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 public sealed record CapturedCourseTravel(CoursePoint From, CoursePoint InitialVelocity, CoursePoint To,
     CoursePoint ArrivalVelocity, double Ticks, OpportunityAdmission Admission, string Reason,
     IReadOnlyList<CoursePoint> Route, long CapabilityRevision,
-    IReadOnlyList<TimedCoursePose>? TimedRouteSamples = null);
+    IReadOnlyList<TimedCoursePose>? TimedRouteSamples = null)
+{
+    public CoursePoint? ArrivalPose => TimedRouteSamples is { Count: > 0 }
+        && TimedRouteSamples[^1].Tick == Ticks ? TimedRouteSamples[^1].Position : null;
+}
 
 /// <summary>An actual state from the native movement-model simulation. Samples mark route
 /// segment transitions and arrival; interpolation between them remains a coarse forecast.</summary>

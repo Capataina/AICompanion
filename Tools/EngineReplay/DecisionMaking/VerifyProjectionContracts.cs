@@ -28,7 +28,19 @@ internal static class VerifyProjectionContracts
         + RunOneRow.Case("G11 one-operation discovery reaches every finite source", OneOperationFairness)
         + RunOneRow.Case("G08 receipt retirement retains duplicate floor and live credit", ReceiptRetirement)
         + RunOneRow.Case("G08 consequence reads invalidate costs without revoking a legal use", ConsequenceReads)
-        + RunOneRow.Case("G15 contact harm stops at an unsupported post-hit successor", ContactHarm);
+        + RunOneRow.Case("G15 contact harm stops at an unsupported post-hit successor", ContactHarm)
+        + RunOneRow.Case("G15 projected body retains native arrival instead of requested pose", ArrivalPose);
+
+    private static void ArrivalPose()
+    {
+        var binding = new StepBinding(70001, Key, "fixture", new(49, 80), "fixture", 1, 1,
+            0, 1, 0, Array.Empty<ResourcePhase>(), Array.Empty<PredictedEffect>(), Array.Empty<long>(),
+            DependencyManifest.Empty, true, arrivalPose: new CoursePoint(48, 80));
+        var state = new ProjectedCourseState(new(48, 80));
+        Require(state.TryApply(binding, new Dictionary<string, double>(), out _), "arrival fixture was refused");
+        Require(state.Pose == new CoursePoint(48, 80) && binding.Pose == new CoursePoint(49, 80),
+            "projection teleported the body to the requested use pose");
+    }
 
     private static void ContactHarm()
     {

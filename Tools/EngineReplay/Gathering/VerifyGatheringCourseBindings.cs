@@ -142,7 +142,9 @@ internal static class VerifyGatheringCourseBindings
         });
     private static DecisionFact Travel(CoursePoint from, CoursePoint to, double ticks) => new(ReadCourseTravel.Key(from, default, to), 1,
         new(Text: JsonSerializer.Serialize(new CapturedCourseTravel(from, default, to, default, ticks,
-            OpportunityAdmission.KnownUsable, "fixture", new[] { from, to }, 1))), FactEvidence.Modelled);
+            OpportunityAdmission.KnownUsable, "fixture", new[] { from, to }, 1,
+            ticks == 0 ? new[] { new TimedCoursePose(0, from, default) }
+                : new[] { new TimedCoursePose(0, from, default), new TimedCoursePose(ticks, to, default) }))), FactEvidence.Modelled);
     private static Opportunity Opportunity(DecisionFactSnapshot snapshot) => new GatheringOpportunitySource("mine-target")
         .Continue(snapshot, new(), new(double.PositiveInfinity)).Examined.Single();
     private static void Require(bool condition, string reason) { if (!condition) throw new InvalidOperationException(reason); }

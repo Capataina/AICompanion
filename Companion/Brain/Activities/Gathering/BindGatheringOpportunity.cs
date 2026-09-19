@@ -57,6 +57,7 @@ public sealed class GatheringOpportunityBinder : IOpportunityBinder
         }
         if (travel.Admission != OpportunityAdmission.KnownUsable)
             return new(null, travel.Admission, travel.Reason, travel.Admission == OpportunityAdmission.Unresolved);
+        if (travel.ArrivalPose is not { } arrivalPose) return Refuse("native-arrival-pose-unresolved");
         if (facts.Read(readyKey).Evidence != FactEvidence.Observed) return Refuse("native-tool-readiness-missing");
         double ready = state.Read(readyKey, facts).Amount;
         if (!double.IsFinite(ready) || ready < 0) return Refuse("native-tool-readiness-invalid");
@@ -93,7 +94,7 @@ public sealed class GatheringOpportunityBinder : IOpportunityBinder
             {
                 new ResourcePhase(CourseResource.Body, state.Tick, completedAt, 1),
                 new ResourcePhase(CourseResource.Hand, useAt, completedAt, 1),
-            }, new[] { effect }, parents, dependencies, true, travel.ArrivalVelocity, Use(site));
+            }, new[] { effect }, parents, dependencies, true, travel.ArrivalVelocity, Use(site), arrivalPose);
         return new(binding, OpportunityAdmission.KnownUsable, "native-tool-use-bound", false);
     }
 

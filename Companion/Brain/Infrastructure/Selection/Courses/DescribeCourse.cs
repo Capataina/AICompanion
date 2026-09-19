@@ -64,7 +64,7 @@ public sealed record StepBinding
         long snapshotId, long worldEpoch, double travelTicks, double useTicks, double cancellationTicks,
         IEnumerable<ResourcePhase> resources, IEnumerable<PredictedEffect> effects,
         IEnumerable<long> parents, DependencyManifest dependencies, bool useProven, CoursePoint arrivalVelocity = default,
-        string nativeUseId = "")
+        string nativeUseId = "", CoursePoint? arrivalPose = null)
     {
         Id = id; Opportunity = opportunity; Method = method; Pose = pose; Tool = tool;
         SnapshotId = snapshotId; WorldEpoch = worldEpoch; TravelTicks = travelTicks; UseTicks = useTicks;
@@ -72,6 +72,7 @@ public sealed record StepBinding
         Effects = Array.AsReadOnly(effects.ToArray()); Parents = Array.AsReadOnly(parents.ToArray());
         Dependencies = dependencies; UseProven = useProven;
         ArrivalVelocity = arrivalVelocity;
+        ArrivalPose = arrivalPose ?? pose;
         NativeUseId = nativeUseId;
     }
     public long Id { get; }
@@ -90,6 +91,9 @@ public sealed record StepBinding
     public DependencyManifest Dependencies { get; }
     public bool UseProven { get; }
     public CoursePoint ArrivalVelocity { get; }
+    /// <summary>The predicted body endpoint may differ from the requested use pose
+    /// because native travel admits arrival within a tolerance.</summary>
+    public CoursePoint ArrivalPose { get; }
     /// <summary>Domain-owned immutable trigger selected during binding.  Opportunity identity stays
     /// stable across repricing; dispatch must still receive the one use it accepted.</summary>
     public string NativeUseId { get; }
@@ -97,6 +101,7 @@ public sealed record StepBinding
         && double.IsFinite(TravelTicks) && TravelTicks >= 0 && double.IsFinite(UseTicks) && UseTicks >= 0
         && double.IsFinite(CancellationTicks) && CancellationTicks >= 0
         && double.IsFinite(ArrivalVelocity.X) && double.IsFinite(ArrivalVelocity.Y)
+        && double.IsFinite(ArrivalPose.X) && double.IsFinite(ArrivalPose.Y)
         && Resources.All(r => double.IsFinite(r.Amount) && r.Amount >= 0 && double.IsFinite(r.StartTick)
             && double.IsFinite(r.EndTick) && r.StartTick >= 0 && r.EndTick >= r.StartTick)
         && Effects.All(e => e.Evidence != EstimateStatus.Unresolved && e.Dependencies.Complete);

@@ -91,6 +91,8 @@ public sealed class ForecastCourseCompanionship
                     || samples[^1].Tick != travel.Ticks
                     || samples.Zip(samples.Skip(1)).Any(pair => pair.First.Tick >= pair.Second.Tick))
                     return terminal = Result(ProjectionStatus.Rejected, "timed-travel-evidence-unresolved");
+                if (!returning && samples[^1].Position != steps[leg].ArrivalPose)
+                    return terminal = Result(ProjectionStatus.Rejected, "bound-arrival-pose-changed");
                 sample = 0;
             }
             while (sample + 1 < samples!.Length)
@@ -114,9 +116,9 @@ public sealed class ForecastCourseCompanionship
                 return terminal = Result(ProjectionStatus.Complete, inside ? "nominal-reunion" : "return-outside-projected-region", inside);
             }
             var step = steps[leg];
-            intervals.AddRange(ForecastCompanionshipGap.Between(new(tick, step.Pose, step.ArrivalVelocity),
-                new(tick + step.UseTicks, step.Pose, step.ArrivalVelocity), region.Value));
-            tick += step.UseTicks; pose = step.Pose; velocity = step.ArrivalVelocity;
+            intervals.AddRange(ForecastCompanionshipGap.Between(new(tick, step.ArrivalPose, step.ArrivalVelocity),
+                new(tick + step.UseTicks, step.ArrivalPose, step.ArrivalVelocity), region.Value));
+            tick += step.UseTicks; pose = step.ArrivalPose; velocity = step.ArrivalVelocity;
             leg++; travel = null; samples = null;
         }
         throw new InvalidOperationException("A companionship forecast must finish through its return leg.");

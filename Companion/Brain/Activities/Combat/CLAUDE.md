@@ -11,6 +11,8 @@ One activity fights, and only while it runs do the hands fire. `FightEnemies` of
 
 `ResolveFiringOpportunity` is gone. The live surface is the planner in `Planning/`. The arsenal that used to pick a pair from here is gone the same way: `CompanionCombat` holds the gear enumeration, the forecast, the planner and the hands.
 
+Course bindings preserve the requested firing stand separately from the movement model's final body position. Missing timed arrival evidence leaves the binding unresolved; subsequent projected travel uses the captured endpoint. A nominal attack simulated at the requested stand still needs native admission and reevaluation from the actual firing position, because arrival tolerance cannot certify identical shot geometry.
+
 The retained-course seam captures every use in the planner's priced front before combat chooses its current winner. `CombatCourseFacts` serialises target generation, weapon slot and item type, stand, aim, launch, timing and the target-hit amount summed from the simulator trace into immutable decision facts; `CombatOpportunitySource` scans only that census under the shared cursor/budget, and `CombatOpportunityBinder` reads the chosen use, target, weapon and mana facts through its tracked reader. The binding keeps the demonstrated target damage as a nominal effect when its confidence lacks a bound; a use with no target-hit forecast stays unresolved instead of publishing a zero-value attack. `FightEnemies.ActivateCourseBinding` associates a published binding with the exact native `AttackPlan` use. It never finds a lookalike by target.
 
 ## How a tick prepares

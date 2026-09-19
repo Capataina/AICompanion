@@ -106,6 +106,7 @@ public sealed class CombatOpportunityBinder:IOpportunityBinder
         FactKey targetKey, CombatCourseFacts.Target target, CombatCourseFacts.Use use, CapturedCourseTravel capturedTravel,
         int slot, int generation)
     {
+        if(capturedTravel.ArrivalPose is not {} arrivalPose)return new(null,OpportunityAdmission.Unresolved,"combat-arrival-pose-unresolved",false);
         UseInputs(use,facts,out DecisionFact weaponFact,out DecisionFact manaFact,out CombatCourseFacts.Weapon? weapon);
         if(weapon==null||weaponFact.Evidence!=FactEvidence.Observed||manaFact.Evidence!=FactEvidence.Observed)return new(null,OpportunityAdmission.Unresolved,"combat-input-capture-missing",false);
         if(weapon.ItemType!=use.WeaponItemType||weapon.Prefix!=use.WeaponPrefix)return new(null,OpportunityAdmission.KnownUnusable,"captured-tool-changed",false);
@@ -116,7 +117,7 @@ public sealed class CombatOpportunityBinder:IOpportunityBinder
         var after=new FactValue(Math.Max(0,target.Life-damage),target.X,target.Y,JsonSerializer.Serialize(target with {Life=(int)Math.Max(0,Math.Floor(target.Life-damage))}));
         var dependencies=facts.Manifest(); var parents=state.ReadEffects;
         var effect=new PredictedEffect(CourseIdentity.Next(),new NeedKey(NeedKind.HostileLife,slot.ToString(CultureInfo.InvariantCulture),generation),damage,impact,impact,impact,EstimateStatus.Nominal,parents,new[]{new EffectDelta(targetKey,after)},dependencies);
-        var binding=new StepBinding(CourseIdentity.Next(),opportunity.Key,CombatCourseFacts.Method,new CoursePoint(use.StandX,use.StandY),CombatCourseFacts.ToolId(use.WeaponSlot,use.WeaponItemType,use.WeaponPrefix),facts.SnapshotId,facts.WorldEpoch,travel,useTicks,0,new[]{new ResourcePhase(CourseResource.Body,state.Tick,state.Tick+travel+useTicks,1),new ResourcePhase(CourseResource.Hand,state.Tick+travel,state.Tick+travel+useTicks,1)},new[]{effect},parents,dependencies,true,capturedTravel.ArrivalVelocity,use.Id);
+        var binding=new StepBinding(CourseIdentity.Next(),opportunity.Key,CombatCourseFacts.Method,new CoursePoint(use.StandX,use.StandY),CombatCourseFacts.ToolId(use.WeaponSlot,use.WeaponItemType,use.WeaponPrefix),facts.SnapshotId,facts.WorldEpoch,travel,useTicks,0,new[]{new ResourcePhase(CourseResource.Body,state.Tick,state.Tick+travel+useTicks,1),new ResourcePhase(CourseResource.Hand,state.Tick+travel,state.Tick+travel+useTicks,1)},new[]{effect},parents,dependencies,true,capturedTravel.ArrivalVelocity,use.Id,arrivalPose);
         return new(binding,OpportunityAdmission.KnownUsable,use.Id,false);
     }
     public BindingValidation ValidateNextUse(StepBinding binding,DecisionFactSnapshot facts) {

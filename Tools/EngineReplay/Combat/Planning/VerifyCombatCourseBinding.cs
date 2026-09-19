@@ -32,7 +32,8 @@ internal static class VerifyCombatCourseBinding
             Fact(CombatCourseFacts.UseKey(useId), 7, use),
             Fact(ReadCourseTravel.Key(new CoursePoint(32, 32), default, new CoursePoint(32, 32)), 1,
                 new CapturedCourseTravel(new CoursePoint(32, 32), default, new CoursePoint(32, 32), new CoursePoint(3, 1), 0,
-                    OpportunityAdmission.KnownUsable, "local", Array.Empty<CoursePoint>(), 1))
+                    OpportunityAdmission.KnownUsable, "local", Array.Empty<CoursePoint>(), 1,
+                    new[] { new TimedCoursePose(0, new(32, 32), new(3, 1)) }))
         });
         var source = new CombatOpportunitySource();
         var budget = new DecisionWorkBudget(double.PositiveInfinity, 1, () => 0, 1);
@@ -84,7 +85,8 @@ internal static class VerifyCombatCourseBinding
             Fact(CombatCourseFacts.UseKey(useId), 7, unsupported),
             Fact(ReadCourseTravel.Key(new CoursePoint(32, 32), default, new CoursePoint(32, 32)), 1,
                 new CapturedCourseTravel(new CoursePoint(32, 32), default, new CoursePoint(32, 32), default, 0,
-                    OpportunityAdmission.KnownUsable, "local", Array.Empty<CoursePoint>(), 1))
+                    OpportunityAdmission.KnownUsable, "local", Array.Empty<CoursePoint>(), 1,
+                    new[] { new TimedCoursePose(0, new(32, 32), default) }))
         });
         var unresolved = new BindOpportunity(new IOpportunityBinder[] { new CombatOpportunityBinder() }).Bind(slice.Examined[0],
             new ProjectedCourseState(new CoursePoint(32, 32)), unsupportedSnapshot, new DecisionWorkCursor(),
