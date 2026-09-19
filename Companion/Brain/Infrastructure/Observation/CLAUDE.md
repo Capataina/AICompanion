@@ -23,6 +23,7 @@ Observation/
 ├─ CaptureAssistanceOpportunities.cs sliced drop census and partial pot/light adapters before opportunity discovery
 ├─ CaptureLightingOpportunities.cs native torch sites and shared darkness deficits projected from one frozen light map
 ├─ CaptureCourseTravel.cs     retained travel queries using the native route, steering and contact model
+├─ CaptureCompanionshipInputs.cs frozen region geometry, player travel and distance preference for course costing
 ├─ ObserveLight.cs           brightness per open-air tile on a lattice, read from the world's own light, and one tile's placement reading
 ├─ ReadWorldLight.cs         the world's own light, taken from the engine between its scan and its blur, where nothing anybody carries is in it yet
 ├─ ObserveReach.cs           where the orb can fly to, as one flood over free corners and a tri-state every consumer reads

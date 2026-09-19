@@ -8,6 +8,7 @@ Courses/
 ├─ DescribeCourse.cs            immutable bindings, effects, resources, estimates and receipts
 ├─ CompareCourseOutcomes.cs     frozen-census objective, bounds and boundary comparison
 ├─ MeasureCompanionshipGap.cs   the shared rectangular gap and captured-preference pull curve
+├─ ForecastCompanionshipGap.cs  frozen region travel and piecewise companionship intervals
 ├─ ProjectCourseEffects.cs      sparse hypothetical state and once-only physical allocation
 ├─ ReadCourseTravel.cs          captured native route timing and arrival momentum, read through manifests
 ├─ TrackCourseDependencies.cs   tracked fact manifests and reverse dependency index
@@ -36,6 +37,8 @@ Executable uses and dispatched physical effects have separate lifecycles. `Obser
 Search keeps its pending order and projection cursor across budget cuts. Suffix depth is a storage/work bound; each observed site still receives a seed and a spatial alternative. The projector must price consequences after prior effects, prove native resources and expose unresolved tails. An empty order means companionship with its own projected costs, not an artificial zero-cost idle.
 
 `BindCourseOrder` owns one frozen comparison's binding pipeline. It forks the initial state for each order, preserves the current domain cursor, and holds a completed binding across a cut before resource application. Resuming never recreates that use or repeats its simulation. Consumable capacity must be observed and declared by the binding. After the ordered uses project, `ICourseConsequenceForecast` prices the resulting trajectory and return; it runs even for an empty order and cannot replace the accepted sequence. The native consequence provider remains an integration obligation: a missing harm or reunion forecast must not become a zero-cost completed candidate.
+
+`ForecastCompanionshipGap` converts a pair of timed trajectory states into intervals for the existing discounted gap integral. It splits at the captured player-travel horizon and at intersections of the rectangular overshoot planes, zero interior and outer plateau, so a segment crossing through the region does not pay its outside endpoints' gap throughout. The native capture freezes the same region, observed travel, forecast horizon and distance preference that live companionship reads. Forecast intervals stay nominal: the observation horizon is not evidence that a player will stop moving. A dead player's ordinary companionship term is absent.
 
 Refresh validation identifies the failed node. A stale suffix queues repair without revoking an unaffected current use. Successful observed repair closes its dirty authority and advances the revision; it cannot authorise a later unrelated worse tail. Beginning the next retained use consumes its predecessor's completion boundary. An externally changed physical forecast remains owned but loses its certified delta; a missed parent censors already-issued descendants without pretending the parent succeeded.
 
