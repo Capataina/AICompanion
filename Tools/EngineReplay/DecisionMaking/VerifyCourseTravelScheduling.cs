@@ -19,7 +19,42 @@ internal static class VerifyCourseTravelScheduling
         + RunOneRow.Case("G11 course search drives missing native models with one shared operation", SearchOwner)
         + RunOneRow.Case("G08 captured enemy motion records native collision read bounds", MotionTerrainReads)
         + RunOneRow.Case("G08 enemy motion publication rejects local edits and retains distant edits", MotionPublication)
-        + RunOneRow.Case("G11 enemy motion and travel share native query turns", MixedNativeQueries);
+        + RunOneRow.Case("G11 enemy motion and travel share native query turns", MixedNativeQueries)
+        + RunOneRow.Case("G15 captured melee shapes match native victim-dependent geometry", NativeMeleeShapes);
+
+    private static void NativeMeleeShapes()
+    {
+        _ = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Opportunistic,
+            Terraria.ID.TileID.Copper, new Microsoft.Xna.Framework.Point(25, 59));
+        var previous = Terraria.Main.npc[154];
+        var enemy = new Terraria.NPC { whoAmI = 154, position = new(400.5f, 800.5f), width = 40, height = 120 };
+        Terraria.Main.npc[154] = enemy;
+        int checkedShapes = 0;
+        try
+        {
+            foreach (int type in new[] { 1, 430, 436, 591, 494, 495, 460, 417, 466, 576, 577, 552, 553, 554, 668 })
+            foreach (int direction in new[] { -1, 1 })
+            foreach (int frame in new[] { 0, 15, 16, 17, 18 })
+            foreach (int state in new[] { 0, 4, 6, 24 })
+            {
+                enemy.type = type; enemy.direction = direction; enemy.spriteDirection = direction;
+                enemy.frame.Y = frame; enemy.ai[0] = state; enemy.ai[2] = state; enemy.ai[3] = state == 6 ? 2 : 0;
+                var captured = CapturedMeleeEnemy.From(enemy);
+                foreach (var victim in new[] { new Microsoft.Xna.Framework.Rectangle(350, 810, 20, 100),
+                    new Microsoft.Xna.Framework.Rectangle(425, 840, 30, 100), new Microsoft.Xna.Framework.Rectangle(100, 100, 20, 20) })
+                {
+                    var box = enemy.Hitbox; float damage = 1; int channel = -1;
+                    Terraria.NPC.GetMeleeCollisionData(victim, 154, ref channel, ref damage, ref box);
+                    var predicted = ResolveCapturedMeleeShape.Resolve(captured, victim, -1);
+                    Require(predicted.Box == box && predicted.DamageMultiplier == damage && predicted.HitChannel == channel,
+                        $"captured melee disagrees with native type={type}, direction={direction}, frame={frame}, state={state}");
+                    checkedShapes++;
+                }
+            }
+        }
+        finally { Terraria.Main.npc[154] = previous; }
+        Require(checkedShapes == 1800, "native melee comparison lost input coverage");
+    }
 
     private static void MixedNativeQueries()
     {
