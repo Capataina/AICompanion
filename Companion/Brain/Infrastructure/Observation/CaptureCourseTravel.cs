@@ -48,8 +48,11 @@ public sealed class CaptureCourseTravel
 
     /// <summary>Null means the shared allowance cut an unfinished query. An unresolved result
     /// names a concluded model limitation; neither answer means the route is impossible.</summary>
-    public DecisionFact? Continue(DecisionWorkBudget budget)
+    public DecisionFact? Continue(DecisionWorkBudget budget, long maximumOperations = long.MaxValue)
     {
+        if (maximumOperations <= 0) throw new ArgumentOutOfRangeException(nameof(maximumOperations));
+        long startedOperations = budget.OperationsUsed;
+        bool SliceSpent() => budget.OperationsUsed - startedOperations >= maximumOperations;
         int now = world.Revision;
         if (speed != OrbPace.MaxSpeed || turn != OrbPace.Turn || acceleration != OrbPace.SpeedChange
             || world.ChangedSince(checkedRevision, world.ReadContains) != TerrainEditVerdict.Unchanged)
@@ -75,6 +78,7 @@ public sealed class CaptureCourseTravel
         }
         while (search is { Finished: false })
         {
+            if (SliceSpent()) return null;
             // Live callers already have this same borrowed budget installed. Headless
             // direct callers spend here; neither path creates another allowance.
             if (LimitPlanningWork.IsActive)
@@ -88,6 +92,7 @@ public sealed class CaptureCourseTravel
         }
         if (route == null)
         {
+            if (SliceSpent()) return null;
             if (!budget.TrySpend("course-travel-route")) return null;
             if (search?.Stop != FreeSpaceSearch.StopReason.Found)
                 return Finish(search?.Stop == FreeSpaceSearch.StopReason.Exhausted
@@ -100,6 +105,7 @@ public sealed class CaptureCourseTravel
         }
         while (Vector2.Distance(position, Vector(to)) > Navigator.ArriveDistance)
         {
+            if (SliceSpent()) return null;
             if (!budget.TrySpend("course-travel-body")) return null;
             int previousSegment = route.Index;
             var controls = SteerAlongRoute.Steer(new(position, velocity), route, speed, acceleration, out _);

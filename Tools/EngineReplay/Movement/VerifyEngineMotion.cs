@@ -87,6 +87,7 @@ internal static class VerifyEngineMotion
         ("projected effects preserve causality and physical resource capacity", VerifyProjectionContracts.Run),
         ("course orders resume concrete bindings before forecasting consequences", VerifyCourseOrderProjection.Run),
         ("companionship forecasts integrate shared gap along the trajectory", VerifyCompanionshipForecast.Run),
+        ("native course travel queries share the decision allowance fairly", VerifyCourseTravelScheduling.Run),
         ("native course receipts preserve observation order and intent regions", VerifyRetainedCourseObservation.Run),
         ("native lighting projections preserve captured light and shared deficits", VerifyLightingOpportunityCapture.Run),
         ("native tree census retains work across cuts and observes axe effects", VerifyTreeOpportunityCapture.Run),
