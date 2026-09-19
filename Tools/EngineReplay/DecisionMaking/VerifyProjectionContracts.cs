@@ -35,8 +35,10 @@ internal static class VerifyProjectionContracts
         var actorBoxes = Enumerable.Repeat(new ContactBox(0, 0, 20, 20), 5).ToArray();
         var enemyBoxes = new[] { new ContactBox(40, 0, 20, 20), new ContactBox(20, 0, 20, 20),
             new ContactBox(19, 0, 20, 20), new ContactBox(10, 0, 20, 20), new ContactBox(0, 0, 20, 20) };
+        ContactGeometry Geometry(ContactBox[] boxes, double damage, int ready)
+            => new(boxes.Select(box => new ContactSample(box, damage, ready)).ToArray(), true);
         var forecast = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
-            new[] { new ContactThreat(1, 1, 50, 25, new(enemyBoxes, 0, true), new(enemyBoxes, 0, true)) }, 4, true);
+            new[] { new ContactThreat(1, 1, Geometry(enemyBoxes, 50, 0), Geometry(enemyBoxes, 25, 0)) }, 4, true);
         ContactHarmResult? result = null;
         for (int i = 0; i < 100 && result == null; i++)
         {
@@ -52,7 +54,7 @@ internal static class VerifyProjectionContracts
         Require(incomplete!.TailUnresolved && incomplete.Harm.Count == 0, "an incomplete enemy census became a safe empty world");
         var perVictim = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0, actorBoxes),
                 new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
-            new[] { new ContactThreat(1, 1, 50, 25, new(actorBoxes, 3, true), new(enemyBoxes, 0, true)) }, 4, true)
+            new[] { new ContactThreat(1, 1, Geometry(actorBoxes, 50, 3), Geometry(enemyBoxes, 25, 0)) }, 4, true)
             .Continue(new(double.PositiveInfinity));
         Require(perVictim!.Harm.Count == 2
             && perVictim.Harm.Single(hit => hit.Actor == HarmActor.Player).Tick == 3

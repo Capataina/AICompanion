@@ -13,9 +13,9 @@ public readonly record struct ContactBox(double X, double Y, double Width, doubl
         && Y < other.Y + other.Height && Y + Height > other.Y;
 }
 public sealed record ContactActor(HarmActor Actor, double Life, int ReadyTick, IReadOnlyList<ContactBox> Boxes);
-public sealed record ContactGeometry(IReadOnlyList<ContactBox> Boxes, int ReadyTick, bool Supported);
-public sealed record ContactThreat(int Slot, long Generation, double DamageToPlayer, double DamageToCompanion,
-    ContactGeometry ToPlayer, ContactGeometry ToCompanion);
+public readonly record struct ContactSample(ContactBox Box, double Damage, int ReadyTick);
+public sealed record ContactGeometry(IReadOnlyList<ContactSample> Samples, bool Supported);
+public sealed record ContactThreat(int Slot, long Generation, ContactGeometry ToPlayer, ContactGeometry ToCompanion);
 public sealed record ContactHarmResult(IReadOnlyList<PredictedHarm> Harm, bool TailUnresolved, int RequestedHorizon);
 
 /// <summary>First contact over captured per-tick geometry. A hit ends that actor's supported
@@ -41,11 +41,10 @@ public sealed class ForecastContactHarm
             || this.threats.Select(value => value.Slot).Distinct().Count() != this.threats.Length)
             throw new ArgumentException("A contact census must contain each actor and hostile slot once.");
         if (this.actors.Any(value => !double.IsFinite(value.Life) || value.Life < 0 || value.ReadyTick < 0)
-            || this.threats.Any(value => !double.IsFinite(value.DamageToPlayer) || value.DamageToPlayer < 0
-                || !double.IsFinite(value.DamageToCompanion) || value.DamageToCompanion < 0
-                || value.ToPlayer.ReadyTick < 0 || value.ToCompanion.ReadyTick < 0)
+            || this.threats.SelectMany(value => value.ToPlayer.Samples.Concat(value.ToCompanion.Samples))
+                .Any(value => !double.IsFinite(value.Damage) || value.Damage < 0 || value.ReadyTick < 0)
             || this.actors.SelectMany(value => value.Boxes).Concat(this.threats.SelectMany(value =>
-                value.ToPlayer.Boxes.Concat(value.ToCompanion.Boxes))).Any(box =>
+                value.ToPlayer.Samples.Concat(value.ToCompanion.Samples).Select(sample => sample.Box))).Any(box =>
                 !double.IsFinite(box.X) || !double.IsFinite(box.Y) || !double.IsFinite(box.Width)
                 || !double.IsFinite(box.Height) || !double.IsFinite(box.X + box.Width)
                 || !double.IsFinite(box.Y + box.Height) || box.Width < 0 || box.Height < 0))
@@ -66,13 +65,13 @@ public sealed class ForecastContactHarm
             if (tick >= body.Boxes.Count) { unresolved = true; NextActor(); continue; }
             var enemy = threats[threat];
             var geometry = body.Actor == HarmActor.Player ? enemy.ToPlayer : enemy.ToCompanion;
-            if (!geometry.Supported || tick >= geometry.Boxes.Count) unresolved = true;
+            if (!geometry.Supported || tick >= geometry.Samples.Count) unresolved = true;
             else
             {
-                double damage = body.Actor == HarmActor.Player ? enemy.DamageToPlayer : enemy.DamageToCompanion;
-                if (tick >= geometry.ReadyTick && damage > 0 && body.Boxes[tick].Intersects(geometry.Boxes[tick]))
+                var contact = geometry.Samples[tick];
+                if (tick >= contact.ReadyTick && contact.Damage > 0 && body.Boxes[tick].Intersects(contact.Box))
                 {
-                    harm.Add(new(body.Actor, damage, body.Life, tick, EstimateStatus.Nominal));
+                    harm.Add(new(body.Actor, contact.Damage, body.Life, tick, EstimateStatus.Nominal));
                     if (tick < horizon) unresolved = true;
                     NextActor(); continue;
                 }
@@ -84,5 +83,5 @@ public sealed class ForecastContactHarm
 
     private void NextActor() { actor++; tick = 0; threat = 0; }
     private static ContactGeometry Freeze(ContactGeometry geometry)
-        => geometry with { Boxes = Array.AsReadOnly(geometry.Boxes.ToArray()) };
+        => geometry with { Samples = Array.AsReadOnly(geometry.Samples.ToArray()) };
 }

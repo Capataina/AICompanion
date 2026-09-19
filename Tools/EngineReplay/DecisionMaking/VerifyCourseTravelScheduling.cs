@@ -20,7 +20,38 @@ internal static class VerifyCourseTravelScheduling
         + RunOneRow.Case("G08 captured enemy motion records native collision read bounds", MotionTerrainReads)
         + RunOneRow.Case("G08 enemy motion publication rejects local edits and retains distant edits", MotionPublication)
         + RunOneRow.Case("G11 enemy motion and travel share native query turns", MixedNativeQueries)
-        + RunOneRow.Case("G15 captured melee shapes match native victim-dependent geometry", NativeMeleeShapes);
+        + RunOneRow.Case("G15 captured melee shapes match native victim-dependent geometry", NativeMeleeShapes)
+        + RunOneRow.Case("G15 captured motion and native defence produce timed contact harm", NativeContactPipeline);
+
+    private static void NativeContactPipeline()
+    {
+        var (_, context) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Opportunistic,
+            Terraria.ID.TileID.Copper, new Microsoft.Xna.Framework.Point(25, 59));
+        context.Player.statDefense = Terraria.Player.DefenseStat.Default; context.Player.endurance = 0;
+        context.Npc.defense = 0; context.Npc.takenDamageMultiplier = 1;
+        var playerDefence = EstimateEffectiveDamage.Capture(context.Player);
+        var npcDefence = EstimateEffectiveDamage.Capture(context.Npc);
+        float playerExpected = EstimateEffectiveDamage.ToPlayer(context.Player, 27);
+        float npcExpected = EstimateEffectiveDamage.ToNpc(context.Npc, 20);
+        context.Player.statDefense = Terraria.Player.DefenseStat.Default + 10000; context.Npc.defense = 10000;
+        var enemy = new CapturedMeleeEnemy(460, new(400, 800), 40, 120, 1, 1, 0, 0, 0, 0);
+        var motion = new CapturedEnemyCourseMotion(1, 1, 460, 40, 120, 1,
+            new[] { new CoursePoint(420, 860), new CoursePoint(420, 860) }, "fixture");
+        var victims = new[] { new ContactBox(425, 900, 20, 20), new ContactBox(100, 100, 20, 20) };
+        var player = new ProjectMeleeContactGeometry(enemy, motion, victims, playerDefence, 20, -1, 0, Array.Empty<int>(), true);
+        Require(player.Continue(new(double.PositiveInfinity, 1)) == null, "a partial contact trajectory was published");
+        var playerShape = player.Continue(new(double.PositiveInfinity, 1))!;
+        var npcShape = new ProjectMeleeContactGeometry(enemy, motion, victims, npcDefence, 20, 1, 0,
+            Array.Empty<int>(), true).Continue(new(double.PositiveInfinity))!;
+        Require(playerShape.Samples[0].Damage == playerExpected && playerShape.Samples[1].Damage == 20
+            && npcShape.Samples[0].Damage == npcExpected,
+            "contact geometry lost its per-sample multiplier, native actor distinction or frozen defence");
+        var harm = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0, victims),
+            new ContactActor(HarmActor.Companion, 100, 0, victims) },
+            new[] { new ContactThreat(1, 1, playerShape, npcShape) }, 1, true).Continue(new(double.PositiveInfinity));
+        Require(harm!.Harm.Count == 2 && harm.Harm.All(hit => hit.Tick == 0) && harm.TailUnresolved,
+            "native contact geometry did not reach timed harm or concealed its post-hit uncertainty");
+    }
 
     private static void NativeMeleeShapes()
     {
