@@ -57,7 +57,8 @@ public sealed class RetainCourse
             var before = Current.Projection;
             var remaining = new CourseProjection(before.Steps.Skip(1), before.Harm, before.Companionship,
                 before.ReunionTick, before.ReunionProven, before.TailNominal, before.TailUnresolved,
-                projectionStartTick: before.ProjectionStartTick + prefix.TravelTicks + prefix.UseTicks);
+                projectionStartTick: before.ProjectionStartTick + prefix.TravelTicks + prefix.UseTicks,
+                consequenceDependencies: before.ConsequenceDependencies);
             ReplaceObservedProjection(WithPhysicalEffects(remaining, currentOriginTick));
             Current = Current! with { SourceSnapshot = -1 };
         }
@@ -149,7 +150,8 @@ public sealed class RetainCourse
             .Concat(outstanding.SelectMany(effect => effect.Parents)).ToHashSet();
         return new(projection.Steps, projection.Harm, projection.Companionship, projection.ReunionTick,
             projection.ReunionProven, projection.TailNominal, projection.TailUnresolved, outstanding,
-            completedCauses.Where(id => referenced.Contains(id) && !executing.Contains(id)), projection.ProjectionStartTick);
+            completedCauses.Where(id => referenced.Contains(id) && !executing.Contains(id)), projection.ProjectionStartTick,
+            projection.ConsequenceDependencies);
     }
 
     private void ReplaceObservedProjection(CourseProjection projection)
@@ -292,6 +294,8 @@ public sealed class RetainCourse
     {
         failedNode = proposal.Prefix?.Id ?? 0;
         if (proposal.Prefix is { } prefix && !validate(prefix).CanUse) return false;
+        if (!proposal.ConsequenceDependencies.Complete || proposal.ConsequenceDependencies.Changed(facts).Count != 0)
+        { failedNode = proposal.ConsequenceId; return false; }
         foreach (var effect in proposal.OutstandingEffects)
             if (effect.Evidence != EstimateStatus.Unresolved
                 && (!effect.Dependencies.Complete || effect.Dependencies.Changed(facts).Count != 0))

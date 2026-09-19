@@ -26,7 +26,34 @@ internal static class VerifyProjectionContracts
         + RunOneRow.Case("G15 descendants wait for a parent's guaranteed latest outcome", LateBoundParentOrdering)
         + RunOneRow.Case("G15 a missed parent censors but does not erase issued descendants", MissedPhysicalParent)
         + RunOneRow.Case("G11 one-operation discovery reaches every finite source", OneOperationFairness)
-        + RunOneRow.Case("G08 receipt retirement retains duplicate floor and live credit", ReceiptRetirement);
+        + RunOneRow.Case("G08 receipt retirement retains duplicate floor and live credit", ReceiptRetirement)
+        + RunOneRow.Case("G08 consequence reads invalidate costs without revoking a legal use", ConsequenceReads);
+
+    private static void ConsequenceReads()
+    {
+        var key = new FactKey("companionship", "region");
+        var facts = Facts(new DecisionFact(key, 1, new(1), FactEvidence.Observed));
+        var reader = facts.Track(); reader.Read(key);
+        var binding = Binding(93001);
+        var projection = new CourseProjection(new[] { binding }, Array.Empty<PredictedHarm>(),
+            Array.Empty<CompanionshipInterval>(), 0, true, consequenceDependencies: reader.Manifest());
+        var index = CourseDependencyIndex.Build(projection);
+        var repair = new RepairCourse();
+        repair.Invalidate(index, key, "region-changed");
+        repair.Continue(index, new(double.PositiveInfinity));
+        Require(repair.IsDirty(projection.ConsequenceId) && !repair.IsDirty(binding.Id),
+            "a cost-only dependency either disappeared or revoked a legal native use");
+        var episode = new CourseComparisonEpisode(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "fixture");
+        var owner = new RetainCourse();
+        BindingValidation Valid(StepBinding _) => new(OpportunityAdmission.KnownUsable, "fixture", false);
+        var changed = Facts(new DecisionFact(key, 2, new(2), FactEvidence.Observed));
+        Require(!owner.Consider(projection, episode, changed, Valid(binding), Valid),
+            "publication accepted costs computed from an obsolete region");
+        Require(owner.Consider(projection, episode, facts, Valid(binding), Valid),
+            "a current consequence manifest could not publish");
+        Require(owner.Current!.Projection.ConsequenceDependencies.Reads.Single().Key == key,
+            "physical-effect reconciliation erased consequence provenance");
+    }
 
     private static DecisionFactSnapshot Facts(params DecisionFact[] facts)
         => new(1, 1, 100, 1, 0, facts);

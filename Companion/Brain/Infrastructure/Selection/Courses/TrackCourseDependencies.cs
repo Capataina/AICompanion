@@ -179,6 +179,11 @@ public sealed class CourseDependencyIndex
             }
             bindingStart += binding.TravelTicks + binding.UseTicks;
         }
+        // Costs depend on the whole realised trajectory, but a changed cost input does
+        // not by itself make any native use illegal. The edge points towards costs.
+        if (projection.ConsequenceDependencies.Reads.Count > 0)
+            index.Register(projection.ConsequenceId, projection.ConsequenceDependencies,
+                projection.Steps.Select(step => step.Id).Concat(projection.AllEffects.Select(effect => effect.Id)));
         return index;
     }
 

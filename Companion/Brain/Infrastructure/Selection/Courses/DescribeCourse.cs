@@ -116,7 +116,7 @@ public sealed record CourseProjection
         IEnumerable<CompanionshipInterval> companionship, double reunionTick, bool reunionProven,
         double tailNominal = 0, bool tailUnresolved = false,
         IEnumerable<PredictedEffect>? outstandingEffects = null, IEnumerable<long>? completedCauses = null,
-        double projectionStartTick = 0)
+        double projectionStartTick = 0, DependencyManifest? consequenceDependencies = null)
     {
         Steps = Array.AsReadOnly(steps.ToArray()); Harm = Array.AsReadOnly(harm.ToArray());
         Companionship = Array.AsReadOnly(companionship.ToArray()); ReunionTick = reunionTick;
@@ -126,6 +126,10 @@ public sealed record CourseProjection
         if (!double.IsFinite(projectionStartTick) || projectionStartTick < 0)
             throw new ArgumentOutOfRangeException(nameof(projectionStartTick));
         ProjectionStartTick = projectionStartTick;
+        ConsequenceDependencies = consequenceDependencies ?? DependencyManifest.Empty;
+        var used = CompletedCauses.Concat(OutstandingEffects.Select(effect => effect.Id))
+            .Concat(Steps.Select(step => step.Id)).Concat(Steps.SelectMany(step => step.Effects).Select(effect => effect.Id)).ToHashSet();
+        do { ConsequenceId = CourseIdentity.Next(); } while (used.Contains(ConsequenceId));
     }
     public IReadOnlyList<StepBinding> Steps { get; }
     public IReadOnlyList<PredictedHarm> Harm { get; }
@@ -139,6 +143,8 @@ public sealed record CourseProjection
     public IReadOnlyList<PredictedEffect> OutstandingEffects { get; }
     public IReadOnlyList<long> CompletedCauses { get; }
     public double ProjectionStartTick { get; }
+    public long ConsequenceId { get; }
+    public DependencyManifest ConsequenceDependencies { get; }
     public IEnumerable<PredictedEffect> AllEffects => OutstandingEffects.Concat(Steps.SelectMany(s => s.Effects));
     public StepBinding? Prefix => Steps.Count > 0 ? Steps[0] : null;
 }
