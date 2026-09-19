@@ -99,7 +99,7 @@ if (args.Contains("--follow")) return VerifyEngineMotion.Run(followOnly: true);
 if (args.Contains("--protection-recovery")) return VerifyEngineMotion.Run(protectionOnly: true);
 if (args.Contains("--observation")) return VerifyObservationLifecycle.Run();
 if (args.Contains("--retained-course-observation")) return VerifyRetainedCourseObservation.Run();
-if (args.Contains("--retained-course-core")) return VerifyCourseCore.Run() + VerifyProjectionContracts.Run();
+if (args.Contains("--retained-course-core")) return VerifyCourseCore.Run() + VerifyProjectionContracts.Run() + VerifyCourseOrderProjection.Run();
 if (args.Contains("--retained-course-opportunities")) return VerifyAssistanceOpportunityDiscovery.Run() + VerifyGatheringOpportunityDiscovery.Run();
 if (args.Contains("--retained-course-lighting")) return VerifyLightingOpportunityCapture.Run();
 if (args.Contains("--retained-course-trees")) return VerifyTreeOpportunityCapture.Run();

@@ -6,7 +6,8 @@ The retained-course plan's gates require production paths. Pure policy and lifec
 DecisionMaking/
 ├─ CLAUDE.md               evidence scope and execution
 ├─ VerifyCourseCore.cs     fixed objective, identity, bounds, resources, repair and budget cuts
-└─ VerifyProjectionContracts.cs causal effect reads, resource phases, fair discovery and receipt retirement
+├─ VerifyProjectionContracts.cs causal effect reads, resource phases, fair discovery and receipt retirement
+└─ VerifyCourseOrderProjection.cs one-operation binding/application cuts, empty-order cost handoff and frozen-input guards
 ```
 
 Run from the repository root with `dotnet run --project Tools/EngineReplay -p:UseAppHost=false -- --retained-course-core`. Each row states the relevant plan gate, but a row covering a core seam does not complete that gate's native scene. Generated native event sequences, matched reactive/exact comparison, model fidelity and exact snapshot replay remain distinct obligations of the full plan.

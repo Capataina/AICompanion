@@ -85,6 +85,7 @@ internal static class VerifyEngineMotion
         ("the god's-eye occurrence stream records what it claims", VerifyGodsEyeEvents.Run),
         ("retained courses compare conserved futures and publish complete repairs", VerifyCourseCore.Run),
         ("projected effects preserve causality and physical resource capacity", VerifyProjectionContracts.Run),
+        ("course orders resume concrete bindings before forecasting consequences", VerifyCourseOrderProjection.Run),
         ("native course receipts preserve observation order and intent regions", VerifyRetainedCourseObservation.Run),
         ("native lighting projections preserve captured light and shared deficits", VerifyLightingOpportunityCapture.Run),
         ("native tree census retains work across cuts and observes axe effects", VerifyTreeOpportunityCapture.Run),

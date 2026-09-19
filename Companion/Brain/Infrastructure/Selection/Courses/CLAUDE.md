@@ -12,6 +12,7 @@ Courses/
 ├─ TrackCourseDependencies.cs   tracked fact manifests and reverse dependency index
 ├─ RepairCourse.cs              resumable transitive dirtiness without partial publication
 ├─ RetainCourse.cs              one current course, semantic boundaries and atomic revision
+├─ BindCourseOrder.cs           frozen sequential binding, resumable application and consequence handoff
 └─ SearchCourseOrders.cs        insertion/removal/exchange and spatial alternatives
 ```
 
@@ -32,6 +33,8 @@ Receipt deduplication retires behind a completed issued-ID floor supplied by the
 Executable uses and dispatched physical effects have separate lifecycles. `ObserveExecution` advances the prefix only at an observed completed use, retaining only the effect IDs the native dispatch actually issued. The owner keeps these effects through release and replacement, so choosing to follow the player cannot despawn a projectile or reset its partial hit allocation. The projection carries outstanding effects and completed causal roots independently of `Steps`; the dependency graph can therefore retain an impact while a different binding executes. Physical forecasts retain their original observation-time origin and are rebased into each later snapshot instead of restarting their flight clocks. A native terminal observation ends their lifetime; an overdue unresolved impact cannot certify a successor. The next comparison after executor advancement requires a fresh remaining projection.
 
 Search keeps its pending order and projection cursor across budget cuts. Suffix depth is a storage/work bound; each observed site still receives a seed and a spatial alternative. The projector must price consequences after prior effects, prove native resources and expose unresolved tails. An empty order means companionship with its own projected costs, not an artificial zero-cost idle.
+
+`BindCourseOrder` owns one frozen comparison's binding pipeline. It forks the initial state for each order, preserves the current domain cursor, and holds a completed binding across a cut before resource application. Resuming never recreates that use or repeats its simulation. Consumable capacity must be observed and declared by the binding. After the ordered uses project, `ICourseConsequenceForecast` prices the resulting trajectory and return; it runs even for an empty order and cannot replace the accepted sequence. The native consequence provider remains an integration obligation: a missing harm or reunion forecast must not become a zero-cost completed candidate.
 
 Refresh validation identifies the failed node. A stale suffix queues repair without revoking an unaffected current use. Successful observed repair closes its dirty authority and advances the revision; it cannot authorise a later unrelated worse tail. Beginning the next retained use consumes its predecessor's completion boundary. An externally changed physical forecast remains owned but loses its certified delta; a missed parent censors already-issued descendants without pretending the parent succeeded.
 
