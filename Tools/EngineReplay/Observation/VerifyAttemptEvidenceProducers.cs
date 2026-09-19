@@ -122,16 +122,25 @@ internal static class VerifyAttemptEvidenceProducers
                 $"turning pot breaking off after the world loaded must be one configuration occurrence carrying the new value; recorded {changes.Count}: {string.Join(" | ", changes.Select(c => c.Detail))}");
         else
             Require(changes.Count == 0, "a scene that changed no preference recorded configuration changes: " + string.Join(" | ", changes.Select(c => c.Detail)));
-        Require(capture.Trailer.Length == 1 && capture.Trailer[0].StartsWith($"# end=world-unload;rows={capture.Rows.Count};", StringComparison.Ordinal),
+        Require(capture.Trailer.Length == 3 && capture.Trailer[0].StartsWith($"# closing=world-unload;rows={capture.Rows.Count};", StringComparison.Ordinal)
+                && capture.Trailer[1].StartsWith("# diagnostics=", StringComparison.Ordinal)
+                && capture.Trailer[2].StartsWith($"# end=world-unload;rows={capture.Rows.Count};", StringComparison.Ordinal),
             $"a world unload must end the file with one end marker naming its {capture.Rows.Count} rows; trailer: {string.Join(" | ", capture.Trailer)}");
-        string closing = capture.Trailer[0]["# end=".Length..];
-        Require(Capture.Long(Capture.Field(closing, "events-written")) == capture.Events.Count && Capture.Field(closing, "events-dropped") == "0"
+        string closing = capture.Trailer[0]["# closing=".Length..];
+        using var diagnostics = JsonDocument.Parse(capture.Trailer[1]["# diagnostics=".Length..]);
+        long written = diagnostics.RootElement.GetProperty("LegacyEvent").GetProperty("Written").GetInt64();
+        Require(written == capture.Events.Count && Capture.Long(Capture.Field(closing, "events-offered")) == written
+                && Capture.Field(closing, "events-dropped") == "0"
                 && Capture.Field(closing, "terrain-evictions") == "0" && Capture.Long(Capture.Field(closing, "events-coalesced")) >= 0,
             $"the end marker must count exactly the {capture.Events.Count} occurrence(s) its sidecar holds, with none dropped or evicted: {capture.Trailer[0]}");
+        Require(Capture.Field(capture.Trailer[2], "diagnostics-incomplete") == "False"
+                && Capture.Field(capture.Trailer[2], "diagnostics-failure") == ""
+                && Capture.Field(capture.Trailer[2], "diagnostics-dropped") == "0",
+            "a normal native capture must complete without diagnostic loss or writer failure");
         int lastRow = capture.Rows.Count - 1;
         Require(capture.Text(0, "record_ms") == "-"
                 && Enumerable.Range(1, lastRow).All(r => double.TryParse(capture.Text(r, "record_ms"), NumberStyles.Float, CultureInfo.InvariantCulture, out double ms) && ms >= 0)
-                && capture.Long(lastRow, "events_written") <= Capture.Long(Capture.Field(closing, "events-written")) && capture.Text(lastRow, "events_dropped") == "0",
+                && capture.Long(lastRow, "events_written") <= written && capture.Text(lastRow, "events_dropped") == "0",
             $"the first row must carry no cost and every later row a non-negative one, and the running totals must not pass the closing ones; first {capture.Text(0, "record_ms")}, last written {capture.Text(lastRow, "events_written")}");
         string? retention = capture.Preamble.FirstOrDefault(line => line.StartsWith("# retention=", StringComparison.Ordinal));
         string[] bounds = { "terrain-snapshots-remembered", "terrain-captures-per-tick", "recent-attempt-outcomes", "cargo-transfer-ledger",
