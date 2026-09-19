@@ -26,13 +26,20 @@ public sealed class CaptureEnemyCourseMotion
     private DecisionFact? result;
 
     public CaptureEnemyCourseMotion(NPC enemy, long generation, ITileWorld terrain, int horizon, long modelRevision)
+        : this(CaptureCourseContactCensus.CaptureEnemy(enemy, generation), terrain, horizon, modelRevision) { }
+
+    public CaptureEnemyCourseMotion(CapturedContactEnemy enemy, ITileWorld terrain, int horizon, long modelRevision,
+        int? observationTerrainRevision = null)
     {
         if (horizon < 0 || horizon > PredictObservedMotion.MaximumForecastTicks) throw new ArgumentOutOfRangeException(nameof(horizon));
-        this.terrain = terrain; terrainRevision = terrain.Revision;
-        captureTick = Main.GameUpdateCount;
-        this.horizon = horizon; this.generation = generation; this.modelRevision = modelRevision;
-        slot = enemy.whoAmI; type = enemy.type; width = enemy.width; height = enemy.height;
-        motion = PredictObservedMotion.Capture(enemy);
+        if (enemy.Slot != enemy.Motion.Slot || enemy.Shape.Type != enemy.Motion.Type
+            || enemy.Shape.Position.X != enemy.Motion.Position.X || enemy.Shape.Position.Y != enemy.Motion.Position.Y)
+            throw new ArgumentException("Enemy geometry and motion must come from the same captured body.", nameof(enemy));
+        this.terrain = terrain; terrainRevision = observationTerrainRevision ?? terrain.Revision;
+        captureTick = enemy.Motion.Tick;
+        this.horizon = horizon; generation = enemy.Generation; this.modelRevision = modelRevision;
+        slot = enemy.Slot; type = enemy.Shape.Type; width = enemy.Shape.Width; height = enemy.Shape.Height;
+        motion = PredictObservedMotion.RestoreCaptured(enemy.Motion, width, height);
         Key = new("enemy-course-motion", FormattableString.Invariant($"{slot}/ticks:{horizon}"), generation);
     }
 

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
@@ -160,24 +162,27 @@ public static class PredictObservedMotion
     public static CapturedMotion Capture(NPC npc)
     {
         Observe(npc);
-        return new CapturedMotion(npc);
+        return new CapturedMotion(ExportTrack(npc.whoAmI)!, npc.width, npc.height);
     }
+
+    public static CapturedMotion RestoreCaptured(ExportedTrack source, int width, int height)
+        => new(source, width, height);
 
     public sealed class CapturedMotion
     {
         private readonly Track track;
         private readonly int width, height;
         private int left = int.MaxValue, top = int.MaxValue, right = int.MinValue, bottom = int.MinValue;
-        internal CapturedMotion(NPC npc)
+        internal CapturedMotion(ExportedTrack source, int width, int height)
         {
-            var source = tracks[npc.whoAmI];
-            width = npc.width; height = npc.height;
+            if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
+            this.width = width; this.height = height;
             track = new Track
             {
                 Type = source.Type, Tick = source.Tick, Position = source.Position, Velocity = source.Velocity,
                 Acceleration = source.Acceleration, Gravity = source.Gravity, MaxFallSpeed = source.MaxFallSpeed,
-                WaterMovementSpeed = source.WaterMovementSpeed, LavaMovementSpeed = source.LavaMovementSpeed,
-                HoneyMovementSpeed = source.HoneyMovementSpeed, ShimmerMovementSpeed = source.ShimmerMovementSpeed,
+                WaterMovementSpeed = source.WaterSpeed, LavaMovementSpeed = source.LavaSpeed,
+                HoneyMovementSpeed = source.HoneySpeed, ShimmerMovementSpeed = source.ShimmerSpeed,
                 NoGravity = source.NoGravity, NoTileCollide = source.NoTileCollide, Wet = source.Wet,
                 LavaWet = source.LavaWet, HoneyWet = source.HoneyWet, ShimmerWet = source.ShimmerWet,
                 MeanError = source.MeanError, ErrorSamples = source.ErrorSamples,
@@ -231,10 +236,32 @@ public static class PredictObservedMotion
     /// forecasts extend the same history the live decision read. The forecast centres are recomputed, never
     /// stored — they follow from the position, velocity, acceleration and physics below.
     /// </summary>
-    public sealed record ExportedTrack(int Slot, int Type, ulong Tick, Vector2 Position, Vector2 Velocity,
-        Vector2 Acceleration, float Gravity, float MaxFallSpeed, float WaterSpeed, float LavaSpeed,
+    public sealed record ExportedTrack(int Slot, int Type, ulong Tick,
+        [property: JsonConverter(typeof(MotionVectorConverter))] Vector2 Position,
+        [property: JsonConverter(typeof(MotionVectorConverter))] Vector2 Velocity,
+        [property: JsonConverter(typeof(MotionVectorConverter))] Vector2 Acceleration,
+        float Gravity, float MaxFallSpeed, float WaterSpeed, float LavaSpeed,
         float HoneySpeed, float ShimmerSpeed, bool NoGravity, bool NoTileCollide, bool Wet, bool LavaWet,
         bool HoneyWet, bool ShimmerWet, float MeanError, int ErrorSamples);
+
+    /// <summary>Native Vector2 coordinates are fields. The track's wire contract must
+    /// preserve them even when its enclosing snapshot uses default serializer options.</summary>
+    public sealed class MotionVectorConverter : JsonConverter<Vector2>
+    {
+        public override Vector2 Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            using var value = JsonDocument.ParseValue(ref reader);
+            if (!value.RootElement.TryGetProperty("X", out var x) || !value.RootElement.TryGetProperty("Y", out var y)
+                || !x.TryGetSingle(out float px) || !y.TryGetSingle(out float py)
+                || !float.IsFinite(px) || !float.IsFinite(py))
+                throw new JsonException("Motion vectors require finite X and Y coordinates.");
+            return new(px, py);
+        }
+        public override void Write(Utf8JsonWriter writer, Vector2 value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject(); writer.WriteNumber("X", value.X); writer.WriteNumber("Y", value.Y); writer.WriteEndObject();
+        }
+    }
 
     /// <summary>Every tracked body, for the snapshot to carry the forecast history with the forecast.</summary>
     public static IReadOnlyCollection<int> TrackedSlots => tracks.Keys;

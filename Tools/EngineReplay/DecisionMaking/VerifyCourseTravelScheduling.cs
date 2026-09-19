@@ -28,11 +28,13 @@ internal static class VerifyCourseTravelScheduling
     private static void ContactCensus()
     {
         var oldZero = Terraria.Main.npc[0]; var oldOne = Terraria.Main.npc[1];
+        ulong originalTick = Terraria.Main.GameUpdateCount;
         try
         {
             Terraria.Main.npc[0] = new Terraria.NPC { whoAmI = 0, type = 1, active = true, friendly = true, damage = 20 };
             Terraria.Main.npc[1] = new Terraria.NPC { whoAmI = 1, type = 460, active = true, damage = 20,
-                position = new(400, 800), width = 40, height = 120, direction = 1, spriteDirection = 1 };
+                position = new(400, 800), velocity = new(2, 0), noGravity = true, noTileCollide = true,
+                width = 40, height = 120, direction = 1, spriteDirection = 1 };
             var budget = new DecisionWorkBudget(double.PositiveInfinity, 2);
             var partial = CaptureCourseContactCensus.Capture(budget);
             Require(!partial.Complete && partial.ExaminedSlots == 2 && partial.Enemies.Count == 1
@@ -41,11 +43,21 @@ internal static class VerifyCourseTravelScheduling
             Require(complete.Complete && complete.ExaminedSlots == Terraria.Main.maxNPCs,
                 "contact census declared completion without examining native slots");
             var restored = JsonSerializer.Deserialize<CapturedContactCensus>(JsonSerializer.Serialize(partial))!;
+            var world = World(); var scheduler = new ScheduleCourseModels(world, 1, 2);
             Terraria.Main.npc[1].position = new(100, 100); Terraria.Main.npc[1].damage = 1;
+            Terraria.Main.npc[1].velocity = new(9, 0);
+            VerifyObservedMotion.SetTick(originalTick + 1);
             Require(restored.Enemies.SequenceEqual(partial.Enemies) && restored.Enemies[0].Shape.Position == new CoursePoint(400, 800)
                 && restored.Enemies[0].Damage == 20, "captured contact geometry retained live state or lost position in replay");
+            var query = new CaptureEnemyCourseMotion(restored.Enemies[0], world, 1, 1);
+            Require(scheduler.RequestEnemyMotion(query), "a deferred query rejected its original captured motion inputs");
+            var answer = scheduler.Continue(new(double.PositiveInfinity)).Single();
+            var movement = JsonSerializer.Deserialize<CapturedEnemyCourseMotion>(answer.Value.Text)!;
+            Require(movement.Centres.SequenceEqual(new[] { new CoursePoint(420, 860), new CoursePoint(422, 860) }),
+                "deferred enemy prediction re-read the live body instead of its recorded motion track");
         }
-        finally { Terraria.Main.npc[0] = oldZero; Terraria.Main.npc[1] = oldOne; }
+        finally { Terraria.Main.npc[0] = oldZero; Terraria.Main.npc[1] = oldOne;
+            VerifyObservedMotion.SetTick(originalTick); PredictObservedMotion.Forget(1); }
     }
 
     private static void MotionObservationTime()
