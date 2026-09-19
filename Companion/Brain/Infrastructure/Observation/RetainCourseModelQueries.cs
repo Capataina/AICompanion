@@ -9,7 +9,7 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 /// A frame advances queries; a different observed world gets a different owner.</summary>
 public sealed class RetainCourseModelQueries
 {
-    private readonly ScheduleCourseTravel travel;
+    private readonly ScheduleCourseModels travel;
     private bool abandoned;
     public RetainCourseModelQueries(DecisionFactSnapshot snapshot, ITileWorld world, long capabilityRevision, int pendingCapacity)
     {
@@ -39,6 +39,12 @@ public sealed class RetainCourseModelQueries
     {
         if (abandoned) throw new System.InvalidOperationException("An abandoned observation cannot request models.");
         return Snapshot.TryRead(request.Key, out _) || travel.Request(request);
+    }
+
+    public bool RequestEnemyMotion(CaptureEnemyCourseMotion query)
+    {
+        if (abandoned) throw new System.InvalidOperationException("An abandoned observation cannot request models.");
+        return Snapshot.TryRead(query.Key, out _) || travel.RequestEnemyMotion(query);
     }
 
     /// <summary>Publishes a new immutable catalogue only when models complete. The previous

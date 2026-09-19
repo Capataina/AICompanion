@@ -18,7 +18,29 @@ internal static class VerifyCourseTravelScheduling
         + RunOneRow.Case("G08 deferred queries cannot certify terrain edited since observation", DeferredTerrainEdit)
         + RunOneRow.Case("G11 course search drives missing native models with one shared operation", SearchOwner)
         + RunOneRow.Case("G08 captured enemy motion records native collision read bounds", MotionTerrainReads)
-        + RunOneRow.Case("G08 enemy motion publication rejects local edits and retains distant edits", MotionPublication);
+        + RunOneRow.Case("G08 enemy motion publication rejects local edits and retains distant edits", MotionPublication)
+        + RunOneRow.Case("G11 enemy motion and travel share native query turns", MixedNativeQueries);
+
+    private static void MixedNativeQueries()
+    {
+        var world = World();
+        var scheduler = new ScheduleCourseModels(world, 1, 2);
+        var route = new CourseTravelRequest(new(48, 80), default, new(272, 80));
+        var npc = new Terraria.NPC { whoAmI = 153, type = 1, position = new(48, 80), velocity = new(2, 0),
+            width = 20, height = 20, noGravity = true, noTileCollide = true };
+        var enemy = new CaptureEnemyCourseMotion(npc, 1, world, 1, 1);
+        Require(scheduler.Request(route) && scheduler.RequestEnemyMotion(enemy), "mixed native queries failed admission");
+        var results = new List<DecisionFact>();
+        for (int tick = 0; tick < 10000 && scheduler.PendingCount > 0; tick++)
+        {
+            var allowance = new DecisionWorkBudget(double.PositiveInfinity, 1);
+            results.AddRange(scheduler.Continue(allowance));
+            Require(allowance.OperationsUsed <= 1, "mixed native models spent independent allowances");
+        }
+        Require(results.Count == 2 && results[0].Key == enemy.Key && results[1].Key == route.Key,
+            "travel starved the enemy query or either frontier lost its continuation");
+        PredictObservedMotion.Forget(153);
+    }
 
     private static void MotionPublication()
     {
@@ -148,7 +170,7 @@ internal static class VerifyCourseTravelScheduling
         });
         var far = new CourseTravelRequest(new(48, 80), default, new(272, 80));
         var near = new CourseTravelRequest(new(48, 80), default, new(49, 80));
-        var scheduler = new ScheduleCourseTravel(world, 1, 2);
+        var scheduler = new ScheduleCourseModels(world, 1, 2);
         Require(scheduler.Request(far) && scheduler.Request(near) && scheduler.Request(far) && scheduler.PendingCount == 2,
             "duplicate pending requests reset or duplicate work");
         Require(!scheduler.Request(new(new(48, 80), default, new(48, 96))) && scheduler.CapacityRefusals == 1,

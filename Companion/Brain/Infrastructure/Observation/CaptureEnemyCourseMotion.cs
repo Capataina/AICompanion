@@ -36,10 +36,14 @@ public sealed class CaptureEnemyCourseMotion
 
     public FactKey Key { get; }
     public int CoveredTicks => motion.CoveredTicks;
-    public DecisionFact? Continue(DecisionWorkBudget budget)
+    internal bool BelongsTo(ITileWorld world, int revision) => ReferenceEquals(terrain, world) && terrainRevision == revision;
+    public DecisionFact? Continue(DecisionWorkBudget budget, long maximumOperations = long.MaxValue)
     {
         if (result != null) return result;
-        bool completed = motion.Continue(horizon, budget);
+        if (maximumOperations <= 0) return null;
+        int sliceEnd = (int)Math.Min(horizon, motion.CoveredTicks + Math.Min(maximumOperations, horizon));
+        motion.Continue(sliceEnd, budget);
+        bool completed = motion.CoveredTicks == horizon;
         // Test against the original observation, including cells first read in this slice.
         // Missing edit history cannot certify a frozen-world prediction either.
         if (terrain.ChangedSince(terrainRevision, motion.ReadContains) != TerrainEditVerdict.Unchanged)

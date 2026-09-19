@@ -6,18 +6,18 @@ using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
-/// <summary>Owns bounded pending native travel work for one observation owner. Completed
+/// <summary>Owns bounded pending native model work for one observation owner. Completed
 /// facts belong to that owner's frozen model catalogue, rather than a second result cache.</summary>
-public sealed class ScheduleCourseTravel
+public sealed class ScheduleCourseModels
 {
     private readonly ITileWorld world;
     private readonly long capabilityRevision;
     private readonly int observationTerrainRevision;
     private readonly CapturedCourseMotion motion;
-    private readonly Dictionary<FactKey, CaptureCourseTravel> pending = new();
+    private readonly Dictionary<FactKey, Func<DecisionWorkBudget, DecisionFact?>> pending = new();
     private readonly Queue<FactKey> turns = new();
 
-    public ScheduleCourseTravel(ITileWorld world, long capabilityRevision, int capacity)
+    public ScheduleCourseModels(ITileWorld world, long capabilityRevision, int capacity)
     {
         if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
         this.world = world; this.capabilityRevision = capabilityRevision; Capacity = capacity;
@@ -34,9 +34,21 @@ public sealed class ScheduleCourseTravel
     {
         if (pending.ContainsKey(request.Key)) return true;
         if (pending.Count == Capacity) { CapacityRefusals++; return false; }
-        pending.Add(request.Key, new(world, request.From, request.Velocity, request.To, capabilityRevision,
-            motion, observationTerrainRevision));
+        var query = new CaptureCourseTravel(world, request.From, request.Velocity, request.To, capabilityRevision,
+            motion, observationTerrainRevision);
+        pending.Add(request.Key, budget => query.Continue(budget, maximumOperations: 1));
         turns.Enqueue(request.Key);
+        return true;
+    }
+
+    public bool RequestEnemyMotion(CaptureEnemyCourseMotion query)
+    {
+        if (!query.BelongsTo(world, observationTerrainRevision))
+            throw new InvalidOperationException("Enemy motion must be captured against the model owner's original terrain observation.");
+        if (pending.ContainsKey(query.Key)) return true;
+        if (pending.Count == Capacity) { CapacityRefusals++; return false; }
+        pending.Add(query.Key, budget => query.Continue(budget, maximumOperations: 1));
+        turns.Enqueue(query.Key);
         return true;
     }
 
@@ -46,7 +58,7 @@ public sealed class ScheduleCourseTravel
         while (turns.Count > 0 && !budget.Exhausted)
         {
             var key = turns.Dequeue();
-            var result = pending[key].Continue(budget, maximumOperations: 1);
+            var result = pending[key](budget);
             if (result == null) turns.Enqueue(key);
             else
             {
