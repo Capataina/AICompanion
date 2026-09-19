@@ -110,8 +110,10 @@ AICompanion/
 ├─ InterfaceExperiments/     selectable visual prototypes outside game code
 ├─ research/                architectural questions, evidence and trade-offs for discussion
 │  ├─ Decision Architecture/       what chooses, when it commits, what it costs
+│  │  └─ Attack Six Complete Brain Architectures/ costs, counterexamples and reopening conditions for the course proposal
 │  ├─ Navigation Research/         how platformer bodies are routed elsewhere
 │  ├─ Evaluation and Observability/ what to measure, what the recorder must carry, and the plan for the harness that grades it
+│  │  └─ Probes/                  reproducible capture counts and mathematical decision counterexamples
 │  ├─ Implementation Evidence/     what this codebase was measured doing
 │  ├─ Historical Evidence/         the commit chronology and coverage ledger
 │  ├─ Game and Mod Case Studies/   how other games solved the same problems
@@ -120,7 +122,7 @@ AICompanion/
 └─ Telemetry/                gitignored; runtime session records written by the mod
 ```
 
-Architectural research and the trade-offs under discussion live in [research/Architecture and Behaviour Map.md](<research/Architecture and Behaviour Map.md>). Its hypotheses are separate from accepted gameplay decisions; utility selection and route search remain open questions.
+Architectural research and the trade-offs under discussion are indexed in [research/CLAUDE.md](<research/CLAUDE.md>); the retained-course recommendation is [Proposal 05](<research/proposal/05 Retain a Course and Repair Its Future.md>). Research hypotheses remain separate from accepted gameplay decisions. The choice/commitment architecture is under investigation; the orb's free-space route search is the implemented navigation contract.
 
 ## Operating manual
 

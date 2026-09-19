@@ -13,12 +13,13 @@ Evaluation and Observability/
 ├─ Behavioural Acceptance Matrix.md               positive and countercases for all README responsibilities
 ├─ Question Answers and Remaining Evidence.md    dispositions for all 140 research questions
 ├─ Research Scope and Verification.md             obligations, checks, corrections and reproducibility limits
-└─ God's View Verification Plan.md                the one-piece plan for the harness: kit, ledger, three instruments, refusals, sources
+├─ God's View Verification Plan.md                the one-piece plan for the harness: kit, ledger, three instruments, refusals, sources
+└─ Probes/                                       executable capture counts and mathematical course counterexamples
 ```
 
 A sampled activity name is not a fresh decision, a route status is not a physical outcome, a tool call is not productive work, and a retained failure is not a new failure on every row. Count events by identity and state changes by transition. Interpret each timestamp against its producer's clock. Experiments must fix these meanings before they compare architectures, because a wrong measuring rule can make a working mechanism look broken and a broken one look successful.
 
-Implementation changes described here remain proposals. No runtime recorder, report generator or fixture was changed or executed for this research.
+Implementation changes described here remain proposals unless a dated ledger states otherwise. The course investigation's [probes](Probes/CLAUDE.md) were executed and distinguish raw capture measurements from toy-model checks; no production brain or native replay was run for that investigation.
 
 The Proposal 1 failure analysis adds ten top-level, nine family, thirty-five activity and ten shared safety/local-movement cases, each with a likely owner, a shared remedy and discriminating evidence. Sixteen further cross-system cases J01–J16 live in the purpose-family discussion and map to implementation packages. Its elevation-and-ore example is an owner-reported symptom, not a native reproduction. It separates useful job value from failed execution, and movement-purpose targets from immediate firing targets. The proposed family/activity health-bar labels consume the same activity evidence as the inspector.
 

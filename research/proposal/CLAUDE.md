@@ -1,5 +1,9 @@
 # Ranked routes from recorded behaviour to the intended companion
 
+**19 September 2026: read [05 Retain a Course and Repair Its Future](<05 Retain a Course and Repair Its Future.md>) for the current recommendation.** Six complete approaches have now been attacked at `b3a4ad94f`; their [reports](<../Decision Architecture/Attack Six Complete Brain Architectures/CLAUDE.md>) preserve the alternatives and costs. The recommendation combines a concrete retained course, event-driven repair, one contextual objective and bounded local consequence planning. It remains a proposal for discussion, not an implementation licence. Its numerical cross-outcome policy, successor-model fidelity and actual runtime envelope remain gates. 04 is preserved as the preceding unfinished conversation, including its user's uncommitted edits.
+
+The dated ranking and investigation instructions below record what was known before that attack. Statements that the next sitting must attack 04 have been discharged by the six reports; statements that 04/05 are unbuilt still hold. The current reading route is 05 → its evidence and attacks → 04 for the originating argument → 02/03 for the bets it combined → 01 for the implemented contracts. Do not repeat a proposed experiment as though its presence here proves it ran.
+
 **Owner-selected direction, 12 September 2026: Path 1 combines three purpose families with explicit opportunity validity, activity progress and control ownership.** Each family uses shared utility machinery to offer its best eligible concrete activity before the top level chooses. The seven activities are mining, chopping, hunting, guarding, lighting, collecting and keeping company — hunting and guarding later merged into one combat activity that alone fires. Safety owns avoidance across families; company includes relaxed nearby movement, and separation weighs the current need for help and practical reunion. No independent exploration or Survival child remains. Path 1 is implemented. Path 2 is the strongest extension if a common execution framework is needed beyond Path 1's lightweight ownership. Path 3 becomes preferable when matched scenarios demonstrate consequential choices that immediate activity evaluation misses.
 
 **18 September 2026: Path 4 is a work-in-progress discussion, not a decided bet and not an implementation plan.** It is the mix of Path 2 and Path 3 this sitting reached on paper, with receipts, owner corrections, sentinels' Fail, Drake/Baron constraints, and named holes (zero-work ping-pong, urgency versus leftover, site-grain versus family-grain, slime-on-the-drop). Combining 02 and 03 has not been shown to be the right next move. The next sitting attacks it and runs `where-next`; it does not type it. 02 and 03 remain the source documents of those two bets. Keep-the-job membership on collect and torch is a necessary piece of last night and is not 04. Nothing of 04 is built.
@@ -12,7 +16,8 @@ proposal/
 ├─ 01 Preserve Utility and Repair Activity Contracts.md    Path 1 implementation contracts; production chooser
 ├─ 02 Organise Utility Around Continuing Activities.md     stronger shared execution beneath existing families
 ├─ 03 Add Bounded Planning for Consequential Choices.md     short consequence-aware plans under utility goals
-└─ 04 Plan a Course of Action and Follow It.md             mix of 02+03 under the 18 Sep 2026 corrections
+├─ 04 Plan a Course of Action and Follow It.md             mix of 02+03 under the 18 Sep 2026 corrections
+└─ 05 Retain a Course and Repair Its Future.md             six-way attack synthesis, contract, gates and limits
 ```
 
 ## How this folder works
