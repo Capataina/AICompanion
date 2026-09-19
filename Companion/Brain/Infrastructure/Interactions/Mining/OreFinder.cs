@@ -17,10 +17,13 @@ namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Mining;
 /// </summary>
 public static class OreFinder
 {
-    private const int MaxVeinTiles = 400;
+    /// <summary>The bounded native census limit.  Reaching it is incomplete evidence, not a
+    /// claim that the observed vein ended at this tile.</summary>
+    public const int MaxVeinTiles = 400;
 
     /// <summary>An ore and the point the body hovers at to work it, within tool reach with a line to an exposed face.</summary>
     public readonly record struct OreTarget(Point Tile, int Type, Vector2 StandPosition);
+    public readonly record struct VeinCensus(IReadOnlyCollection<Point> Tiles, bool Complete);
     public readonly record struct SearchResult(OreTarget? Target, Point? UnresolvedTile)
     {
         public bool ApproachUnknown => UnresolvedTile != null;
@@ -61,6 +64,29 @@ public static class OreFinder
                 }
         }
         return seen;
+    }
+
+    /// <summary>Captures the same bounded connected component as <see cref="Vein"/>, but
+    /// exposes whether the bound cut the census.  A course must carry that uncertainty instead
+    /// of treating a 400-tile prefix as the whole physical need.</summary>
+    public static VeinCensus CensusVein(Point start, int type)
+    {
+        HashSet<Point> tiles = Vein(start, type);
+        bool complete = true;
+        if (tiles.Count == MaxVeinTiles)
+        {
+            foreach (Point point in tiles)
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dy = -1; dy <= 1; dy++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        Point neighbour = new(point.X + dx, point.Y + dy);
+                        if (!tiles.Contains(neighbour) && IsOreOfType(neighbour.X, neighbour.Y, type))
+                        { complete = false; goto done; }
+                    }
+        }
+    done:
+        return new VeinCensus(tiles, complete);
     }
 
     /// <summary>

@@ -3,7 +3,7 @@
 ```
 Mining/
 ├─ CLAUDE.md
-├─ OreFinder.cs   which tiles are ore (TileID.Sets.Ore), a bounded 8-connected vein, and ore discovery near a source body with an approach proved from the companion's own centre; its result retains the exact nearest unresolved tile separately from a proven target
+├─ OreFinder.cs   which tiles are ore (TileID.Sets.Ore), a bounded 8-connected vein with an explicit complete/incomplete census verdict, and ore discovery near a source body with an approach proved from the companion's own centre; its result retains the exact nearest unresolved tile separately from a proven target
 └─ TileMiner.cs   runs the game's own Player.PickTile on the companion's drawing-only player, so the damage formula, the power gates, a modded tile's power check, the crack table and the break are the game's; CanMine asks the game's private damage formula through a delegate bound to that player
 ```
 

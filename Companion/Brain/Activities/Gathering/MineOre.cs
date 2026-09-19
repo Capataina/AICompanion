@@ -34,7 +34,9 @@ public sealed class MineOre : CompanionAction
         ? target?.Tile != bound.Tile ? "prepared-target-changed" : bound.Rejection : "";
 
     private const int KeepJobTicks = 600;
-    private const int SearchRadiusTiles = 45;
+    /// <summary>The established native ore-search extent. Course capture uses the same surface
+    /// rather than inventing a second census radius.</summary>
+    public const int SearchRadiusTiles = 45;
     private const int SearchEveryTicks = 60;
 
     private OreFinder.OreTarget? target;

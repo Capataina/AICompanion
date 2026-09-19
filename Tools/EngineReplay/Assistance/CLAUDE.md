@@ -12,6 +12,7 @@ Assistance/
 ├─ VerifyUsefulAssistance.cs      assistance that is useful rather than merely nearby
 ├─ VerifyAssistanceTrips.cs       a trip goes and returns; hover sites; incidental pots
 ├─ VerifyCollectionContracts.cs   a drop is claimed only for what arrived
+├─ VerifyAssistanceOpportunityDiscovery.cs immutable assistance census identity and fair-cut coverage
 ├─ VerifyCapabilityRevision.cs    a capability change reaches the next preparation
 ├─ VerifyCompanyLocalMotion.cs    strolling without walking into hazards
 ├─ VerifyCourtesy.cs              getting out of the player's way, and staying out
@@ -19,6 +20,8 @@ Assistance/
 ```
 
 ## Keeping company is the fallback, measured on the native brain
+
+`VerifyAssistanceOpportunityDiscovery` runs with the gathering census checks through `--retained-course-opportunities`. Its pure rows retain separate drop/light/pot opportunities, resume through a new snapshot ID, and distinguish replacement generations. Its native row uses Terraria item slots and the real drop capture: mutate the second stack between one-operation slices, require the frozen quantities and shared denominator, recapture unchanged items, then replace one slot. Unknown geometry must round-trip through JSON as unknown. These assertions cover observation and discovery; they do not prove native placement, complete item lifecycle attribution or course execution.
 
 `VerifyCompanyIsTheFallback` holds the ruling that keeping company is what the companion does when nothing is worth doing, never a job that out-competes one. The scene hands the companion a wooden bow and declares a play-sized screen that follows the player, so the new-job radius and the intent region are the ones play builds. Four rows, each printing its numbers before its verdict:
 

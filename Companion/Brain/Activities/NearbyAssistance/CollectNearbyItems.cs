@@ -152,7 +152,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
             // drop-has-no-contact-pose — and the moved-drop guard then held the body on every tick of a
             // fall, because a falling drop has always moved more than a tile since it was proven. Both
             // are the same mistake: an item in flight was priced as an object at rest.
-            if (ForecastLanding(item) is not Vector2 landing)
+            if (ForecastDropLanding(item) is not Vector2 landing)
             {
                 Refuse(OfferEligibility.Unresolved, "drop-landing-undecided");
                 Funnel.Add(identity, at, cost, StageCapacity, StageLanding, readings);
@@ -163,7 +163,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
                 pose = ctx.Npc.Bottom;
             else
             {
-                if (ContactPose(item, landing) is not Point contact)
+                if (FindDropContactPose(item, landing) is not Point contact)
                 {
                     Refuse(OfferEligibility.KnownUnusable, "drop-has-no-contact-pose");
                     Funnel.Add(identity, at, cost, StageLanding, StageContactPose,
@@ -215,6 +215,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
         => new((int)(centre.X - CircleContact.Radius), (int)(centre.Y - CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter);
 
     private static bool TouchesDrop(Rectangle body, Item item, float reach) => Touches(body, item.Hitbox, reach);
+    internal static bool HasProvenPickupContact(Rectangle body, Item item) => TouchesDrop(body, item, ProvePickupReach);
 
     private static bool Touches(Rectangle body, Rectangle drop, float reach)
     {
@@ -238,7 +239,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
     /// <para>It never runs a route search, and it must not: this is an activity, and the navigation
     /// boundary refuses one here. It reads tiles and the item's own numbers and nothing else.</para>
     /// </summary>
-    private static Vector2? ForecastLanding(Item item)
+    internal static Vector2? ForecastDropLanding(Item item)
     {
         Vector2 bottom = item.Bottom;
         // Already at rest on something: the landing is where it is.
@@ -298,7 +299,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
     /// <summary>The hoverable cell nearest the drop from which a body that has arrived still picks it up, or none.
     /// Nearest-to-companion among cells that merely graze was the cell with the least overlap: arrival slack then
     /// missed, and the navigator reported Arrived so the body hung beside the gel without taking it.</summary>
-    private static Point? ContactPose(Item item, Vector2 landing)
+    internal static Point? FindDropContactPose(Item item, Vector2 landing)
     {
         // Every geometric question below is asked about the landing rather than the live bottom: an
         // item still in the air is going to be somewhere else by the time a body flies to it, and a
@@ -368,7 +369,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
         // every fall; what actually invalidates the walk is the *landing* moving — the item bouncing
         // off a slope, being knocked sideways, or landing somewhere the forecast did not expect. A
         // landing that can no longer be forecast at all is a hold for the same reason.
-        if (ForecastLanding(prepared.Item) is not Vector2 landing
+        if (ForecastDropLanding(prepared.Item) is not Vector2 landing
             || Vector2.DistanceSquared(landing, prepared.Position) > MovedDropPixels * MovedDropPixels)
             return PositionRequest.Hold;
         if (dropAttempt is not { } open || !ReferenceEquals(open.Item, prepared.Item))

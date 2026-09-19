@@ -13,6 +13,7 @@ Gathering/
 ├─ CLAUDE.md              job ownership, preparation and native evidence limits
 ├─ MineOre.cs             retained ore-only vein work under the chosen policy
 ├─ ChopTree.cs            separate-tree preference and retained reachable trunk work
+├─ GatheringCourseOpportunities.cs resumable native ore census and pure frozen-fact mine source; tree capture remains outside this partial seam
 └─ DescribeOreJobEnd.cs   original bounded vein state at job end, with separate removal attribution
 ```
 

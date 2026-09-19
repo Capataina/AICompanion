@@ -8,6 +8,7 @@ Gathering/
 ├─ VerifyOreWork.cs              ore jobs end to end: approach, reach, seals, attribution, departure
 ├─ VerifyRouteHomeFromEitherEnd.cs the route home a job pays for, read from beside the ore and from beside the player
 ├─ VerifyMiningList.cs           the list's known ores, marks and mode, and mining refusing what it leaves
+├─ VerifyGatheringOpportunityDiscovery.cs frozen gathering-source contracts; live ore capture fixture remains required before integration
 ├─ VerifyGatheringCooperation.cs working beside the player without competing with him
 └─ VerifyWorkAccounting.cs       what a job reports against what the world shows
 ```

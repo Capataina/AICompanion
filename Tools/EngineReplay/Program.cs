@@ -100,6 +100,7 @@ if (args.Contains("--protection-recovery")) return VerifyEngineMotion.Run(protec
 if (args.Contains("--observation")) return VerifyObservationLifecycle.Run();
 if (args.Contains("--retained-course-observation")) return VerifyRetainedCourseObservation.Run();
 if (args.Contains("--retained-course-core")) return VerifyCourseCore.Run() + VerifyProjectionContracts.Run();
+if (args.Contains("--retained-course-opportunities")) return VerifyAssistanceOpportunityDiscovery.Run() + VerifyGatheringOpportunityDiscovery.Run();
 if (args.Contains("--retained-course-recording")) return
     RunOneRow.Case("G14 ordered diagnostic transport", () => { if (VerifyDiagnosticTransport.RequiredAndOptionalRecordsPreserveOfferOrder() != 0) throw new InvalidOperationException("Diagnostic order failed."); })
     + RunOneRow.Case("G14 diagnostic overflow stays incomplete", () => { if (VerifyDiagnosticTransport.LargeStringOverflowStaysSticky() != 0) throw new InvalidOperationException("Diagnostic overflow failed."); })
