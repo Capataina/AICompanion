@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
@@ -43,7 +44,7 @@ public sealed class ProjectMeleeContactGeometry
             if (!budget.TrySpend("course-melee-geometry")) return null;
             int tick = samples.Count;
             var centre = motion.Centres[tick];
-            var at = enemy with { Position = new Vector2((float)centre.X - enemy.Width * .5f, (float)centre.Y - enemy.Height * .5f) };
+            var at = enemy with { Position = new CoursePoint((float)centre.X - enemy.Width * .5f, (float)centre.Y - enemy.Height * .5f) };
             var victim = victims[tick];
             var shape = ResolveCapturedMeleeShape.Resolve(at,
                 new Rectangle((int)victim.X, (int)victim.Y, (int)victim.Width, (int)victim.Height), baseChannel);

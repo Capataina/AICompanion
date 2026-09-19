@@ -1,13 +1,15 @@
 using Microsoft.Xna.Framework;
 using Terraria;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
-public readonly record struct CapturedMeleeEnemy(int Type, Vector2 Position, int Width, int Height,
+public readonly record struct CapturedMeleeEnemy(int Type, CoursePoint Position, int Width, int Height,
     int Direction, int SpriteDirection, int FrameY, float Ai0, float Ai2, float Ai3)
 {
-    public Vector2 Centre => Position + new Vector2(Width * .5f, Height * .5f);
-    public static CapturedMeleeEnemy From(NPC enemy) => new(enemy.type, enemy.position, enemy.width, enemy.height,
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Vector2 Centre => new Vector2((float)Position.X, (float)Position.Y) + new Vector2(Width * .5f, Height * .5f);
+    public static CapturedMeleeEnemy From(NPC enemy) => new(enemy.type, new(enemy.position.X, enemy.position.Y), enemy.width, enemy.height,
         enemy.direction, enemy.spriteDirection, enemy.frame.Y, enemy.ai[0], enemy.ai[2], enemy.ai[3]);
 }
 public readonly record struct CapturedMeleeShape(Rectangle Box, float DamageMultiplier, int HitChannel);

@@ -22,7 +22,31 @@ internal static class VerifyCourseTravelScheduling
         + RunOneRow.Case("G11 enemy motion and travel share native query turns", MixedNativeQueries)
         + RunOneRow.Case("G15 captured melee shapes match native victim-dependent geometry", NativeMeleeShapes)
         + RunOneRow.Case("G15 captured motion and native defence produce timed contact harm", NativeContactPipeline)
-        + RunOneRow.Case("G08 enemy models reject later observations without terrain edits", MotionObservationTime);
+        + RunOneRow.Case("G08 enemy models reject later observations without terrain edits", MotionObservationTime)
+        + RunOneRow.Case("G14 native contact census preserves frozen geometry and incomplete coverage", ContactCensus);
+
+    private static void ContactCensus()
+    {
+        var oldZero = Terraria.Main.npc[0]; var oldOne = Terraria.Main.npc[1];
+        try
+        {
+            Terraria.Main.npc[0] = new Terraria.NPC { whoAmI = 0, type = 1, active = true, friendly = true, damage = 20 };
+            Terraria.Main.npc[1] = new Terraria.NPC { whoAmI = 1, type = 460, active = true, damage = 20,
+                position = new(400, 800), width = 40, height = 120, direction = 1, spriteDirection = 1 };
+            var budget = new DecisionWorkBudget(double.PositiveInfinity, 2);
+            var partial = CaptureCourseContactCensus.Capture(budget);
+            Require(!partial.Complete && partial.ExaminedSlots == 2 && partial.Enemies.Count == 1
+                && partial.Enemies[0].Slot == 1 && budget.OperationsUsed == 2, "contact census concealed a cut or counted a friendly body");
+            var complete = CaptureCourseContactCensus.Capture(new(double.PositiveInfinity));
+            Require(complete.Complete && complete.ExaminedSlots == Terraria.Main.maxNPCs,
+                "contact census declared completion without examining native slots");
+            var restored = JsonSerializer.Deserialize<CapturedContactCensus>(JsonSerializer.Serialize(partial))!;
+            Terraria.Main.npc[1].position = new(100, 100); Terraria.Main.npc[1].damage = 1;
+            Require(restored.Enemies.SequenceEqual(partial.Enemies) && restored.Enemies[0].Shape.Position == new CoursePoint(400, 800)
+                && restored.Enemies[0].Damage == 20, "captured contact geometry retained live state or lost position in replay");
+        }
+        finally { Terraria.Main.npc[0] = oldZero; Terraria.Main.npc[1] = oldOne; }
+    }
 
     private static void MotionObservationTime()
     {
