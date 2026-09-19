@@ -128,4 +128,9 @@ if (args.Contains("--hunt-admissibility")) return VerifyHuntAdmissibility.Run();
 if (args.Contains("--safety-layer")) return VerifyEngineMotion.Run(safetyLayerOnly: true);
 if (args.Contains("--dodge-repro")) return VerifyEngineMotion.Run(dodgeReproOnly: true);
 if (args.Contains("--activities")) return VerifyEngineMotion.Run(activitiesOnly: true);
+if (args.Any(a => a.StartsWith("--", StringComparison.Ordinal) && a is not "--lifecycle" and not "--liquids"))
+{
+    Console.Error.WriteLine("Unknown EngineReplay option. Refusing to substitute the default suite for the requested case.");
+    return 2;
+}
 return VerifyEngineMotion.Run(args.Contains("--lifecycle"), args.Contains("--liquids"));
