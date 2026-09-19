@@ -36,7 +36,7 @@ internal static class VerifyProjectionContracts
         var enemyBoxes = new[] { new ContactBox(40, 0, 20, 20), new ContactBox(20, 0, 20, 20),
             new ContactBox(19, 0, 20, 20), new ContactBox(10, 0, 20, 20), new ContactBox(0, 0, 20, 20) };
         var forecast = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
-            new[] { new ContactThreat(1, 1, 50, 25, enemyBoxes, true) }, 4, true);
+            new[] { new ContactThreat(1, 1, 50, 25, new(enemyBoxes, 0, true), new(enemyBoxes, 0, true)) }, 4, true);
         ContactHarmResult? result = null;
         for (int i = 0; i < 100 && result == null; i++)
         {
@@ -50,6 +50,14 @@ internal static class VerifyProjectionContracts
         var incomplete = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0, actorBoxes) },
             Array.Empty<ContactThreat>(), 4, false).Continue(new(double.PositiveInfinity));
         Require(incomplete!.TailUnresolved && incomplete.Harm.Count == 0, "an incomplete enemy census became a safe empty world");
+        var perVictim = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0, actorBoxes),
+                new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
+            new[] { new ContactThreat(1, 1, 50, 25, new(actorBoxes, 3, true), new(enemyBoxes, 0, true)) }, 4, true)
+            .Continue(new(double.PositiveInfinity));
+        Require(perVictim!.Harm.Count == 2
+            && perVictim.Harm.Single(hit => hit.Actor == HarmActor.Player).Tick == 3
+            && perVictim.Harm.Single(hit => hit.Actor == HarmActor.Companion).Tick == 2,
+            "victim-dependent attack geometry or native cooldown readiness was shared between actors");
     }
 
     private static void ConsequenceReads()

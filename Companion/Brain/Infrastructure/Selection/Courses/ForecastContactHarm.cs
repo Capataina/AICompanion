@@ -13,8 +13,9 @@ public readonly record struct ContactBox(double X, double Y, double Width, doubl
         && Y < other.Y + other.Height && Y + Height > other.Y;
 }
 public sealed record ContactActor(HarmActor Actor, double Life, int ReadyTick, IReadOnlyList<ContactBox> Boxes);
+public sealed record ContactGeometry(IReadOnlyList<ContactBox> Boxes, int ReadyTick, bool Supported);
 public sealed record ContactThreat(int Slot, long Generation, double DamageToPlayer, double DamageToCompanion,
-    IReadOnlyList<ContactBox> Boxes, bool GeometrySupported);
+    ContactGeometry ToPlayer, ContactGeometry ToCompanion);
 public sealed record ContactHarmResult(IReadOnlyList<PredictedHarm> Harm, bool TailUnresolved, int RequestedHorizon);
 
 /// <summary>First contact over captured per-tick geometry. A hit ends that actor's supported
@@ -35,14 +36,16 @@ public sealed class ForecastContactHarm
         if (horizon < 0) throw new ArgumentOutOfRangeException(nameof(horizon));
         this.actors = actors.Select(value => value with { Boxes = Array.AsReadOnly(value.Boxes.ToArray()) }).ToArray();
         this.threats = threats.OrderBy(value => value.Slot)
-            .Select(value => value with { Boxes = Array.AsReadOnly(value.Boxes.ToArray()) }).ToArray();
+            .Select(value => value with { ToPlayer = Freeze(value.ToPlayer), ToCompanion = Freeze(value.ToCompanion) }).ToArray();
         if (this.actors.Select(value => value.Actor).Distinct().Count() != this.actors.Length
             || this.threats.Select(value => value.Slot).Distinct().Count() != this.threats.Length)
             throw new ArgumentException("A contact census must contain each actor and hostile slot once.");
         if (this.actors.Any(value => !double.IsFinite(value.Life) || value.Life < 0 || value.ReadyTick < 0)
             || this.threats.Any(value => !double.IsFinite(value.DamageToPlayer) || value.DamageToPlayer < 0
-                || !double.IsFinite(value.DamageToCompanion) || value.DamageToCompanion < 0)
-            || this.actors.SelectMany(value => value.Boxes).Concat(this.threats.SelectMany(value => value.Boxes)).Any(box =>
+                || !double.IsFinite(value.DamageToCompanion) || value.DamageToCompanion < 0
+                || value.ToPlayer.ReadyTick < 0 || value.ToCompanion.ReadyTick < 0)
+            || this.actors.SelectMany(value => value.Boxes).Concat(this.threats.SelectMany(value =>
+                value.ToPlayer.Boxes.Concat(value.ToCompanion.Boxes))).Any(box =>
                 !double.IsFinite(box.X) || !double.IsFinite(box.Y) || !double.IsFinite(box.Width)
                 || !double.IsFinite(box.Height) || !double.IsFinite(box.X + box.Width)
                 || !double.IsFinite(box.Y + box.Height) || box.Width < 0 || box.Height < 0))
@@ -62,11 +65,12 @@ public sealed class ForecastContactHarm
             if (tick < body.ReadyTick) { tick = body.ReadyTick; continue; }
             if (tick >= body.Boxes.Count) { unresolved = true; NextActor(); continue; }
             var enemy = threats[threat];
-            if (!enemy.GeometrySupported || tick >= enemy.Boxes.Count) unresolved = true;
+            var geometry = body.Actor == HarmActor.Player ? enemy.ToPlayer : enemy.ToCompanion;
+            if (!geometry.Supported || tick >= geometry.Boxes.Count) unresolved = true;
             else
             {
                 double damage = body.Actor == HarmActor.Player ? enemy.DamageToPlayer : enemy.DamageToCompanion;
-                if (damage > 0 && body.Boxes[tick].Intersects(enemy.Boxes[tick]))
+                if (tick >= geometry.ReadyTick && damage > 0 && body.Boxes[tick].Intersects(geometry.Boxes[tick]))
                 {
                     harm.Add(new(body.Actor, damage, body.Life, tick, EstimateStatus.Nominal));
                     if (tick < horizon) unresolved = true;
@@ -79,4 +83,6 @@ public sealed class ForecastContactHarm
     }
 
     private void NextActor() { actor++; tick = 0; threat = 0; }
+    private static ContactGeometry Freeze(ContactGeometry geometry)
+        => geometry with { Boxes = Array.AsReadOnly(geometry.Boxes.ToArray()) };
 }
