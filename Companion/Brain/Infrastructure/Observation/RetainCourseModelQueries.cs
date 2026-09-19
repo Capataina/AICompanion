@@ -44,6 +44,9 @@ public sealed class RetainCourseModelQueries
     public bool RequestEnemyMotion(CaptureEnemyCourseMotion query)
     {
         if (abandoned) throw new System.InvalidOperationException("An abandoned observation cannot request models.");
+        // Validate even a cached key: entity generation and horizon do not identify
+        // the observation in which that enemy's pose was captured.
+        travel.ValidateEnemyMotion(query);
         return Snapshot.TryRead(query.Key, out _) || travel.RequestEnemyMotion(query);
     }
 

@@ -13,6 +13,7 @@ public sealed class ScheduleCourseModels
     private readonly ITileWorld world;
     private readonly long capabilityRevision;
     private readonly int observationTerrainRevision;
+    private readonly ulong observationTick;
     private readonly CapturedCourseMotion motion;
     private readonly Dictionary<FactKey, Func<DecisionWorkBudget, DecisionFact?>> pending = new();
     private readonly Queue<FactKey> turns = new();
@@ -22,6 +23,7 @@ public sealed class ScheduleCourseModels
         if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
         this.world = world; this.capabilityRevision = capabilityRevision; Capacity = capacity;
         observationTerrainRevision = world.Revision; motion = CapturedCourseMotion.Current;
+        observationTick = Terraria.Main.GameUpdateCount;
     }
     public int Capacity { get; }
     public int PendingCount => pending.Count;
@@ -43,13 +45,18 @@ public sealed class ScheduleCourseModels
 
     public bool RequestEnemyMotion(CaptureEnemyCourseMotion query)
     {
-        if (!query.BelongsTo(world, observationTerrainRevision))
-            throw new InvalidOperationException("Enemy motion must be captured against the model owner's original terrain observation.");
+        ValidateEnemyMotion(query);
         if (pending.ContainsKey(query.Key)) return true;
         if (pending.Count == Capacity) { CapacityRefusals++; return false; }
         pending.Add(query.Key, budget => query.Continue(budget, maximumOperations: 1));
         turns.Enqueue(query.Key);
         return true;
+    }
+
+    internal void ValidateEnemyMotion(CaptureEnemyCourseMotion query)
+    {
+        if (!query.BelongsTo(world, observationTerrainRevision, observationTick))
+            throw new InvalidOperationException("Enemy motion must share the model owner's capture tick, terrain source and revision.");
     }
 
     public IReadOnlyList<DecisionFact> Continue(DecisionWorkBudget budget)

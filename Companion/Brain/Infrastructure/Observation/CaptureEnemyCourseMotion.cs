@@ -22,12 +22,14 @@ public sealed class CaptureEnemyCourseMotion
     private readonly ITileWorld terrain;
     private readonly int terrainRevision, horizon, slot, type, width, height;
     private readonly long generation, modelRevision;
+    private readonly ulong captureTick;
     private DecisionFact? result;
 
     public CaptureEnemyCourseMotion(NPC enemy, long generation, ITileWorld terrain, int horizon, long modelRevision)
     {
         if (horizon < 0 || horizon > PredictObservedMotion.MaximumForecastTicks) throw new ArgumentOutOfRangeException(nameof(horizon));
         this.terrain = terrain; terrainRevision = terrain.Revision;
+        captureTick = Main.GameUpdateCount;
         this.horizon = horizon; this.generation = generation; this.modelRevision = modelRevision;
         slot = enemy.whoAmI; type = enemy.type; width = enemy.width; height = enemy.height;
         motion = PredictObservedMotion.Capture(enemy);
@@ -36,7 +38,8 @@ public sealed class CaptureEnemyCourseMotion
 
     public FactKey Key { get; }
     public int CoveredTicks => motion.CoveredTicks;
-    internal bool BelongsTo(ITileWorld world, int revision) => ReferenceEquals(terrain, world) && terrainRevision == revision;
+    internal bool BelongsTo(ITileWorld world, int revision, ulong tick)
+        => ReferenceEquals(terrain, world) && terrainRevision == revision && captureTick == tick;
     public DecisionFact? Continue(DecisionWorkBudget budget, long maximumOperations = long.MaxValue)
     {
         if (result != null) return result;

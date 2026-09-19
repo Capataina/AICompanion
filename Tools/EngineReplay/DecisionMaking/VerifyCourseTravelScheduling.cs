@@ -21,7 +21,38 @@ internal static class VerifyCourseTravelScheduling
         + RunOneRow.Case("G08 enemy motion publication rejects local edits and retains distant edits", MotionPublication)
         + RunOneRow.Case("G11 enemy motion and travel share native query turns", MixedNativeQueries)
         + RunOneRow.Case("G15 captured melee shapes match native victim-dependent geometry", NativeMeleeShapes)
-        + RunOneRow.Case("G15 captured motion and native defence produce timed contact harm", NativeContactPipeline);
+        + RunOneRow.Case("G15 captured motion and native defence produce timed contact harm", NativeContactPipeline)
+        + RunOneRow.Case("G08 enemy models reject later observations without terrain edits", MotionObservationTime);
+
+    private static void MotionObservationTime()
+    {
+        ulong originalTick = Terraria.Main.GameUpdateCount;
+        try
+        {
+            var world = World();
+            var scheduler = new ScheduleCourseModels(world, 1, 2);
+            var owner = new RetainCourseModelQueries(Snapshot(), world, 1, 2);
+            var npc = new Terraria.NPC { whoAmI = 151, type = 1, position = new(48, 80), velocity = new(2, 0),
+                width = 20, height = 20, noGravity = true, noTileCollide = true };
+            var captured = new CaptureEnemyCourseMotion(npc, 1, world, 1, 1);
+            Require(owner.RequestEnemyMotion(captured) && owner.Continue(new(double.PositiveInfinity)),
+                "original enemy model did not populate the observation catalogue");
+            VerifyObservedMotion.SetTick(originalTick + 1);
+            Require(scheduler.RequestEnemyMotion(captured), "an original capture could not be queued on a later frame");
+            var later = new CaptureEnemyCourseMotion(npc, 1, world, 1, 1);
+            bool refused = false;
+            try { scheduler.RequestEnemyMotion(later); }
+            catch (InvalidOperationException) { refused = true; }
+            Require(refused, "a duplicate key concealed an enemy captured on another tick");
+            refused = false;
+            try { owner.RequestEnemyMotion(later); }
+            catch (InvalidOperationException) { refused = true; }
+            Require(refused, "catalogue reuse concealed an enemy captured on another tick");
+            Require(scheduler.Continue(new(double.PositiveInfinity)).Count == 1,
+                "capture-time validation prevented retained computation from finishing on a later frame");
+        }
+        finally { VerifyObservedMotion.SetTick(originalTick); PredictObservedMotion.Forget(151); }
+    }
 
     private static void NativeContactPipeline()
     {
