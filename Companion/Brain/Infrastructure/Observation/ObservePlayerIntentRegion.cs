@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using CoursesGap = AICompanion.Companion.Brain.Infrastructure.Selection.Courses.MeasureCompanionshipGap;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
@@ -65,9 +66,8 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
     /// overshoots, for the same reason <see cref="Pull"/> is Chebyshev. Every separation the brain charges is measured on this,
     /// so it starts at zero where the region ends and there is no step at the edge.
     /// </summary>
-    public float GapBeyond(Vector2 point) => MathF.Max(0f, MathF.Max(
-        MathF.Abs(point.X - Centre.X) - HalfSize.X,
-        MathF.Abs(point.Y - Centre.Y) - HalfSize.Y));
+    public float GapBeyond(Vector2 point) => CoursesGap.Beyond(
+        point.X - Centre.X, point.Y - Centre.Y, HalfSize.X, HalfSize.Y);
 
     /// <summary>The nearest point to <paramref name="point"/> that is inside the region by <paramref name="inset"/> on both
     /// axes: the point itself when it already is.</summary>

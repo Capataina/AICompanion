@@ -7,6 +7,7 @@ Courses/
 ├─ CLAUDE.md                    model and publication boundary
 ├─ DescribeCourse.cs            immutable bindings, effects, resources, estimates and receipts
 ├─ CompareCourseOutcomes.cs     frozen-census objective, bounds and boundary comparison
+├─ MeasureCompanionshipGap.cs   the shared rectangular gap and captured-preference pull curve
 ├─ ProjectCourseEffects.cs      sparse hypothetical state and once-only physical allocation
 ├─ ReadCourseTravel.cs          captured native route timing and arrival momentum, read through manifests
 ├─ TrackCourseDependencies.cs   tracked fact manifests and reverse dependency index

@@ -13,7 +13,29 @@ internal static class VerifyCourseOrderProjection
     public static int Run()
         => RunOneRow.Case("G11 order projection retains native bindings across one-operation cuts", SlicedOrder)
         + RunOneRow.Case("G03 empty orders retain unresolved companionship costs", EmptyOrder)
-        + RunOneRow.Case("G08 projection refuses changed frozen inputs", FrozenInputs);
+        + RunOneRow.Case("G08 projection refuses changed frozen inputs", FrozenInputs)
+        + RunOneRow.Case("G03 captured companionship uses the live region curve", SharedCompanionshipCurve);
+
+    private static void SharedCompanionshipCurve()
+    {
+        foreach (float halfWidth in new[] { 0f, 32f, 120f })
+        foreach (float halfHeight in new[] { 0f, 48f, 160f })
+        foreach (float recovery in new[] { 0f, 100f, 800f })
+        foreach (float x in new[] { -900f, -120f, 0f, 120f, 900f })
+        foreach (float y in new[] { -500f, 0f, 500f })
+        {
+            var region = new live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion(
+                new Microsoft.Xna.Framework.Vector2(17, -23), new(halfWidth, halfHeight), default, false);
+            var point = region.Centre + new Microsoft.Xna.Framework.Vector2(x, y);
+            float expectedGap = MathF.Max(0, MathF.Max(MathF.Abs(x) - halfWidth, MathF.Abs(y) - halfHeight));
+            float expectedPull = Math.Clamp(expectedGap / MathF.Max(1, recovery - MathF.Max(halfWidth, halfHeight)), 0, 1);
+            Require(region.GapBeyond(point) == expectedGap
+                && MeasureCompanionshipGap.Pull(expectedGap, halfWidth, halfHeight, recovery) == expectedPull,
+                "extracting the shared curve changed the native rectangular gap or recovery scaling");
+        }
+        Require(MeasureCompanionshipGap.Pull(100, 50, 50, 250) > MeasureCompanionshipGap.Pull(100, 50, 50, 450),
+            "the curve did not use the explicitly captured recovery preference");
+    }
 
     private static Opportunity Site(string target) => new(new("fixture", "use", target, 1), 1, default,
         OpportunityAdmission.KnownUsable, "fixture", new[] { new UsefulNeed(new(NeedKind.Loot, target), 1, 1, 1) },

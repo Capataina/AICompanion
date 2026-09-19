@@ -96,11 +96,8 @@ public sealed class KeepCompany : CompanionAction
     /// <summary>The same slope read at a distance the caller measured, so a job's separation priced along the route home climbs
     /// the one slope keeping company climbs rather than a second one.</summary>
     public static float PullAtGap(in PlayerIntentRegion region, float gap)
-    {
-        float inner = MathF.Max(region.HalfSize.X, region.HalfSize.Y);
-        float span = MathF.Max(1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius - inner);
-        return Consideration.Rising(gap, span);
-    }
+        => Infrastructure.Selection.Courses.MeasureCompanionshipGap.Pull(gap, region.HalfSize.X, region.HalfSize.Y,
+            PlayerIntegration.CompanionPreferences.Current.RecoveryRadius);
 
     /// <summary>
     /// Rejoining's value: the larger of the pull and the regroup urgency, capped, beside the separate hard leash at fly-home
