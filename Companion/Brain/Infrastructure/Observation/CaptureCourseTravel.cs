@@ -27,6 +27,7 @@ public sealed class CaptureCourseTravel
     private int checkedRevision, simulationTicks;
     private DecisionFact? result;
     private bool initialised;
+    private readonly List<TimedCoursePose> timedRouteSamples = new();
 
     public CaptureCourseTravel(ITileWorld terrain, CoursePoint from, CoursePoint initialVelocity, CoursePoint to,
         long capabilityRevision)
@@ -36,6 +37,7 @@ public sealed class CaptureCourseTravel
         world = new(terrain); checkedRevision = terrain.Revision;
         speed = OrbPace.MaxSpeed; turn = OrbPace.Turn; acceleration = OrbPace.SpeedChange;
         position = Vector(from); velocity = Vector(initialVelocity);
+        timedRouteSamples.Add(new(0, from, initialVelocity));
     }
 
     public FactKey Key => ReadCourseTravel.Key(from, initialVelocity, to);
@@ -99,7 +101,11 @@ public sealed class CaptureCourseTravel
         while (Vector2.Distance(position, Vector(to)) > Navigator.ArriveDistance)
         {
             if (!budget.TrySpend("course-travel-body")) return null;
+            int previousSegment = route.Index;
             var controls = SteerAlongRoute.Steer(new(position, velocity), route, speed, acceleration, out _);
+            // Route.Index only advances. One sample per crossed segment bounds storage by
+            // the route geometry, rather than by how many ticks a slow journey takes.
+            if (route.Index != previousSegment) RecordTimedPose();
             Vector2 before = position;
             velocity = OrbPace.Step(velocity, controls.Desired, speed, turn, acceleration, controls.Burst);
             position += velocity;
@@ -113,12 +119,21 @@ public sealed class CaptureCourseTravel
 
     private DecisionFact Finish(OpportunityAdmission admission, string reason)
     {
+        RecordTimedPose();
         var travel = new CapturedCourseTravel(from, initialVelocity, to, Point(velocity), simulationTicks,
-            admission, reason, Array.AsReadOnly(route?.Points.Select(Point).ToArray() ?? Array.Empty<CoursePoint>()), capabilityRevision);
+            admission, reason, Array.AsReadOnly(route?.Points.Select(Point).ToArray() ?? Array.Empty<CoursePoint>()), capabilityRevision,
+            Array.AsReadOnly(timedRouteSamples.ToArray()));
         // Input geometry is tracked spatially above. Distant edit counters never change
         // an identical captured estimate or manufacture a dependency change.
         return result = new(Key, capabilityRevision, new(Text: JsonSerializer.Serialize(travel)),
             admission == OpportunityAdmission.Unresolved ? FactEvidence.Unresolved : FactEvidence.Modelled);
+    }
+
+    private void RecordTimedPose()
+    {
+        var sample = new TimedCoursePose(simulationTicks, Point(position), Point(velocity));
+        if (timedRouteSamples[^1].Tick == simulationTicks) timedRouteSamples[^1] = sample;
+        else timedRouteSamples.Add(sample);
     }
 
     private static Vector2 Vector(CoursePoint point) => new((float)point.X, (float)point.Y);

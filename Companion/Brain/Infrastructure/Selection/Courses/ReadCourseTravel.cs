@@ -11,7 +11,12 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 /// nominal forecast of the existing steering/contact law, never a bound on future dodges.</summary>
 public sealed record CapturedCourseTravel(CoursePoint From, CoursePoint InitialVelocity, CoursePoint To,
     CoursePoint ArrivalVelocity, double Ticks, OpportunityAdmission Admission, string Reason,
-    IReadOnlyList<CoursePoint> Route, long CapabilityRevision);
+    IReadOnlyList<CoursePoint> Route, long CapabilityRevision,
+    IReadOnlyList<TimedCoursePose>? TimedRouteSamples = null);
+
+/// <summary>An actual state from the native movement-model simulation. Samples mark route
+/// segment transitions and arrival; interpolation between them remains a coarse forecast.</summary>
+public readonly record struct TimedCoursePose(double Tick, CoursePoint Position, CoursePoint Velocity);
 
 public static class ReadCourseTravel
 {

@@ -432,6 +432,12 @@ internal static class VerifyCourseCore
         Require(travel?.Admission == OpportunityAdmission.KnownUsable && travel.Ticks > from.DistanceTo(to) / OrbPace.MaxSpeed
             && travel.Route.Count > 2 && reader.Manifest().Reads.Single().Key == capture.Key,
             "Travel was priced as a straight line, lost route evidence, or bypassed tracked reads.");
+        Require(travel!.TimedRouteSamples is { Count: > 2 } samples && samples.Count <= travel.Route.Count + 1
+            && samples[0].Tick == 0 && samples[0].Position == from
+            && samples[^1].Tick == travel.Ticks && samples[^1].Velocity == travel.ArrivalVelocity
+            && samples[^1].Position.DistanceTo(to) <= Navigator.ArriveDistance
+            && samples.Zip(samples.Skip(1)).All(pair => pair.First.Tick < pair.Second.Tick),
+            "Native travel lost timed body states, invented exact arrival, or stored an unbounded per-tick trace.");
         var step = new StepBinding(1, Key, "pickup", to, "none", 1, 1, travel!.Ticks, 0, 0,
             Array.Empty<ResourcePhase>(), Array.Empty<PredictedEffect>(), Array.Empty<long>(), reader.Manifest(), true,
             travel.ArrivalVelocity);
