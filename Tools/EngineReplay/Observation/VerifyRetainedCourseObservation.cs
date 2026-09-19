@@ -23,6 +23,22 @@ internal static class VerifyRetainedCourseObservation
         int failures = 0;
         void Require(bool condition, string message) { if (!condition) { failures++; Console.Error.WriteLine(message); } }
 
+        var moving = new NPC { whoAmI = 150, type = 1, position = new(100, 100), velocity = new(2, 0),
+            width = 20, height = 20, noGravity = true, noTileCollide = true };
+        var capturedMotion = live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Capture(moving);
+        var expected = live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Predict(moving, 10);
+        moving.position = new(900, 900); moving.velocity = new(-20, 15); moving.width = 80;
+        for (int i = 0; i < 10; i++)
+        {
+            var allowance = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation.DecisionWorkBudget(double.PositiveInfinity, 1);
+            capturedMotion.Continue(10, allowance);
+            Require(allowance.OperationsUsed == 1 && capturedMotion.CoveredTicks == i + 1,
+                "captured enemy motion did not resume one native step per allowance");
+        }
+        Require(capturedMotion.Samples[10] == expected,
+            "captured enemy motion read the changed live body's position, velocity or dimensions");
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Forget(150);
+
         var admission = new PlayerIntentRegion(new Vector2(20, 20), new Vector2(10, 10), new Vector2(20, 20), true);
         var local = new PlayerIntentRegion(Vector2.Zero, new Vector2(10, 10), Vector2.Zero, false);
         var regions = new PlayerIntentRegions(admission, local);

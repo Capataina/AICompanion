@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
@@ -81,6 +82,11 @@ public static class PredictObservedMotion
     {
         Observe(npc);
         Track track = tracks[npc.whoAmI];
+        return PredictTrack(track, ticks, npc.width, npc.height);
+    }
+
+    private static Vector2 PredictTrack(Track track, int ticks, int width, int height)
+    {
         // Consumers only have evidence for a short forecast. Longer requests retain the last
         // bounded prediction instead of asserting an unobserved enemy policy indefinitely.
         ticks = Math.Clamp(ticks, 0, 180);
@@ -103,14 +109,14 @@ public static class PredictObservedMotion
                     : MathF.Min(track.MaxFallSpeed, velocity.Y + (track.Acceleration.Y > 0f ? track.Acceleration.Y : track.Gravity));
                 if (!track.NoTileCollide)
                 {
-                    Vector4 downSlope = Collision.WalkDownSlope(track.ForecastPosition, velocity, npc.width, npc.height, track.Gravity);
+                    Vector4 downSlope = Collision.WalkDownSlope(track.ForecastPosition, velocity, width, height, track.Gravity);
                     track.ForecastPosition = new Vector2(downSlope.X, downSlope.Y);
                     velocity = new Vector2(downSlope.Z, downSlope.W);
                 }
                 Vector2 oldDryVelocity = velocity;
                 if (!track.NoTileCollide)
                 {
-                    velocity = Collision.TileCollision(track.ForecastPosition, velocity, npc.width, npc.height);
+                    velocity = Collision.TileCollision(track.ForecastPosition, velocity, width, height);
                     Vector2 movement = velocity;
                     if (track.Wet)
                     {
@@ -123,7 +129,7 @@ public static class PredictObservedMotion
                         if (velocity.Y != oldDryVelocity.Y) movement.Y = velocity.Y;
                     }
                     track.ForecastPosition += movement;
-                    Vector4 slope = Collision.SlopeCollision(track.ForecastPosition, velocity, npc.width, npc.height, track.Gravity);
+                    Vector4 slope = Collision.SlopeCollision(track.ForecastPosition, velocity, width, height, track.Gravity);
                     track.ForecastPosition = new Vector2(slope.X, slope.Y);
                     track.ForecastVelocity = new Vector2(slope.Z, slope.W);
                 }
@@ -132,7 +138,7 @@ public static class PredictObservedMotion
                     track.ForecastPosition += velocity;
                     track.ForecastVelocity = velocity;
                 }
-                track.Centres.Add(track.ForecastPosition + new Vector2(npc.width * .5f, npc.height * .5f));
+                track.Centres.Add(track.ForecastPosition + new Vector2(width * .5f, height * .5f));
             }
         }
         finally
@@ -142,6 +148,49 @@ public static class PredictObservedMotion
             Collision.sloping = sloping;
         }
         return track.Centres[ticks];
+    }
+
+    /// <summary>Captures enemy state for a resumable native motion query. Terrain remains
+    /// native: the query owner must validate terrain dependencies before publishing samples.</summary>
+    public static CapturedMotion Capture(NPC npc)
+    {
+        Observe(npc);
+        return new CapturedMotion(npc);
+    }
+
+    public sealed class CapturedMotion
+    {
+        private readonly Track track;
+        private readonly int width, height;
+        internal CapturedMotion(NPC npc)
+        {
+            var source = tracks[npc.whoAmI];
+            width = npc.width; height = npc.height;
+            track = new Track
+            {
+                Type = source.Type, Tick = source.Tick, Position = source.Position, Velocity = source.Velocity,
+                Acceleration = source.Acceleration, Gravity = source.Gravity, MaxFallSpeed = source.MaxFallSpeed,
+                WaterMovementSpeed = source.WaterMovementSpeed, LavaMovementSpeed = source.LavaMovementSpeed,
+                HoneyMovementSpeed = source.HoneyMovementSpeed, ShimmerMovementSpeed = source.ShimmerMovementSpeed,
+                NoGravity = source.NoGravity, NoTileCollide = source.NoTileCollide, Wet = source.Wet,
+                LavaWet = source.LavaWet, HoneyWet = source.HoneyWet, ShimmerWet = source.ShimmerWet,
+                MeanError = source.MeanError, ErrorSamples = source.ErrorSamples,
+                ForecastPosition = source.Position, ForecastVelocity = source.Velocity
+            };
+            track.Centres.Add(source.Position + new Vector2(width * .5f, height * .5f));
+        }
+        public int CoveredTicks => track.Centres.Count - 1;
+        public IReadOnlyList<Vector2> Samples => track.Centres.AsReadOnly();
+        public bool Continue(int ticks, DecisionWorkBudget budget)
+        {
+            if (ticks < 0 || ticks > 180) throw new ArgumentOutOfRangeException(nameof(ticks));
+            while (CoveredTicks < ticks)
+            {
+                if (!budget.TrySpend("captured-enemy-motion")) return false;
+                _ = PredictTrack(track, CoveredTicks + 1, width, height);
+            }
+            return true;
+        }
     }
 
     /// <summary>Measured continuation confidence, not a claim to know the next enemy AI choice.</summary>
