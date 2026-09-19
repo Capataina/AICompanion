@@ -17,7 +17,28 @@ internal static class VerifyCourseTravelScheduling
         + RunOneRow.Case("G11 native model completion resumes a frozen companionship forecast", ModelOwner)
         + RunOneRow.Case("G08 deferred queries cannot certify terrain edited since observation", DeferredTerrainEdit)
         + RunOneRow.Case("G11 course search drives missing native models with one shared operation", SearchOwner)
-        + RunOneRow.Case("G08 captured enemy motion records native collision read bounds", MotionTerrainReads);
+        + RunOneRow.Case("G08 captured enemy motion records native collision read bounds", MotionTerrainReads)
+        + RunOneRow.Case("G08 enemy motion publication rejects local edits and retains distant edits", MotionPublication);
+
+    private static void MotionPublication()
+    {
+        _ = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Opportunistic,
+            Terraria.ID.TileID.Copper, new Microsoft.Xna.Framework.Point(25, 59));
+        var npc = new Terraria.NPC { whoAmI = 152, type = 1, position = new(400, 880), velocity = new(2, 0),
+            width = 20, height = 20, noGravity = true, noTileCollide = false };
+        var edits = new TextTileWorld(0, 0, Enumerable.Repeat(new string('.', 100), 100).ToArray());
+        var query = new CaptureEnemyCourseMotion(npc, 7, edits, 2, 1);
+        Require(query.Continue(new(double.PositiveInfinity, 1)) == null, "partial enemy motion escaped as a completed model");
+        edits.Set(80, 80, '#');
+        var result = query.Continue(new(double.PositiveInfinity, 1));
+        Require(result?.Evidence == FactEvidence.Modelled && query.CoveredTicks == 2,
+            "an unrelated terrain edit discarded retained enemy motion");
+        var changed = new CaptureEnemyCourseMotion(npc, 7, edits, 2, 1);
+        edits.Set(23, 54, '#');
+        Require(changed.Continue(new(double.PositiveInfinity, 1))?.Evidence == FactEvidence.Unresolved,
+            "an edit to a newly read native collision neighbour certified the old observation");
+        PredictObservedMotion.Forget(152);
+    }
 
     private static void MotionTerrainReads()
     {

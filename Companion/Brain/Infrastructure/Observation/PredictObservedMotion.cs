@@ -9,6 +9,7 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 /// <summary>Shared, terrain-constrained forecast of observed motion; it does not invent an enemy's next AI decision.</summary>
 public static class PredictObservedMotion
 {
+    public const int MaximumForecastTicks = 180;
     private sealed class Track
     {
         public NPC Subject = null!;
@@ -90,7 +91,7 @@ public static class PredictObservedMotion
     {
         // Consumers only have evidence for a short forecast. Longer requests retain the last
         // bounded prediction instead of asserting an unobserved enemy policy indefinitely.
-        ticks = Math.Clamp(ticks, 0, 180);
+        ticks = Math.Clamp(ticks, 0, MaximumForecastTicks);
         bool up = Collision.up, down = Collision.down, stair = Collision.stair,
             fall = Collision.stairFall, honey = Collision.honey, shimmer = Collision.shimmer,
             sloping = Collision.sloping;
@@ -204,7 +205,7 @@ public static class PredictObservedMotion
         }
         public bool Continue(int ticks, DecisionWorkBudget budget)
         {
-            if (ticks < 0 || ticks > 180) throw new ArgumentOutOfRangeException(nameof(ticks));
+            if (ticks < 0 || ticks > MaximumForecastTicks) throw new ArgumentOutOfRangeException(nameof(ticks));
             while (CoveredTicks < ticks)
             {
                 if (!budget.TrySpend("captured-enemy-motion")) return false;
@@ -220,7 +221,7 @@ public static class PredictObservedMotion
         Observe(npc);
         Track track = tracks[npc.whoAmI];
         float measured = track.ErrorSamples == 0 ? .5f : MathF.Exp(-track.MeanError / 32f);
-        return MathHelper.Clamp(measured * MathF.Exp(-Math.Clamp(ticks, 0, 180) / 90f), .1f, 1f);
+        return MathHelper.Clamp(measured * MathF.Exp(-Math.Clamp(ticks, 0, MaximumForecastTicks) / 90f), .1f, 1f);
     }
 
     public static int ErrorSamples(NPC npc) { Observe(npc); return tracks[npc.whoAmI].ErrorSamples; }
