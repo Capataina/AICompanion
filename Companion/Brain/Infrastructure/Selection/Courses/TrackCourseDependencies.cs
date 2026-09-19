@@ -108,6 +108,9 @@ public sealed class DependencyManifest
     }
     public IReadOnlyList<FactRead> Reads { get; }
     public bool Complete => Reads.All(r => r.Evidence is FactEvidence.Observed or FactEvidence.Modelled);
+    /// <summary>An unresolved model answer is recorded input; an absent answer is not.
+    /// This weaker condition is for explicitly uncertain costs, never native admission.</summary>
+    public bool Recorded => Reads.All(r => r.Evidence is FactEvidence.Observed or FactEvidence.Modelled or FactEvidence.Unresolved);
     public IReadOnlyList<FactKey> Changed(DecisionFactSnapshot snapshot)
         => Array.AsReadOnly(Reads.Where(r => !snapshot.TryRead(r.Key, out var now)
             || now.Version != r.Version || now.Digest != r.Digest).Select(r => r.Key).ToArray());

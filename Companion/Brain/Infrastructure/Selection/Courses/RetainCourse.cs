@@ -294,7 +294,9 @@ public sealed class RetainCourse
     {
         failedNode = proposal.Prefix?.Id ?? 0;
         if (proposal.Prefix is { } prefix && !validate(prefix).CanUse) return false;
-        if (!proposal.ConsequenceDependencies.Complete || proposal.ConsequenceDependencies.Changed(facts).Count != 0)
+        bool costsAccountedFor = proposal.ConsequenceDependencies.Complete
+            || (proposal.TailUnresolved && proposal.ConsequenceDependencies.Recorded);
+        if (!costsAccountedFor || proposal.ConsequenceDependencies.Changed(facts).Count != 0)
         { failedNode = proposal.ConsequenceId; return false; }
         foreach (var effect in proposal.OutstandingEffects)
             if (effect.Evidence != EstimateStatus.Unresolved

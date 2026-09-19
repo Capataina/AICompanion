@@ -29,7 +29,37 @@ internal static class VerifyProjectionContracts
         + RunOneRow.Case("G08 receipt retirement retains duplicate floor and live credit", ReceiptRetirement)
         + RunOneRow.Case("G08 consequence reads invalidate costs without revoking a legal use", ConsequenceReads)
         + RunOneRow.Case("G15 contact harm stops at an unsupported post-hit successor", ContactHarm)
-        + RunOneRow.Case("G15 projected body retains native arrival instead of requested pose", ArrivalPose);
+        + RunOneRow.Case("G15 projected body retains native arrival instead of requested pose", ArrivalPose)
+        + RunOneRow.Case("G07 recorded uncertain costs permit a legal start without certifying safety", RecordedUncertainty);
+
+    private static void RecordedUncertainty()
+    {
+        var key = new FactKey("cost-model", "unresolved");
+        var facts = Facts(new DecisionFact(key, 1, new(Text: "unsupported-future"), FactEvidence.Unresolved));
+        var reader = facts.Track(); reader.Read(key);
+        var episode = new CourseComparisonEpisode(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "fixture");
+        var binding = Binding(94001);
+        BindingValidation Valid(StepBinding _) => new(OpportunityAdmission.KnownUsable, "fixture", false);
+        CourseProjection Proposal(DependencyManifest reads, bool unknown) => new(new[] { binding }, Array.Empty<PredictedHarm>(),
+            Array.Empty<CompanionshipInterval>(), 0, true, tailUnresolved: unknown, consequenceDependencies: reads);
+        var uncertain = Proposal(reader.Manifest(), true);
+        Require(new RetainCourse().Consider(uncertain, episode, facts, Valid(binding), Valid),
+            "a recorded uncertain cost was treated as absent native admission evidence");
+        var value = CompareCourseOutcomes.Evaluate(uncertain, episode);
+        Require(value.Total.Status == EstimateStatus.Unresolved && value.SelfHarm.Status == EstimateStatus.Unresolved,
+            "an unknown future became certified total value or zero companion harm");
+        Require(!new RetainCourse().Consider(Proposal(reader.Manifest(), false), episode, facts, Valid(binding), Valid),
+            "unresolved costs published without exposing their uncertainty");
+        var missing = Facts().Track(); missing.Read(key);
+        Require(!new RetainCourse().Consider(Proposal(missing.Manifest(), true), episode, Facts(), Valid(binding), Valid),
+            "a missing input published as though its uncertainty had been captured");
+        var unproven = new StepBinding(94002, Key, "fixture", default, "none", 1, 1, 0, 0, 0,
+            Array.Empty<ResourcePhase>(), Array.Empty<PredictedEffect>(), Array.Empty<long>(), reader.Manifest(), true);
+        var badUse = new CourseProjection(new[] { unproven }, Array.Empty<PredictedHarm>(), Array.Empty<CompanionshipInterval>(),
+            0, true, tailUnresolved: true, consequenceDependencies: reader.Manifest());
+        Require(!new RetainCourse().Consider(badUse, episode, facts, Valid(unproven), Valid),
+            "the weaker cost contract leaked into native-use admission");
+    }
 
     private static void ArrivalPose()
     {

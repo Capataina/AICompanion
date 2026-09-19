@@ -148,7 +148,13 @@ public static class CompareCourseOutcomes
                 unknowns.Add("companionship-uncertain");
         }
         if (!course.ReunionProven) unknowns.Add("reunion-unresolved");
-        if (course.TailUnresolved) unknowns.Add("tail-unresolved");
+        if (course.TailUnresolved)
+        {
+            unknowns.Add("tail-unresolved");
+            // An untyped unknown future can contain companion harm. Encounter ordering
+            // cannot treat an empty finite hit list as proof of zero future self-harm.
+            selfBounded = false;
+        }
         if (course.TailNominal != 0) unknowns.Add("tail-has-no-bounds");
         if (!double.IsFinite(course.TailNominal)) throw new ArgumentException("A nominal tail must be finite, with unknown evidence separate.");
         double total = useful - harm - gap + course.TailNominal;
