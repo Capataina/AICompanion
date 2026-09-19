@@ -9,7 +9,8 @@ using AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 namespace AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 
 public enum ProjectionStatus { Complete, Pending, Rejected }
-public sealed record CourseProjectionResult(ProjectionStatus Status, CourseProjection? Projection, string Reason);
+public sealed record CourseProjectionResult(ProjectionStatus Status, CourseProjection? Projection, string Reason,
+    IReadOnlyList<CourseTravelRequest>? RequiredTravel = null);
 public interface ICourseProjector
 {
     /// <summary>The cursor and private projection state resume the same order. Predictions
@@ -44,6 +45,7 @@ public sealed class SearchCourseOrders
     public bool Exhausted { get; private set; }
     public bool DepthTruncated { get; private set; }
     public IReadOnlyList<OpportunityKey> PendingOrder => pendingOrder ?? Array.Empty<OpportunityKey>();
+    public IReadOnlyList<CourseTravelRequest> RequiredTravel { get; private set; } = Array.Empty<CourseTravelRequest>();
 
     public void ExtendModelFacts(DecisionFactSnapshot extended)
     {
@@ -64,6 +66,7 @@ public sealed class SearchCourseOrders
         orders = Enumerate(usable, retained, MaxDepth).GetEnumerator();
         pendingOrder = null; Best = null; BestValue = null; Exhausted = false;
         EvaluatedOrders = RejectedOrders = 0;
+        RequiredTravel = Array.Empty<CourseTravelRequest>();
         generation++;
     }
 
@@ -80,6 +83,9 @@ public sealed class SearchCourseOrders
                 projectionCursor.Bind(++generation, "next-course-order");
             }
             var result = projector.Continue(pendingOrder, facts, episode, projectionCursor, budget);
+            RequiredTravel = result.Status == ProjectionStatus.Pending
+                ? Array.AsReadOnly((result.RequiredTravel ?? Array.Empty<CourseTravelRequest>()).ToArray())
+                : Array.Empty<CourseTravelRequest>();
             if (result.Status == ProjectionStatus.Pending) return;
             if (result.Status == ProjectionStatus.Rejected || result.Projection == null) RejectedOrders++;
             else

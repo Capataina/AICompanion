@@ -22,6 +22,19 @@ public sealed class RetainCourseModelQueries
     public long CapacityRefusals => travel.CapacityRefusals;
     public long CompletedCount => travel.CompletedCount;
 
+    /// <summary>Advances a suspended search and its requested models through the same
+    /// allowance. Previously queued models run first so repeated binding cannot spend
+    /// every tiny slice asking a question whose answer never gets computation time.</summary>
+    public void ContinueSearch(SearchCourseOrders search, DecisionWorkBudget budget)
+    {
+        foreach (var request in search.RequiredTravel) RequestTravel(request);
+        if (Continue(budget)) search.ExtendModelFacts(Snapshot);
+        search.Continue(budget);
+        // Requests discovered on the final operation remain queued for the next frame.
+        // Capacity refusals leave requests on the search, where the next call retries them.
+        foreach (var request in search.RequiredTravel) RequestTravel(request);
+    }
+
     public bool RequestTravel(CourseTravelRequest request)
     {
         if (abandoned) throw new System.InvalidOperationException("An abandoned observation cannot request models.");

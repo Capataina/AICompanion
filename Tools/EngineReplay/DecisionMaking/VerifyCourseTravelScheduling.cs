@@ -8,13 +8,51 @@ using live::AICompanion.Companion.Brain.Infrastructure.Movement;
 using live::AICompanion.Companion.Brain.Infrastructure.Observation;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
+using live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 
 internal static class VerifyCourseTravelScheduling
 {
     public static int Run()
         => RunOneRow.Case("G11 native travel queries share one-operation turns without evicting work", FairNativeQueries)
         + RunOneRow.Case("G11 native model completion resumes a frozen companionship forecast", ModelOwner)
-        + RunOneRow.Case("G08 deferred queries cannot certify terrain edited since observation", DeferredTerrainEdit);
+        + RunOneRow.Case("G08 deferred queries cannot certify terrain edited since observation", DeferredTerrainEdit)
+        + RunOneRow.Case("G11 course search drives missing native models with one shared operation", SearchOwner);
+
+    private static void SearchOwner()
+    {
+        var original = Snapshot();
+        var owner = new RetainCourseModelQueries(original, World(), 1, 1);
+        var projector = new AwaitTravel();
+        var search = new SearchCourseOrders(1);
+        search.Begin(original, new(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "fixture"),
+            Array.Empty<Opportunity>(), Array.Empty<OpportunityKey>(), projector);
+        for (int tick = 0; tick < 1000 && !search.Exhausted; tick++)
+        {
+            var budget = new DecisionWorkBudget(double.PositiveInfinity, 1);
+            owner.ContinueSearch(search, budget);
+            Require(budget.OperationsUsed <= 1, "search and native model invented separate operation allowances");
+        }
+        Require(search.Exhausted && search.RejectedOrders == 1 && projector.Answered
+            && owner.CompletedCount == 1 && search.RequiredTravel.Count == 0,
+            "the pending order failed to request, resume or retire its native query");
+        Require(!original.TryRead(projector.Query.Key, out _), "search completion mutated its original observation");
+    }
+
+    private sealed class AwaitTravel : ICourseProjector
+    {
+        public readonly CourseTravelRequest Query = new(new(48, 80), default, new(49, 80));
+        public bool Answered;
+        public CourseProjectionResult Continue(IReadOnlyList<OpportunityKey> order, DecisionFactSnapshot facts,
+            CourseComparisonEpisode episode, DecisionWorkCursor cursor, DecisionWorkBudget budget)
+        {
+            if (!budget.TrySpend("fixture-projector")) return new(ProjectionStatus.Pending, null, "budget-cut");
+            if (!facts.TryRead(Query.Key, out var answer))
+                return new(ProjectionStatus.Pending, null, "native-travel-pending", new[] { Query });
+            Answered = answer.Evidence == FactEvidence.Modelled;
+            // This fixture proves transport and resumption, not a complete consequence model.
+            return new(ProjectionStatus.Rejected, null, "fixture-transport-complete");
+        }
+    }
 
     private static TextTileWorld World() => new(0, 0, new[]
     {

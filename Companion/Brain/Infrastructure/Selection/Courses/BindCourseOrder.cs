@@ -80,7 +80,7 @@ public sealed class BindCourseOrder : ICourseProjector
                     return Finish(ProjectionStatus.Rejected, null, "opportunity-not-in-frozen-census", cursor);
                 var result = binder.Bind(opportunity, state, facts, bindingCursor, budget);
                 MissingTravel = Array.AsReadOnly((result.RequiredTravel ?? Array.Empty<CourseTravelRequest>()).ToArray());
-                if (result.Pending) return new(ProjectionStatus.Pending, null, result.Reason);
+                if (result.Pending) return new(ProjectionStatus.Pending, null, result.Reason, MissingTravel);
                 if (result.Binding == null || result.Admission != OpportunityAdmission.KnownUsable)
                     return Finish(ProjectionStatus.Rejected, null, result.Reason, cursor);
                 awaitingApplication = result.Binding;
