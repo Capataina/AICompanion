@@ -85,7 +85,8 @@ public static class PredictObservedMotion
         return PredictTrack(track, ticks, npc.width, npc.height);
     }
 
-    private static Vector2 PredictTrack(Track track, int ticks, int width, int height)
+    private static Vector2 PredictTrack(Track track, int ticks, int width, int height,
+        Action<Vector2, int, int, bool>? terrainRead = null)
     {
         // Consumers only have evidence for a short forecast. Longer requests retain the last
         // bounded prediction instead of asserting an unobserved enemy policy indefinitely.
@@ -109,6 +110,7 @@ public static class PredictObservedMotion
                     : MathF.Min(track.MaxFallSpeed, velocity.Y + (track.Acceleration.Y > 0f ? track.Acceleration.Y : track.Gravity));
                 if (!track.NoTileCollide)
                 {
+                    if (velocity.Y == track.Gravity) terrainRead?.Invoke(track.ForecastPosition, width, height, true);
                     Vector4 downSlope = Collision.WalkDownSlope(track.ForecastPosition, velocity, width, height, track.Gravity);
                     track.ForecastPosition = new Vector2(downSlope.X, downSlope.Y);
                     velocity = new Vector2(downSlope.Z, downSlope.W);
@@ -116,6 +118,7 @@ public static class PredictObservedMotion
                 Vector2 oldDryVelocity = velocity;
                 if (!track.NoTileCollide)
                 {
+                    terrainRead?.Invoke(track.ForecastPosition, width, height, false);
                     velocity = Collision.TileCollision(track.ForecastPosition, velocity, width, height);
                     Vector2 movement = velocity;
                     if (track.Wet)
@@ -129,6 +132,7 @@ public static class PredictObservedMotion
                         if (velocity.Y != oldDryVelocity.Y) movement.Y = velocity.Y;
                     }
                     track.ForecastPosition += movement;
+                    terrainRead?.Invoke(track.ForecastPosition, width, height, false);
                     Vector4 slope = Collision.SlopeCollision(track.ForecastPosition, velocity, width, height, track.Gravity);
                     track.ForecastPosition = new Vector2(slope.X, slope.Y);
                     track.ForecastVelocity = new Vector2(slope.Z, slope.W);
@@ -162,6 +166,7 @@ public static class PredictObservedMotion
     {
         private readonly Track track;
         private readonly int width, height;
+        private int left = int.MaxValue, top = int.MaxValue, right = int.MinValue, bottom = int.MinValue;
         internal CapturedMotion(NPC npc)
         {
             var source = tracks[npc.whoAmI];
@@ -181,13 +186,29 @@ public static class PredictObservedMotion
         }
         public int CoveredTicks => track.Centres.Count - 1;
         public IReadOnlyList<Vector2> Samples => track.Centres.AsReadOnly();
+        public bool ReadContains(int x, int y) => x >= left && x <= right && y >= top && y <= bottom;
+        private void RecordTerrainRead(Vector2 position, int bodyWidth, int bodyHeight, bool downSlope)
+        {
+            // Terraria.Collision: WalkDownSlope scans the foot row (+4 px) and its
+            // successor. TileCollision/SlopeCollision scan a one-tile skirt; tile
+            // collision additionally reads the horizontal neighbours of those tiles.
+            int l = downSlope ? (int)(position.X / 16f) : (int)(position.X / 16f) - 2;
+            int r = (int)((position.X + bodyWidth) / 16f) + (downSlope ? 0 : 2);
+            int t = downSlope ? (int)((position.Y + bodyHeight + 4f) / 16f) : (int)(position.Y / 16f) - 1;
+            if (downSlope) t = Math.Clamp(t, 0, Main.maxTilesY - 3);
+            int b = downSlope ? Math.Clamp(t, 0, Main.maxTilesY - 3) + 1 : (int)((position.Y + bodyHeight) / 16f) + 1;
+            left = Math.Min(left, Math.Clamp(l, 0, Main.maxTilesX - 1));
+            right = Math.Max(right, Math.Clamp(r, 0, Main.maxTilesX - 1));
+            top = Math.Min(top, Math.Clamp(t, 0, Main.maxTilesY - 1));
+            bottom = Math.Max(bottom, Math.Clamp(b, 0, Main.maxTilesY - 1));
+        }
         public bool Continue(int ticks, DecisionWorkBudget budget)
         {
             if (ticks < 0 || ticks > 180) throw new ArgumentOutOfRangeException(nameof(ticks));
             while (CoveredTicks < ticks)
             {
                 if (!budget.TrySpend("captured-enemy-motion")) return false;
-                _ = PredictTrack(track, CoveredTicks + 1, width, height);
+                _ = PredictTrack(track, CoveredTicks + 1, width, height, RecordTerrainRead);
             }
             return true;
         }

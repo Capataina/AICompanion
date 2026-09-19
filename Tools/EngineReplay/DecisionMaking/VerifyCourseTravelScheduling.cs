@@ -16,7 +16,24 @@ internal static class VerifyCourseTravelScheduling
         => RunOneRow.Case("G11 native travel queries share one-operation turns without evicting work", FairNativeQueries)
         + RunOneRow.Case("G11 native model completion resumes a frozen companionship forecast", ModelOwner)
         + RunOneRow.Case("G08 deferred queries cannot certify terrain edited since observation", DeferredTerrainEdit)
-        + RunOneRow.Case("G11 course search drives missing native models with one shared operation", SearchOwner);
+        + RunOneRow.Case("G11 course search drives missing native models with one shared operation", SearchOwner)
+        + RunOneRow.Case("G08 captured enemy motion records native collision read bounds", MotionTerrainReads);
+
+    private static void MotionTerrainReads()
+    {
+        _ = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Opportunistic,
+            Terraria.ID.TileID.Copper, new Microsoft.Xna.Framework.Point(25, 59));
+        var npc = new Terraria.NPC { whoAmI = 151, type = 1, position = new(400, 880), velocity = new(2, 0),
+            width = 20, height = 20, noGravity = true, noTileCollide = false };
+        npc.velocity.Y = npc.gravity;
+        var motion = PredictObservedMotion.Capture(npc);
+        Require(!motion.Continue(1, new(double.PositiveInfinity, 0)) && !motion.ReadContains(25, 55),
+            "an unanswered motion query claimed terrain reads");
+        Require(motion.Continue(1, new(double.PositiveInfinity, 1)) && motion.ReadContains(23, 54)
+            && motion.ReadContains(28, 57) && !motion.ReadContains(40, 55),
+            "native motion footprint omitted tile-neighbour or foot-row reads, or included distant terrain");
+        PredictObservedMotion.Forget(151);
+    }
 
     private static void SearchOwner()
     {
