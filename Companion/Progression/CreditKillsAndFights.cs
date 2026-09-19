@@ -7,6 +7,7 @@ using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
+using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 
 namespace AICompanion.Companion.Progression;
@@ -274,10 +275,18 @@ public sealed class ObserveKillsForExperience : GlobalNPC
     public override void OnSpawn(NPC npc, IEntitySource source) => CreditKillsAndFights.Spawned(npc, source);
 
     public override void ModifyHitByProjectile(NPC npc, Projectile projectile, ref NPC.HitModifiers modifiers)
-        => CreditKillsAndFights.BeforeStrike(npc, CreditKillsAndFights.StrikerOf(projectile));
+    {
+        CollectNativeEffectReceipts.BeginProjectileStrike(npc, projectile,
+            CreditKillsAndFights.StrikerOf(projectile) == Striker.Companion ? NativeEffectAttribution.CompanionProjectile : NativeEffectAttribution.Unknown);
+        CreditKillsAndFights.BeforeStrike(npc, CreditKillsAndFights.StrikerOf(projectile));
+    }
 
     public override void OnHitByProjectile(NPC npc, Projectile projectile, NPC.HitInfo hit, int damageDone)
-        => CreditKillsAndFights.AfterStrike(npc);
+    {
+        ObservedEffectReceipt receipt = CollectNativeEffectReceipts.CompleteProjectileStrike(npc, projectile, damageDone,
+            "ObserveKillsForExperience.OnHitByProjectile");
+        if (CollectNativeEffectReceipts.TryConsume(receipt.Id, "experience")) CreditKillsAndFights.AfterStrike(npc);
+    }
 }
 
 /// <summary>
@@ -288,9 +297,18 @@ public sealed class ObserveKillsForExperience : GlobalNPC
 /// </summary>
 public sealed class ObservePlayerStrikesForExperience : ModPlayer
 {
-    public override void ModifyHitNPC(NPC target, ref NPC.HitModifiers modifiers) => CreditKillsAndFights.BeforePlayerStrike(Player, target);
+    public override void ModifyHitNPC(NPC target, ref NPC.HitModifiers modifiers)
+    {
+        CollectNativeEffectReceipts.BeginPlayerStrike(target);
+        CreditKillsAndFights.BeforePlayerStrike(Player, target);
+    }
 
-    public override void OnHitNPC(NPC target, NPC.HitInfo hit, int damageDone) => CreditKillsAndFights.AfterStrike(target);
+    public override void OnHitNPC(NPC target, NPC.HitInfo hit, int damageDone)
+    {
+        ObservedEffectReceipt receipt = CollectNativeEffectReceipts.CompletePlayerStrike(target, damageDone,
+            "ObservePlayerStrikesForExperience.OnHitNPC");
+        if (CollectNativeEffectReceipts.TryConsume(receipt.Id, "experience")) CreditKillsAndFights.AfterStrike(target);
+    }
 }
 
 /// <summary>Drives the fight sweep after NPCs update, and clears every slot memory between worlds.</summary>

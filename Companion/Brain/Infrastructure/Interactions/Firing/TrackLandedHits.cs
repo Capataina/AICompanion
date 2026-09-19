@@ -170,12 +170,17 @@ public sealed class ObserveLandedCompanionHits : GlobalNPC
 {
     public override void ModifyHitByProjectile(NPC npc, Projectile projectile, ref NPC.HitModifiers modifiers)
     {
+        CollectNativeEffectReceipts.BeginProjectileStrike(npc, projectile,
+            TrackLandedHits.IsCompanionShot(projectile.whoAmI) ? NativeEffectAttribution.CompanionProjectile : NativeEffectAttribution.Unknown);
         TrackLandedHits.BeforeStrike(npc, projectile);
         ShotOutcomes.BeforeStrike(npc, projectile.whoAmI);
     }
 
     public override void OnHitByProjectile(NPC npc, Projectile projectile, NPC.HitInfo hit, int damageDone)
     {
+        ObservedEffectReceipt receipt = CollectNativeEffectReceipts.CompleteProjectileStrike(npc, projectile, damageDone,
+            "ObserveLandedCompanionHits.OnHitByProjectile");
+        if (!CollectNativeEffectReceipts.TryConsume(receipt.Id, "weapon-learning")) return;
         TrackLandedHits.ObserveHit(npc, projectile, damageDone);
         TrackLandedHits.AfterStrike(npc, projectile, hit, damageDone);
         ShotOutcomes.Landed(npc, projectile.whoAmI, damageDone);

@@ -35,11 +35,17 @@ public sealed class CompanionGear
     /// <summary>The items, indexed by <see cref="GearSlot"/>. The UI writes here through the game's own slot
     /// handling after asking <see cref="Accepts"/>, and readers never hold a reference across ticks.</summary>
     public readonly Item[] Slots = new Item[SlotCount];
+    private long mutationVersion;
+    private readonly GearContent[] observedCapabilityContent = new GearContent[SlotCount];
+
+    /// <summary>Monotonic identity of the four slots' semantic capability content.</summary>
+    public long MutationVersion => mutationVersion;
 
     public CompanionGear()
     {
         for (int i = 0; i < SlotCount; i++)
             Slots[i] = new Item();
+        CaptureCapabilityContent(observedCapabilityContent);
     }
 
     public Item this[GearSlot slot] => Slots[(int)slot];
@@ -55,6 +61,47 @@ public sealed class CompanionGear
 
     /// <summary>The axe power the interactions damage trunks with; zero with no axe.</summary>
     public int AxePower => Axe.IsAir ? 0 : Axe.axe;
+
+    /// <summary>Runs Terraria's native slot operation and records an actual semantic mutation afterwards.</summary>
+    public void EditSlots(Action<Item[]> edit)
+    {
+        if (edit == null) throw new ArgumentNullException(nameof(edit));
+        try { edit(Slots); }
+        finally { ObserveMutation(); }
+    }
+
+    /// <summary>
+    /// Detects a replacement or in-place edit through the legacy public array. Four slots make this a cheap backstop;
+    /// unchanged observations do not advance the version.
+    /// </summary>
+    public bool ObserveMutation()
+    {
+        var current = new GearContent[SlotCount];
+        CaptureCapabilityContent(current);
+        for (int i = 0; i < SlotCount; i++)
+            if (current[i] != observedCapabilityContent[i])
+            {
+                Array.Copy(current, observedCapabilityContent, SlotCount);
+                mutationVersion++;
+                return true;
+            }
+        return false;
+    }
+
+    private readonly record struct GearContent(int Type, int Prefix, int Stack, int Damage, int Pick, int Axe, int Hammer,
+        int UseTime, int UseAnimation, int Shoot, float ShootSpeed, int Mana, int UseAmmo, int UseStyle, bool NoMelee,
+        bool Channel, int Width, float Scale, float KnockBack, bool Consumable, int DamageClassType);
+
+    private void CaptureCapabilityContent(GearContent[] into)
+    {
+        for (int i = 0; i < SlotCount; i++)
+        {
+            Item item = Slots[i];
+            into[i] = new GearContent(item.type, item.prefix, item.stack, item.damage, item.pick, item.axe, item.hammer,
+                item.useTime, item.useAnimation, item.shoot, item.shootSpeed, item.mana, item.useAmmo, item.useStyle,
+                item.noMelee, item.channel, item.width, item.scale, item.knockBack, item.consumable, item.DamageType.Type);
+        }
+    }
 
     /// <summary>
     /// A stamp that changes whenever any slot's item changes, so the arsenal can re-enumerate its
@@ -246,5 +293,6 @@ public sealed class CompanionGear
             string key = ((GearSlot)i).ToString();
             Slots[i] = tag.ContainsKey(key) ? ItemIO.Load(tag.GetCompound(key)) : new Item();
         }
+        ObserveMutation();
     }
 }

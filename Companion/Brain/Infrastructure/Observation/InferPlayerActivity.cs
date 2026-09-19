@@ -19,6 +19,10 @@ public sealed class InferPlayerActivity
     public Vector2 Travel { get; private set; }
     public float Confidence { get; private set; }
     public float LocalWorkFraction { get; private set; }
+    public float NetDisplacement { get; private set; }
+    public float PathLength { get; private set; }
+    public float Coherence { get; private set; }
+    public bool Discontinuous { get; private set; }
     public int Samples => count;
     public string Interpretation { get; private set; } = "unobserved";
 
@@ -31,6 +35,7 @@ public sealed class InferPlayerActivity
         // Native movement can differ from velocity around collision, so allow a tile-sized
         // discrepancy rather than requiring exact equality with the engine's velocity.
         bool correction = displacement.Length() > velocity.Length() + Weights.PlayerIntentCorrectionSlack;
+        Discontinuous = observed && (!consecutive || correction);
         if (!consecutive || dead || correction)
         {
             Array.Clear(steps);
@@ -38,6 +43,7 @@ public sealed class InferPlayerActivity
             next = count = 0;
             Travel = Vector2.Zero;
             Confidence = LocalWorkFraction = 0;
+            NetDisplacement = PathLength = Coherence = 0;
             Interpretation = dead ? "dead" : "unobserved";
         }
         else
@@ -56,9 +62,11 @@ public sealed class InferPlayerActivity
                 if (work[i]) workSamples++;
             }
             LocalWorkFraction = workSamples / (float)count;
-            float coherence = distance > 0 ? Math.Clamp(net.Length() / distance, 0, 1) : 0;
+            NetDisplacement = net.Length();
+            PathLength = distance;
+            Coherence = distance > 0 ? Math.Clamp(NetDisplacement / distance, 0, 1) : 0;
             float support = Math.Min(1, count / (float)Weights.PlayerIntentEvidenceTicks);
-            Confidence = coherence * support * (1 - LocalWorkFraction * Weights.PlayerIntentWorkDiscount);
+            Confidence = Coherence * support * (1 - LocalWorkFraction * Weights.PlayerIntentWorkDiscount);
             Travel = net / count * Confidence;
             Interpretation = Travel.LengthSquared() > Weights.PlayerIntentTravelSpeed * Weights.PlayerIntentTravelSpeed
                 ? "travelling" : distance > 0 || workSamples > 0 ? "local-activity" : "paused";

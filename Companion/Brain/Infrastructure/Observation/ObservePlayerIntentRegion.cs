@@ -131,12 +131,37 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
 }
 
 /// <summary>
+/// The two regions derived from one player observation. Admission is led by observed coherent travel;
+/// local continuation adds the same-sized resting region around the player so a useful admitted purpose
+/// is not discarded merely because the player reverses. The continuation is a union, deliberately not
+/// a bounding rectangle: its extra diagonal corners were never admitted by either region.
+/// </summary>
+public readonly record struct PlayerIntentRegions(PlayerIntentRegion Admission, PlayerIntentRegion LocalContinuation)
+{
+    public bool ContainsContinuation(Vector2 point)
+        => Admission.Contains(point) || LocalContinuation.Contains(point);
+
+    public bool AcceptsContinuation(Vector2 point, float arrivalSlack)
+        => Admission.Accepts(point, arrivalSlack) || LocalContinuation.Accepts(point, arrivalSlack);
+
+    /// <summary>The distance outside the union. A point is outside only by the smaller component gap.</summary>
+    public float GapBeyondContinuation(Vector2 point)
+        => MathF.Min(Admission.GapBeyond(point), LocalContinuation.GapBeyond(point));
+}
+
+/// <summary>
 /// Rebuilds the region once per brain tick, and owns the one piece of state a region cannot carry:
 /// whether the body was inside it last tick.
 /// </summary>
 public sealed class PlayerIntentRegionSense
 {
     public PlayerIntentRegion Region { get; private set; }
+    /// <summary>The forward-led region used to admit new work.</summary>
+    public PlayerIntentRegion Admission => Region;
+    /// <summary>The exact union used to retain work through ambiguous heading, never a larger leash.</summary>
+    public PlayerIntentRegions Regions { get; private set; }
+    /// <summary>The zero-lead resting geometry. Course timing derives from this stable size, not a momentarily grown lead.</summary>
+    public Vector2 BaseRestingHalfSize { get; private set; }
 
     /// <summary>
     /// Whether the body is with the player: inside his region, latched so that a body which entered stays
@@ -217,6 +242,11 @@ public sealed class PlayerIntentRegionSense
     public void AssumeRegion(PlayerIntentRegion region)
     {
         Region = region;
+        Vector2 playerCentre = region.Heading - region.Lead;
+        BaseRestingHalfSize = region.HalfSize;
+        Regions = new PlayerIntentRegions(region,
+            new PlayerIntentRegion(playerCentre + new Vector2(0f, -PlayerIntentRegion.PlayerBelowCentre(region.HalfSize, 0f)),
+                region.HalfSize, Vector2.Zero, false) { Heading = playerCentre });
         lead = region.Lead;
         hasRegion = true;
     }
@@ -347,6 +377,12 @@ public sealed class PlayerIntentRegionSense
         {
             Velocity = drive + (hasRegion ? Region.Lead - previousLead : Vector2.Zero),
         };
+        BaseRestingHalfSize = PlayerIntentRegion.BaseHalfSize(scale);
+        PlayerIntentRegion local = PlayerIntentRegion.Around(playerCentre, Vector2.Zero, scale, false, slack) with
+        {
+            Velocity = Vector2.Zero,
+        };
+        Regions = new PlayerIntentRegions(Region, local);
         hasRegion = true;
 
         // Inside is the body's centre, because the orb is its centre. A body that was inside stays inside until it is

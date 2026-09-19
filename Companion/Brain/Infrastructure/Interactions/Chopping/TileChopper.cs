@@ -61,6 +61,14 @@ public sealed class TileChopper
         Hit(trunkBottom.X, trunkBottom.Y, axe.axe);
         LastOutcome = new TileToolObservation(Main.GameUpdateCount, ++nextAttempt, trunkBottom, axe.type,
             before, TileToolState.Capture(trunkBottom, HitTile));
+        if (LastOutcome is { Productive: true } outcome)
+        {
+            int progress = outcome.After.Damage - outcome.Before.Damage;
+            if (progress > 0) CollectNativeEffectReceipts.RecordEffect("native-axe-progress", trunkBottom.X + trunkBottom.Y * Main.maxTilesX, -1,
+                progress, NativeEffectAttribution.CompanionSwing, axe.type);
+            if (outcome.Effect == TileToolEffect.Removed) CollectNativeEffectReceipts.RecordEffect("native-tree-removal", trunkBottom.X + trunkBottom.Y * Main.maxTilesX, -1,
+                1, NativeEffectAttribution.CompanionSwing, axe.type);
+        }
         return true;
     }
 

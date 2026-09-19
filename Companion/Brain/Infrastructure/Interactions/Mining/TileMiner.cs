@@ -93,6 +93,14 @@ public sealed class TileMiner
         Progression.CreditWork.CompanionMined(tile, hadTile, typeBefore);
         LastOutcome = new TileToolObservation(Main.GameUpdateCount, ++nextAttempt, tile, pickaxe.type,
             before, TileToolState.Capture(tile, HitTile));
+        if (LastOutcome is { Productive: true } outcome)
+        {
+            int progress = outcome.After.Damage - outcome.Before.Damage;
+            if (progress > 0) global::AICompanion.Companion.Brain.Infrastructure.Observation.CollectNativeEffectReceipts.RecordEffect("native-pick-progress", tile.X + tile.Y * Main.maxTilesX, -1,
+                progress, global::AICompanion.Companion.Brain.Infrastructure.Observation.NativeEffectAttribution.CompanionSwing, pickaxe.type);
+            if (outcome.Effect == TileToolEffect.Removed) global::AICompanion.Companion.Brain.Infrastructure.Observation.CollectNativeEffectReceipts.RecordEffect("native-pick-removal", tile.X + tile.Y * Main.maxTilesX, -1,
+                1, global::AICompanion.Companion.Brain.Infrastructure.Observation.NativeEffectAttribution.CompanionSwing, pickaxe.type);
+        }
         return true;
     }
 

@@ -64,6 +64,8 @@ public static class PlaceTorches
         // the clearance field — is discarded only by an announced edit.
         Movement.TerrainChanges.Changed(tile.X, tile.Y);
         CompanionTorches.NotePlaced(tile);
+        global::AICompanion.Companion.Brain.Infrastructure.Observation.CollectNativeEffectReceipts.RecordEffect("torch-placement", tile.X + tile.Y * Main.maxTilesX, -1, 1,
+            global::AICompanion.Companion.Brain.Infrastructure.Observation.NativeEffectAttribution.CompanionSwing, item.type);
         // Nor does it call TileLoader.PlaceInWorld for other mods, deliberately: that hook's contract is a player placing an
         // item from his inventory, and a mod reading it would credit him, or consume from him, for the companion's free torch.
         Progression.CreditWork.CompanionPlacedTorch(tile);

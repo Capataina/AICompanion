@@ -55,6 +55,15 @@ public sealed class CompanionMiningList
 
     public bool IsMarked(int tileType) => marked.Contains(tileType);
 
+    /// <summary>A value copy for an immutable decision observation; callers cannot retain this list's mutable sets.</summary>
+    public (MiningListMode Mode, int Revision, int[] Known, int[] Marked) Snapshot()
+    {
+        var marks = new int[marked.Count];
+        marked.CopyTo(marks);
+        Array.Sort(marks);
+        return (mode, Revision, known.ToArray(), marks);
+    }
+
     public void SetMarked(int tileType, bool value)
     {
         if (value ? marked.Add(tileType) : marked.Remove(tileType)) Revision++;

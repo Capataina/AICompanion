@@ -346,7 +346,12 @@ public class CompanionNPC : ModNPC
             long claimingAttempt = owner.AttemptOpen && owner.Current is global::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems collect
                 && collect.ClaimsDrop(item) ? owner.AttemptId : 0;
             if (Bag.Collect(item, player))
+            {
+                global::AICompanion.Companion.Brain.Infrastructure.Observation.CollectNativeEffectReceipts.RecordEffect("cargo-transfer",
+                    snapshot.whoAmI, -1, before - (item.IsAir ? 0 : item.stack),
+                    global::AICompanion.Companion.Brain.Infrastructure.Observation.NativeEffectAttribution.Unknown, snapshot.type);
                 global::AICompanion.Companion.Brain.Infrastructure.Diagnostics.GodsEyeEvents.RecordPickup(NPC, snapshot, before - (item.IsAir ? 0 : item.stack), "player-stacks-or-companion-bag", claimingAttempt);
+            }
         }
     }
 

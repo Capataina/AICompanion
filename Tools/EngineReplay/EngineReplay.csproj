@@ -23,6 +23,7 @@
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/ObserveTerrainChanges.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Selection/Computation/AllocateDecisionWork.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/CollectNativeEffectReceipts.cs" />
     <Compile Include="../../Companion/PlayerIntegration/ObservePlayerEvents.cs" />
     <!-- The ledger's row writer, as a source file: every case here reports through it and through
          nothing else, so the suite's verdicts survive the process that produced them. -->

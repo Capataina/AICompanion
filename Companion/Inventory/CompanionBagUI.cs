@@ -218,7 +218,6 @@ public sealed class CompanionBagUI : UIState, ICardPage
 
         protected override void DrawSelf(SpriteBatch sb)
         {
-            Item[] items = owner.gear.Slots;
             int index = (int)slot;
             float previous = Main.inventoryScale;
             try
@@ -230,16 +229,17 @@ public sealed class CompanionBagUI : UIState, ICardPage
                 {
                     Main.LocalPlayer.mouseInterface = true;
                     refused = !Main.mouseItem.IsAir && !CompanionGear.Accepts(slot, Main.mouseItem, out _);
-                    if (!refused) HandleSlot(ref items[index]);
+                    if (!refused) owner.gear.EditSlots(items => HandleSlot(ref items[index]));
                 }
                 // An item already in the slot that its predicate no longer accepts — a saved item whose mod has since
                 // unloaded — is kept and drawn dim, the same dim a refused cursor item gets, so the player sees it is idle
                 // without it being thrown away.
-                bool idle = !items[index].IsAir && !CompanionGear.Accepts(slot, items[index], out _);
-                Texture2D background = items[index].favorited ? TextureAssets.InventoryBack10.Value : TextureAssets.InventoryBack.Value;
+                Item item = owner.gear.Slots[index];
+                bool idle = !item.IsAir && !CompanionGear.Accepts(slot, item, out _);
+                Texture2D background = item.favorited ? TextureAssets.InventoryBack10.Value : TextureAssets.InventoryBack.Value;
                 sb.Draw(background, area, refused || idle ? Color.White * .45f : Color.White);
-                if (!items[index].IsAir)
-                    ItemSlot.DrawItemIcon(items[index], ItemSlot.Context.BankItem, sb, area.Center.ToVector2(), Main.inventoryScale, 32f, refused || idle ? Color.White * .45f : Color.White);
+                if (!item.IsAir)
+                    ItemSlot.DrawItemIcon(item, ItemSlot.Context.BankItem, sb, area.Center.ToVector2(), Main.inventoryScale, 32f, refused || idle ? Color.White * .45f : Color.White);
                 DrawSlotEdge(sb, area, hovering && !refused ? Color.Gold : refused ? Color.LightSalmon : DrawCardPrimitives.Edge * .75f);
             }
             finally { Main.inventoryScale = previous; }
