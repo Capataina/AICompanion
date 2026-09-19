@@ -7,7 +7,10 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 /// <summary>Frozen inputs to the existing region forecast. The travel horizon is the
 /// captured observation model's limit, not a claim that the player stops afterwards.</summary>
 public readonly record struct CapturedCompanionshipRegion(CoursePoint Centre, CoursePoint HalfSize,
-    CoursePoint Travel, double TravelHorizon, float RecoveryRadius, bool PlayerAlive);
+    CoursePoint Travel, double TravelHorizon, float RecoveryRadius, bool PlayerAlive)
+{
+    public static FactKey Key => new("course-companionship", "player-region");
+}
 
 /// <summary>Splits a coarse linear body segment wherever the shared rectangular gap curve
 /// changes slope. The resulting intervals feed the canonical discounted gap integral.</summary>

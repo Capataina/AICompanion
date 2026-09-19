@@ -9,7 +9,7 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 /// reads. Pure consequence forecasts never consult the current preference or player again.</summary>
 public static class CaptureCompanionshipInputs
 {
-    public static FactKey Key => new("course-companionship", "player-region");
+    public static FactKey Key => CapturedCompanionshipRegion.Key;
 
     public static DecisionFact Capture(in ActionContext context, long revision)
     {

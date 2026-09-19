@@ -9,6 +9,7 @@ Courses/
 ├─ CompareCourseOutcomes.cs     frozen-census objective, bounds and boundary comparison
 ├─ MeasureCompanionshipGap.cs   the shared rectangular gap and captured-preference pull curve
 ├─ ForecastCompanionshipGap.cs  frozen region travel and piecewise companionship intervals
+├─ ForecastCourseCompanionship.cs resumable bound-course and return-leg costs with input provenance
 ├─ ProjectCourseEffects.cs      sparse hypothetical state and once-only physical allocation
 ├─ ReadCourseTravel.cs          captured native route timing and arrival momentum, read through manifests
 ├─ TrackCourseDependencies.cs   tracked fact manifests and reverse dependency index
@@ -41,6 +42,8 @@ Search keeps its pending order and projection cursor across budget cuts. Suffix 
 `BindCourseOrder` owns one frozen comparison's binding pipeline. It forks the initial state for each order, preserves the current domain cursor, and holds a completed binding across a cut before resource application. Resuming never recreates that use or repeats its simulation. Consumable capacity must be observed and declared by the binding. After the ordered uses project, `ICourseConsequenceForecast` prices the resulting trajectory and return; it runs even for an empty order and cannot replace the accepted sequence. The native consequence provider remains an integration obligation: a missing harm or reunion forecast must not become a zero-cost completed candidate.
 
 `ForecastCompanionshipGap` converts a pair of timed trajectory states into intervals for the existing discounted gap integral. It splits at the captured player-travel horizon and at intersections of the rectangular overshoot planes, zero interior and outer plateau, so a segment crossing through the region does not pay its outside endpoints' gap throughout. The native capture freezes the same region, observed travel, forecast horizon and distance preference that live companionship reads. Forecast intervals stay nominal: the observation horizon is not evidence that a player will stop moving. A dead player's ordinary companionship term is absent.
+
+`ForecastCourseCompanionship` composes those intervals over captured travel to each bound pose, the use duration at that pose, and a supplied return destination. It charges the shared allowance per input, travel read and timed interval, and retains the partial leg across cuts. Missing travel exposes a typed query; an appended model answer resumes without duplicating earlier costs. The result carries every fact read and a nominal reunion judgement based on the actual captured arrival point. It does not choose the return destination, certify future reunion, forecast harm, or model motion during a use beyond the bound-pose approximation; those belong to the complete consequence and executor integration.
 
 Refresh validation identifies the failed node. A stale suffix queues repair without revoking an unaffected current use. Successful observed repair closes its dirty authority and advances the revision; it cannot authorise a later unrelated worse tail. Beginning the next retained use consumes its predecessor's completion boundary. An externally changed physical forecast remains owned but loses its certified delta; a missed parent censors already-issued descendants without pretending the parent succeeded.
 
