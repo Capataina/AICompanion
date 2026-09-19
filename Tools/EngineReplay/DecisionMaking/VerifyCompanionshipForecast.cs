@@ -47,9 +47,23 @@ internal static class VerifyCompanionshipForecast
         var uninterrupted = new ForecastCourseCompanionship(complete, new[] { Work(work) }, from, default, default)
             .Continue(complete, new(double.PositiveInfinity));
         Require(result.Intervals.SequenceEqual(uninterrupted.Intervals)
+            && result.BodyTrajectory.SequenceEqual(uninterrupted.BodyTrajectory)
             && result.Intervals.First().StartTick == 0 && result.Intervals.Last().EndTick == 13
             && result.Intervals.Zip(result.Intervals.Skip(1)).All(pair => pair.First.EndTick == pair.Second.StartTick),
             "suspending the forecast duplicated or omitted part of the complete course");
+        Require(result.BodyTrajectory.Select(p => p.Tick).SequenceEqual(new double[] { 0, 4, 7, 13 })
+            && pending.BodyTrajectory.Select(p => p.Tick).SequenceEqual(new double[] { 0, 4, 7 }),
+            "the shared body timeline omitted waiting, changed a prior result or duplicated a resumed leg");
+        var sampler = new SampleContactTrajectory(result.BodyTrajectory, 2, 2, 15);
+        ContactTrajectoryResult? sampled = null;
+        for (int i = 0; i < 30 && sampled == null; i++) sampled = sampler.Continue(new(double.PositiveInfinity, 1));
+        Require(sampled is { Complete: false } && sampled.Boxes.Count == 14
+            && sampled.Boxes[4] == sampled.Boxes[7], "contact sampling invented future coverage or lost the use interval");
+        var contact = new ContactGeometry(Enumerable.Repeat(new ContactSample(new(-1, -1, 2, 2), 10, 0), 16).ToArray(), true);
+        var harm = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, sampled!.Boxes) },
+            new[] { new ContactThreat(1, 1, contact, contact) }, 15, true).Continue(new(double.PositiveInfinity));
+        Require(harm is { TailUnresolved: true } && harm.Harm.Count == 1 && harm.Harm[0].Tick == 13,
+            "contact harm did not consume the companionship return trajectory or concealed its uncovered tail");
     }
 
     private static void ArrivalEvidence()

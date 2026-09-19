@@ -16,7 +16,7 @@ public readonly record struct CourseTravelRequest(CoursePoint From, CoursePoint 
 
 public sealed record CourseCompanionshipResult(ProjectionStatus Status,
     IReadOnlyList<CompanionshipInterval> Intervals, double EndTick, bool NominallyRejoined,
-    DependencyManifest Dependencies, string Reason);
+    DependencyManifest Dependencies, string Reason, IReadOnlyList<TimedCoursePose> BodyTrajectory);
 
 /// <summary>One frozen course's spatial cost, including the proposed return leg. It requests
 /// captured native travel rather than performing search inside hypothetical evaluation.</summary>
@@ -25,6 +25,7 @@ public sealed class ForecastCourseCompanionship
     private readonly StepBinding[] steps;
     private readonly CoursePoint reunionPose;
     private readonly List<CompanionshipInterval> intervals = new();
+    private readonly List<TimedCoursePose> trajectory = new();
     private readonly Dictionary<FactKey, FactRead> reads = new();
     private DecisionFactSnapshot snapshot;
     private CapturedCompanionshipRegion? region;
@@ -43,6 +44,7 @@ public sealed class ForecastCourseCompanionship
         if (this.steps.Any(step => step.WorldEpoch != snapshot.WorldEpoch || step.SnapshotId != snapshot.Id || !step.SufficientlyModelled))
             throw new ArgumentException("Companionship forecasting requires bindings from the frozen snapshot.", nameof(steps));
         pose = initialPose; velocity = initialVelocity; tick = startTick;
+        trajectory.Add(new(tick, pose, velocity));
     }
 
     public CourseTravelRequest? MissingTravel { get; private set; }
@@ -101,6 +103,7 @@ public sealed class ForecastCourseCompanionship
                 intervals.AddRange(ForecastCompanionshipGap.Between(samples[sample] with { Tick = tick + samples[sample].Tick },
                     samples[sample + 1] with { Tick = tick + samples[sample + 1].Tick }, region.Value));
                 sample++;
+                AppendPose(samples[sample] with { Tick = tick + samples[sample].Tick });
             }
             if (!budget.TrySpend("course-companionship-use")) return Result(ProjectionStatus.Pending, "budget-cut");
             tick += travel.Ticks;
@@ -119,6 +122,7 @@ public sealed class ForecastCourseCompanionship
             intervals.AddRange(ForecastCompanionshipGap.Between(new(tick, step.ArrivalPose, step.ArrivalVelocity),
                 new(tick + step.UseTicks, step.ArrivalPose, step.ArrivalVelocity), region.Value));
             tick += step.UseTicks; pose = step.ArrivalPose; velocity = step.ArrivalVelocity;
+            AppendPose(new(tick, pose, velocity));
             leg++; travel = null; samples = null;
         }
         throw new InvalidOperationException("A companionship forecast must finish through its return leg.");
@@ -131,5 +135,17 @@ public sealed class ForecastCourseCompanionship
         return fact;
     }
     private CourseCompanionshipResult Result(ProjectionStatus status, string reason, bool inside = false)
-        => new(status, Array.AsReadOnly(intervals.ToArray()), tick, inside, new(reads.Values), reason);
+        => new(status, Array.AsReadOnly(intervals.ToArray()), tick, inside, new(reads.Values), reason,
+            Array.AsReadOnly(trajectory.ToArray()));
+
+    private void AppendPose(TimedCoursePose next)
+    {
+        if (trajectory[^1].Tick == next.Tick)
+        {
+            if (trajectory[^1].Position != next.Position)
+                throw new InvalidOperationException("A course trajectory cannot change position without elapsed time.");
+            trajectory[^1] = next;
+        }
+        else trajectory.Add(next);
+    }
 }
