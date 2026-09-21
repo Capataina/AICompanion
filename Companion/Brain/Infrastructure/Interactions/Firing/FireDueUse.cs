@@ -100,7 +100,7 @@ public sealed class FireDueUse
             || accepted.UseIndex < 0 || accepted.UseIndex >= plan.Segments[accepted.SegmentIndex].Uses.Length)
             return RefuseAccepted(combat);
         PlannedUse exact = plan.Segments[accepted.SegmentIndex].Uses[accepted.UseIndex];
-        if (!StringComparer.Ordinal.Equals(accepted.UseId, CombatCourseFacts.UseId(plan.Id, accepted.SegmentIndex, accepted.UseIndex))
+        if (!StringComparer.Ordinal.Equals(accepted.UseId, CombatCourseFacts.UseId(plan, accepted.SegmentIndex, accepted.UseIndex))
             || exact.TargetSlot != accepted.TargetSlot || exact.WeaponSlot != accepted.WeaponSlot)
             return RefuseAccepted(combat);
         if (due == null || !due.Value.Equals(exact))

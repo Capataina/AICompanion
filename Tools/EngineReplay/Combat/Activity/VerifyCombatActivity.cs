@@ -1,6 +1,7 @@
 extern alias live;
 
 using System;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -93,7 +94,15 @@ internal static class VerifyCombatActivity
                 planFront = combatAction.OfferedFrontSize;
             }
         }
+        // The family scores are always zero now that the course owns the tick — `LastScores` is filled
+        // only by `ChooseBehaviour.Choose`, which no longer runs — so the course's own funnel is what
+        // says why combat did or did not win. Without it this line reports two zeroes and explains
+        // nothing, which is how a decision that was never made looks identical to one that scored badly.
+        var owner = companion.Brain.Course;
+        string coverage = string.Join(" ", owner.Coverage.Select(source =>
+            $"{source.Source}:{source.Examined}/{source.Total}{(source.Exhausted ? "" : "+")}"));
         Console.WriteLine($"  shared-eagerness: combat wins {combatWins}/30, combat final {combatFinal:0.000}, company final {companyFinal:0.000} raw {companyRaw:0.000} {companyEligibility}, plan {planId} value {planValue:0.000} front {planFront}");
+        Console.WriteLine($"  course: decision={owner.Last.Reason} activity={owner.Last.Activity} steps={owner.Course.Current?.Projection.Steps.Count.ToString() ?? "no-course"} release={owner.Course.ReleaseReason} orders={owner.LastSearch.Evaluated}/{owner.LastSearch.Rejected} exhausted={owner.LastSearch.Exhausted} coverage {coverage}");
         Require(planId >= 0, "combat's wins must come from a committed plan, not a scoreless offer");
         Require(combatWins == 30, $"a damageable hostile in reach must take the body off keeping company; combat won {combatWins}/30");
         return 0;

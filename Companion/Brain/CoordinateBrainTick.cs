@@ -229,7 +229,17 @@ public sealed class Brain
         // the snapshot captures for it. Preparing combat unconditionally is the cost of letting the
         // course *choose* to fight rather than letting combat choose for itself: a shot the course never
         // saw is a shot it cannot weigh against mining the vein beside it.
-        Fighting?.Prepare(ctx);
+        // Every activity prepares, exactly as the family chooser prepared them, and the reason is that
+        // preparation is not part of choosing — it is how an activity works out what it would do, which
+        // its own `Execute` then needs to have a target at all. Wiring the course to prepare only combat
+        // left the other five unprepared, and the symptom was a lighting trip reporting
+        // `offer=NoOpportunity/not-prepared` while keeping company executed instead: the course had named
+        // lighting, and lighting had nothing to light because nobody had asked it to look.
+        //
+        // Combat is the one that must prepare before the decision rather than after it, because its
+        // opportunities are a tactical search rather than a world scan and the course cannot weigh a shot
+        // it never saw. The rest are prepared here too so that a chosen activity is always ready to act.
+        foreach (CompanionAction candidate in Chooser.Actions) candidate.Prepare(ctx);
         CourseDecision decision = Course.Decide(ctx, companion.Combat, Fighting?.LastSearch,
             LimitPlanningWork.Current);
         CompanionAction? action = decision.Activity.Length == 0 ? null

@@ -21,7 +21,41 @@ public static class CombatCourseFacts
     public static FactKey ManaCapacityKey()=>new("capacity","combat-mana");
     public static FactKey UseKey(string id)=>new("combat-use",id);
     public static string ToolId(int slot,int item,int prefix)=>$"weapon:{slot}:{item}:{prefix}";
-    public static string UseId(int plan,int segment,int index)=>$"plan:{plan}/segment:{segment}/use:{index}";
+    /// <summary>
+    /// A use is identified by the shot it is, not by the search that found it.
+    ///
+    /// This was `plan:{plan}/segment:{segment}/use:{index}`, and the plan number comes from
+    /// `combat.NextPlanId++`, so every attack search minted brand-new keys for the same physical shots.
+    /// Once the course brain owned the tick and combat re-searched every frame, a course that bound a
+    /// shot was invalidated on the very next tick by construction: `ValidateNextUse` looked up the
+    /// accepted id, found nothing, and answered `accepted-use-not-present`. The course was released, a
+    /// fresh decision started, and because a decision spans ticks that decision was released again
+    /// before it could settle — so the companion took combat for five ticks of thirty on a scene with a
+    /// damageable hostile in reach and kept company for the rest, with the funnel reading
+    /// `combat:5/5 ... decision=deciding orders=0/0`.
+    ///
+    /// The identity is now target, weapon, stand and the index within that stand's sequence, which is
+    /// what makes the same shot re-found next tick the same use. The stand is rounded to whole pixels
+    /// because two searches agreeing about a place should not disagree by a fraction of one. Two plans
+    /// proposing the same shot now collide on one key deliberately, and the freshest capture wins, which
+    /// is the answer you want: they describe one opportunity. What a collision cannot hide is a shot
+    /// that genuinely changed, because `ValidateNextUse` still compares the stand pose and the tool and
+    /// answers `accepted-use-changed` when either moved.
+    /// </summary>
+    public static string UseId(int targetSlot,int targetGeneration,int weaponSlot,float standX,float standY,int index)
+        => FormattableString.Invariant($"npc:{targetSlot}.{targetGeneration}/weapon:{weaponSlot}/stand:{MathF.Round(standX)},{MathF.Round(standY)}/use:{index}");
+    /// <summary>The same identity derived from a live plan, so the capture that publishes a use, the
+    /// activity that finds it again in its plan and the firing path that verifies it before pulling the
+    /// trigger all build the key one way. Three copies of this derivation is how the capture and the
+    /// firing path come to disagree about which shot a course accepted.</summary>
+    public static string UseId(AttackPlan plan,int segment,int index)
+    {
+        AttackSegment held=plan.Segments[segment]; PlannedUse planned=held.Uses[index];
+        NPC target=(uint)planned.TargetSlot<(uint)Main.maxNPCs?Main.npc[planned.TargetSlot]:null;
+        int generation=target!=null?HostileAttackSources.Generation(target):0;
+        return UseId(planned.TargetSlot,generation,planned.WeaponSlot,held.Stand.Stand.X,held.Stand.Stand.Y,index);
+    }
+
     public static string OpportunityTarget(int slot)=>$"npc:{slot}";
     public static IReadOnlyList<DecisionFact> Capture(in ActionContext ctx,CompanionCombat combat,SearchAttackPlans.SearchResult? search)
     {
@@ -43,7 +77,8 @@ public static class CombatCourseFacts
             AttackSegment segment=plan.Segments[s]; PlannedUse planned=segment.Uses[i];
             if((uint)planned.WeaponSlot>=(uint)weapons.Count||(uint)planned.TargetSlot>=(uint)Main.maxNPCs) continue;
             NPC target=Main.npc[planned.TargetSlot]; if(target==null||!target.active||target.life<=0) continue;
-            int generation=HostileAttackSources.Generation(target); Item item=gear[(GearSlot)planned.WeaponSlot]; string id=UseId(plan.Id,s,i);
+            int generation=HostileAttackSources.Generation(target); Item item=gear[(GearSlot)planned.WeaponSlot];
+            string id=UseId(plan,s,i);
             var use=new Use(id,plan.Id,s,i,planned.TargetSlot,generation,planned.WeaponSlot,weapons[planned.WeaponSlot].ItemType,item.prefix,segment.Stand.Stand.X,segment.Stand.Stand.Y,planned.AimPoint.X,planned.AimPoint.Y,planned.LaunchDirection.X,planned.LaunchDirection.Y,planned.FireTick,weapons[planned.WeaponSlot].UseTime,planned.ExpectedTargetDamage,planned.TargetImpactTicks);
             FactKey key=UseKey(id); facts[key]=new(key,Version(use),new FactValue(Text:JsonSerializer.Serialize(use)),FactEvidence.Observed);
         }
@@ -51,7 +86,11 @@ public static class CombatCourseFacts
     internal static T? Read<T>(DecisionFact f)=>Read<T>(f.Value);
     internal static T? Read<T>(FactValue v) { if(string.IsNullOrWhiteSpace(v.Text)) return default; try{return JsonSerializer.Deserialize<T>(v.Text);}catch(JsonException){return default;} }
     private static long Version(Weapon w)=>Mix(w.Slot,w.ItemType,w.Prefix,w.UseTime,w.Mana,w.Damage,w.Shoot,BitConverter.SingleToInt32Bits(w.ShootSpeed),w.UseStyle);
-    private static long Version(Use u)=>Mix(u.PlanId,u.Segment,u.Index,u.TargetSlot,u.TargetGeneration,u.WeaponSlot,u.WeaponItemType,u.WeaponPrefix,u.FireTick,u.UseTicks,BitConverter.SingleToInt32Bits(u.ExpectedTargetDamage),u.TargetImpactTicks);
+    // The version carries no plan or segment number, for the same reason the key carries none: those
+    // rise with every search, so an unchanged shot would publish a changed version every tick and dirty
+    // every dependency manifest that had read it — a stable key with a moving version is the same defect
+    // one level down, and it would be harder to see because the fact would still be present.
+    private static long Version(Use u)=>Mix(u.Index,u.TargetSlot,u.TargetGeneration,u.WeaponSlot,u.WeaponItemType,u.WeaponPrefix,u.FireTick,u.UseTicks,BitConverter.SingleToInt32Bits(u.ExpectedTargetDamage),u.TargetImpactTicks);
     private static long Mix(params int[] values) { long h=1469598103934665603L; foreach(int v in values){h^=(uint)v;h*=1099511628211L;} return h; }
 }
 

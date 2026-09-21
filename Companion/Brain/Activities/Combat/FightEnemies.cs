@@ -45,7 +45,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         int segmentIndex = -1, useIndex = -1;
         for (int segment = 0; segment < plan.Segments.Length && segmentIndex < 0; segment++)
             for (int index = 0; index < plan.Segments[segment].Uses.Length; index++)
-                if (StringComparer.Ordinal.Equals(binding.NativeUseId, CombatCourseFacts.UseId(plan.Id, segment, index)))
+                if (StringComparer.Ordinal.Equals(binding.NativeUseId, CombatCourseFacts.UseId(plan, segment, index)))
                 {
                     use = plan.Segments[segment].Uses[index];
                     segmentIndex = segment;
