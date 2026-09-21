@@ -847,6 +847,13 @@ public static class SearchAttackPlans
                     targetDamage += hit.Damage;
             uses[i] = new PlannedUse(meta.WeaponSlot, meta.Muzzle, meta.AimPoint, meta.Launch, sequence[i].FireTick,
                 meta.TargetSlot, targetDamage, sequence[i].Attack.TargetImpactTicks);
+            // The pairing AIC-422 is about: one aim, solved for firing on arrival, handed to a use that
+            // may be scheduled a cooldown or more later. Printed rather than asserted because whether
+            // the two may differ at all is the open question, and a row asserting either answer would be
+            // asserting the fix before it is chosen.
+            if (System.Environment.GetEnvironmentVariable("AIC_TRACE_USEAIM") != null)
+                System.Console.WriteLine($"USEAIM i={i} aimSolvedAtFireTick={travelCtx} scheduledFireTick={sequence[i].FireTick} "
+                    + $"aim={meta.AimPoint.X:0.0},{meta.AimPoint.Y:0.0} target={meta.TargetSlot} impact={sequence[i].Attack.TargetImpactTicks}");
             targetSlots.Add(meta.TargetSlot);
         }
         var segment = new AttackSegment(proposal, verdict, arrivalAbs, Math.Max(arrivalAbs, startAbs),
