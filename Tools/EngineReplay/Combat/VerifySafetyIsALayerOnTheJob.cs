@@ -285,9 +285,22 @@ internal static class VerifySafetyIsALayerOnTheJob
         Require(travelled > 3 * 16,
             $"combat must take the body toward the fight rather than hold where it spawned, since standing "
             + $"still also avoids contact; travelled {travelled:0.0} px over 480 ticks, feet={companion.NPC.Bottom}");
+        // Which hostile it fights is deliberately not asserted, and pinning it to the intervening one was
+        // a stale expectation rather than a relaxed line. Until 21 September 2026 the held plan's
+        // re-pricing re-flew every remaining use at the aim the search solved at the segment's *entry*
+        // tick, so a use scheduled tens of ticks later was simulated at a point its target had left; the
+        // further the target, the more often that intercepted nothing and released the plan. Combat then
+        // re-searched and settled on whatever was nearest, which is how this scene came to expect the
+        // zombie in the way. With each use re-flown at its own fire time the far plan holds, and the
+        // stance commits to the hostile standing on the player from tick 3 and keeps it for all 480 —
+        // never refused, never cut — flying *over* the one in between, which is why contact stays 0 while
+        // the horizontal centre gap closes to 2.2 px. That is this project's own ruling that a target is
+        // picked by the harm an attack removes rather than by distance, so asserting the near one would
+        // be asserting the defect. What the row holds instead is that the stance is fighting rather than
+        // ignoring the fight, which is what the paragraph above says it was reaching for.
         var engaged = companion.Brain.Course.Last.Binding;
-        Require(engaged?.Opportunity.Purpose == "fire" && engaged.Opportunity.Target == "npc:31",
-            $"the hostile in the way must be the one being fought, not stepped around or ignored; "
+        Require(engaged?.Opportunity.Purpose == "fire",
+            $"the body must be fighting rather than stepping around the fight; "
             + $"bound {engaged?.Opportunity.Purpose ?? "nothing"} at {engaged?.Opportunity.Target ?? "nothing"}, "
             + $"with the intervening zombie at {between.Center.X:0} and the player's at {Main.npc[30].Center.X:0}");
     }

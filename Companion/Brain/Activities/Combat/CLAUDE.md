@@ -70,7 +70,7 @@ The planner in `Planning/` is this folder's decision. `../../Infrastructure/Inte
 
 ## Current state — 18 September 2026
 
-The stance, the seven generators, the beam, the overlay's committed-plan layer, `CheckTheFight`'s performed and churn checks, name-keyed knowledge save/load, and the extra-projectile modifier seam are built. Headless: `sh Tools/verify.sh --case combat` (and `--case "attack planning"` / `--case weapon`) files no red row; C1's cache 99th percentile sits inside one frame. 4d44794 (0.30.4) landed the hitting-fight band, the chain representative, travelling DPS-gated shots, and FireFrom-from-here. 0.30.6 keeps a hitting `ServesPlayerDirectly` fight's score when the path to the stand is long, and a search cut that priced nothing still offers from here. Mastery pierce and extra-projectile bonuses are planted in the S5 row — there is no live bonuses record yet. Invalidation of a combat target is still the world's global edit counter rather than a spatial box.
+The stance, the seven generators, the beam, the overlay's committed-plan layer, `CheckTheFight`'s performed and churn checks, name-keyed knowledge save/load, and the extra-projectile modifier seam are built. Headless: `sh Tools/verify.sh --case combat` (and `--case "attack planning"` / `--case weapon`) files no red row; C1's cache 99th percentile sits inside one frame. 4d44794 (0.30.4) landed the hitting-fight band, the chain representative, travelling DPS-gated shots, and FireFrom-from-here. 0.30.6 keeps a hitting `ServesPlayerDirectly` fight's score when the path to the stand is long, and a search cut that priced nothing still offers from here. Mastery pierce and extra-projectile bonuses are planted in the S5 row — there is no live bonuses record yet. Invalidation is spatial on the *bodies* since 21 September 2026: a committed plan releases when an admitted hostile has left the place it was priced at by more than its own motion explains. Invalidation on the *terrain* is still the world's global edit counter rather than a spatial box, so the player mining a screen away still re-ranks the target.
 
 ## Operating
 
@@ -85,7 +85,7 @@ Always `DYLD_LIBRARY_PATH` to tModLoader's native OSX libraries. Never launch Te
 
 ## Planned work
 
-Wire mastery pierce and extra-projectile to a live bonuses record when one exists. Make combat-target invalidation spatial, with a box the flight simulation actually bounds.
+Wire mastery pierce and extra-projectile to a live bonuses record when one exists. Make combat-target *terrain* invalidation spatial, with a box the flight simulation actually bounds; the bodies half landed on 21 September 2026. Carry the per-use fire-time aim back into the search, so `PlannedUse.AimPoint` is the point the hand will fire rather than the one the segment's entry tick solved — the re-pricing and `FireDueUse` both re-solve it now, so the plan's own recorded aim is the only copy still stale.
 
 ## Cross-folder
 

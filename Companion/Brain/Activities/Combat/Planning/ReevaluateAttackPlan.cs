@@ -101,23 +101,43 @@ public static Repricing Reevaluate(in ActionContext ctx, CompanionCombat combat,
             gate = "the planned target is outside the planned weapon's reach from the stand";
             continue;
         }
-        WeaponId id = SimulateUse.Identify(weapon, ctx, use.WeaponSlot);
         int fireTick = Math.Max(0, use.FireTick - tick);
-        SimulatedUse sim;
-        if (!CacheSimulatedUses.TryGet(id, modifiers, muzzle, use.AimPoint, fireTick, knowledge, world.RefreshCount, out SimulatedUse? cached) || cached == null)
+        // **The aim is solved for this use's own fire time, not carried from the one it was planned with.**
+        //
+        // The search solves one aim per weapon-and-target pair, at the tick the segment is entered, and
+        // hands it to every use in the sequence — so a segment of three shots a weapon cooldown apart
+        // carries one aim point for all three. Proven in `d6b2119`: `USEAIM i=0/1/2` with scheduled fire
+        // ticks 17, 77 and 137 all reading `aim=664.0,940.0`. Against a still target that is harmless;
+        // against anything moving, the later aims name where it was when the segment began.
+        //
+        // Re-flying those stale aims here is what made the re-price condemn the plan. The shot is
+        // simulated at the right *time* with the wrong *point*, intercepts nothing, the attack list
+        // empties, and a `Refused` releases a committed fight — measured as a hold surviving 0 of 3
+        // ticks against anything moving faster than about 0.4 px/tick, a quarter of a zombie's walk.
+        //
+        // The hand never had this problem: `FireDueUse` calls the same `BestAimUse` at the moment of
+        // firing and fires *that* point rather than the planned one. So the re-price was condemning
+        // plans the hand would have re-aimed and landed, and this makes the two agree rather than
+        // introducing anything new. The cost is one aim solve per remaining use of one committed plan
+        // per tick, which is bounded by the eight-use cap above and is nothing beside the search that
+        // produced the plan.
+        // Charged to the shared allowance on purpose, and measured rather than assumed: on a planning
+        // cache hit this costs nothing at all, because the search has already solved the best aim for
+        // this weapon, target, muzzle and fire tick and BestAimUse returns it. On a miss it is one aim
+        // sweep, measured at 21 to 29 operations per use on the intervening-hostile scene of
+        // 21 September 2026, against a whole tick's allowance — small enough that no re-price on that
+        // scene ever cut or was cut, over 480 consecutive ticks of a held fight.
+        ForecastUses.AimedUse? aimed = ForecastUses.BestAimUse(ctx, weapon, use.WeaponSlot, target, muzzle,
+            enemies, world, fireTick, record: false, planning: true, ref budget);
+        if (budget.Cut)
+            return new Repricing(null, Cut: true);
+        if (aimed == null)
         {
-            sim = SimulateUse.Simulate(id, muzzle, use.AimPoint, use.LaunchDirection, world, enemies, modifiers, fireTick, ref budget);
-            if (budget.Cut)
-                return new Repricing(null, Cut: true);
-            CacheSimulatedUses.Store(id, modifiers, muzzle, use.AimPoint, fireTick, knowledge, world.RefreshCount, sim);
+            gate = "no aim solves for this use at its own fire time";
+            continue;
         }
-        else
-        {
-            sim = cached;
-        }
-        var aim = new AimCandidate(use.AimPoint, use.LaunchDirection);
         EvaluateAttackOutcomes.Attack? attack = ForecastUses.AttackFromUse(ctx, weapon, use.WeaponSlot, target,
-            muzzle, sim, aim, aim, fireTick, out _, out _);
+            muzzle, aimed.Value.Use, aimed.Value.Aim, aimed.Value.Intercept, fireTick, out _, out _);
         if (attack == null)
         {
             // Env-gated because the answer needed here is not "the attack was empty" but *why*: a shot
@@ -125,8 +145,9 @@ public static Repricing Reevaluate(in ActionContext ctx, CompanionCombat combat,
             // defects, and the refusal string cannot tell them apart. AIC-422 is the open case.
             if (System.Environment.GetEnvironmentVariable("AIC_TRACE_REPRICE") != null)
                 System.Console.WriteLine($"REPRICE tick={tick} fireTick={fireTick} muzzle={muzzle.X:0.0},{muzzle.Y:0.0} "
-                    + $"aim={use.AimPoint.X:0.0},{use.AimPoint.Y:0.0} target={target.whoAmI} "
-                    + $"simHits={sim.Hits.Count} hitSlots={string.Join("/", System.Linq.Enumerable.Select(sim.Hits, h => h.Slot))}");
+                    + $"plannedAim={use.AimPoint.X:0.0},{use.AimPoint.Y:0.0} "
+                    + $"solvedAim={aimed.Value.Aim.AimPoint.X:0.0},{aimed.Value.Aim.AimPoint.Y:0.0} target={target.whoAmI} "
+                    + $"simHits={aimed.Value.Use.Hits.Count} hitSlots={string.Join("/", System.Linq.Enumerable.Select(aimed.Value.Use.Hits, h => h.Slot))}");
             gate = "the re-flown use produced no attack at all";
             continue;
         }
