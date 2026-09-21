@@ -339,9 +339,21 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
                     // sets life to 1 and dontTakeDamage true, so every hostile near a downed body priced
                     // as a lethal hit on a course the game would let it fly through untouched.
                     new ContactActor(HarmActor.Companion, victim.ContactEnabled ? victim.Life : 0,
-                        // Ticks before this course begins belong to an executed prefix whose trajectory
-                        // this forecast was not handed, so they are skipped rather than guessed at. The
-                        // victim's own live immunity is the other floor.
+                        // The victim's own live immunity is the floor that does work here.
+                        //
+                        // **The `successor.Tick` term beside it is inert, measured 21 September 2026.**
+                        // It was written to skip ticks belonging to an executed prefix whose trajectory
+                        // this forecast was not handed — but there are none, because the projection clock
+                        // is relative to the decision rather than to the engine: `DecideCourseEachTick`
+                        // builds its initial state with no start tick, `BindCourseOrder` hands this the
+                        // origin as `initial.Fork()`, and `SampleContactTrajectory` refuses outright any
+                        // trajectory whose first pose is not at tick zero. So this reads `Math.Max(ready,
+                        // 0)` in every production decision and in every scene that can legally be built.
+                        //
+                        // It is left standing rather than deleted because which of the two is wrong is a
+                        // design question — an inert guard, or a clock that ought to be absolute — and
+                        // `AIC-446` carries it. What must not happen is the comment continuing to claim a
+                        // protection the arithmetic cannot provide, which is what it did until now.
                         Math.Max(victim.OrdinaryReadyTick, (int)Math.Ceiling(successor.Tick)), boxes),
                 };
             // The player, priced from tick zero rather than from the course's start: the companion's

@@ -92,6 +92,10 @@ internal static class VerifyEngineMotion
         ("one observation per tick carries every domain the course brain can act on", VerifyCourseSnapshotAssembly.Run),
         ("the live brain tick asks a course what to do instead of the family chooser", VerifyTheCourseOwnsTheTick.Run),
         ("a course is priced for the harm it flies into and still cannot certify that it harms nobody", VerifyNativeConsequencePricing.Run),
+        // The seam between the two above: a real binder and the real forecast on one non-empty order,
+        // started at a non-zero tick, which is the only regime where the companion's ready-tick floor
+        // and the binder's origin handoff are both observable.
+        ("a non-empty course is priced end to end from the tick it starts at", VerifyWholeCoursePricing.Run),
         ("a bound course step names the activity that performs it and the place it happens", VerifyCourseBindingExecution.Run),
         ("collecting, lighting and pot breaking bind steps a course can hold", VerifyAssistanceCourseBindings.Run),
         ("native lighting projections preserve captured light and shared deficits", VerifyLightingOpportunityCapture.Run),
