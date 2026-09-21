@@ -622,9 +622,12 @@ internal static class VerifyOreWork
         Require((int)sinceReachField.GetValue(chop)! == preparedAge,
             "chopping comparison must not advance its discovery timer or repeat its reach search");
         for (int tick = 0; tick < 20; tick++) VerifyPreparedActivities.PrepareAndScore(chop, ctx);
-        Require((int)typeof(live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree)
-            .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(chop)! == 20,
-            "unchanged retained work must reuse its reach verdict rather than search every scoring tick");
+        int agedTo = (int)sinceReachField.GetValue(chop)!;
+        // The number is in the message because the two ways this row can fail need opposite fixes and
+        // look identical without it: a value below 20 is the search re-running and zeroing the counter,
+        // and a value of 20 with the row still red would be the counter never advancing at all.
+        Require(agedTo == 20,
+            $"unchanged retained work must reuse its reach verdict rather than search every scoring tick; the counter read {agedTo} after 20 preparations, so the reach search re-ran {(agedTo < 20 ? $"{20 - agedTo} preparation(s) ago" : "at an unexpected cadence")}");
     }
 
     private static void ChoppingPrefersASeparateActiveTrunk()

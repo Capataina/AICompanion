@@ -157,6 +157,24 @@ internal static class ResetProcessState
         // first observation; both go back to a process that has drawn nothing.
         VerifyUsefulAssistance.ForgetEngineLight();
 
+        // The player's own choices are a process-wide singleton — both work policies, combat, pot
+        // breaking, torch placement, the distance mode and the mining list — and until now they were
+        // the one reachable static no case put back. A fresh instance *is* a fresh process's value by
+        // construction, because every default lives on the property initialisers, so this cannot drift
+        // from what the game starts with the way a list of assignments here would.
+        //
+        // It is written as a reset rather than as a line in the fixture that found it, deliberately.
+        // `VerifyOreWork.SetUp` sets the mining policy and never the chopping one, so its sealed-tree
+        // row read whichever chopping policy the process was last left holding: run alone it found the
+        // Opportunistic default and passed, and run in the suite it found a Disabled or Mimic policy
+        // left by a cooperation row, took the early return above the reach block, and reported the
+        // reach search as never reusing its verdict — the counter reading 81 after 20 preparations,
+        // which is the branch never being reached at all rather than being reached too often. Setting
+        // the chopping policy in that one row would fix that row and leave every other reader of these
+        // seven fields with the same order dependence, unannounced.
+        live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current =
+            new live::AICompanion.Companion.PlayerIntegration.CompanionPreferences();
+
         // The map before the search policy, because the policy plugs a fresh world wrapper over
         // whatever map is standing, and the wrapper has to wrap the empty one.
         RebuildTheMiniatureWorld();
