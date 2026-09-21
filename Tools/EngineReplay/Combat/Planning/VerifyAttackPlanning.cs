@@ -1060,7 +1060,12 @@ internal static class VerifyAttackPlanning
             // P1–P8 run first under --combat-cost / --attack-planning and JIT the planning path.
             // A couple of untimed crowd searches then fill the sim cache so p99 of twelve is not
             // the compiling miss. Uncached needs no extra crowd searches: one warmup is enough.
+            // The uncached arm is a control rather than a distribution, and its sample count is sized
+            // for that. One search without the cache measured 29999, 30025 and 30050 ms across three
+            // samples — a spread of two tenths of one percent — so twelve of them establish nothing a
+            // pair does not, and they cost six minutes of every suite run to establish it.
             int warmups = cache ? 3 : 1;
+            int sampleCount = cache ? 12 : 2;
             for (int w = 0; w < warmups; w++)
             {
                 if (!cache)
@@ -1072,7 +1077,7 @@ internal static class VerifyAttackPlanning
                 SearchPlans.Search(ctx, combat, companion.Brain.Positioner, _ => true, weights,
                     combat.NextPlanId++, ref warm);
             }
-            var samples = new double[12];
+            var samples = new double[sampleCount];
             for (int i = 0; i < samples.Length; i++)
             {
                 if (!cache)
@@ -1101,7 +1106,82 @@ internal static class VerifyAttackPlanning
             $"attack planning cost: cache p50={Pct(cached, 0.5f):0.000} p90={Pct(cached, 0.9f):0.000} p99={cached99:0.000}; " +
             $"no-cache p50={Pct(uncached, 0.5f):0.000} p90={Pct(uncached, 0.9f):0.000} p99={Pct(uncached, 0.99f):0.000}"));
         Console.Out.Flush();
-        Require(cached99 < 16.67, $"the 99th percentile with the cache must fit a frame; got {cached99:0.000} ms");
+
+        // The assertion above asked whether an *unbounded* search fits a frame, and it has never once
+        // been true: twenty-one recorded runs, no pass, going back to the row's first appearance. That
+        // is not a regression anybody introduced — it is a question production never asks. `FixtureBudget`
+        // is `(double.PositiveInfinity, long.MaxValue)` with a clock that never advances, while in the
+        // game `Brain.Tick` always has an allowance open and the combat search borrows it, so the search
+        // is cut long before it reaches thirty-eight milliseconds. The unbounded figures above are kept
+        // and printed, because how far the search *would* run is a real scaling signal and the no-cache
+        // arm is how the cache's worth is known; they are measures, not a pass line.
+        //
+        // What production actually risks is not cost, and this is the part a cost assertion was standing
+        // in for badly: the search wants far more time than a tick has, so every live plan is made on a
+        // fraction of it. The question worth failing on is therefore whether a cut search still produces
+        // a usable plan, and whether it honours the deadline it was given rather than overrunning it.
+        var underAllowance = new double[12];
+        // Why an empty search was empty, counted by the search's own reason. A count of empties says a
+        // defect exists; the reason says whether the cut landed before the first opener was found or
+        // whether something else refused it, and those want different fixes.
+        var emptyReasons = new Dictionary<string, int>(StringComparer.Ordinal);
+        int planned = 0, cut = 0;
+        for (int i = 0; i < underAllowance.Length; i++)
+        {
+            // The real allowance, with the real clock: `DecisionWorkBudget`'s defaults are
+            // `Stopwatch.GetTimestamp` and its own frequency, so this is the budget the tick opens.
+            var budget = new Budget(Weights.TotalPlanningMilliseconds);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var result = SearchPlans.Search(ctx, combat, companion.Brain.Positioner, _ => true, weights,
+                combat.NextPlanId++, ref budget);
+            clock.Stop();
+            underAllowance[i] = clock.Elapsed.TotalMilliseconds;
+            if (result.Plan != null) planned++;
+            else
+            {
+                // The opener's own verdict, not just the search's reason. `openingNode` stays null both
+                // when the opener stand was unreachable and when pricing it was cut, and both report
+                // `budget-cut` because the budget did expire — but one is a geometry answer and the
+                // other is a starved guarantee, and only the first is the search behaving correctly.
+                string opener = result.Assessed.Count == 1
+                    ? "opener-reach:" + result.Assessed[0].Verdict.Reach
+                    : "opener-not-assessed";
+                string key = result.Reason + "/" + opener;
+                emptyReasons[key] = emptyReasons.GetValueOrDefault(key) + 1;
+            }
+            if (result.Cut) cut++;
+        }
+        System.Array.Sort(underAllowance);
+        double allowance99 = Pct(underAllowance, 0.99f);
+        // Hoisted rather than concatenated into the interpolation: appending a non-interpolated
+        // expression makes the whole thing a `string`, which selects a different `string.Create`
+        // overload and fails to compile on the handler argument.
+        string empties = emptyReasons.Count == 0 ? ""
+            : "; empty: " + string.Join(" ", emptyReasons.Select(e => $"{e.Key}x{e.Value}"));
+        Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"attack planning under the tick's own allowance: p50={Pct(underAllowance, 0.5f):0.000} p99={allowance99:0.000} ms against an allowance of {Weights.TotalPlanningMilliseconds:0.000}; {planned} of {underAllowance.Length} produced a plan, {cut} were cut{empties}"));
+        Console.Out.Flush();
+
+        // Twice the allowance, matching the slack the lighting cost row uses for the same reason: the
+        // deadline is checked between operations, so an overrun of one atomic slice is the contract
+        // rather than a defect, and a tight ceiling would be testing the harness instead of the brain.
+        double ceiling = Weights.TotalPlanningMilliseconds * 2d;
+        Require(allowance99 < ceiling,
+            $"the combat search must honour the deadline it borrowed plus one atomic slice; "
+            + $"p99 {allowance99:0.000} ms against a ceiling of {ceiling:0.000} ms");
+        // Last deliberately, because it is red on a filed defect rather than on something about to be
+        // fixed, and this suite's rule is that such a row goes last so the rows behind it still report.
+        //
+        // A cut is expected and is not the failure; a cut that yields nothing is. G04 requires a useful
+        // opener to survive the broader search being cut, and `SearchAttackPlans` implements exactly
+        // that — it prices a single opener stand before stand discovery may spend the allowance. What
+        // it is not protected from is the prelude: `combat.EnsureForecast` forecasts every hostile
+        // before the opener is reached, so on a crowd the deadline can pass before the guarantee is
+        // established. Measured here as two searches in twelve returning nothing with the opener's own
+        // stand reading `Reachable`, so the opener was starved rather than refused on geometry.
+        Require(planned == underAllowance.Length,
+            $"a search cut by the tick's own allowance must still return a usable plan on a forty-hostile "
+            + $"crowd; {planned} of {underAllowance.Length} did, with {cut} cut");
         return 0;
     }
 
