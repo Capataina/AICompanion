@@ -100,32 +100,29 @@ internal static class VerifyAccompanyingThePlayer
         Require(longestStill < 10, $"an idle player's companion must never be still for ten ticks; {ledger}");
         Require(outsideAfterEntry <= 30, $"an idle player's companion must stay inside his region once it is there; {ledger}");
         Require(accompanyAfterEntry * 10 >= ticksAfterEntry * 9, $"inside the region the accompanying owner must move the body; {ledger}");
-        // This row asserts a wander and the code now parks, and the difference is a decision the owner
-        // has not made yet rather than a defect anybody introduced.
+        // The code does not park — that reading was stale and was corrected on 21 September 2026 by
+        // measuring it. The body moves on essentially every tick (longest still run 2, asserted above)
+        // and accompanies on all six hundred; what it does not do is *cover*. It crosses 0.40 of the
+        // room's width and never reaches the left third, which is the one clause below that fails.
         //
-        // `0a2a98e` replaced "move about the region" with "park at the usable corner holding the most
-        // combined wall-and-enemy clearance, inside the box", because the play before it had the
-        // companion sitting on the dirt at player height with the positioner choosing no place at all.
-        // Its own body calls that change an experiment — *the experiment is the wander park and the
-        // route heat* — and leaves `combat stands after the wander look is judged` open in its decision
-        // graph. So the park is deliberate, is pending a look, and is what this row measures against a
-        // contract written for what it replaced.
-        //
-        // The row is left asserting the wander rather than relaxed to fit the park, because relaxing it
-        // would quietly settle a question the owner said he wanted to see first. Everything else in the
-        // ledger holds under both designs and still passes: the body enters the region, never goes
-        // still for more than a couple of ticks, never leaves after entering, and accompanies on every
-        // tick. What fails is coverage alone, and the numbers say how far the park drifts.
+        // README's Expected Behaviour is the contract and it says "keeps moving through the whole of
+        // that space", so this row is not relaxed to fit what the code happens to do. It stays red on
+        // purpose, and `Steering/CLAUDE.md` carries why three attempts have not cleared it: a
+        // random-walk heading diffuses rather than covers, so a turning-rate floor closes loops and no
+        // floor wanders in place, and a tour that does cover puts the companion behind a travelling
+        // player often enough to break this fixture's other two rows. Covering the whole box and never
+        // trailing are only jointly satisfiable where the box genuinely leads, and whether the coverage
+        // clause governs a travelling companion at all is the owner's call. `AIC-443` is blocked on it.
         //
         // It has also been flaky across this boundary — one commit filed a pass and a fail — which is
         // what a coverage test of a seeded local motion does when its step budget is near the span it
-        // has to cover. Whichever way the look is judged, the replacement assertion should be about the
+        // has to cover. Whichever way the judgement goes, the replacement assertion should be about the
         // motion rather than about the ground it happens to cover in six hundred ticks.
         Require(left && right && above && below,
             $"an idle player's companion must move through the whole region, both outer thirds across it "
-            + $"and both halves up and down. NOTE: this asserts the wander that 0a2a98e replaced with the "
-            + $"clearest-air park as a deliberate experiment pending the owner's look, so a red here is "
-            + $"that open question rather than a regression; {ledger}");
+            + $"and both halves up and down. NOTE: the body moves throughout and fails coverage alone; a "
+            + $"tour that covers breaks the two travelling rows, so this waits on the owner deciding "
+            + $"whether coverage governs a travelling companion (AIC-443); {ledger}");
     }
 
     private static void ATravellingPlayersCompanionKeepsUpWithoutTrailing() => WalkAlongside("travelling", pace: 2f, Ticks: 300);
