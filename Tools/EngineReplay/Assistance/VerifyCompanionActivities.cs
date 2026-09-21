@@ -54,8 +54,15 @@ internal static class VerifyCompanionActivities
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
         ctx.Player.Bottom = new Vector2(50 * 16, 60 * 16);
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
-        var chosen = ctx.Companion.Brain.Chooser.Choose(ctx);
-        Require(chosen?.Name == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen?.Name ?? "none"}");
+        // Driven through the real tick, which is what the course brain is: the row's subject is a
+        // behaviour README describes — reachable ore beats ordinary following once the player is far
+        // enough that following is not free — so it is worth more as a claim about the brain that runs
+        // than as a claim about the scorer that decided it before `0bb2c8a`. Three ticks, because the
+        // first frames a companion lives are spent flooding reach and optional work refuses an
+        // unanswered search rather than walking at it.
+        for (int i = 0; i < 3; i++) VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+        string? chosen = ctx.Companion.Brain.Chooser.Current?.Name;
+        Require(chosen == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen ?? "none"}");
     }
 
     private sealed class ActivityProbe : live::AICompanion.Companion.Brain.Activities.CompanionAction
@@ -471,6 +478,14 @@ internal static class VerifyCompanionActivities
     {
         var scenes = new (string Name, bool Player, bool Companion)[]
             { ("neither", false, false), ("player", true, false), ("companion", false, true), ("both", true, true) };
+        // `Protection` and `Reunion` are the family chooser's per-activity multipliers, and this row is
+        // the last one still driving that scorer — see the comment at its loop for the measurement that
+        // sent an attempted course rewrite back. When it is adjudicated under AIC-437, those two columns
+        // have no course equivalent to move to: the course prices whole orders and charges danger once
+        // through `CourseComparisonEpisode.RelevanceFor`, whose own row is
+        // `VerifyEncounterContext.TheCourseChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork` and
+        // which already holds the property the protection assertion below holds here — urgency and an
+        // equal encounter are one danger read twice, paid once rather than squared.
         var seen = new Dictionary<string, (float Raw, float Protection, float Reunion, float DelayCost, float Guard, float PlayerDanger, float CompanionDanger)>();
         var excursions = new Dictionary<string, Dictionary<string, float>>();
         var offers = new Dictionary<string, string>();
@@ -567,6 +582,24 @@ internal static class VerifyCompanionActivities
                 {
                     brain.Senses.Update(ctx.Npc, ctx.Player);
                     brain.Senses.SetInterventionEstimate(ctx.Companion.Combat.EstimateInterventionTicks(ctx));
+                    // **Still the retired family chooser, deliberately, and this is the last row holding
+                    // it alive.** Rewriting it against the course was attempted on 21 September 2026 and
+                    // reverted on a measurement rather than on difficulty: driven through
+                    // `Course.Decide`, with every activity prepared exactly as the live tick prepares
+                    // them and up to eight consecutive decisions, the course led **no order at all** with
+                    // mining, chopping or collection in this scene — `collect=0, chop=0, mine=0` — while
+                    // each of those activities' own `Prepare` reported `Usable` (`vein-target-established`,
+                    // `reachable-trunk`, `known-drop-fits-cargo`) and lighting alone priced an order, at
+                    // −0.086. So the row's premise, that every excursion has a real opportunity in the
+                    // calm scene, fails against the course for a reason that is about the course's
+                    // discovery rather than about this row: four ticks of decisions do not produce the
+                    // gathering orders the activities can see. `VerifyEncounterContext.MiningScene` does
+                    // get a `mine-target` leader, so it is scene-specific and not a blanket absence.
+                    //
+                    // Adjudicating that belongs to AIC-437, one behaviour at a time, and is the last thing
+                    // between AIC-419 and deleting `Choose`. Converting the premise to "the course priced
+                    // something" would make the four-scene invariance below hold on four zeroes, which
+                    // passes while testing nothing — the one outcome worse than the red.
                     brain.Chooser.Choose(ctx); ticks++;
                 }
                 while (combatPreview.EligibilityReason == "stands-undecided" && ticks < 500);
@@ -645,7 +678,11 @@ internal static class VerifyCompanionActivities
             // following then read as satisfied only after a settled streak.
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
-            ctx.Companion.Brain.Chooser.Choose(ctx);
+            // The observation, not a comparison. This called `Choose` when the family chooser owned the
+            // tick and regroup urgency was computed inside it; the observation moved to
+            // `ObserveCompanionship`, which the live tick calls directly, so the row drives the thing it
+            // is actually about rather than a decision procedure that no longer runs.
+            ctx.Companion.Brain.Chooser.ObserveCompanionship(ctx);
             Require(ctx.Companion.Brain.Chooser.RegroupUrgency == 0,
                 $"{mode} comfortable following must not request regrouping; inside={ctx.Companion.Brain.Senses.Intent.Inside} gap={ctx.Companion.Brain.Senses.Intent.Region.GapBeyond(ctx.Npc.Center)}");
         }
@@ -659,9 +696,18 @@ internal static class VerifyCompanionActivities
         chooser.Actions.Clear();
         var activity = new ActivityProbe { Target = ctx.Player.Bottom };
         chooser.Actions.Add(activity);
-        Require(chooser.Choose(ctx) == activity, "first job must win");
+        // The subject is `CompanionAction.Allows` — that a job the incumbent picks up next earns its own
+        // continuation allowance rather than inheriting the previous job's. Making the probe the incumbent
+        // used to mean calling the family chooser twice and checking it won; the course owns selection
+        // now, so the row selects it through `OwnCurrentActivity`, which is the same owner the live tick
+        // hands the course's chosen activity to and is deliberately not part of the retired scorer.
+        activity.Prepare(ctx);
+        chooser.Activity.Select(activity, ctx);
+        Require(ReferenceEquals(chooser.Current, activity), "premise: the probe is the incumbent");
         activity.Identity = new object();
-        Require(chooser.Choose(ctx) == activity, "next job must remain in the same behaviour");
+        activity.Prepare(ctx);
+        chooser.Activity.Select(activity, ctx);
+        Require(ReferenceEquals(chooser.Current, activity), "next job must remain in the same behaviour");
         activity.Target = ctx.Player.Bottom + new Vector2(Preferences.Current.NewActivityRadius + 100, 0);
         Require(activity.Allows(ctx), "a new job selected by the incumbent must earn its own continuation allowance");
     }
