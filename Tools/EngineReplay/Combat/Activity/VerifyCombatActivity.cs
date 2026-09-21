@@ -122,7 +122,23 @@ internal static class VerifyCombatActivity
             if (companion.Brain.Chooser.Current?.Name == "combat") combatTicks++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
+        // The three numbers that separate the ways this row can fail: whether the player reads as in
+        // danger at all, whether the course found a shot to weigh, and what it decided. A bare tick
+        // count cannot tell "the threat is invisible" from "the shot was never discovered" from "the
+        // comparison preferred the vein", and those want three different fixes.
+        var dangerOwner = companion.Brain.Course;
+        string dangerCoverage = string.Join(" ", dangerOwner.Coverage.Select(source =>
+            $"{source.Source}:{source.Examined}/{source.Total}{(source.Exhausted ? "" : "+")}"));
         Console.WriteLine($"  danger-over-work: combat ticks {combatTicks} of 120 with a zombie on a hurt player");
+        string dangerRefusals = string.Join(" ", dangerOwner.LastRefusals.OrderByDescending(r => r.Value).Select(r => $"{r.Key}x{r.Value}"));
+        Console.WriteLine($"  danger-over-work course: protection={companion.Brain.Senses.Threats.ProtectionUrgency:0.000} decision={dangerOwner.Last.Reason} activity={dangerOwner.Last.Activity} orders={dangerOwner.LastSearch.Evaluated}/{dangerOwner.LastSearch.Rejected} coverage {dangerCoverage}");
+        Console.WriteLine($"  danger-over-work refusals: {(dangerRefusals.Length == 0 ? "none" : dangerRefusals)}");
+        // Coverage says the census finished; admission says whether the search may order any of it.
+        // A domain reporting 13 of 13 examined and zero usable contributes nothing to the comparison,
+        // and the two lines read identically until the admission counts are printed beside them.
+        string dangerAdmitted = string.Join(" ", dangerOwner.Admitted.Select(domain =>
+            $"{domain.Domain}:{domain.Usable}ok/{domain.Unresolved}?/{domain.Unusable}x{(domain.Reason.Length == 0 ? "" : "(" + domain.Reason + ")")}"));
+        Console.WriteLine($"  danger-over-work admitted: {(dangerAdmitted.Length == 0 ? "nothing discovered" : dangerAdmitted)}");
         Require(combatTicks > 60, $"a threat on a hurt player must lift combat off the vein; combat ticks={combatTicks}");
         return 0;
     }

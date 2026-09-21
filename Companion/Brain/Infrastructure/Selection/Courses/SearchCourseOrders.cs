@@ -46,6 +46,32 @@ public sealed class SearchCourseOrders
     public bool Exhausted { get; private set; }
     public bool DepthTruncated { get; private set; }
     public IReadOnlyList<OpportunityKey> PendingOrder => pendingOrder ?? Array.Empty<OpportunityKey>();
+    /// <summary>
+    /// Why orders were refused this search, counted by reason, newest reason last.
+    ///
+    /// A rejection count on its own is the number that cannot be acted on. A scene with one ore site and
+    /// thirteen discovered shots refused twenty of twenty-five orders and priced five, and nothing
+    /// anywhere said why — so diagnosing it took three separate angles, each of which had to guess at a
+    /// mechanism and then disprove it. Every refusal already carries a reason string from
+    /// `BindCourseOrder`; it was simply discarded at this line.
+    ///
+    /// The tally is bounded rather than a log, because a search can refuse many orders for one reason
+    /// and the useful shape is which reasons and in what proportion, not a row per order. A reason is
+    /// recorded once with a count; a search that invents unbounded distinct reasons stops recording new
+    /// ones rather than growing without limit, and says so through the `refusal-kinds-truncated` entry.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> Refusals => refusals;
+    private readonly Dictionary<string, int> refusals = new(StringComparer.Ordinal);
+    private const int MaximumRefusalKinds = 16;
+
+    private void Refuse(string reason)
+    {
+        string key = string.IsNullOrEmpty(reason) ? "unstated" : reason;
+        if (refusals.ContainsKey(key)) { refusals[key]++; return; }
+        if (refusals.Count >= MaximumRefusalKinds) key = "refusal-kinds-truncated";
+        refusals[key] = refusals.GetValueOrDefault(key) + 1;
+    }
+
     public IReadOnlyList<CourseTravelRequest> RequiredTravel { get; private set; } = Array.Empty<CourseTravelRequest>();
     public IReadOnlyList<CourseEnemyMotionRequest> RequiredEnemyMotion { get; private set; } = Array.Empty<CourseEnemyMotionRequest>();
 
@@ -68,6 +94,7 @@ public sealed class SearchCourseOrders
         orders = Enumerate(usable, retained, MaxDepth).GetEnumerator();
         pendingOrder = null; Best = null; BestValue = null; Exhausted = false;
         EvaluatedOrders = RejectedOrders = 0;
+        refusals.Clear();
         RequiredTravel = Array.Empty<CourseTravelRequest>();
         RequiredEnemyMotion = Array.Empty<CourseEnemyMotionRequest>();
         generation++;
@@ -93,7 +120,11 @@ public sealed class SearchCourseOrders
                 ? Array.AsReadOnly((result.RequiredEnemyMotion ?? Array.Empty<CourseEnemyMotionRequest>()).ToArray())
                 : Array.Empty<CourseEnemyMotionRequest>();
             if (result.Status == ProjectionStatus.Pending) return;
-            if (result.Status == ProjectionStatus.Rejected || result.Projection == null) RejectedOrders++;
+            if (result.Status == ProjectionStatus.Rejected || result.Projection == null)
+            {
+                RejectedOrders++;
+                Refuse(result.Reason);
+            }
             else
             {
                 EvaluatedOrders++;

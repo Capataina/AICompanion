@@ -2,7 +2,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Activities.Combat;
 using AICompanion.Companion.Brain.Activities.Combat.Planning;
@@ -21,7 +23,14 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection;
 /// change — a pot broken in passing names no executor of its own.</param>
 /// <param name="Binding">The published step, null when there is no course, which is companionship.</param>
 /// <param name="Reason">Why this is what the tick got, for the record and the overlay.</param>
-public readonly record struct CourseDecision(string Activity, StepBinding? Binding, string Reason);
+/// <param name="Settled">Whether the brain actually reached a decision this tick. False while a decision
+/// is still running, which is a real state rather than a rare one: a decision spans ticks by design, and
+/// every tick inside one asks the body to keep the player company because that is what it would be doing
+/// anyway. The flag exists because companionship-while-deciding and companionship-as-the-answer are
+/// indistinguishable from the request alone, and one of them must not be allowed to start recovery
+/// flight — the walker's own law, that a fallback triggered by the absence of the ordinary path's
+/// precondition fires hardest while the planner is still thinking.</param>
+public readonly record struct CourseDecision(string Activity, StepBinding? Binding, string Reason, bool Settled);
 
 /// <summary>
 /// The course owner on the live tick: one frozen observation, one discovery pass, one bounded order
@@ -106,7 +115,7 @@ public sealed class DecideCourseEachTick
     /// The reason is the one string that distinguishes "the course is running" from "the course found
     /// nothing worth doing" from "the brain is still deciding" — three states that look identical from
     /// outside, because all three ask the body to keep the player company.</summary>
-    public CourseDecision Last { get; private set; } = new("keep-company", null, "not-yet-decided");
+    public CourseDecision Last { get; private set; } = new("keep-company", null, "not-yet-decided", Settled: false);
 
     /// <summary>The observation this tick's decision was made against, for the recorder and the overlay.
     /// Null before the first tick of a companion's life.</summary>
@@ -117,9 +126,40 @@ public sealed class DecideCourseEachTick
     /// every three-valued answer in this tree exists to preserve.</summary>
     public IReadOnlyList<OpportunityCoverage> Coverage => discovery.Coverage;
 
+    /// <summary>
+    /// What discovery found, by domain and by whether the search may actually order it.
+    ///
+    /// Coverage alone answers "was the census finished", which is a different question from "is there
+    /// anything here the brain could choose". `SearchCourseOrders.Begin` enumerates only `KnownUsable`
+    /// candidates, so a domain can report a complete census of thirteen examined sites and contribute
+    /// nothing whatever to the comparison — and a funnel showing 13/13 reads as health while the brain
+    /// has no shot to weigh. Reading examined counts without admission counts is how a scene gets
+    /// diagnosed three times and stays unexplained.
+    /// </summary>
+    public IReadOnlyList<(string Domain, int Usable, int Unresolved, int Unusable, string Reason)> Admitted
+        => discovery.Candidates.GroupBy(candidate => candidate.Key.Domain).OrderBy(group => group.Key)
+            .Select(group => (group.Key,
+                group.Count(c => c.Admission == OpportunityAdmission.KnownUsable),
+                group.Count(c => c.Admission == OpportunityAdmission.Unresolved),
+                group.Count(c => c.Admission == OpportunityAdmission.KnownUnusable),
+                // The reason of the commonest non-usable admission, because "combat is unresolved" is
+                // the symptom and the source's own reason string is the cause. A domain with nothing
+                // refused reports an empty reason rather than inventing one.
+                group.Where(c => c.Admission != OpportunityAdmission.KnownUsable)
+                    .GroupBy(c => c.Reason, StringComparer.Ordinal)
+                    .OrderByDescending(reason => reason.Count()).ThenBy(reason => reason.Key, StringComparer.Ordinal)
+                    .Select(reason => reason.Key).FirstOrDefault() ?? string.Empty))
+            .ToArray();
+
     /// <summary>How the last search ended, for the cost strip: orders priced, orders refused, and
     /// whether enumeration ran out or the allowance did.</summary>
     public (long Evaluated, long Rejected, bool Exhausted) LastSearch { get; private set; }
+
+    /// <summary>Why the last search refused the orders it refused, counted by reason. A rejection count
+    /// with no reason beside it is the number that cannot be acted on, and reading it is how a course
+    /// that never chooses the obvious work gets diagnosed in one pass instead of three.</summary>
+    public IReadOnlyDictionary<string, int> LastRefusals { get; private set; }
+        = new Dictionary<string, int>(StringComparer.Ordinal);
 
     public void ResetWorld()
     {
@@ -170,9 +210,10 @@ public sealed class DecideCourseEachTick
         {
             Advance(deciding, models, budget);
             LastSearch = (deciding.EvaluatedOrders, deciding.RejectedOrders, deciding.Exhausted);
+            LastRefusals = deciding.Refusals;
             // Still working. The body keeps the player company while the brain thinks, which is what it
             // would be doing anyway and is strictly better than holding still for the answer.
-            if (!deciding.Exhausted) return Companionship("deciding");
+            if (!deciding.Exhausted) return Companionship("deciding", settled: false);
             return Settle();
         }
 
@@ -194,6 +235,16 @@ public sealed class DecideCourseEachTick
         if (Course.Current is { } finished && finished.Projection.Steps.Count == 0)
             Course.Release("course-complete");
 
+        // Danger arriving mid-course does not interrupt a running course, and that is recorded as a gap
+        // rather than patched here. A threshold on "how much more dangerous is enough" was built and
+        // removed: the magnitude was invented rather than derived, it did not fix the scene it was built
+        // for — the measured case has the threat present from the first tick, so a course published in
+        // the dangerous world shows no rise at all — and a tuned constant of that kind is exactly what
+        // makes two similar situations behave differently for reasons nobody can see later. The honest
+        // mechanism is opportunistic replacement, which needs the incumbent reprojected from the current
+        // observation so two futures can be compared, and that is `AIC-439`'s territory rather than a
+        // number. Protection urgency still reaches the comparison at every decision, through the
+        // episode's own discount on non-combat needs.
         if (NextStep(out StepBinding? held) && held != null)
         {
             BindingValidation validation = binder.ValidateNextUse(held, facts);
@@ -232,7 +283,14 @@ public sealed class DecideCourseEachTick
             // Any recognised source reads one, so a positive intensity is the encounter being on rather
             // than a threshold anybody picked.
             encounter: context.Senses.Encounter.Intensity > 0,
-            relevanceFingerprint: CourseComparisonEpisode.Policy);
+            relevanceFingerprint: CourseComparisonEpisode.Policy,
+            // The one route by which the player's danger reaches optional work. Without it the course
+            // has no term for him being hurt at all — its need kinds are illumination, loot, native
+            // work, a hostile's life and a container, and none of them says anything about the player —
+            // so a zombie standing on a wounded player was worth exactly what one across the room was
+            // worth and the companion kept mining. This is the threat sense's own urgency, the same
+            // quantity the family chooser discounted excursions by, read rather than recomputed.
+            protectionUrgency: context.Senses.Threats.ProtectionUrgency);
 
         models = new RetainCourseModelQueries(facts, MovementQueries.World,
             capabilities.CapabilityRevision, ModelQueueCapacity);
@@ -252,10 +310,11 @@ public sealed class DecideCourseEachTick
         // the extended observation. A search suspended on a model nobody answers never advances.
         Advance(search, models, budget);
         LastSearch = (search.EvaluatedOrders, search.RejectedOrders, search.Exhausted);
+        LastRefusals = search.Refusals;
         deciding = search;
         decidingFacts = facts;
         decidingEpisode = episode;
-        if (!search.Exhausted) return Companionship("deciding");
+        if (!search.Exhausted) return Companionship("deciding", settled: false);
         return Settle();
     }
 
@@ -321,12 +380,80 @@ public sealed class DecideCourseEachTick
         return step != null;
     }
 
-    private CourseDecision Companionship(string reason) => Last = new("keep-company", null, reason);
+    /// <param name="settled">False only while a decision is still running. Keeping the player company
+    /// because nothing is worth doing is a decision; keeping him company because the brain has not
+    /// finished is not, and the tick must be able to tell them apart before it lets the body commit to
+    /// flying home.</param>
+    private CourseDecision Companionship(string reason, bool settled = true)
+        => Trace(Last = new("keep-company", null, reason, settled));
 
     private CourseDecision Carry(StepBinding step, string reason)
     {
         string activity = ExecuteCourseBinding.ActivityFor(step.Opportunity.Purpose);
         Course.BeginExecution(step.Id);
-        return Last = new(activity, step, reason);
+        return Trace(Last = new(activity, step, reason, Settled: true));
     }
+
+    /// <summary>
+    /// One God's-eye record per decision, which is what makes a played session readable at all.
+    ///
+    /// `RecordCourseTrace` was built with the rest of the course machinery and had no caller anywhere in
+    /// the tree, so a playtest of the course brain produced no course evidence whatever: the recorder's
+    /// own comment says schema 0.41.0 begins retained-course evidence, and nothing was writing any. The
+    /// whole argument for this brain was that a poor decision, a stale model, an invalid binding and an
+    /// effect that never arrived would be distinguishable afterwards, and that distinction lives in what
+    /// gets written here.
+    ///
+    /// The fields are chosen so the four states that look identical from outside can be told apart, and
+    /// all four ask the body to keep the player company: the course is running, the course found nothing
+    /// worth doing, the brain has not finished deciding, and a proposal was refused publication. The
+    /// reason separates them; the order counts and refusal tally say what the search did to get there.
+    /// </summary>
+    private CourseDecision Trace(CourseDecision decision)
+    {
+        DecisionFactSnapshot? facts = observation.Current;
+        if (facts == null) return decision;
+        RetainedCourse? course = Course.Current;
+        var context = new CourseTraceContext(
+            SourceTick: facts.Tick,
+            NativePhase: "brain-decide",
+            CourseId: course?.Id ?? 0,
+            CourseRevision: course?.Revision ?? 0,
+            StepId: decision.Binding?.Id ?? 0,
+            BindingId: decision.Binding?.Id ?? 0,
+            AttemptId: 0,
+            Producer: nameof(DecideCourseEachTick),
+            ObservationOrdinal: facts.ObservationOrdinal,
+            ReceiptWatermark: facts.ReceiptWatermark,
+            WorldEpoch: facts.WorldEpoch.ToString(CultureInfo.InvariantCulture),
+            SourceRevision: facts.Id.ToString(CultureInfo.InvariantCulture),
+            PolicyFingerprint: CourseComparisonEpisode.Policy,
+            ConfigurationFingerprint: MotionModelFingerprint);
+        var fields = new List<KeyValuePair<string, CourseTraceValue>>
+        {
+            new("reason", CourseTraceValue.TextValue(decision.Reason)),
+            new("activity", CourseTraceValue.TextValue(decision.Activity)),
+            new("settled", CourseTraceValue.Flag(decision.Settled)),
+            new("purpose", CourseTraceValue.TextValue(decision.Binding?.Opportunity.Purpose ?? "")),
+            new("steps", CourseTraceValue.Integer(course?.Projection.Steps.Count ?? 0)),
+            new("orders-priced", CourseTraceValue.Integer(LastSearch.Evaluated)),
+            new("orders-refused", CourseTraceValue.Integer(LastSearch.Rejected)),
+            new("search-exhausted", CourseTraceValue.Flag(LastSearch.Exhausted)),
+            new("release-reason", CourseTraceValue.TextValue(Course.ReleaseReason)),
+            new("facts", CourseTraceValue.Integer(facts.Facts.Count)),
+        };
+        // The refusal tally rides in the same record rather than a second one, because a rejection count
+        // without its reasons is the number nobody can act on — the thing that made one scene take three
+        // separate diagnostic angles instead of one read.
+        foreach (var refusal in LastRefusals.OrderByDescending(entry => entry.Value).Take(4))
+            fields.Add(new("refused:" + refusal.Key, CourseTraceValue.Integer(refusal.Value)));
+        RecordCourseTrace.Record(CourseTracePhase.Brain, context,
+            new CourseTracePayload("course-decision", 1, fields));
+        return decision;
+    }
+
+    /// <summary>Names the prediction law this brain decided under, so a recording says which rules
+    /// produced it rather than leaving a reader to assume the current ones.</summary>
+    private static string MotionModelFingerprint =>
+        "motion:" + ForecastCourseConsequences.MotionModelRevision.ToString(CultureInfo.InvariantCulture);
 }

@@ -257,7 +257,14 @@ public sealed class Brain
         DecideMs = Lap();
         // Recovery serves an explicit reunion objective, never an executor's class or a
         // coincidentally player-adjacent work destination. An occupied tool cannot start it.
-        bool reunionRequested = LastRequest.Kind == RequestKind.WithPlayer && action?.HandsBusy != true;
+        // A decision that has not finished cannot commit the body to flying home. Every tick inside a
+        // running decision asks for companionship, because that is what the body would be doing anyway,
+        // and a reunion request is what admits continuous recovery flight — so without the settled test
+        // the brain starts flying home whenever it is merely thinking, which is the walker's own law
+        // about a fallback triggered by the absence of the ordinary path's precondition firing hardest
+        // while the planner is still working. Companionship chosen *as the answer* still admits it.
+        bool reunionRequested = LastRequest.Kind == RequestKind.WithPlayer && action?.HandsBusy != true
+            && decision.Settled;
         if (TryFollowRecovery(companion, player, reunionRequested, out var selectedRecovery)) return selectedRecovery;
 
         Vector2? spot = Positioner.Resolve(LastRequest, Senses);

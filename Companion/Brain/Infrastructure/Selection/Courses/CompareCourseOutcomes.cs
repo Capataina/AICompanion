@@ -13,12 +13,17 @@ public sealed class CourseComparisonEpisode
 {
     private readonly Dictionary<NeedKey, UsefulNeed> needs;
     public const string Policy = "discounted-normalised-effects-v1";
+    /// <param name="protectionUrgency">How badly the player needs defending, on the threat sense's own
+    /// 0..1 scale. It is the one route by which the player's danger reaches optional work, and it is the
+    /// same quantity the family chooser used for exactly this, carried over rather than reinvented.</param>
     public CourseComparisonEpisode(long id, long worldEpoch, double timeScale, IEnumerable<UsefulNeed> needs,
-        bool censusComplete, bool encounter, string relevanceFingerprint)
+        bool censusComplete, bool encounter, string relevanceFingerprint, double protectionUrgency = 0)
     {
         if (!double.IsFinite(timeScale) || timeScale < 1) throw new ArgumentOutOfRangeException(nameof(timeScale));
+        if (!double.IsFinite(protectionUrgency) || protectionUrgency < 0) throw new ArgumentOutOfRangeException(nameof(protectionUrgency));
         Id = id; WorldEpoch = worldEpoch; TimeScale = timeScale; CensusComplete = censusComplete;
         Encounter = encounter; RelevanceFingerprint = relevanceFingerprint;
+        ProtectionUrgency = Math.Clamp(protectionUrgency, 0, 1);
         this.needs = needs.ToDictionary(n => n.Key);
         foreach (var need in this.needs.Values) _ = need.Worth(0);
     }
@@ -28,6 +33,34 @@ public sealed class CourseComparisonEpisode
     public bool CensusComplete { get; }
     public bool Encounter { get; }
     public string RelevanceFingerprint { get; }
+
+    /// <summary>How badly the player needs defending, 0 to 1, from the threat sense's own urgency rule.</summary>
+    public double ProtectionUrgency { get; }
+
+    /// <summary>
+    /// What a need is worth relative to its own census while the player is in danger, which is the one
+    /// place the player's danger reaches the comparison at all.
+    ///
+    /// Before this the course had no term for it: <see cref="NeedKind"/> runs Illumination, Loot,
+    /// NativeWork, HostileLife and Container, and nothing in any of them says the player is being hurt.
+    /// So killing a zombie standing on a wounded player was worth exactly what killing one across the
+    /// room was worth, and on a scene with a threat on a hurt player the companion mined for all 120
+    /// ticks. The family chooser had this and the course did not inherit it.
+    ///
+    /// The shape is the chooser's own rather than a new invention: danger suppresses *work* rather than
+    /// inflating combat, so a non-combat need pays <c>1 − urgency</c> and a hostile's life pays in full.
+    /// Written the other way round — a bonus on combat — the same ordering would need a magnitude nobody
+    /// could derive, and every tuning of it would move work's value too.
+    ///
+    /// Encounter intensity is deliberately *not* folded in here yet, though the chooser's rule was
+    /// <c>1 − max(urgency, intensity)</c>. This episode carries the encounter as a boolean, and treating
+    /// that as an intensity of one would zero every optional need for the whole of any recognised event —
+    /// stronger than the rule it would be imitating, because inferred pressure ramps rather than
+    /// arriving at full strength. Carrying the intensity through is its own change and wants measuring on
+    /// a scene with a blood moon in it.
+    /// </summary>
+    public double RelevanceFor(NeedKind kind)
+        => kind == NeedKind.HostileLife ? 1 : Math.Max(0, 1 - ProtectionUrgency);
     public IEnumerable<UsefulNeed> Needs => needs.Values;
     public bool TryNeed(NeedKey key, out UsefulNeed need) => needs.TryGetValue(key, out need!);
 
@@ -87,7 +120,7 @@ public static class CompareCourseOutcomes
             { unknowns.Add("effect-outside-census:" + effect.Need); continue; }
             double amount = Math.Min(effect.Amount, remaining[effect.Need]);
             remaining[effect.Need] -= amount;
-            double worth = need.Worth(amount);
+            double worth = need.Worth(amount) * episode.RelevanceFor(effect.Need.Kind);
             useful += worth * Discount(Math.Max(0, effect.NominalTick - origin), timeScale);
             if (effect.Evidence is EstimateStatus.NativeBound or EstimateStatus.ModelBound)
             {
