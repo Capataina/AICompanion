@@ -100,7 +100,32 @@ internal static class VerifyAccompanyingThePlayer
         Require(longestStill < 10, $"an idle player's companion must never be still for ten ticks; {ledger}");
         Require(outsideAfterEntry <= 30, $"an idle player's companion must stay inside his region once it is there; {ledger}");
         Require(accompanyAfterEntry * 10 >= ticksAfterEntry * 9, $"inside the region the accompanying owner must move the body; {ledger}");
-        Require(left && right && above && below, $"an idle player's companion must move through the whole region, both outer thirds across it and both halves up and down; {ledger}");
+        // This row asserts a wander and the code now parks, and the difference is a decision the owner
+        // has not made yet rather than a defect anybody introduced.
+        //
+        // `0a2a98e` replaced "move about the region" with "park at the usable corner holding the most
+        // combined wall-and-enemy clearance, inside the box", because the play before it had the
+        // companion sitting on the dirt at player height with the positioner choosing no place at all.
+        // Its own body calls that change an experiment — *the experiment is the wander park and the
+        // route heat* — and leaves `combat stands after the wander look is judged` open in its decision
+        // graph. So the park is deliberate, is pending a look, and is what this row measures against a
+        // contract written for what it replaced.
+        //
+        // The row is left asserting the wander rather than relaxed to fit the park, because relaxing it
+        // would quietly settle a question the owner said he wanted to see first. Everything else in the
+        // ledger holds under both designs and still passes: the body enters the region, never goes
+        // still for more than a couple of ticks, never leaves after entering, and accompanies on every
+        // tick. What fails is coverage alone, and the numbers say how far the park drifts.
+        //
+        // It has also been flaky across this boundary — one commit filed a pass and a fail — which is
+        // what a coverage test of a seeded local motion does when its step budget is near the span it
+        // has to cover. Whichever way the look is judged, the replacement assertion should be about the
+        // motion rather than about the ground it happens to cover in six hundred ticks.
+        Require(left && right && above && below,
+            $"an idle player's companion must move through the whole region, both outer thirds across it "
+            + $"and both halves up and down. NOTE: this asserts the wander that 0a2a98e replaced with the "
+            + $"clearest-air park as a deliberate experiment pending the owner's look, so a red here is "
+            + $"that open question rather than a regression; {ledger}");
     }
 
     private static void ATravellingPlayersCompanionKeepsUpWithoutTrailing() => WalkAlongside("travelling", pace: 2f, Ticks: 300);
