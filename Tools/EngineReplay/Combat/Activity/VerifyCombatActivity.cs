@@ -125,6 +125,27 @@ internal static class VerifyCombatActivity
         NPC threat = Main.npc[30];
         Vector2 threatStart = threat.Center;
         float closestApproach = Vector2.Distance(threat.Center, player.Center);
+        // The zombie is walked at the player by hand, and without this the row asks for something no
+        // honest objective could give it. Enemy AI does not run headless and `AdvanceNative` advances
+        // only the companion, so this hostile stood exactly still: measured on 2026-09-21 at 0 px moved
+        // over 120 ticks, closest approach 48 px between an 18-wide zombie and a 20-wide player, which
+        // is a gap their boxes never close. A threat that cannot touch the player is a threat whose
+        // removal is worth nothing, so combat priced at 0.0020 against mining's 0.1774 was the
+        // comparison being correct rather than the preference being missing.
+        //
+        // One pixel a tick is a zombie's own walk, and the centres are 48 px apart against a contact
+        // width of nineteen, so the hit lands about thirty ticks in — inside both this scene's 120 ticks
+        // and the 180-tick forecast cap, which is what makes the harm predictable rather than merely
+        // eventual. It is moved by hand for the same reason `--dodge-repro` advances its arrow by hand:
+        // the engine will not do it and a scene that needs motion has to supply it.
+        const float zombieWalkPixelsPerTick = 1f;
+        // Four pixels past touching, because contact is a strict overlap: stopping exactly at the sum of
+        // the half-widths leaves two boxes sharing an edge, which `ContactBox.Intersects` reads as no
+        // contact at all, and the first version of this walk did exactly that — closest approach 19.0
+        // against a contact width of 19.0, and no hit predicted.
+        const float overlapPixels = 4f;
+        float toPlayer = MathF.Sign(player.Center.X - threat.Center.X);
+        float contactWidth = (threat.width + player.width) / 2f;
         int combatTicks = 0;
         // Every tick's decision reason, not just the last one. `Last` is a single sticky readout, and a
         // scene where the course was retained for 119 ticks and freshly decided for one looks identical
@@ -134,6 +155,10 @@ internal static class VerifyCombatActivity
         var reasons = new Dictionary<string, int>(StringComparer.Ordinal);
         for (int tick = 0; tick < 120; tick++)
         {
+            // Before the brain tick, so the observation this tick freezes sees the zombie where it now
+            // is and the motion model has a real velocity to extrapolate from.
+            if (MathF.Abs(player.Center.X - threat.Center.X) > contactWidth - overlapPixels)
+                threat.position.X += toPlayer * zombieWalkPixelsPerTick;
             Tick(companion);
             string reason = companion.Brain.Course.Last.Reason;
             reasons[reason] = reasons.GetValueOrDefault(reason) + 1;
@@ -141,6 +166,13 @@ internal static class VerifyCombatActivity
             closestApproach = MathF.Min(closestApproach, Vector2.Distance(threat.Center, player.Center));
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
+        // The premise, stated as a row rather than trusted: a threat that never closes on the player
+        // cannot make defending him worth anything, so a scene where it does not is asking for a
+        // preference no consequence-based objective could hold.
+        Require(closestApproach < contactWidth,
+            $"the zombie must actually reach the player, or this row asks for a preference nothing could "
+            + $"justify; closest approach {closestApproach:0.0} px against a contact width of "
+            + $"{contactWidth:0.0}, having moved {Vector2.Distance(threat.Center, threatStart):0.0} px");
         Console.WriteLine($"  danger-over-work threat: moved {Vector2.Distance(threat.Center, threatStart):0.0}px over 120 ticks, closest approach {closestApproach:0.0}px, boxes {threat.width}x{threat.height} vs player {player.width}x{player.height}");
         Console.WriteLine($"  danger-over-work decisions: {string.Join(" ", reasons.OrderByDescending(r => r.Value).Select(r => $"{r.Key}x{r.Value}"))}");
         // The three numbers that separate the ways this row can fail: whether the player reads as in
