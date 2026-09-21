@@ -431,11 +431,15 @@ internal static class VerifyEncounterContext
         Main.bloodMoon = bloodMoon;
         Main.worldSurface = playerOnSurface ? 120 : 40;
         for (int t = 0; t < 3; t++) VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
-        var chooser = ctx.Companion.Brain.Chooser;
-        float mine = 0f;
-        foreach (var score in chooser.LastScores)
-            if (score.Action.Name == "mine") mine = score.Final;
-        return (chooser.Current?.Name, mine, ctx.Companion.Brain.Senses.Encounter.Source);
+        // What the ore is worth is read from the course that decided, not from the family chooser's
+        // `LastScores`. The chooser is still compiled and its `Current` is still set — the tick selects
+        // the bound activity through it — but `Choose` no longer runs, so its score ledger is empty and
+        // this row read a valued job as worth zero. `(mine, 0, none)` was the course choosing mining
+        // correctly beside a ledger nobody fills.
+        var course = ctx.Companion.Brain.Course;
+        float mine = course.LastLeaders.TryGetValue("mine-target", out var leader) ? (float)leader.Total.Nominal : 0f;
+        return (course.Last.Binding?.Opportunity.Purpose ?? course.Last.Activity,
+            mine, ctx.Companion.Brain.Senses.Encounter.Source);
     }
 
     /// <summary>
@@ -451,8 +455,16 @@ internal static class VerifyEncounterContext
         Console.WriteLine($"  encounter live rows: quiet {quiet}, blood moon surface {moonUp}, blood moon underground {moonDown}");
         Require(quiet.Chosen == "mine" && quiet.Mine > 0f,
             $"the quiet scene must choose the reachable ore, or the pair proves nothing; got {quiet}");
-        Require(moonUp.Source == "event:blood-moon" && moonUp.Mine == 0f && moonUp.Chosen != "mine",
-            $"a blood moon over the player must stop the same mining job through the shared evaluator; got {moonUp}");
+        // The sense reads the event correctly; what is missing is any term the course prices it through.
+        // The family chooser charged a non-combat excursion `1 − max(urgency, intensity)`; the course
+        // objective has no encounter term at all, which is the same hole as the player's harm being
+        // priced at zero, and it shows as three identical valuations across the three scenes.
+        Require(moonUp.Source == "event:blood-moon",
+            $"the encounter sense must read the blood moon over the player; got {moonUp}");
+        Require(moonUp.Mine == 0f && moonUp.Chosen != "mine",
+            $"a blood moon over the player must stop the same mining job; got {moonUp}, against the quiet scene's {quiet}. "
+            + "The sense reads the event and the course prices it at nothing — no course term charges encounter "
+            + "intensity, so every scene values the ore identically");
         Require(moonDown.Source == "none" && moonDown.Chosen == "mine" && MathF.Abs(moonDown.Mine - quiet.Mine) < 1e-4f,
             $"the same blood moon with the player underground must leave mining exactly as the quiet scene valued it; quiet={quiet} underground={moonDown}");
     }
