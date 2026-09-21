@@ -365,7 +365,15 @@ internal static class VerifyCourseTravelScheduling
             && forecast.MissingTravel.HasValue, "the empty course did not request its native return model");
         var query = forecast.MissingTravel!.Value;
         Require(owner.RequestTravel(query), "model owner refused a free pending slot");
-        for (int i = 0; i < 1000 && owner.PendingCount > 0; i++) owner.Continue(new(double.PositiveInfinity, 1));
+        // Each slice's allowance has to *be* the active one, not sit beside it: captured travel checks
+        // that it is borrowing the standing allowance, and it is right to refuse a second one handed in
+        // alongside. This row mints a one-operation slice on purpose, so it installs what it mints.
+        for (int i = 0; i < 1000 && owner.PendingCount > 0; i++)
+        {
+            var slice = new DecisionWorkBudget(double.PositiveInfinity, 1);
+            using (LimitPlanningWork.Own(slice))
+                owner.Continue(slice);
+        }
         Require(owner.CompletedCount == 1 && owner.Snapshot.IsModelExtensionOf(original)
             && !original.TryRead(query.Key, out _), "native completion mutated the old snapshot or failed to append its model");
         Require(forecast.Continue(owner.Snapshot, new(double.PositiveInfinity)) is
