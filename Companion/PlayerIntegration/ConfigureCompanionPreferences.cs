@@ -43,7 +43,7 @@ public sealed class CompanionPreferences
     /// anything: exactly the radius <c>CompanionAction.AllowsTarget</c> admits a *new* target within,
     /// rounded out. It is derived from <see cref="NewActivityRadius"/> rather than written as its own
     /// number because the two must agree and, written separately, they did not — the ore census scanned
-    /// 45 tiles and the trunk census 40 against an allowance of 62, so a vein the allowance rule would
+    /// 45 tiles and the trunk census 40 against an allowance of 62.5, so a vein the allowance rule would
     /// have admitted was invisible to the brain that had to admit it, and the smaller number won with
     /// nothing anywhere saying it had. The family chooser hid that for as long as it was the brain,
     /// because it ran a second search centred on the companion's own body; the course runs one, centred

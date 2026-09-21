@@ -54,6 +54,15 @@ public sealed class CaptureGatheringOpportunities
     /// <summary>How far through re-answering the known veins against a changed body or flood this capture
     /// has got. It is a cursor rather than a loop because the re-answer spends the decision's own allowance.</summary>
     private int oreReanswer;
+    /// <summary>The round's site keys, taken once when it opens. Re-deriving them per iteration sorted the
+    /// whole census for every site.</summary>
+    private string[]? oreReanswerKeys;
+    /// <summary>The offset every block up to which has already been charged. A block that is paid stays
+    /// paid across captures, so reaching a vein with no allowance left costs nothing to retry.</summary>
+    private long oreBlockPaidThrough;
+    /// <summary>The swept rectangle unioned with every tile the census actually holds, which is what a
+    /// terrain edit is tested against. A vein flood is not bounded by the window it was seeded in.</summary>
+    private Rectangle oreHeld;
     private readonly Dictionary<string, ObservedOre> observedOres = new(StringComparer.Ordinal);
     private readonly HashSet<Point> oreVisited = new();
     private int terrainRevision;
@@ -96,7 +105,8 @@ public sealed class CaptureGatheringOpportunities
     public void ResetWorld()
     {
         seen.Clear(); factCache.Clear(); visibleLastCapture.Clear(); visibleThisCapture.Clear(); observedOres.Clear(); oreVisited.Clear(); oreArea = null;
-        oreOffset = 0; oreReanswer = 0; nextGeneration = 0; version = 0;
+        oreOffset = 0; oreReanswer = 0; oreReanswerKeys = null; oreBlockPaidThrough = 0; oreHeld = default;
+        nextGeneration = 0; version = 0;
         trees.ResetWorld();
     }
 
@@ -106,8 +116,20 @@ public sealed class CaptureGatheringOpportunities
             PlayerIntegration.CompanionPreferences.Current.WorkCensusRadiusTiles);
         Item pick = TileMiner.PickaxeFor(context.Player);
         var policy = (WorkPolicies.Mining, WorkPolicies.MiningListVersion.List, WorkPolicies.MiningListVersion.Revision);
+        // The edits that matter are the ones touching tiles this census *holds*, which is not the same
+        // rectangle it swept. `OreFinder.Vein` floods a connected component with no spatial bound — only
+        // a 400-tile cap — so a vein seeded a cell inside the window's edge can reach well outside it,
+        // and the census then carries tiles no edit inside the rectangle would ever cover. Watching the
+        // swept rectangle alone let such a tile be mined away unnoticed: nothing reopened, the re-answer
+        // replayed the stale tile list, `EstimateRemaining` answered null for a tile that is no longer
+        // ore, and the whole vein flipped to `native-remaining-unresolved` and stayed worthless until the
+        // window moved. The full rescan this commit's predecessor did on every body move was hiding that
+        // by re-censusing from live tiles constantly, so retiring the treadmill is what exposed it.
+        //
+        // `oreHeld` is therefore the swept rectangle unioned with every tile of every vein in the census,
+        // which is exact rather than a margin: those tiles are precisely what `Admit` re-reads.
         bool spatialEdit = oreArea == area && TerrainChanges.Edits.ChangedSince(terrainRevision,
-            (x, y) => x >= area.Left && x < area.Right && y >= area.Top && y < area.Bottom) != TerrainEditVerdict.Unchanged;
+            (x, y) => x >= oreHeld.Left && x < oreHeld.Right && y >= oreHeld.Top && y < oreHeld.Bottom) != TerrainEditVerdict.Unchanged;
         bool changedInputs = pickSignature != (pick.type, pick.prefix, pick.pick) || policySignature != policy
             || minerAttempt != (context.Companion.Miner.LastOutcome?.Attempt ?? -1);
         long cells = (long)area.Width * area.Height;
@@ -129,22 +151,40 @@ public sealed class CaptureGatheringOpportunities
         if (oreOffset > 0 && (spatialEdit || changedInputs)) oreArea = null;
         else if (changedGeometry)
         {
-            // Resumable, because the re-answer shares the decision's allowance like everything else: the
-            // geometry is only marked answered once every site has been re-read against it, so a cut
-            // leaves the rest for the next capture rather than claiming an answer nobody computed.
-            while (oreReanswer < observedOres.Count && budget.TrySpend("gathering-native-reanswer"))
+            // Resumable, because the re-answer shares the decision's allowance like everything else, and
+            // a round that a cut interrupts resumes where it stopped rather than restarting.
+            //
+            // **A round can therefore span several ticks, and the sites in it are proved against the body
+            // as it was when each was read rather than against one pose.** That is worth stating plainly
+            // because the obvious reading of a cursor is the opposite one. It is not a defect introduced
+            // here: the full sweep this replaced had exactly the same property and more of it — sixteen
+            // thousand cells cannot be read in one tick either, so a site censused early in a sweep was
+            // always proved against an older body than one censused late. What the re-answer changes is
+            // the size of the spread, from a whole sweep to a handful of sites. The admission terms that
+            // move with the body — the reach verdict and the allowance test — both change slowly against
+            // a body travelling at a few pixels a tick, and the binder revalidates each site at its own
+            // native boundary regardless, which is where an admission has to be right.
+            //
+            // The keys are snapshotted once per round rather than re-sorted per iteration, because
+            // `Keys.OrderBy(...).ElementAt(n)` inside the loop is a fresh sort and a fresh enumeration
+            // for every site — quadratic in the census for no gain, and charged one unit whatever it did.
+            oreReanswerKeys ??= observedOres.Keys.OrderBy(identity => identity, StringComparer.Ordinal).ToArray();
+            while (oreReanswer < oreReanswerKeys.Length && budget.TrySpend("gathering-native-reanswer"))
             {
-                string key = observedOres.Keys.OrderBy(identity => identity, StringComparer.Ordinal).ElementAt(oreReanswer);
-                ObservedOre stale = observedOres[key];
+                string key = oreReanswerKeys[oreReanswer];
+                // A site the sweep has since dropped is simply skipped; the round is about what is held.
+                if (!observedOres.TryGetValue(key, out ObservedOre? stale)) { oreReanswer++; continue; }
                 observedOres[key] = Admit(context, pick, stale.Identity, stale.Material, stale.Generation,
                     stale.Tiles, stale.VeinComplete, stale.ReplacementGap);
                 oreReanswer++;
             }
-            if (oreReanswer >= observedOres.Count) { oreGeometry = geometry; oreReanswer = 0; }
+            if (oreReanswer >= oreReanswerKeys.Length) { oreGeometry = geometry; oreReanswer = 0; oreReanswerKeys = null; }
         }
         if (oreArea != area)
         {
-            oreArea = area; oreOffset = 0; oreReanswer = 0; observedOres.Clear(); oreVisited.Clear(); visibleThisCapture.Clear();
+            oreArea = area; oreOffset = 0; oreReanswer = 0; oreReanswerKeys = null; oreBlockPaidThrough = 0;
+            oreHeld = area;
+            observedOres.Clear(); oreVisited.Clear(); visibleThisCapture.Clear();
             terrainRevision = TerrainChanges.Revision;
             pickSignature = (pick.type, pick.prefix, pick.pick);
             policySignature = policy;
@@ -160,18 +200,43 @@ public sealed class CaptureGatheringOpportunities
             // widening the window to the admission radius (8,281 cells to 16,129) doubled the charge and the
             // census stopped finishing inside a decision: measured through `--crowd-cost`, decide's median
             // went 4.26 ms to 11.3 ms against its own 12 ms allowance, which is a brain spending every tick
-            // of its thinking on a tile scan. Per block it is 63 units for the whole window.
-            if (oreOffset % ScanBlockCells == 0 && !budget.TrySpend("gathering-native-capture-block")) break;
+            // of its thinking on a tile scan. Per block it is 64 units for the whole window.
+            // The block is charged once and stays paid, which is the difference between a cursor that
+            // resumes and one that cannot. Charging on `offset % Block == 0` looked equivalent and was
+            // not: a vein sitting exactly on a block boundary spent the block unit, failed the vein
+            // spend, rewound the offset onto the multiple and charged the same block again next capture
+            // — one unit for zero cells of progress, every time. With an allowance of exactly one
+            // operation, which `VerifyTreeOpportunityCapture` drives the census with deliberately, that
+            // is not a slow path but a livelock: the block takes the only unit, the site spend can never
+            // succeed, and the offset never moves. It passes today only because no site in that scene
+            // happens to land on a multiple of 256.
+            if (oreOffset >= oreBlockPaidThrough)
+            {
+                if (!budget.TrySpend("gathering-native-capture-block")) break;
+                oreBlockPaidThrough = oreOffset + ScanBlockCells;
+            }
             int x = area.Left + (int)(oreOffset % area.Width);
             int y = area.Top + (int)(oreOffset / area.Width);
             oreOffset++;
             Point seed = new(x, y);
+            // The sweep is a square and the allowance is a disc, so the square's corners hold cells the
+            // admission rule refuses by construction — about a quarter of the window once it was widened
+            // to bound the disc. Publishing them cost a site unit at discovery, a re-answer unit on every
+            // geometry round and a serialisation per tick, and worse, it inflated the census denominator
+            // that scales every site's worth, because the census sum is over what was observed rather
+            // than over what was admitted. Skipping them is free rather than a saving traded for
+            // accuracy: nothing outside the disc can ever be admitted, and the skip is bounded by the
+            // block that has already been paid for, so it cannot spin.
+            if (!WithinAllowanceOfHeading(context, seed)) continue;
             if (!OreFinder.IsOre(x, y) || oreVisited.Contains(seed)) continue;
             if (!budget.TrySpend("gathering-native-capture-vein")) { oreOffset--; break; }
             int material = Main.tile[x, y].TileType;
             OreFinder.VeinCensus vein = OreFinder.CensusVein(seed, material);
             foreach (Point tile in vein.Tiles) oreVisited.Add(tile);
             Point[] tiles = vein.Tiles.OrderBy(tile => tile.X).ThenBy(tile => tile.Y).ToArray();
+            // Every tile this vein puts in the census widens what an edit is tested against, because a
+            // flood is not bounded by the window that seeded it.
+            foreach (Point tile in tiles) oreHeld = Rectangle.Union(oreHeld, new Rectangle(tile.X, tile.Y, 1, 1));
             string identity = $"ore:{material}:{tiles[0].X},{tiles[0].Y}";
             long generation = Generation(identity, material, visible, out bool replacementGap);
             observedOres[identity] = Admit(context, pick, identity, material, generation, tiles, vein.Complete, replacementGap);
@@ -253,8 +318,22 @@ public sealed class CaptureGatheringOpportunities
     private static bool InNewActivityAllowance(in ActionContext context, Point point)
     {
         float radius = PlayerIntegration.CompanionPreferences.Current.NewActivityRadius;
-        return Vector2.DistanceSquared(point.ToWorldCoordinates(), context.Senses.Intent.Region.Heading) <= radius * radius
+        return WithinAllowanceOfHeading(context, point)
             && Vector2.DistanceSquared(context.Npc.Bottom, context.Senses.Intent.Region.Heading) <= radius * radius;
+    }
+
+    /// <summary>
+    /// The half of the allowance rule that is about the *site* rather than about the companion, which is
+    /// the half a sweep may skip on. The other clause asks whether the companion itself is near enough
+    /// to take new work, and a sweep must not read it: a body that has wandered out of range would then
+    /// discover nothing at all, and the census would report a finished search over an empty world rather
+    /// than a full one whose sites are currently refused. Discovery answers where the work is; admission
+    /// answers whether it may be taken, and only the second is allowed to depend on where the body is.
+    /// </summary>
+    private static bool WithinAllowanceOfHeading(in ActionContext context, Point point)
+    {
+        float radius = PlayerIntegration.CompanionPreferences.Current.NewActivityRadius;
+        return Vector2.DistanceSquared(point.ToWorldCoordinates(), context.Senses.Intent.Region.Heading) <= radius * radius;
     }
     private long Generation(string identity, int material, HashSet<string> visible, out bool replacementGap)
     {

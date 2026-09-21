@@ -29,6 +29,14 @@ public sealed class CaptureTreeOpportunities
     /// <summary>How far through re-approaching the known trunks against a changed body or flood this
     /// capture has got; a cursor because the re-answer spends the decision's own allowance like the sweep.</summary>
     private int reanswer;
+    /// <summary>The round's trunk keys, taken once when it opens rather than re-sorted per site.</summary>
+    private Point[]? reanswerKeys;
+    /// <summary>The offset every block up to which has already been charged, so a block that is paid
+    /// stays paid across captures.</summary>
+    private long blockPaidThrough;
+    /// <summary>The swept window unioned with every trunk bottom the census holds, which is what a
+    /// terrain edit is tested against: a trunk's bottom can lie below the cell that found it.</summary>
+    private Rectangle held;
     private int terrainRevision;
     private long lastAttempt;
     private (int Type, int Prefix, int Power, int UseTime) tool;
@@ -49,11 +57,18 @@ public sealed class CaptureTreeOpportunities
             context.Npc.Center.ToTileCoordinates(), context.Senses.Player.ChoppedTree, context.Senses.Player.IsChoppingTree,
             PlayerIntegration.CompanionPreferences.Current.NewActivityRadius);
         bool changed = area != wanted || tool != signature || policy != WorkPolicies.Chopping || attempt != lastAttempt;
-        if (!changed && area is Rectangle existing)
-            changed = TerrainChanges.Edits.ChangedSince(terrainRevision, (x, y) => existing.Contains(x, y)) != TerrainEditVerdict.Unchanged;
+        // Tested against what the census holds rather than what it swept. `TreeFinder.TrunkAt` walks down
+        // from the scanned cell to the trunk's bottom, so a tree found at the window's lower edge is held
+        // by a tile below it, and an axe there would otherwise change the census with nothing reopening.
+        // `Admit` reads that bottom tile and nothing else, so the union of the window with every held
+        // bottom is exact rather than a guessed margin. The ore census carries the same rule for the same
+        // reason, where a vein flood reaches outside the window that seeded it.
+        if (!changed && area is Rectangle)
+            changed = TerrainChanges.Edits.ChangedSince(terrainRevision, (x, y) => held.Contains(x, y)) != TerrainEditVerdict.Unchanged;
         if (changed)
         {
-            area = wanted; offset = 0; reanswer = 0; trees.Clear();
+            area = wanted; offset = 0; reanswer = 0; reanswerKeys = null; blockPaidThrough = 0; held = wanted;
+            trees.Clear();
             tool = signature; policy = WorkPolicies.Chopping; lastAttempt = attempt;
             geometry = currentGeometry;
             terrainRevision = TerrainChanges.Revision;
@@ -66,14 +81,18 @@ public sealed class CaptureTreeOpportunities
         // binder's own validation rather than erasing the cursor every tick.
         else if (area is Rectangle priorArea && offset == (long)priorArea.Width * priorArea.Height && geometry != currentGeometry)
         {
-            while (reanswer < trees.Count && budget.TrySpend("capture-tree-reanswer"))
+            // The round's keys once, not a fresh sort of the whole census per site. A round may span
+            // ticks, so its trunks are proved against the body as it was when each was read; the ore
+            // census carries why that is inherited from the sweep rather than introduced here.
+            reanswerKeys ??= trees.Keys.OrderBy(key => key.X).ThenBy(key => key.Y).ToArray();
+            while (reanswer < reanswerKeys.Length && budget.TrySpend("capture-tree-reanswer"))
             {
-                Point bottom = trees.Keys.OrderBy(key => key.X).ThenBy(key => key.Y).ElementAt(reanswer);
-                GatheringOpportunityFact stale = trees[bottom];
+                Point bottom = reanswerKeys[reanswer];
+                if (!trees.TryGetValue(bottom, out GatheringOpportunityFact? stale)) { reanswer++; continue; }
                 trees[bottom] = Admit(context, axe, bottom, stale.Material, stale.Generation);
                 reanswer++;
             }
-            if (reanswer >= trees.Count) { geometry = currentGeometry; reanswer = 0; }
+            if (reanswer >= reanswerKeys.Length) { geometry = currentGeometry; reanswer = 0; reanswerKeys = null; }
         }
         long total = (long)wanted.Width * wanted.Height;
         while (offset < total)
@@ -81,11 +100,24 @@ public sealed class CaptureTreeOpportunities
             // A block of cells per unit, one trunk per unit — the ore census's rule and its reason, which
             // `CaptureGatheringOpportunities.ScanBlockCells` carries: a cell with no tree in it is a tile-set
             // lookup, and a cell with one pays for a trunk walk, a reach query and a native work estimate.
-            if (offset % CaptureGatheringOpportunities.ScanBlockCells == 0 && !budget.TrySpend("capture-tree-block")) break;
+            // Paid once and stays paid, so a trunk reached with no allowance left costs nothing to retry;
+            // the ore census carries the livelock the modulo form produced at an allowance of one.
+            if (offset >= blockPaidThrough)
+            {
+                if (!budget.TrySpend("capture-tree-block")) break;
+                blockPaidThrough = offset + CaptureGatheringOpportunities.ScanBlockCells;
+            }
             Point cell = new(wanted.Left + (int)(offset % wanted.Width), wanted.Top + (int)(offset / wanted.Width));
             offset++;
+            // The square's corners are outside the allowance disc and can never be admitted; skipping
+            // them is free under the block already paid for, and keeps refused trunks out of the census
+            // denominator that scales every site's worth.
+            float allowanceRadius = PlayerIntegration.CompanionPreferences.Current.NewActivityRadius;
+            if (Vector2.DistanceSquared(cell.ToWorldCoordinates(), context.Senses.Intent.Region.Heading)
+                > allowanceRadius * allowanceRadius) continue;
             if (TreeFinder.TrunkAt(cell) is not Point bottom || trees.ContainsKey(bottom)) continue;
             if (!budget.TrySpend("capture-tree-trunk")) { offset--; break; }
+            held = Rectangle.Union(held, new Rectangle(bottom.X, bottom.Y, 1, 1));
             int material = Main.tile[bottom.X, bottom.Y].TileType;
             if (!identities.TryGetValue(bottom, out var identity) || identity.Material != material || !previous.Contains(bottom))
                 identities[bottom] = identity = (material, ++generation);
@@ -147,7 +179,7 @@ public sealed class CaptureTreeOpportunities
     public void ResetWorld()
     {
         trees.Clear(); identities.Clear(); versions.Clear(); previous.Clear(); area = null;
-        offset = generation = revision = 0; reanswer = 0;
+        offset = generation = revision = 0; reanswer = 0; reanswerKeys = null; blockPaidThrough = 0; held = default;
     }
 
     private DecisionFact Fact(FactKey key, object value, FactEvidence evidence)
