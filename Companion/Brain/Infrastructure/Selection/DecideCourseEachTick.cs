@@ -168,7 +168,7 @@ public sealed class DecideCourseEachTick
         // observation is frozen for the life of one *decision* rather than one tick.
         if (deciding != null && models != null)
         {
-            models.ContinueSearch(deciding, budget);
+            Advance(deciding, models, budget);
             LastSearch = (deciding.EvaluatedOrders, deciding.RejectedOrders, deciding.Exhausted);
             // Still working. The body keeps the player company while the brain thinks, which is what it
             // would be doing anyway and is strictly better than holding still for the answer.
@@ -250,7 +250,7 @@ public sealed class DecideCourseEachTick
         // The owner drives the search rather than the other way round: it answers whatever models the
         // search asked for, extends the frozen catalogue with the answers, and lets the search resume on
         // the extended observation. A search suspended on a model nobody answers never advances.
-        models.ContinueSearch(search, budget);
+        Advance(search, models, budget);
         LastSearch = (search.EvaluatedOrders, search.RejectedOrders, search.Exhausted);
         deciding = search;
         decidingFacts = facts;
@@ -291,6 +291,25 @@ public sealed class DecideCourseEachTick
 
         if (published && NextStep(out StepBinding? fresh) && fresh != null) return Carry(fresh, "course-published");
         return Companionship(published ? "published-course-holds-no-step" : "proposal-refused-publication");
+    }
+
+    /// <summary>
+    /// Spend the tick's remaining allowance on the decision rather than one round of it.
+    ///
+    /// `ContinueSearch` is one round — answer the models already queued, extend the frozen catalogue,
+    /// resume the search — and a search that discovers a *new* model request during that round had to
+    /// wait a whole tick for it under a single call. That is a latency the design does not ask for: the
+    /// budget is the bound, not the round, and a decision that could have settled inside one tick was
+    /// being spread across several while the body kept company through all of them. Measured as mining
+    /// holding the body for 30 ticks of 120 on a scene whose whole premise is that mining keeps it.
+    ///
+    /// The loop terminates on the budget rather than on progress, which is deliberate: `ContinueSearch`
+    /// leaves a request queued when the model store is at capacity, so a round that answers nothing is a
+    /// legitimate state and the allowance running out is what ends the tick's share of the work.
+    /// </summary>
+    private static void Advance(SearchCourseOrders search, RetainCourseModelQueries models, DecisionWorkBudget budget)
+    {
+        while (!search.Exhausted && !budget.Exhausted) models.ContinueSearch(search, budget);
     }
 
     /// <summary>The step the course is about to perform, which is the first one no receipt has closed.
