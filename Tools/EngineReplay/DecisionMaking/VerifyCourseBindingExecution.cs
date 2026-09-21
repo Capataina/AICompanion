@@ -71,31 +71,27 @@ internal static class VerifyCourseBindingExecution
     /// </summary>
     private static void EveryDomainCanBind()
     {
-        var pending = new[] { "collect-target", "light-target", "pot-target" };
-
-        // Built the way production would build them: gathering's binder takes its domain exactly as its
-        // source does, and combat's names its own. Reflection over constructors was tried first and
-        // quietly under-reported — it skipped every binder without a parameterless constructor and so
-        // claimed gathering had none, which is the instrument lying in the direction that looks like a
-        // finding. Constructing them explicitly cannot do that.
+        // Built the way production would build them: the gathering and assistance binders take their
+        // domain exactly as their sources do, and combat's names its own. Reflection over constructors
+        // was tried first and quietly under-reported — it skipped every binder without a parameterless
+        // constructor and so claimed gathering had none, which is the instrument lying in the direction
+        // that looks like a finding. Constructing them explicitly cannot do that.
         var binders = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.IOpportunityBinder[]
         {
             new live::AICompanion.Companion.Brain.Activities.Gathering.GatheringOpportunityBinder("mine-target"),
             new live::AICompanion.Companion.Brain.Activities.Gathering.GatheringOpportunityBinder("chop-target"),
             new live::AICompanion.Companion.Brain.Activities.Combat.CombatOpportunityBinder(),
+            new AssistanceOpportunityBinder("collect-target"),
+            new AssistanceOpportunityBinder("light-target"),
+            new AssistanceOpportunityBinder("pot-target"),
         };
         HashSet<string> implemented = binders.Select(b => b.Domain).ToHashSet(StringComparer.Ordinal);
 
-        foreach (string domain in new[] { "mine-target", "chop-target" })
+        // Every domain with a source, now guarded rather than half-pending. Keeping company is the
+        // sixth job and deliberately has no source at all: an empty order *is* companionship.
+        foreach (string domain in new[] { "mine-target", "chop-target", "collect-target", "light-target", "pot-target" })
             Require(implemented.Contains(domain),
                 $"'{domain}' has no binder, so its opportunities would be priced and never become a step. Binders: {string.Join(", ", implemented.OrderBy(d => d))}");
-
-        Type binderType = typeof(live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.IOpportunityBinder);
-        string[] declared = binderType.Assembly.GetTypes()
-            .Where(type => !type.IsAbstract && !type.IsInterface && binderType.IsAssignableFrom(type))
-            .Select(type => type.Name).OrderBy(name => name, StringComparer.Ordinal).ToArray();
-        Require(declared.Length == 2,
-            $"the number of binder implementations changed to {declared.Length} ({string.Join(", ", declared)}); if one of {string.Join(", ", pending)} just gained a binder, guard it here and take it off the pending list");
     }
 
     private static void StandsAndTilesKeepTheirKinds()
