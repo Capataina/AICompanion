@@ -714,6 +714,14 @@ internal static class VerifyResponsiveFollowing
         float worstBehind = 0f, total = 0f;
         for (int tick = 0; tick < 1200; tick++)
         {
+            // The held key, which this row was missing and which decides the whole measurement. The
+            // intent region's horizontal lead reads `PlayerSense.HeldMove`, and that is
+            // `controlLeft`/`controlRight` alone — displacement feeds only the vertical part. Walking
+            // him by writing position and velocity therefore produces a region with *zero* lead however
+            // far he goes, so the box stays centred on him, its rear never closes, and this row asks the
+            // companion to lead a player the brain was never told is going anywhere. Sibling rows in
+            // this file already hold it; this one did not, and read 57.9% ahead against a bar of 66.7%.
+            player.controlRight = true;
             player.velocity = new Vector2(PlayerSpeed, 0f);
             player.Bottom += player.velocity;
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
@@ -729,6 +737,8 @@ internal static class VerifyResponsiveFollowing
             if (signed < worstBehind) worstBehind = signed;
         }
         float share = moving == 0 ? 0f : ahead / (float)moving;
+        // Released, because a held key is process state and the next case reads the same player.
+        player.controlRight = false;
         // Printed rather than only asserted, because the number is the row the owner reads and a pass
         // that says only "passed" cannot be compared with the capture it was measured against.
         Console.WriteLine(FormattableString.Invariant(

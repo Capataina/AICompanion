@@ -100,29 +100,30 @@ internal static class VerifyAccompanyingThePlayer
         Require(longestStill < 10, $"an idle player's companion must never be still for ten ticks; {ledger}");
         Require(outsideAfterEntry <= 30, $"an idle player's companion must stay inside his region once it is there; {ledger}");
         Require(accompanyAfterEntry * 10 >= ticksAfterEntry * 9, $"inside the region the accompanying owner must move the body; {ledger}");
-        // The code does not park — that reading was stale and was corrected on 21 September 2026 by
-        // measuring it. The body moves on essentially every tick (longest still run 2, asserted above)
-        // and accompanies on all six hundred; what it does not do is *cover*. It crosses 0.40 of the
-        // room's width and never reaches the left third, which is the one clause below that fails.
+        // Green since 21 September 2026, and the road there is worth keeping because two of its three
+        // readings were wrong and each looked settled.
         //
-        // README's Expected Behaviour is the contract and it says "keeps moving through the whole of
-        // that space", so this row is not relaxed to fit what the code happens to do. It stays red on
-        // purpose, and `Steering/CLAUDE.md` carries why three attempts have not cleared it: a
-        // random-walk heading diffuses rather than covers, so a turning-rate floor closes loops and no
-        // floor wanders in place, and a tour that does cover puts the companion behind a travelling
-        // player often enough to break this fixture's other two rows. Covering the whole box and never
-        // trailing are only jointly satisfiable where the box genuinely leads, and whether the coverage
-        // clause governs a travelling companion at all is the owner's call. `AIC-443` is blocked on it.
+        // First reading: the code parks. It does not — the body moves on essentially every tick, which
+        // the still-run assertion above has always covered; what it failed was coverage alone.
+        //
+        // Second reading: covering the box and never trailing are contradictory, so the owner has to
+        // rule on which governs a travelling companion. That was measured and is false. The horizontal
+        // lead reads `PlayerSense.HeldMove`, which is the direction *key*, and the walks in this file
+        // wrote position and velocity without holding one — so the region never led, its rear never
+        // closed, and half of a box centred on a man is behind him by construction. With the key held
+        // the same tour leads him on 99.1% of moving rows and trails on none.
+        //
+        // What was real underneath both: a random-walk heading diffuses rather than covers, in time
+        // proportional to the square of the box's width in steps, so no jitter value ever reached the
+        // far third. `Steering/CLAUDE.md` carries the tour that replaced it.
         //
         // It has also been flaky across this boundary — one commit filed a pass and a fail — which is
         // what a coverage test of a seeded local motion does when its step budget is near the span it
-        // has to cover. Whichever way the judgement goes, the replacement assertion should be about the
-        // motion rather than about the ground it happens to cover in six hundred ticks.
+        // has to cover. The tour crosses to the far edge rather than the far half, which is what moved
+        // the span clear of the third-lines instead of five pixels short of one.
         Require(left && right && above && below,
             $"an idle player's companion must move through the whole region, both outer thirds across it "
-            + $"and both halves up and down. NOTE: the body moves throughout and fails coverage alone; a "
-            + $"tour that covers breaks the two travelling rows, so this waits on the owner deciding "
-            + $"whether coverage governs a travelling companion (AIC-443); {ledger}");
+            + $"and both halves up and down; {ledger}");
     }
 
     private static void ATravellingPlayersCompanionKeepsUpWithoutTrailing() => WalkAlongside("travelling", pace: 2f, Ticks: 300);
@@ -157,6 +158,18 @@ internal static class VerifyAccompanyingThePlayer
         string stillTrace = "";
         for (int tick = 0; tick < Ticks; tick++)
         {
+            // **A walking player holds the key he is walking with, and without it this scene is not a
+            // walk the brain can see.** The intent region's horizontal lead reads `HeldMove`, which is
+            // `controlLeft`/`controlRight` alone — displacement feeds only the vertical part. So a
+            // fixture that moves the player by writing position and velocity produces a region with
+            // *zero* lead however far he travels: the box stays centred on him, its rear never closes,
+            // and "the companion moves through the whole of that space" and "being level or ahead of you
+            // is the ordinary case" become impossible to satisfy together, because half of a box centred
+            // on a man is behind him. That contradiction was read as a design conflict for most of a day
+            // and it was this line missing. It is the same class as an NPC moved by position teaching
+            // the motion forecast nothing: the sense reads the input, not the outcome.
+            ctx.Player.controlLeft = pace < 0;
+            ctx.Player.controlRight = pace > 0;
             ctx.Player.velocity = new Vector2(pace, 0f);
             ctx.Player.position += ctx.Player.velocity;
             VerifyOreWork.AdvanceBrain(ctx);

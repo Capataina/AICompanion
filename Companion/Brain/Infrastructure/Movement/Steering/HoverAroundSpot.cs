@@ -146,6 +146,9 @@ public sealed class HoverAroundSpot
             openMin = Vector2.Min(wantMin, acrossOffset);
             openMax = Vector2.Max(wantMax, acrossOffset);
             previousTarget = null;
+            // A goal is a place in a box; a walk starting because the box jumped is in a different box,
+            // so the old goal names somewhere the body is no longer near.
+            acrossGoal = null;
         }
         else
         {
@@ -160,55 +163,147 @@ public sealed class HoverAroundSpot
         acrossCentre = centre;
         Anchor = centre;
 
-        // The turning rate walks through zero rather than keeping a floor. The spot hover's floor exists so its target never
-        // parks on an ellipse; here a floor forces curvature, and with one the heading closed loops and an idle companion
-        // measured from -0.03 to 0.81 of the room across the box over six hundred ticks, never reaching its left third.
-        float jitter = ((float)random.NextDouble() * 2f - 1f) * Weights.AccompanyTurnJitter;
-        acrossRate = Math.Clamp(acrossRate + jitter, -Weights.AccompanyTurnRateMaximum, Weights.AccompanyTurnRateMaximum);
-        acrossHeading += acrossRate;
-
+        // The target tours the box: it crosses to a place drawn from the half furthest from it, arrives,
+        // and draws another. A random-walk heading was the instrument for two builds and it fails as a
+        // class rather than a tuning, because it *diffuses*: the time to cover a box goes as the square
+        // of its width in steps, so almost all of the path is spent re-covering ground. Both tunings are
+        // that one fault seen from two sides — with a floor under the turning rate the heading closed
+        // loops and six hundred idle ticks measured -0.03 to 0.81 of the room across the box, and with
+        // the floor removed the same six hundred measured -0.04 to 0.36. Neither reached the left third,
+        // and no jitter value does: the box is 428 px of open width and the walk moves 1.5 px a tick, so
+        // six hundred ticks buy nine hundred pixels of path, two crossings if spent going somewhere and
+        // nothing at all if spent wandering. A tour spends them going somewhere, and it is what README
+        // asks for — "easing forward to its leading edge, letting itself fall back toward the middle,
+        // rising over your head and dipping down again" is a sequence of places, not a direction.
+        //
+        // **While the box leads, the tour stays on the player's own side of it**, which is how covering
+        // the whole space and "being level or ahead of you is the ordinary case" are both true rather
+        // than traded off. The first tour drew from the open part's rear while he walked and put the
+        // body more than three tiles behind him on 97 of 300 ticks; the rear share alone does not stop
+        // that, because it closes a fraction of the room and the player sits inside what remains. His
+        // own place in the box is the floor instead: he is carried at roughly minus the applied lead, so
+        // a leg is never drawn behind that while the lead is live. With no lead there is no "ahead" to
+        // be level with and the whole box is open, which is the idling case the coverage clause is
+        // written for.
+        // While the box leads, a leg runs between the leading edge and the middle; idle, it runs the
+        // whole box. That is README's own split rather than a compromise between two of its sentences:
+        // "easing forward to its leading edge, letting itself fall back toward **the middle**" is where
+        // a travelling companion goes, and the coverage clause it sits inside is what an idling one
+        // does, when there is no heading to be ahead of and the box is centred on the man.
+        //
+        // Drawn from the whole box while he walks, the tour led him on 57.9% of moving rows against the
+        // two thirds `VerifyTheCompanionLeadsATravellingPlayer` requires — because the body lags its
+        // target while the box advances underneath both, so legs aimed at the open part's rear finish
+        // behind where they were aimed. Halving the part those legs are drawn from is what puts the
+        // ordinary case ahead of him without pinning the body to one spot.
+        float middle = (minX + maxX) / 2f;
+        float back = lead.X > Weights.AccompanyLeadPixels ? middle : minX;
+        float front = lead.X < -Weights.AccompanyLeadPixels ? middle : maxX;
+        float ClearanceOf(Vector2 point) => ClearanceHeat.Combined(world, point, MovementQueries.Hazards);
+        Vector2 Draw(Vector2 from)
+        {
+            // The far *edge* rather than the far half, because README says "easing forward to its
+            // leading edge, letting itself fall back toward the middle" — the extreme is the named
+            // destination and the middle is what it passes through on the way back. Drawing from the far
+            // half instead left each leg ending around the middle, and six hundred idle ticks then
+            // reached 0.31 of the room against a third-line at 0.333: five pixels short of the far
+            // third, after crossing the whole box. The share is what a leg aims past rather than a
+            // distance, so it does not have to be retuned when the region grows.
+            float FarEdge(float at, float low, float high)
+            {
+                if (high <= low) return low;
+                float middle = (low + high) / 2f;
+                float span = (high - low) * EdgeShare;
+                (float a, float b) = at >= middle ? (low, low + span) : (high - span, high);
+                return a + (float)random.NextDouble() * (b - a);
+            }
+            Vector2 best = default;
+            float bestAir = float.MinValue;
+            for (int draw = 0; draw < GoalDraws; draw++)
+            {
+                Vector2 candidate = new(FarEdge(from.X, back, front), FarEdge(from.Y, minY, maxY));
+                if (refused(centre + candidate)) continue;
+                float air = ClearanceOf(centre + candidate);
+                if (air > bestAir) { bestAir = air; best = candidate; }
+            }
+            // Every draw refused is the player asking for the whole far edge; cross to it anyway and let
+            // the per-step refusal turn the walk, rather than standing still.
+            return bestAir > float.MinValue ? best : new Vector2(FarEdge(from.X, back, front), FarEdge(from.Y, minY, maxY));
+        }
+        float reach = Weights.AccompanyWanderSpeedPx;
+        if (acrossGoal is not Vector2 goal || Vector2.DistanceSquared(acrossOffset, goal) <= reach * reach
+            || goal.X < back || goal.X > front || goal.Y < minY || goal.Y > maxY)
+            // A goal outside the part now open is re-drawn rather than clamped onto its edge: the part
+            // closes behind a player who turns round, and a clamped goal would ride that closing edge,
+            // which is the two-hundred-pixel jerk the easing of that edge exists to stop.
+            acrossGoal = goal = Draw(acrossOffset);
+        Vector2 toGoal = goal - acrossOffset;
+        // The vertical share flattens the step the way it flattened the wander: the box is three times
+        // wider than it is tall, so without it the walk climbs and dives faster than it crosses.
+        acrossHeading = MathF.Atan2(toGoal.Y, toGoal.X);
         Vector2 step = new(MathF.Cos(acrossHeading) * Weights.AccompanyWanderSpeedPx,
             MathF.Sin(acrossHeading) * Weights.AccompanyWanderSpeedPx * Weights.HoverVerticalShare);
-        Vector2 next = acrossOffset + step;
-        // Reflection at the box reverses the axis's part of the heading and the direction of turning together, for the
-        // reason the spot's target does: reflecting a circular path reverses its angular velocity.
-        if (next.X < minX || next.X > maxX) { acrossHeading = MathF.PI - acrossHeading; acrossRate = -acrossRate; }
-        if (next.Y < minY || next.Y > maxY) { acrossHeading = -acrossHeading; acrossRate = -acrossRate; }
-        next = InBox(next);
+        Vector2 next = InBox(acrossOffset + step);
 
         Vector2 from = previousTarget ?? live.Centre;
         bool Free(Vector2 point) => !refused(point) && CircleContact.SweptClear(world, from, point, OrbTerrain.Wall);
         Vector2 StepAt(float heading) => InBox(acrossOffset + new Vector2(MathF.Cos(heading),
             MathF.Sin(heading) * Weights.HoverVerticalShare) * Weights.AccompanyWanderSpeedPx);
-        float ClearanceOf(Vector2 point) => ClearanceHeat.Combined(world, point, MovementQueries.Hazards);
 
-        // Legal steps of the walk's own length, including the heading and the turns a blocked step
-        // already tried. Combined wall-and-enemy clearance picks among them; a crack is still taken
-        // when it is the only free step. Equal clearance keeps the wander heading, so once the cap
-        // is reached the walk crosses the box instead of twitching on a tied peak.
+        // The leg is followed while it is legal, and the turns are what a *blocked* step falls back on
+        // rather than a rival to it.
+        //
+        // Clearance used to be scored against the straight step as well, and on a tour that is the
+        // defect rather than the feature: in open air some turned step is almost always a little clearer
+        // than straight on, so the walk turned on nearly every tick, dropped its leg each time and
+        // diffused exactly as the random heading had — measured worse, in fact, at a longest still run
+        // of 12 ticks against 2, because a reversing pair of turns holds the target about one point.
+        // **A preference evaluated per step competes with a destination; the same preference evaluated
+        // when the destination is chosen serves it.** So clearance moved into the draw above, where it
+        // decides where the tour goes next, and the body still climbs off a floor and crosses away from
+        // an enemy — it simply stops rewriting its heading to get there.
         Vector2 bestOffset = next;
-        float bestHeading = acrossHeading, bestRate = acrossRate;
-        float bestClear = Free(centre + next) ? ClearanceOf(centre + next) : float.MinValue;
-        bool any = bestClear > float.MinValue;
-        foreach (float turn in Turns)
+        float bestHeading = acrossHeading;
+        bool any = Free(centre + next);
+        if (!any)
         {
-            float heading = acrossHeading + turn;
-            Vector2 attempt = StepAt(heading);
-            if (!Free(centre + attempt)) continue;
-            float clearance = ClearanceOf(centre + attempt);
-            if (!any || clearance > bestClear + 0.05f)
+            float bestClear = float.MinValue;
+            foreach (float turn in Turns)
             {
-                any = true;
-                bestClear = clearance;
-                bestOffset = attempt;
-                bestHeading = heading;
-                bestRate = -acrossRate;
+                float heading = acrossHeading + turn;
+                Vector2 attempt = StepAt(heading);
+                if (!Free(centre + attempt)) continue;
+                float clearance = ClearanceOf(centre + attempt);
+                if (!any || clearance > bestClear)
+                {
+                    any = true;
+                    bestClear = clearance;
+                    bestOffset = attempt;
+                    bestHeading = heading;
+                }
             }
         }
         Vector2 target = centre + bestOffset;
         if (any)
         {
-            if (bestHeading != acrossHeading) acrossRate = bestRate;
+            // A turned step means the straight line to the goal was blocked or refused, so the leg is
+            // re-aimed. Keeping the old goal would point every later step back at the same obstruction,
+            // which is the tour's own version of the closed loop the random heading used to produce.
+            //
+            // **It is re-aimed along the turn rather than re-drawn from the far edge**, and the
+            // difference is the whole courtesy behaviour. Re-drawing sends the next leg to whichever
+            // edge is furthest from the *body*, which is frequently back across the tiles the player is
+            // asking it to vacate: measured on the courtesy scene, a block aimed at the companion's own
+            // tile took 53 ticks to clear it against 26 for an empty hand, when the block is supposed to
+            // clear it sooner. Extending the turn to the box's edge keeps the body going the way the
+            // refusal sent it, and the ordinary far-edge draw resumes once it arrives.
+            if (bestHeading != acrossHeading)
+            {
+                Vector2 away = new(MathF.Cos(bestHeading), MathF.Sin(bestHeading) * Weights.HoverVerticalShare);
+                float span = MathF.Max(front - back, maxY - minY);
+                acrossGoal = new Vector2(Math.Clamp(bestOffset.X + away.X * span, back, front),
+                    Math.Clamp(bestOffset.Y + away.Y * span, minY, maxY));
+            }
             acrossHeading = bestHeading;
             next = bestOffset;
         }
@@ -221,6 +316,8 @@ public sealed class HoverAroundSpot
             // every turned step of a body standing in the footprint is refused too, and without this the body stays put.
             target = live.Centre;
             next = live.Centre - centre;
+            // The escape puts the target somewhere the tour never drew, so the tour draws again from there.
+            acrossGoal = null;
             float reachOut = MathF.Max(room.X, room.Y) * 2f;
             // A place the escape may take is one no further outside the open part, on either axis, than the body already is. Exact
             // membership is the wrong test, because the inside latch lets a body sit beyond the open part: a body resting on a
@@ -273,6 +370,23 @@ public sealed class HoverAroundSpot
     private Vector2 acrossOffset;
     private Vector2? acrossCentre;
     private float acrossHeading, acrossRate;
+    /// <summary>Where the accompanying tour is crossing to, in the box's own frame. Null means draw one
+    /// on the next call: at the start of a walk, on arrival, or when a blocked step turned it away.</summary>
+    private Vector2? acrossGoal;
+
+    /// <summary>How many places the tour draws from the far half before crossing to the clearest of them.
+    /// Enough that a leg prefers open air over a floor or an enemy, few enough that the draw stays a bias
+    /// rather than a search: a leg is a place to be, not a route to prove.</summary>
+    private const int GoalDraws = 4;
+
+    /// <summary>
+    /// How much of the box, measured from its far edge, a tour leg is drawn from. A third keeps the
+    /// destination near the edge the region actually has — "its leading edge", in README's words —
+    /// while leaving enough spread that consecutive legs do not land on one point and read as a
+    /// metronome. A half was tried first and ends each leg around the middle, which is a crossing that
+    /// stops before it arrives anywhere.
+    /// </summary>
+    private const float EdgeShare = 1f / 3f;
     /// <summary>The part of the box, in its own frame, the walk may use this tick: eased toward what the lead asks for.</summary>
     private Vector2 openMin, openMax;
 
