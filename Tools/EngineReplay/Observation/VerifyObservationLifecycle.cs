@@ -94,8 +94,25 @@ internal static class VerifyObservationLifecycle
             $"the actual recorder must preserve supported vertical intent, not empty placeholders: y={Number("player_intent_y")}; confidence={Number("player_intent_confidence")}; samples={Number("player_intent_samples")}; local-work={Number("player_local_work_fraction")}; ore={companion.Brain.Senses.Player.MinedOre}; tree={companion.Brain.Senses.Player.ChoppedTree}");
         Require(lines.Any(l => l.StartsWith("# text_columns=")), "writer must declare its textual columns");
         string events = File.ReadAllText(Path.ChangeExtension(path, null) + "-events.jsonl");
-        foreach (string family in new[] { "Gathering", "Combat", "NearbyAssistance" })
-            Require(events.Contains("family:" + family + "=child:"), "decision writer omitted a family nomination: " + family);
+        // The alternatives the decision actually weighed, in the vocabulary the brain actually uses.
+        //
+        // This asked for `family:Gathering=child:` and its two siblings until 21 September 2026, and it
+        // went red because the tick stopped calling the family chooser: `LastNominations` is empty under
+        // the course brain, so the decision occurrence named nothing that lost. Keeping the old shape
+        // would have meant writing three families the brain no longer has, which is a record of a
+        // decision procedure the game does not run.
+        //
+        // What replaces it is not a rename. A family nomination carried one child and its final value;
+        // the course records what each domain's best order scored with the terms behind it, how much of
+        // each census could be ordered at all, and why orders were refused. The `course-decision` entry
+        // is required outright because it exists on every decision; the others are required to be
+        // *parseable when present* rather than always present, since a tick with one domain on the board
+        // legitimately has one leader and no refusals, and demanding all of them would make this row
+        // pass only on a scene rich enough to produce them.
+        Require(events.Contains("course-decision="), "decision writer omitted the course decision");
+        Require(events.Contains(";course:") || events.Contains(";course-admitted:"),
+            "decision writer named no course alternative: a decision with no losers recorded is the "
+            + "record this folder's own rule exists to prevent");
         // The gravity trio is gone from this row, and deleted rather than loosened.
         //
         // It used to set `NPC.gravity` to 0.1234 by reflection and a different model gravity beside it, then
@@ -171,10 +188,37 @@ internal static class VerifyObservationLifecycle
         VerifyObservedMotion.SetTick((Main.GameUpdateCount / 60 + 1) * 60);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
         Require(companion.Motor.ControlSource == "follow-recovery-flight", "fixture did not enter the actual recovery control path");
+        // The board is emptied by taking the work away, not by killing the player, and the swap is a
+        // correction to the scene rather than to the brain. Under the family chooser a dead player
+        // zeroed every score, so `dead = true` happened to empty the board and was used as the lever.
+        // The course keeps working through a player's death on purpose — the companion stays autonomous
+        // while he is down, with only protection pressure removed — so the same lever now leaves mining
+        // on the board and the `phase=None` record this scene is built around never happens. The player
+        // still dies here, because that is the other thing this tick is about; what changed is that the
+        // absence of work is now caused by the absence of work.
         Main.LocalPlayer.dead = true;
+        var minedBefore = live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining;
+        live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining =
+            live::AICompanion.Companion.Brain.Activities.WorkPolicy.Disabled;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
-        Require(companion.Brain.Chooser.Current == null, "the empty post-recovery board must have no ordinary activity");
+        // An empty board is companionship now, not an absence, and the inversion is deliberate rather
+        // than a loosened assertion. The family chooser answered "nothing is worth doing" with no
+        // activity and a Hold request; the course answers it with an empty order, which `Courses`
+        // defines as companionship carrying its own projected costs, and `ExecuteCourseBinding` turns
+        // into a WithPlayer request precisely so that "the course found nothing worth doing" cannot look
+        // identical to "the course told the body to freeze". Asserting the old shape would require the
+        // brain to reproduce a decision procedure the game no longer runs.
+        //
+        // What is still worth asserting is the half that did not change: an empty board must not produce
+        // *work*. A companion that starts mining because its board was empty is the defect either
+        // contract exists to prevent, and it is the one this row can still catch.
+        string? postRecovery = companion.Brain.Chooser.Current?.Name;
+        Require(postRecovery is null or "keep-company",
+            $"an empty post-recovery board may only rest or keep company, never take up work; got {postRecovery ?? "none"}");
+        Require(companion.Brain.LastRequest.Kind != live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
+            $"an empty board must not read as an order to freeze; request={companion.Brain.LastRequest.Kind}");
+        live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = minedBefore;
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);

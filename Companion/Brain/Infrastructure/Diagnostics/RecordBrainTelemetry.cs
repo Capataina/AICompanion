@@ -97,7 +97,14 @@ public sealed class BrainTelemetry : ModSystem
     // labels, and skips one whose columns are absent.
     // 0.41.0 begins retained-course evidence. Older captures have no typed course payloads and
     // SessionReport must call that historical-unavailable rather than infer an empty course.
-    private const string Schema = "0.41.0";
+    // 0.42.0 — the decision occurrence carries the course's own alternatives (`course-decision`,
+    // `course:<domain>`, `course-admitted:<domain>`, `course-refused:<reason>`). It moves the version
+    // rather than riding as a pure append because the same occurrence stopped carrying `family:<name>`
+    // entries when the tick switched to the course at 0bb2c8a: `LastNominations` is empty, so the loop
+    // that writes them produces nothing. A reader of a 0.41.0-or-earlier capture finds family
+    // nominations and no course entries; a reader of this one finds the reverse, and the absence is the
+    // change the append convention cannot carry.
+    private const string Schema = "0.42.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -666,6 +673,32 @@ public sealed class BrainTelemetry : ModSystem
                 board.Append(";factors:").Append(score.Action.Name).Append('=').Append(FactorList(score));
             foreach (var nomination in brain.Chooser.LastNominations)
                 board.Append(CultureInfo.InvariantCulture, $";family:{nomination.Family}=child:{nomination.Activity?.Name ?? "none"},value:{nomination.Activity?.Final ?? 0:0.000}");
+            // The course's own alternatives, which replaced the family nominations above rather than
+            // joining them: the tick asks a course, so `LastNominations` is empty in a played session and
+            // the decision occurrence named nothing that lost. A record that says only what happened
+            // answers "what happened"; this folder's standing rule is to record the rejected option and
+            // the reason for the negative, which for a course means three different questions.
+            //
+            // `course` is what the best order led by each domain scored, with the terms that decide it,
+            // so a reader can tell a job that lost narrowly from one worth nothing. `course-admitted` is
+            // how much of each census the search could actually order — a domain can report a complete
+            // sweep and contribute nothing, because only a usable candidate enters an order at all, and
+            // the two read identically without this. `course-refused` is why orders were thrown away,
+            // which is the number that was previously recorded as a bare count nobody could act on.
+            var course = brain.Course;
+            board.Append(CultureInfo.InvariantCulture,
+                $";course-decision={course.Last.Reason},activity={course.Last.Activity},settled={course.Last.Settled}"
+                + $",steps={course.Course.Current?.Projection.Steps.Count ?? -1}"
+                + $",priced={course.LastSearch.Evaluated},refused={course.LastSearch.Rejected},exhausted={course.LastSearch.Exhausted}");
+            foreach (var leader in course.LastLeaders.OrderByDescending(entry => entry.Value.Total.Nominal))
+                board.Append(CultureInfo.InvariantCulture,
+                    $";course:{leader.Key}=value:{leader.Value.Total.Nominal:0.000},useful:{leader.Value.UsefulEffects:0.000}"
+                    + $",harm:{leader.Value.Harm:0.000},gap:{leader.Value.Companionship:0.000}");
+            foreach (var domain in course.Admitted)
+                board.Append(CultureInfo.InvariantCulture,
+                    $";course-admitted:{domain.Domain}=usable:{domain.Usable},unknown:{domain.Unresolved},unusable:{domain.Unusable},reason:{(domain.Reason.Length == 0 ? "-" : domain.Reason)}");
+            foreach (var refusal in course.LastRefusals.OrderByDescending(entry => entry.Value))
+                board.Append(CultureInfo.InvariantCulture, $";course-refused:{refusal.Key}={refusal.Value}");
             foreach (var family in brain.Chooser.Queries.LastFamilies)
                 board.Append(CultureInfo.InvariantCulture, $";queries:{family.Family}=prepared:{family.Prepared},deferred:{family.Deferred},ms:{family.Milliseconds:0.000}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;
