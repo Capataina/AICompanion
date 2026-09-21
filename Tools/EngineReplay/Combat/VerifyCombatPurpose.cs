@@ -45,6 +45,32 @@ internal static class VerifyCombatPurpose
     /// the aimed one separately each time, ignore a projectile the companion never fired, and forget the
     /// companion's shot once a new projectile spawns into its slot, so slot reuse cannot inherit it.
     /// </summary>
+    /// <summary>
+    /// One physical strike, driven the way the engine drives it: the Modify half and then the OnHit half.
+    ///
+    /// Both halves are mandatory and the second one alone is not a shortcut. `ModifyHitByProjectile` opens
+    /// a strike receipt through `CollectNativeEffectReceipts.BeginProjectileStrike`, and `OnHitByProjectile`
+    /// completes that receipt and consumes it once for weapon learning. A receipt is keyed on the target's
+    /// slot and generation plus the projectile's slot, the completed ones live for the whole process (only
+    /// a world load or unload clears them, and no headless tool dispatches those), and a completion with no
+    /// matching Begin returns whatever earlier receipt that same key left behind. So the second strike in a
+    /// process that reuses a slot triple finds a receipt weapon learning has already claimed, `TryConsume`
+    /// refuses it exactly as designed, and the hit is dropped with no error anywhere.
+    ///
+    /// That is what made `combat keeps its purpose across a substituted enemy` red: both scenes here reuse
+    /// NPC slot 30 at generation 0 — headless never runs the spawn hook that would bump a generation — and
+    /// both fire through the lowest free projectile slot, so their keys collide exactly. The gate arrived in
+    /// `afca7df`, proven by building and running this case at that commit and at its parent `d59bf69`, which
+    /// passes.
+    /// </summary>
+    private static void Strike(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ObserveLandedCompanionHits hook,
+        NPC npc, Projectile projectile, int damage)
+    {
+        var modifiers = new NPC.HitModifiers();
+        hook.ModifyHitByProjectile(npc, projectile, ref modifiers);
+        hook.OnHitByProjectile(npc, projectile, new NPC.HitInfo { Damage = damage }, damage);
+    }
+
     private static void LandedHitsAreRecordedApartFromTheAimedTarget()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
@@ -70,24 +96,24 @@ internal static class VerifyCombatPurpose
         NPC other = aimed!.whoAmI == 30 ? Main.npc[31] : Main.npc[30];
 
         var hook = new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ObserveLandedCompanionHits();
-        hook.OnHitByProjectile(other, shot, new NPC.HitInfo { Damage = 7 }, 7);
+        Strike(hook, other, shot, 7);
         var first = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Last;
         Require(first is { } strayHit && strayHit.HitSlot == other.whoAmI && strayHit.AimSlot == aimed.whoAmI
             && !strayHit.StruckAimedTarget && strayHit.Damage == 7,
             $"a shot landing on the enemy in front must record that enemy as hit and the chosen one as aimed; got {first}");
-        hook.OnHitByProjectile(aimed, shot, new NPC.HitInfo { Damage = 9 }, 9);
+        Strike(hook, aimed, shot, 9);
         Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Last is { StruckAimedTarget: true, Damage: 9 }
             && live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Count == 2,
             $"the same shot reaching its aimed enemy must record a hit on the aimed target; got {(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Last)}, count={(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Count)}");
 
         int foreignSlot = shot.whoAmI == 0 ? 1 : 0;
         Main.projectile[foreignSlot] = new Projectile { whoAmI = foreignSlot, active = true, friendly = true, damage = 11, owner = Main.myPlayer };
-        hook.OnHitByProjectile(aimed, Main.projectile[foreignSlot], new NPC.HitInfo { Damage = 11 }, 11);
+        Strike(hook, aimed, Main.projectile[foreignSlot], 11);
         Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Count == 2,
             "a projectile the companion never fired must not be attributed to it, even when it is the player's own");
 
         new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ForgetReusedShotSlots().OnSpawn(shot, new Terraria.DataStructures.EntitySource_Misc("engine-replay"));
-        hook.OnHitByProjectile(aimed, shot, new NPC.HitInfo { Damage = 13 }, 13);
+        Strike(hook, aimed, shot, 13);
         Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Count == 2,
             "a new projectile spawned into the shot's slot must not inherit the companion's shot");
         Main.projectile[foreignSlot].active = false;
@@ -139,7 +165,7 @@ internal static class VerifyCombatPurpose
             CombatFixture.FiredUse fired = CombatFixture.FireOnce(ctx.Companion, ctx);
             Require(fired.Fired && fired.Plan != null, "the recorded identity scene needs a real shot under a searched plan");
             Projectile shot = Main.projectile.First(p => p.active);
-            new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ObserveLandedCompanionHits().OnHitByProjectile(enemy, shot, new NPC.HitInfo { Damage = 5 }, 5);
+            Strike(new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ObserveLandedCompanionHits(), enemy, shot, 5);
 
             var recorder = new live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry();
             VerifyObservationLifecycle.Attach(recorder);
