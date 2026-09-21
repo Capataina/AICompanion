@@ -220,17 +220,42 @@ public sealed class CaptureAssistanceOpportunities
         // census of a world nobody looked at, which is the one confusion coverage exists to prevent, so
         // an empty area publishes Unresolved and the domain honestly reports an unanswered question.
         facts.Add(Coverage("light-coverage", area, area.Width > 0 && area.Height > 0));
+        // A census publishes opportunities, not tiles.
+        //
+        // This loop used to emit a `light-target` fact for every tile in the window — a 125x125 square
+        // at the work radius, so 15,625 facts per brain tick, each carrying an interpolated detail string
+        // and a JSON payload, the overwhelming majority of them saying "this is a wall" or "this is lit".
+        // The cost was quadratic rather than merely large, because five call sites answer "give me the
+        // facts of kind K" with `facts.Facts.Where(...).OrderBy(...)`, one of them inside the combat
+        // binder, which therefore re-sorted fifteen thousand irrelevant facts once per binding attempt
+        // per candidate order. Discovery then spent one unit of the shared allowance per site, so the
+        // light domain drained the whole tick's budget on walls and every other domain starved behind it.
+        //
+        // Absence is already meaningful here and that is what makes this safe rather than a trim. The
+        // `light-coverage` fact records the area that was swept, and `DiscoverAssistanceOpportunities`
+        // reads completeness from that rather than from the presence of any particular tile — so a tile
+        // with no fact inside a swept area reads as "looked, nothing there", which is exactly the
+        // three-valued answer the whole tree is built on. What was being published for a wall was never
+        // an opportunity; it was the sweep narrating itself.
+        //
+        // The tile predicates run first and cheapest, before the light reading and the reach query, so a
+        // wall costs two calls instead of four.
         for (int x = area.Left; x < area.Right; x++)
             for (int y = area.Top; y < area.Bottom; y++)
             {
                 if (!WorldGen.InWorld(x, y, 10)) continue;
                 Point point = new(x, y);
-                var reading = senses.Light.ReadForPlacement(point, coverage);
                 bool candidate = PlaceTorches.Candidate(point) && RecommendTorchPlacement.MayAccept(point);
+                if (!candidate) continue;
+                var reading = senses.Light.ReadForPlacement(point, coverage);
                 ReachVerdict reach = senses.Reach.Reachable(point);
-                string admission = !candidate ? "unusable" : !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "unknown" : "unusable"
+                // Only a placeable tile reaches here, so the admission turns on light and reach alone.
+                // A tile the policy or a body refuses is not published at all, which is why there is no
+                // `placement-policy-or-contact` arm any more: that reason described the absence of an
+                // opportunity rather than a property of one.
+                string admission = !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "unknown" : "unusable"
                     : reach == ReachVerdict.NotYet ? "unknown" : reach == ReachVerdict.Unreachable ? "unusable" : "usable";
-                string reason = !candidate ? "placement-policy-or-contact" : !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "light-unread" : "not-persistently-dark"
+                string reason = !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "light-unread" : "not-persistently-dark"
                     : reach == ReachVerdict.NotYet ? "reach-not-yet" : reach == ReachVerdict.Unreachable ? "reach-unreachable" : "observed-persistent-darkness";
                 var value = new AssistanceOpportunityFact("light-target", $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8,
                     reading.IsDark ? 1 : 0, reading.IsDark ? 1 : 0, admission, reason, $"light={reading.Light};brightness={reading.Brightness:R};coverage={coverage.Area}");
