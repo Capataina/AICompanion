@@ -131,6 +131,18 @@ public static class ExecuteCourseBinding
     /// projected costs rather than an artificial idle, so the body keeps the player company rather than
     /// holding still — a Hold here would make "the course found nothing worth doing" look identical to
     /// "the course told the body to freeze", which is the stillness the orb rewrite exists to prevent.
+    ///
+    /// <para><paramref name="regionCentre"/> is required rather than defaulted, and that is the fix for a
+    /// defect this was: it shipped as a parameterless property anchored at <c>Vector2.Zero</c>, which is
+    /// the world's top-left corner. An anchor is only read when the positioner admits no candidate — the
+    /// body is cut off, or no usable corner inside the region exists — and then <c>SeekDestination</c>
+    /// aims the navigator at it directly. So the zero anchor was invisible on every ordinary tick and, on
+    /// the tick it mattered, flew the companion at the world origin: measured on the locked-door scene,
+    /// the body climbed from row 79 to row 8 and column 38 to column 8, thirty tiles *away* from a player
+    /// at column 80, until the straight-line distance finally admitted recovery flight, which then
+    /// carried it through the sealed wall. The legacy <c>KeepCompany</c> passed the region's centre here;
+    /// the wiring at <c>0bb2c8a</c> dropped it. Requiring the argument is what stops it being dropped
+    /// again, because a value you must supply cannot be forgotten the way a default can.</para>
     /// </summary>
-    public static PositionRequest Companionship => new(RequestKind.WithPlayer, Vector2.Zero);
+    public static PositionRequest Companionship(Vector2 regionCentre) => new(RequestKind.WithPlayer, regionCentre);
 }

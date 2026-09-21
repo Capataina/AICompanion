@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using AICompanion.Tools.Ledger;
+using Microsoft.Xna.Framework;
 using live::AICompanion.Companion.Brain.Infrastructure.Position;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
@@ -138,8 +139,16 @@ internal static class VerifyCourseBindingExecution
         Require(drop.Kind == RequestKind.Exact && drop.WorkTile == null,
             "a drop is taken by contact and named a work tile, which would ask for a tool-reach proof nothing needs");
 
-        Require(ExecuteCourseBinding.Companionship.Kind == RequestKind.WithPlayer,
+        var companionship = ExecuteCourseBinding.Companionship(new Vector2(1280f, 960f));
+        Require(companionship.Kind == RequestKind.WithPlayer,
             "an empty course asked the body to hold, which makes 'nothing worth doing' look identical to 'freeze'");
+        // The anchor is only read where the positioner admits no candidate, so a wrong one is invisible on
+        // every ordinary tick and flies the body at it on the tick that matters. It shipped as Vector2.Zero,
+        // the world's top-left corner, and the locked-door scene measured the companion climbing thirty
+        // tiles away from the player to reach it. The row asserts the anchor is the caller's, not a default.
+        Require(companionship.Anchor == new Vector2(1280f, 960f),
+            $"an empty course's companionship anchored at {companionship.Anchor} rather than the region centre it was "
+            + "given; an anchor the positioner falls back to must be where the player is, because SeekDestination flies at it");
     }
 
     private static void UnknownPurposeRefuses()

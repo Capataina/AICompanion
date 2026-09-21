@@ -250,7 +250,7 @@ public sealed class Brain
         LastRequest = decision.Binding is { } step ? ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center)
             // No step is companionship rather than a hold, because a course that found nothing worth
             // doing must not look identical to a course that told the body to freeze.
-            : ExecuteCourseBinding.Companionship;
+            : ExecuteCourseBinding.Companionship(Senses.Intent.Region.Centre);
         // The activity still runs its own tick, for the hand it reserves and the state it keeps; its
         // returned request is discarded, because the course already said where the body goes.
         _ = action?.Execute(ctx);
