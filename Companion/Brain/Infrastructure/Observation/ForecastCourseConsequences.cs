@@ -378,7 +378,7 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
                     // trajectory guard would have to move with them. Nothing needs it, so the guard goes
                     // rather than standing as a protection the arithmetic cannot give (AIC-446).
                     new ContactActor(HarmActor.Companion, victim.ContactEnabled ? victim.Life : 0,
-                        victim.OrdinaryReadyTick, boxes),
+                        victim.OrdinaryReadyTick, victim.ImmunityTicks, victim.MinimalHitImmunityTicks, boxes),
                 };
             // The player, priced from tick zero rather than from the course's start: the companion's
             // prefix is unpriced because this forecast was never handed its trajectory, and the player
@@ -388,7 +388,8 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
             // the honest silence of a body nobody asked about.
             if (playerModelled)
                 actors.Add(new ContactActor(HarmActor.Player, playerVictim!.ContactEnabled ? playerVictim.Life : 0,
-                    playerVictim.OrdinaryReadyTick, playerBoxes));
+                    playerVictim.OrdinaryReadyTick, playerVictim.ImmunityTicks,
+                    playerVictim.MinimalHitImmunityTicks, playerBoxes));
             contact = new ForecastContactHarm(actors,
                 threats, harmHorizon,
                 // The census's own completeness, where this was pinned false because the player was

@@ -208,11 +208,17 @@ internal static class VerifyCourseTravelScheduling
         Require(playerShape.Samples[0].Damage == playerExpected && playerShape.Samples[1].Damage == 20
             && npcShape.Samples[0].Damage == npcExpected,
             "contact geometry lost its per-sample multiplier, native actor distinction or frozen defence");
-        var harm = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0, victims),
-            new ContactActor(HarmActor.Companion, 100, 0, victims) },
+        // The player's and the companion's own immunity windows, from `Player.Hurt` and
+        // `NPC.BeHurtByOtherNPC`. Both run far past this horizon of one, so a hit at tick 0 leaves
+        // nothing inside the horizon unknown and the tail is resolved. It asserted the opposite until
+        // 21 September 2026, correctly, because a hit then ended the actor's scan and everything after
+        // it was genuinely unknown; the immunity window is the successor model that answers it.
+        var harm = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0, 40, 20, victims),
+            new ContactActor(HarmActor.Companion, 100, 0, 30, 30, victims) },
             new[] { new ContactThreat(1, 1, playerShape, npcShape) }, 1, true).Continue(new(double.PositiveInfinity));
-        Require(harm!.Harm.Count == 2 && harm.Harm.All(hit => hit.Tick == 0) && harm.TailUnresolved,
-            "native contact geometry did not reach timed harm or concealed its post-hit uncertainty");
+        Require(harm!.Harm.Count == 2 && harm.Harm.All(hit => hit.Tick == 0) && !harm.TailUnresolved,
+            $"native contact geometry did not reach timed harm, or left unresolved a horizon its own "
+            + $"immunity window covers; got {harm.Harm.Count} hit(s), tail unresolved {harm.TailUnresolved}");
     }
 
     private static void NativeMeleeShapes()

@@ -79,7 +79,12 @@ internal static class VerifyProjectionContracts
             new ContactBox(19, 0, 20, 20), new ContactBox(10, 0, 20, 20), new ContactBox(0, 0, 20, 20) };
         ContactGeometry Geometry(ContactBox[] boxes, double damage, int ready)
             => new(boxes.Select(box => new ContactSample(box, damage, ready)).ToArray(), true);
-        var forecast = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
+        // The game's own windows, so the fixture and the world agree about the cadence: `Player.Hurt`
+        // gives 40 ticks for an ordinary contact hit and 20 for one that lands for a single point, and
+        // `NPC.BeHurtByOtherNPC` gives 30 with no damage-sized branch.
+        const int PlayerImmunity = 40, PlayerMinimalImmunity = 20, CompanionImmunity = 30;
+        var forecast = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0,
+                CompanionImmunity, CompanionImmunity, actorBoxes) },
             new[] { new ContactThreat(1, 1, Geometry(enemyBoxes, 50, 0), Geometry(enemyBoxes, 25, 0)) }, 4, true);
         ContactHarmResult? result = null;
         for (int i = 0; i < 100 && result == null; i++)
@@ -88,14 +93,68 @@ internal static class VerifyProjectionContracts
             result = forecast.Continue(budget);
             Require(budget.OperationsUsed <= 1, "contact forecasting exceeded its shared allowance");
         }
+        // One hit inside this horizon, and — the half that changed on 21 September 2026 — a *resolved*
+        // tail. The row asserted `TailUnresolved` here for as long as a hit ended the actor's scan,
+        // and it was right to: everything after a hit was genuinely unknown while there was no
+        // successor model. The immunity window is that model, and it carries 30 ticks past a horizon of
+        // 4, so there is nothing left unknown inside the horizon and saying otherwise would be the
+        // forecast refusing to answer a question it has just answered. The row's own message named
+        // "a known successor" as a failure; that is now the feature, and the cadence row below is what
+        // stops the change from being a licence to invent hits.
         Require(result != null && result.Harm.Count == 1 && result.Harm[0].Tick == 2
-            && result.Harm[0].Damage == 25 && result.Harm[0].CurrentLife == 100 && result.TailUnresolved,
-            "contact forecasting invented near-miss harm, repeated post-hit damage or a known successor");
-        var incomplete = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0, actorBoxes) },
+            && result.Harm[0].Damage == 25 && result.Harm[0].CurrentLife == 100 && !result.TailUnresolved,
+            $"contact forecasting invented near-miss harm, or left a tail unresolved that the immunity "
+            + $"window resolves; got {result?.Harm.Count} hit(s), tail unresolved {result?.TailUnresolved}");
+
+        // The cadence itself: a hostile that keeps overlapping hits again every immunity window, and
+        // that difference is the whole reason this forecast exists. Before it, a zombie walking into a
+        // player was priced as one hit whatever anybody did, so every course carried identical harm and
+        // defending him was worth exactly nothing — the measurement on `danger lifts combat over work`,
+        // where mining, fighting and standing still all read a harm of 0.3500.
+        //
+        // The scene is deliberately long enough to hold several windows. A body of 100 life against 25
+        // a hit takes four before it is empty, and the fifth must not appear: a forecast that kept
+        // charging a course for harm to somebody it has already said is down would make a hopeless
+        // fight look infinitely expensive.
+        var longBoxes = Enumerable.Repeat(new ContactBox(0, 0, 20, 20), 200).ToArray();
+        var persistent = new ForecastContactHarm(
+            new[] { new ContactActor(HarmActor.Companion, 100, 0, CompanionImmunity, CompanionImmunity, longBoxes) },
+            new[] { new ContactThreat(1, 1, Geometry(longBoxes, 50, 0), Geometry(longBoxes, 25, 0)) },
+            199, true).Continue(new(double.PositiveInfinity));
+        Require(persistent!.Harm.Count == 4
+                && persistent.Harm.Select(hit => (int)hit.Tick).SequenceEqual(new[] { 0, 30, 60, 90 })
+                && persistent.Harm.Select(hit => hit.CurrentLife).SequenceEqual(new double[] { 100, 75, 50, 25 }),
+            $"a hostile that keeps overlapping must hit again every immunity window and stop when the "
+            + $"body is empty; got {persistent.Harm.Count} hit(s) at "
+            + $"{string.Join(",", persistent.Harm.Select(hit => hit.Tick))} leaving life "
+            + $"{string.Join(",", persistent.Harm.Select(hit => hit.CurrentLife))}");
+
+        // The one-damage branch, which is the game's and not a rounding of ours: a hit that lands for a
+        // single point buys half the window, so an armoured body whose defence floors a weak hostile is
+        // hurt twice as often. Asserted as the pair rather than as one number, because the value of the
+        // branch is the difference and a row on the short window alone would pass against a model that
+        // had lost the ordinary one.
+        var flooredHits = new ForecastContactHarm(
+            new[] { new ContactActor(HarmActor.Player, 100, 0, PlayerImmunity, PlayerMinimalImmunity, longBoxes) },
+            new[] { new ContactThreat(1, 1, Geometry(longBoxes, 1, 0), Geometry(longBoxes, 1, 0)) },
+            99, true).Continue(new(double.PositiveInfinity));
+        var ordinaryHits = new ForecastContactHarm(
+            new[] { new ContactActor(HarmActor.Player, 100, 0, PlayerImmunity, PlayerMinimalImmunity, longBoxes) },
+            new[] { new ContactThreat(1, 1, Geometry(longBoxes, 10, 0), Geometry(longBoxes, 10, 0)) },
+            99, true).Continue(new(double.PositiveInfinity));
+        Require(flooredHits!.Harm.Select(hit => (int)hit.Tick).SequenceEqual(new[] { 0, 20, 40, 60, 80 })
+                && ordinaryHits!.Harm.Select(hit => (int)hit.Tick).SequenceEqual(new[] { 0, 40, 80 }),
+            $"a one-damage hit must buy the shorter immunity window and a real one the longer; floored "
+            + $"at {string.Join(",", flooredHits.Harm.Select(hit => hit.Tick))} against ordinary at "
+            + $"{string.Join(",", ordinaryHits!.Harm.Select(hit => hit.Tick))}");
+
+        var incomplete = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0,
+                PlayerImmunity, PlayerMinimalImmunity, actorBoxes) },
             Array.Empty<ContactThreat>(), 4, false).Continue(new(double.PositiveInfinity));
         Require(incomplete!.TailUnresolved && incomplete.Harm.Count == 0, "an incomplete enemy census became a safe empty world");
-        var perVictim = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0, actorBoxes),
-                new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
+        var perVictim = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Player, 100, 0,
+                    PlayerImmunity, PlayerMinimalImmunity, actorBoxes),
+                new ContactActor(HarmActor.Companion, 100, 0, CompanionImmunity, CompanionImmunity, actorBoxes) },
             new[] { new ContactThreat(1, 1, Geometry(actorBoxes, 50, 3), Geometry(enemyBoxes, 25, 0)) }, 4, true)
             .Continue(new(double.PositiveInfinity));
         Require(perVictim!.Harm.Count == 2
@@ -112,13 +171,13 @@ internal static class VerifyProjectionContracts
         // This row exists because `KilledAtTick` shipped with no fixture anywhere in the tree — three
         // occurrences, all in the mod, a field, one read and one write — so the mechanism could have
         // been deleted without a test noticing. A review of `e63375d` measured exactly that.
-        var killedBefore = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
+        var killedBefore = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, CompanionImmunity, CompanionImmunity, actorBoxes) },
             new[] { new ContactThreat(1, 1, Geometry(enemyBoxes, 50, 0), Geometry(enemyBoxes, 25, 0), KilledAtTick: 1) },
             4, true).Continue(new(double.PositiveInfinity));
         Require(killedBefore!.Harm.Count == 0,
             $"a hostile the course kills before it lands must make no contact after it dies; "
             + $"got {killedBefore.Harm.Count} hit(s) at {string.Join(",", killedBefore.Harm.Select(h => h.Tick))}");
-        var killedAfter = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
+        var killedAfter = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, CompanionImmunity, CompanionImmunity, actorBoxes) },
             new[] { new ContactThreat(1, 1, Geometry(enemyBoxes, 50, 0), Geometry(enemyBoxes, 25, 0), KilledAtTick: 3) },
             4, true).Continue(new(double.PositiveInfinity));
         Require(killedAfter!.Harm.Count == 1 && killedAfter.Harm[0].Tick == 2,
@@ -132,7 +191,7 @@ internal static class VerifyProjectionContracts
         // one. The caller's `harm-window-shorter-than-forecast` rule is the other half of this; here the
         // property is that a hit list can be empty for a reason that is not safety.
         var neverExamined = new ForecastContactHarm(
-            new[] { new ContactActor(HarmActor.Player, 100, ReadyTick: 9, actorBoxes) },
+            new[] { new ContactActor(HarmActor.Player, 100, ReadyTick: 9, PlayerImmunity, PlayerMinimalImmunity, actorBoxes) },
             new[] { new ContactThreat(1, 1, Geometry(enemyBoxes, 50, 0), Geometry(enemyBoxes, 25, 0)) },
             4, true).Continue(new(double.PositiveInfinity));
         Require(neverExamined!.Harm.Count == 0,

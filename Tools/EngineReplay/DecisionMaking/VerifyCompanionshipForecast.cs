@@ -60,10 +60,20 @@ internal static class VerifyCompanionshipForecast
         Require(sampled is { Complete: false } && sampled.Boxes.Count == 14
             && sampled.Boxes[4] == sampled.Boxes[7], "contact sampling invented future coverage or lost the use interval");
         var contact = new ContactGeometry(Enumerable.Repeat(new ContactSample(new(-1, -1, 2, 2), 10, 0), 16).ToArray(), true);
-        var harm = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, sampled!.Boxes) },
+        // The trajectory genuinely runs out — fourteen boxes against a horizon of fifteen — and the tail
+        // is still resolved, which is a sharper answer rather than a lost one. The hit at tick 13 makes
+        // this body immune for thirty ticks, so ticks 14 and 15 cannot hurt it whatever the geometry
+        // there would have said, and reporting them as unknown would charge a course for uncertainty
+        // about a window in which the answer is known. Before the immunity window existed this row
+        // asserted the opposite and was right to: a hit ended the scan and the rest was unknown.
+        // An actor whose immunity expires *inside* a short trajectory still reports unresolved, which is
+        // the property `VerifyProjectionContracts` keeps.
+        var harm = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, 30, 30, sampled!.Boxes) },
             new[] { new ContactThreat(1, 1, contact, contact) }, 15, true).Continue(new(double.PositiveInfinity));
-        Require(harm is { TailUnresolved: true } && harm.Harm.Count == 1 && harm.Harm[0].Tick == 13,
-            "contact harm did not consume the companionship return trajectory or concealed its uncovered tail");
+        Require(harm is { TailUnresolved: false } && harm.Harm.Count == 1 && harm.Harm[0].Tick == 13,
+            $"contact harm did not consume the companionship return trajectory, or reported an uncovered "
+            + $"tail inside a window its own immunity answers; got {harm?.Harm.Count} hit(s), tail "
+            + $"unresolved {harm?.TailUnresolved}");
     }
 
     private static void ArrivalEvidence()
