@@ -103,7 +103,22 @@ public sealed class BindCourseOrder : ICourseProjector
             bindingCursor.Bind(++bindingEpoch, "next-native-use");
         }
 
-        var consequence = forecast.Continue(steps.AsReadOnly(), state.Fork(), facts, episode, forecastCursor, budget);
+        // The forecast is handed the state the course STARTS from, not the one it ends at.
+        //
+        // `state` has been advanced by the loop above — `ProjectedCourseState.TryApply` sets
+        // `Pose = binding.ArrivalPose` and adds each step's travel and use to `Tick` — so handing
+        // `state.Fork()` here gave the consequence model the pose and tick *after* the whole order.
+        // `ForecastCourseCompanionship` then walks those same steps again from that end state, which
+        // double-counts the course: it prices a journey that begins where the journey finishes. The
+        // contract is pinned the other way by `VerifyCompanionshipForecast.WholeCourse`, which passes
+        // the pre-course pose as `initialPose` with `startTick` 0 and asserts the trajectory ticks are
+        // {0, 4, 7, 13} for one step of four travel and three use.
+        //
+        // Nothing caught it because every row that drove a real forecast priced an empty order, where
+        // the start state and the end state are the same value; the rows that drove a non-empty order
+        // used a stand-in forecast that ignores its successor. Two halves of one seam, each tested
+        // against a hand-written stand-in for the other.
+        var consequence = forecast.Continue(steps.AsReadOnly(), initial.Fork(), facts, episode, forecastCursor, budget);
         if (consequence.Status == ProjectionStatus.Pending) return consequence;
         if (consequence.Status == ProjectionStatus.Complete)
         {

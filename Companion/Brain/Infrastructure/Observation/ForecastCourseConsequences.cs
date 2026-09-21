@@ -56,10 +56,11 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
     // derived from that leg's trajectory. A geometry projection holds a partly-computed sample list and
     // the harm forecast holds a cursor over actors, ticks and threats, so both resume after a budget cut
     // rather than recomputing from tick zero on every slice.
-    private readonly Dictionary<int, ProjectMeleeContactGeometry> geometries = new();
+    private readonly Dictionary<(int Slot, long Generation), ProjectMeleeContactGeometry> geometries = new();
     private readonly List<ContactThreat> threats = new();
     private readonly List<FactRead> harmReads = new();
     private ForecastContactHarm? contact;
+    private SampleContactTrajectory? trajectory;
     private bool motionUnresolved;
     private int harmHorizon;
 
@@ -165,7 +166,24 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
                 || JsonSerializer.Deserialize<CapturedContactVictim>(victimFact.Value.Text) is not { } victim)
                 return Priced(Array.Empty<PredictedHarm>(), "companionship-priced;contact-victim-unread");
 
-            IReadOnlyList<ContactBox> boxes = BodyBoxes(company.BodyTrajectory, victim, harmHorizon);
+            // The purpose-built sampler, not a resampling loop of this class's own.
+            //
+            // The first version of this method hand-rolled one, because a search for this type failed on
+            // a shell glob and the empty result was read as absence. It is better than the hand-rolled
+            // one in the way that matters: it stops at the last tick the trajectory actually covers and
+            // reports incomplete, where the inline version clamped to the final pose and reported a body
+            // standing still for the rest of the horizon. `ForecastContactHarm` reads a short box list as
+            // an unresolved tail, so a course whose trajectory runs out is honestly unpriced past that
+            // point instead of being priced against a body that is not there.
+            //
+            // It requires the trajectory to start at tick 0, which is its way of saying the timeline is
+            // expressed from the projection's own origin. That holds because the companionship leg is
+            // built from the state the course starts from; `BindCourseOrder` used to hand the state it
+            // ends at, and the comment at that call site owns why.
+            trajectory ??= new SampleContactTrajectory(company.BodyTrajectory, victim.Width, victim.Height, harmHorizon);
+            if (trajectory.Continue(budget) is not { } sampled)
+                return Suspend("budget-cut", Array.Empty<CourseEnemyMotionRequest>());
+            IReadOnlyList<ContactBox> boxes = sampled.Boxes;
 
             // Every absent motion answer is collected before suspending rather than one per call. A
             // course beside six hostiles would otherwise take six full suspend-and-resume round trips
@@ -173,9 +191,16 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
             var missing = new List<CourseEnemyMotionRequest>();
             foreach (CapturedContactEnemy enemy in census.Enemies)
             {
-                if (geometries.ContainsKey(enemy.Slot)) continue;
                 var request = new CourseEnemyMotionRequest(enemy.Slot, enemy.Generation, harmHorizon, MotionModelRevision);
+                // The read happens before the retained-geometry skip, and the order is the whole point.
+                // `harmReads` is cleared on every re-entry while the forecast is still being built, so a
+                // motion fact whose geometry was constructed in an earlier slice — a budget cut, or a
+                // queue at capacity answering only some hostiles per slice — was read once, recorded
+                // once, and then skipped over on every later pass, leaving it out of the published
+                // manifest entirely. A cost that omits an input it consumed cannot be dirtied when that
+                // input changes, which is exactly what the manifest exists to make possible.
                 DecisionFact fact = Read(facts, request.Key);
+                if (geometries.ContainsKey((enemy.Slot, enemy.Generation))) continue;
                 if (fact.Evidence == FactEvidence.Missing) { missing.Add(request); continue; }
                 if (fact.Evidence != FactEvidence.Modelled
                     || JsonSerializer.Deserialize<CapturedEnemyCourseMotion>(fact.Value.Text) is not { } motion)
@@ -183,7 +208,12 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
                     motionUnresolved = true;
                     continue;
                 }
-                geometries[enemy.Slot] = new ProjectMeleeContactGeometry(enemy.Shape, motion, boxes,
+                // Keyed by slot *and* generation, the identity every other component in this pipeline
+                // uses — the request key carries the generation, and the model owner indexes its census
+                // the same way. Slot alone is safe only while nothing retains geometry across two
+                // censuses, and the first path that does would hand a recycled slot a dead hostile's
+                // geometry with nothing to notice.
+                geometries[(enemy.Slot, enemy.Generation)] = new ProjectMeleeContactGeometry(enemy.Shape, motion, boxes,
                     victim.Defence, enemy.Damage,
                     // The census carries no per-enemy native hit channel, and for a companion victim the
                     // channel only ever selects which attack rectangle the shape resolver returns: the
@@ -196,7 +226,7 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
 
             foreach (CapturedContactEnemy enemy in census.Enemies)
             {
-                if (!geometries.TryGetValue(enemy.Slot, out var projection)) continue;
+                if (!geometries.TryGetValue((enemy.Slot, enemy.Generation), out var projection)) continue;
                 ContactGeometry? geometry = projection.Continue(budget);
                 if (geometry == null) return Suspend("budget-cut", Array.Empty<CourseEnemyMotionRequest>());
                 threats.Add(new(enemy.Slot, enemy.Generation,
@@ -209,9 +239,16 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
             contact = new ForecastContactHarm(
                 new[]
                 {
-                    new ContactActor(HarmActor.Companion, victim.Life,
-                        // Ticks before this leg begins belong to earlier steps whose trajectory this
-                        // forecast was not handed, so they are skipped rather than guessed at. The
+                    // A body the game cannot hurt is priced at zero life, which is the one exemption
+                    // `ForecastContactHarm` honours. `GetHurtByOtherNPCs` returns immediately on
+                    // dontTakeDamage, dontTakeDamageFromHostiles or immortal, and `CaptureContactVictim`
+                    // already froze exactly that as `ContactEnabled` — it simply had no reader. Without
+                    // this the downed companion is the worst case rather than an edge one: `EnterDowned`
+                    // sets life to 1 and dontTakeDamage true, so every hostile near a downed body priced
+                    // as a lethal hit on a course the game would let it fly through untouched.
+                    new ContactActor(HarmActor.Companion, victim.ContactEnabled ? victim.Life : 0,
+                        // Ticks before this course begins belong to an executed prefix whose trajectory
+                        // this forecast was not handed, so they are skipped rather than guessed at. The
                         // victim's own live immunity is the other floor.
                         Math.Max(victim.OrdinaryReadyTick, (int)Math.Ceiling(successor.Tick)), boxes),
                 },
@@ -226,35 +263,6 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
         return Priced(result.Harm, $"companionship-priced;companion-harm-priced;{coverage}");
     }
 
-    /// <summary>
-    /// The companion's body as one contact box per whole tick, resampled from the trajectory.
-    ///
-    /// The trajectory carries a pose at each route corner, each use and each arrival, so its ticks are
-    /// irregular and fractional while contact is compared tick by tick; between two of its samples the
-    /// body is interpolated, which is the same straight-line-between-corners assumption the companionship
-    /// intervals already price the gap under. The pose is the body's <em>centre</em> — everything
-    /// movement-side in this tree passes <c>Npc.Center</c> — while the captured victim's width and height
-    /// are the native box's, so the box is centred on the pose rather than anchored at it.
-    /// </summary>
-    private static IReadOnlyList<ContactBox> BodyBoxes(IReadOnlyList<TimedCoursePose> trajectory,
-        CapturedContactVictim victim, int horizon)
-    {
-        var boxes = new ContactBox[horizon + 1];
-        int sample = 0;
-        for (int tick = 0; tick <= horizon; tick++)
-        {
-            while (sample + 2 < trajectory.Count && trajectory[sample + 1].Tick <= tick) sample++;
-            TimedCoursePose from = trajectory[sample];
-            TimedCoursePose to = trajectory[Math.Min(sample + 1, trajectory.Count - 1)];
-            double span = to.Tick - from.Tick;
-            double across = span <= 0 ? 0 : Math.Clamp((tick - from.Tick) / span, 0, 1);
-            double x = from.Position.X + (to.Position.X - from.Position.X) * across;
-            double y = from.Position.Y + (to.Position.Y - from.Position.Y) * across;
-            boxes[tick] = new(x - victim.Width * .5, y - victim.Height * .5, victim.Width, victim.Height);
-        }
-        return Array.AsReadOnly(boxes);
-    }
-
     private DecisionFact Read(DecisionFactSnapshot facts, FactKey key)
     {
         if (!facts.TryRead(key, out DecisionFact fact)) fact = new(key, -1, default, FactEvidence.Missing);
@@ -267,7 +275,7 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
     private void ForgetHarm()
     {
         geometries.Clear(); threats.Clear(); harmReads.Clear();
-        contact = null; motionUnresolved = false; harmHorizon = 0;
+        contact = null; trajectory = null; motionUnresolved = false; harmHorizon = 0;
     }
 
     /// <summary>What makes two calls the same order: the exact step sequence, and the state the pricing

@@ -15,7 +15,49 @@ internal static class VerifyCourseOrderProjection
         + RunOneRow.Case("G03 empty orders retain unresolved companionship costs", EmptyOrder)
         + RunOneRow.Case("G08 projection refuses changed frozen inputs", FrozenInputs)
         + RunOneRow.Case("G11 completed model answers resume a suspended course order", CompletedModelAnswer)
-        + RunOneRow.Case("G03 captured companionship uses the live region curve", SharedCompanionshipCurve);
+        + RunOneRow.Case("G03 captured companionship uses the live region curve", SharedCompanionshipCurve)
+        + RunOneRow.Case("G11 the consequence forecast is handed the state the course starts from", ForecastStartsFromTheOrigin);
+
+    /// <summary>
+    /// Which end of the course the consequence forecast is priced from, which nobody had asked.
+    ///
+    /// `BindCourseOrder` applies each binding to a running `ProjectedCourseState` — `TryApply` sets the
+    /// pose to the step's arrival and adds its travel and use to the tick — and then handed *that* state
+    /// to the forecast. But `ForecastCourseCompanionship` walks the same steps again from the state it is
+    /// given, so it was pricing a journey that begins where the journey ends: for an order of duration T
+    /// the whole prefix goes unpriced, and every contact tick before T reads the body at its destination
+    /// rather than on the way. `VerifyCompanionshipForecast.WholeCourse` pins the contract the other way,
+    /// passing the pre-course pose with a start tick of zero.
+    ///
+    /// Two sides of one seam, and neither fixture could see it. Every row that drove a real forecast
+    /// priced an *empty* order, where the start state and the end state are the same value; every row
+    /// that drove a non-empty order used a stand-in forecast that ignored its successor. This row is the
+    /// stand-in made to care about exactly one thing, because the forecast's own behaviour is already
+    /// pinned elsewhere and what was never pinned is what the caller hands it.
+    /// </summary>
+    private static void ForecastStartsFromTheOrigin()
+    {
+        var sites = new[] { Site("first"), Site("second") };
+        var facts = Facts(); var episode = Episode(sites);
+        var forecast = new UnknownForecast();
+        // The initial state is the origin: tick zero, and the binder is told so explicitly.
+        var projector = new BindCourseOrder(facts, episode, sites, new(new[] { new FixtureBinder() }),
+            new(default(CoursePoint)), forecast);
+        var search = new SearchCourseOrders(2);
+        search.Begin(facts, episode, sites, sites.Select(site => site.Key).ToArray(), projector);
+        search.Continue(new(double.PositiveInfinity));
+
+        // Each fixture binding is one tick of use, so the applied state stands at tick 2 by the time the
+        // order is complete. `UnknownForecast` echoes whatever successor tick it was handed, so the
+        // projection's reunion tick is the measurement: 0 is the origin the course starts from and 2 is
+        // the state it ends at, which is what this row exists to tell apart.
+        CourseProjection best = search.Best
+            ?? throw new InvalidOperationException($"the two-step order never priced at all; pending={search.PendingOrder.Count}");
+        Require(best.Steps.Count == 2,
+            $"the order under test is not two steps long, so the two ends of it cannot differ; steps={best.Steps.Count}");
+        Require(best.ReunionTick == 0,
+            $"the forecast was handed the state the course ends at rather than the one it starts from, so every tick of the journey is priced from its own destination; successor tick={best.ReunionTick}, expected 0");
+    }
 
     private static void CompletedModelAnswer()
     {

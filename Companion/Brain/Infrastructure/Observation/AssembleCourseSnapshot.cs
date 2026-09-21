@@ -60,12 +60,17 @@ public sealed class AssembleCourseSnapshot
         facts.AddRange(CombatCourseFacts.Capture(context, combat, search));
         facts.Add(CaptureCompanionshipInputs.Capture(context, ordinal));
         facts.Add(CaptureCourseContactCensus.Capture(budget).ToFact(ordinal));
-        // Both victims, because harm is priced for the companion and for the player and neither can be
-        // forecast without its own captured defence, life and immunity channels. A victim that could not
-        // be captured under this tick's allowance is simply absent, which the harm forecast reads as an
-        // unresolved actor rather than an actor who cannot be hurt.
+        // The companion victim only, because the companion is the only body whose harm is priced.
+        // A victim that could not be captured under this tick's allowance is simply absent, which the
+        // harm forecast reads as work it cannot price rather than as a body that cannot be hurt.
+        //
+        // The player's capture was taken here for one commit and is deliberately gone. Nothing read it —
+        // `ForecastCourseConsequences` reads the companion key alone, because his future path is not a
+        // thing a course decides — and taking it was not free: the capture charges one operation per
+        // hurt-cooldown channel plus one per entry of `npcTypeNoAggro`, which is sized to the whole NPC
+        // type table, so it spent several hundred operations of the shared planning allowance every
+        // observation for a fact with no reader. It comes back the day the player's harm is modelled.
         if (CaptureContactVictim.Capture(context.Npc, budget) is { } companion) facts.Add(companion.ToFact(ordinal));
-        if (CaptureContactVictim.Capture(context.Player, budget) is { } player) facts.Add(player.ToFact(ordinal));
 
         // The five identity fields are compared in full by IsModelExtensionOf, which is how a derived
         // query that finishes after the freeze is admitted without letting it change the world the

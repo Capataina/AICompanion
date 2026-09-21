@@ -170,11 +170,17 @@ internal static class VerifyNativeConsequencePricing
             $"two orders starting {240 - 64} px apart priced identically, so the second was handed the first's retained leg; end={first.Projection!.ReunionTick}");
     }
 
-    // The flight priced by every row here runs from x=240 to the reunion point at x=48, along y=80. A
-    // hostile parked at y=64 is 32 px tall, so it covers 64..96 and the 20 px orb centred on y=80 covers
-    // 70..90: an overlap of the whole body. The same hostile at y=120 covers 120..152 and touches nothing,
-    // which is what separates a harm the geometry really found from one the arithmetic produces anywhere.
-    private const double OnThePath = 64, OffThePath = 120;
+    // The flight priced by every row here runs from x=240 to the reunion point at x=48, along y=80.
+    //
+    // The two y values are chosen to straddle the boundary by less than half a body, which is a
+    // deliberate tightening rather than a detail. A hostile 32 px tall at y=64 covers 64..96, and the
+    // 20 px orb centred on y=80 covers 70..90, so it overlaps. At y=91 the hostile covers 91..123 and
+    // clears the body by a single pixel. An earlier pair used 64 against 120, separated by 56 px of
+    // centre — far wider than the 10 px that anchoring the body's box at its pose rather than centring
+    // it would move — so both rows read the same either way and a mutation swapping centred anchoring
+    // for top-left anchoring left the whole file green. A control is only a control when the thing it
+    // varies is the smallest thing that could be wrong.
+    private const double OnThePath = 64, OffThePath = 91;
 
     /// <summary>
     /// One hostile in a frozen census, built to sit still for the whole horizon.
@@ -278,8 +284,17 @@ internal static class VerifyNativeConsequencePricing
             $"the predicted harm names no companion damage; actor={first.Actor} damage={first.Damage}");
         Require(result.Reason.Contains("every-census-enemy-modelled", StringComparison.Ordinal),
             $"the pricing reported harm while some enemy motion was unresolved, so this row would pass on a scene it never modelled; reason={result.Reason}");
-        Require(result.Projection!.ConsequenceDependencies.Reads.Any(read => read.Key == CapturedContactCensus.Key),
+        // The manifest must carry every input the price consumed, and the motion fact is the one that
+        // goes missing: the census is re-versioned every observation, so a manifest holding only the
+        // census still looks dirty-able and a missing motion read hides behind that. A mutation that
+        // recorded no motion read at all left every other row in this file green.
+        var manifest = result.Projection!.ConsequenceDependencies.Reads;
+        Require(manifest.Any(read => read.Key == CapturedContactCensus.Key),
             "the census the harm was priced from is absent from the manifest, so a changed census could never dirty this cost");
+        Require(manifest.Any(read => read.Key == CapturedContactVictim.Key(HarmActor.Companion)),
+            "the victim capture the harm was priced from is absent from the manifest");
+        Require(manifest.Any(read => read.Key.Kind == "enemy-course-motion"),
+            "no enemy-motion read reached the manifest, so the modelled motion this harm was computed from can never dirty it");
     }
 
     /// <summary>The control. Without it the row above passes against arithmetic that reports a hit for any
@@ -290,7 +305,7 @@ internal static class VerifyNativeConsequencePricing
         Require(result.Status == ProjectionStatus.Complete,
             $"the clear scene never settled; status={result.Status} reason={result.Reason}");
         Require(result.Projection!.Harm.Count == 0,
-            $"a hostile 40 px below the flight path was priced as a hit, so the geometry is not being read at all; harm={result.Projection!.Harm.Count}");
+            $"a hostile clearing the flight path by one pixel was priced as a hit, so the body's box is wrong by at least half its own size; harm={result.Projection!.Harm.Count}");
         Require(result.Reason.Contains("every-census-enemy-modelled", StringComparison.Ordinal),
             $"the clear scene reported no harm because nothing was modelled, which proves nothing; reason={result.Reason}");
     }

@@ -7,7 +7,7 @@ DecisionMaking/
 ├─ CLAUDE.md               evidence scope and execution
 ├─ VerifyCourseCore.cs     fixed objective, identity, bounds, resources, repair and budget cuts
 ├─ VerifyProjectionContracts.cs causal effect reads, resource phases, fair discovery and receipt retirement
-├─ VerifyCourseOrderProjection.cs one-operation cuts, completed-query extensions, empty-order cost handoff, frozen-input guards and shared region-curve equivalence
+├─ VerifyCourseOrderProjection.cs one-operation cuts, completed-query extensions, empty-order cost handoff, frozen-input guards, shared region-curve equivalence, and which end of the course the consequence forecast is priced from
 ├─ VerifyCompanionshipForecast.cs region integration, subdivision invariance, whole-course suspension and captured arrival evidence
 ├─ VerifyCourseTravelScheduling.cs native query fairness, model-catalogue completion, deferred terrain edits, capacity and reset
 ├─ VerifyNativeConsequencePricing.cs the native provider's honesty: travel and enemy motion suspended and forwarded, a hostile on the flight path priced as real harm and the same hostile off it costing nothing, the tail unresolved even with every enemy modelled, each order priced from its own start
