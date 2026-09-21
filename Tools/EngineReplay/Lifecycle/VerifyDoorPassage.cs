@@ -228,10 +228,11 @@ internal static class VerifyDoorPassage
     // ── world and driver ─────────────────────────────────────────────────────────────────────
 
     private readonly record struct FollowRun(int Opened, int Crossed, int PushTicks, int LowestFeetRow,
-        float FinalFeetX, int RecoveryTicks, int RecoveryStart, float Westmost)
+        float FinalFeetX, int RecoveryTicks, int RecoveryStart, float Westmost, string WestmostOwner,
+        float BeforeRecovery, string BeforeRecoveryOwner)
     {
         public override string ToString()
-            => $"opened={Opened} crossed={Crossed} pushTicks={PushTicks} lowestFeetRow={LowestFeetRow} finalFeetX={FinalFeetX:0.0} recoveryTicks={RecoveryTicks} recoveryStart={RecoveryStart} westmost={Westmost:0.0}";
+            => $"opened={Opened} crossed={Crossed} pushTicks={PushTicks} lowestFeetRow={LowestFeetRow} finalFeetX={FinalFeetX:0.0} recoveryTicks={RecoveryTicks} recoveryStart={RecoveryStart} westmost={Westmost:0.0} at[{WestmostOwner}] beforeRecovery={BeforeRecovery:0.0} at[{BeforeRecoveryOwner}]";
     }
 
     /// <summary>
@@ -296,6 +297,8 @@ internal static class VerifyDoorPassage
         companion.NPC.velocity = Vector2.Zero;
         int opened = -1, crossed = -1, pushTicks = 0, lowest = 0, recoveryTicks = 0, recoveryStart = -1;
         float westmost = float.PositiveInfinity;
+        string westmostOwner = "none", beforeRecoveryOwner = "none";
+        float beforeRecovery = float.PositiveInfinity;
         for (int tick = 0; tick < 900; tick++)
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
@@ -327,10 +330,26 @@ internal static class VerifyDoorPassage
             // (1200 px on Close). Recovery therefore cannot have started from the opening geometry, so
             // either the body travelled away from the player until it could, or the admission is
             // reading something other than this distance — and the westmost column separates those.
-            westmost = Math.Min(westmost, companion.NPC.Center.X / 16);
+            // Split by phase, because the two tell opposite stories: a body that travels west and then
+            // trips the recovery radius is a following defect, while a body that trips it first and
+            // travels west *during* recovery is a recovery-flight defect, and the overall minimum
+            // cannot distinguish them.
+            if (recoveryTicks == 0)
+            {
+                beforeRecovery = Math.Min(beforeRecovery, companion.NPC.Center.X / 16);
+                beforeRecoveryOwner = $"{companion.Brain.LastAction?.Name ?? "none"}/{companion.Brain.LastRequest.Kind}/{companion.Motor.ControlSource}";
+            }
+            if (companion.NPC.Center.X / 16 < westmost)
+            {
+                westmost = companion.NPC.Center.X / 16;
+                // What owned the body at its furthest point from the player. Travelling away is
+                // directional rather than drift, so something is asking for it, and the request kind
+                // plus the activity name is the shortest route to which component.
+                westmostOwner = $"{companion.Brain.LastAction?.Name ?? "none"}/{companion.Brain.LastRequest.Kind}/{companion.Motor.ControlSource}";
+            }
         }
         return new FollowRun(opened, crossed, pushTicks, lowest, companion.NPC.Center.X / 16,
-            recoveryTicks, recoveryStart, westmost);
+            recoveryTicks, recoveryStart, westmost, westmostOwner, beforeRecovery, beforeRecoveryOwner);
     }
 
     private static void BuildWorld()
