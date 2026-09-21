@@ -486,7 +486,20 @@ internal static class VerifyCompanionActivities
         // `VerifyEncounterContext.TheCourseChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork` and
         // which already holds the property the protection assertion below holds here — urgency and an
         // equal encounter are one danger read twice, paid once rather than squared.
-        var seen = new Dictionary<string, (float Raw, float Protection, float Reunion, float DelayCost, float Guard, float PlayerDanger, float CompanionDanger)>();
+        // `Protection` and `Reunion` left this tuple with the family chooser, which is what this row used
+        // to drive. They were two of that scorer's per-activity multipliers and the course has no
+        // per-activity factor to read: it prices whole orders and charges danger once through
+        // `CourseComparisonEpisode.RelevanceFor`, whose own row is
+        // `VerifyEncounterContext.TheCourseChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork` and which
+        // holds exactly the property the protection assertion held here — urgency and an equal encounter
+        // are one danger read twice, paid once rather than squared. Keeping a copy against a multiplier
+        // nothing computes would be an assertion that passes on two zeroes.
+        var seen = new Dictionary<string, (float Raw, float DelayCost, float Guard, float PlayerDanger, float CompanionDanger)>();
+        // Whether the course priced an order led by this work at all, which is its own word for what the
+        // chooser expressed as a positive raw. Course nominals are signed net values rather than 0..1
+        // utilities — lighting led at -0.086 in a calm scene — so `raw > 0` is a premise carried over from
+        // a scorer that no longer runs, and asserting it would fail on a perfectly healthy opportunity.
+        var priced = new Dictionary<string, Dictionary<string, bool>>();
         var excursions = new Dictionary<string, Dictionary<string, float>>();
         var offers = new Dictionary<string, string>();
         var combatOffers = new Dictionary<string, string>();
@@ -600,22 +613,39 @@ internal static class VerifyCompanionActivities
                     // between AIC-419 and deleting `Choose`. Converting the premise to "the course priced
                     // something" would make the four-scene invariance below hold on four zeroes, which
                     // passes while testing nothing — the one outcome worse than the red.
-                    brain.Chooser.Choose(ctx); ticks++;
+                    // Prepare every activity, then ask the course — the live tick's decide phase without
+                    // the motor, because this scene's premise is four terrains differing only in whom the
+                    // added hostile threatens, and letting the body move would make them four geometries.
+                    using (CombatFixture.BeginDecision())
+                    {
+                        foreach (var candidate in brain.Chooser.Actions) candidate.Prepare(ctx);
+                        brain.Course.Decide(ctx, ctx.Companion.Combat, null,
+                            live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Current);
+                    }
+                    ticks++;
                 }
-                while (combatPreview.EligibilityReason == "stands-undecided" && ticks < 500);
+                while ((combatPreview.EligibilityReason == "stands-undecided" || ticks < 6) && ticks < 500);
                 Require(combatPreview.EligibilityReason != "stands-undecided",
                     $"the stand search must decide within five hundred ticks, or the scene's hunt is not the reposition it claims: {scene.Name}");
-                var mine = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
+                // What each job is worth comes from the course, through the reader the recorder and the
+                // inspector also use. The family chooser's score ledger is empty in anything the course
+                // decides, so reading it here would have compared zero against zero on every scene — an
+                // invariance that holds vacuously, which is worse than a red.
+                var worths = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
+                    .ReadCourseWorthPerActivity.Of(brain).ToDictionary(w => w.Action.Name);
                 var combat = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
-                seen[scene.Name] = (mine.Raw, mine.Protection, mine.Reunion, brain.Chooser.Reunion.DelayCostPerTick, combat.Score(),
+                seen[scene.Name] = (worths["mine"].Raw, brain.Chooser.Reunion.DelayCostPerTick, combat.Score(),
                     brain.Senses.Threats.PlayerDanger, brain.Senses.Threats.CompanionDanger);
                 // Combat's offer legitimately reads the player's danger through its danger lift, so it is
                 // not one of the excursion raws the invariance loop below holds fixed; it is read directly
                 // instead, above. There is no hunt side any more: the stance is one plan, and the companion's
                 // own danger bends the body through the safety layer rather than discounting the offer.
-                excursions[scene.Name] = brain.Chooser.LastScores.Where(s => s.Action.IsExcursion && s.Action.Name != "combat").ToDictionary(s => s.Action.Name, s => s.Raw);
-                offers[scene.Name] = string.Join(",", brain.Chooser.LastScores.Where(s => s.Action.IsExcursion)
-                    .Select(s => $"{s.Action.Name}:{s.Action.Eligibility}/{s.Action.EligibilityReason}"));
+                excursions[scene.Name] = worths.Values.Where(w => w.Action.IsExcursion && w.Action.Name != "combat")
+                    .ToDictionary(w => w.Action.Name, w => w.Raw);
+                priced[scene.Name] = worths.Values.Where(w => w.Action.IsExcursion && w.Action.Name != "combat")
+                    .ToDictionary(w => w.Action.Name, w => w.Priced);
+                offers[scene.Name] = string.Join(",", worths.Values.Where(w => w.Action.IsExcursion)
+                    .Select(w => $"{w.Action.Name}:{w.Offer}/{w.OfferReason}"));
                 // Read directly, not through the excursion offers above: whether the winning stand
                 // travels past the local-trip line is the planner's answer about this scene's
                 // geometry, and a nearer winning stand must not read as a removed offer.
@@ -632,16 +662,37 @@ internal static class VerifyCompanionActivities
             Main.item[5] = previousItem;
             for (int i = 30; i <= 32; i++) Main.npc[i] = new NPC();
         }
-        string ledger = string.Join("; ", seen.Select(s => $"{s.Key}: raw={s.Value.Raw} protection={s.Value.Protection} reunion={s.Value.Reunion} delay={s.Value.DelayCost} guard={s.Value.Guard} playerDanger={s.Value.PlayerDanger} companionDanger={s.Value.CompanionDanger}"));
+        string ledger = string.Join("; ", seen.Select(s => $"{s.Key}: raw={s.Value.Raw} delay={s.Value.DelayCost} guard={s.Value.Guard} playerDanger={s.Value.PlayerDanger} companionDanger={s.Value.CompanionDanger}"));
         string excursionLedger = string.Join("; ", excursions.Select(s => s.Key + ": " + string.Join(",", s.Value.Select(v => $"{v.Key}={v.Value:0.#####}"))))
             + " | offers " + string.Join("; ", offers.Select(o => $"{o.Key}: {o.Value}"));
         foreach (string name in new[] { "mine", "chop", "collect", "place-torches" })
-            Require(excursions["neither"].TryGetValue(name, out float calm) && calm > 0,
+            Require(priced["neither"].TryGetValue(name, out bool led) && led,
                 $"every excursion needs a real opportunity in the calm scene, or its invariance to danger is vacuous: {name}; {excursionLedger}");
-        foreach (var (calm, threatened) in new[] { ("neither", "player"), ("companion", "both") })
+        // **A threat to the companion alone must not change what its work is worth; a threat to the player
+        // may, and exactly once.** This is the chooser's "raw never reads the player's danger" restated
+        // for a brain that has no raw-before-protection to hold fixed.
+        //
+        // The chooser kept the player's danger in a `Protection` column beside an untouched `Raw`, so the
+        // row could hold the raw invariant across all four scenes. The course has no such split: a need's
+        // worth is already multiplied by `CourseComparisonEpisode.RelevanceFor`, which is
+        // `1 − max(protectionUrgency, encounterIntensity)` for non-combat work. Measured here, with the
+        // threat on the player at urgency 0.907, collection went 0.909 → 0.084 and mining 0.895 → 0.081 —
+        // a factor of 0.093, which is that relevance to three places. Charged once, in one place, which is
+        // the property the old two-column arrangement existed to protect.
+        //
+        // So what survives as a matched-scene assertion is the companion half, which the course must leave
+        // strictly alone, plus the pairing that proves the player half is charged once rather than
+        // squared — and that pairing has its own row at
+        // `VerifyEncounterContext.TheCourseChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork`, against
+        // the arithmetic rather than against a scene, which is where it belongs.
+        foreach (var (calm, threatened) in new[] { ("neither", "companion"), ("player", "both") })
             foreach (var (name, raw) in excursions[calm])
                 Require(excursions[threatened][name] == raw,
-                    $"{name}'s raw value must not read the player's danger: {calm}={raw} against {threatened}={excursions[threatened][name]}; {excursionLedger}");
+                    $"{name}'s worth must not read the companion's own danger: {calm}={raw} against {threatened}={excursions[threatened][name]}; {excursionLedger}");
+        foreach (var (name, calmRaw) in excursions["neither"])
+            Require(excursions["player"][name] < calmRaw || calmRaw <= 0,
+                $"{name}'s worth must fall when the player is threatened, because optional work pays his danger once; "
+                + $"calm={calmRaw} threatened={excursions["player"][name]}; {excursionLedger}");
         foreach (var scene in scenes)
             Require(combatOffers[scene.Name] == "Usable/planned-attack",
                 $"danger reprices the fight but never removes the offer; {scene.Name} offers combat:{combatOffers[scene.Name]}; {excursionLedger}");
@@ -653,11 +704,18 @@ internal static class VerifyCompanionActivities
             && Same(companion.PlayerDanger, neither.PlayerDanger) && Same(both.PlayerDanger, player.PlayerDanger)
             && Same(player.CompanionDanger, neither.CompanionDanger) && Same(both.CompanionDanger, companion.CompanionDanger),
             $"each added threat must raise exactly the danger of the actor it names and leave the other's unchanged, or the matrix tests nothing; {ledger}");
-        Require(neither.Raw > 0 && seen.Values.All(v => v.Raw == neither.Raw),
-            $"mining's raw value must not read either actor's danger; the player's need reaches it once, as protection; {ledger}");
-        Require(Same(companion.Protection, neither.Protection) && player.Protection < neither.Protection && Same(both.Protection, player.Protection),
-            $"only a threat to the player may discount optional work for protection, and a companion threat must not add to it; {ledger}");
-        Require(seen.Values.All(v => v.DelayCost == neither.DelayCost && v.Reunion == neither.Reunion),
+        // Mining's own copy of the rule above: untouched by a threat to the companion, discounted once by
+        // a threat to the player. It read "unchanged in all four scenes" while the chooser kept the
+        // player's danger in a separate column; the course folds it into the value, so the invariance is
+        // the companion half and the player half is a fall rather than a hold.
+        Require(neither.Raw > 0 && Same(companion.Raw, neither.Raw) && Same(both.Raw, player.Raw),
+            $"mining's worth must not read the companion's own danger; {ledger}");
+        Require(player.Raw < neither.Raw,
+            $"mining's worth must fall when the player is threatened, because optional work pays his danger once; {ledger}");
+        // The protection assertion went with the multiplier it read; its property is the course's
+        // `RelevanceFor`, held by
+        // `VerifyEncounterContext.TheCourseChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork`.
+        Require(seen.Values.All(v => v.DelayCost == neither.DelayCost),
             $"no threat to either actor may change the separation charge while reunion evidence is unchanged; {ledger}");
         Require(neither.Guard > 0 && companion.Guard <= neither.Guard && player.Guard > neither.Guard,
             $"a threat to the companion alone must never raise the fight's offer, while a threat to the player must lift it net of the exposure it adds; {ledger}");
