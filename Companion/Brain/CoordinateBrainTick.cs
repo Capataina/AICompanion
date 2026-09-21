@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Linq;
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Activities.Combat;
@@ -26,7 +27,22 @@ public sealed class Brain
 {
     public Brain() => ProtectCompanionHomes.Reset();
     public readonly Senses Senses = new();
+    /// <summary>The course owner: what the companion is doing and why, decided once per tick from one
+    /// frozen observation. This is the brain's decision surface now; `Chooser` survives for the activity
+    /// list it holds and the lifecycle it owns, not for its scoring.</summary>
+    public readonly DecideCourseEachTick Course = new();
     public readonly Chooser Chooser = new();
+    /// <summary>
+    /// The combat activity, held by name because the tick prepares it every frame to produce the priced
+    /// attack front the course discovers shots from.
+    ///
+    /// Null when combat is not registered, which is a real case rather than a defensive nicety: fixtures
+    /// register restricted activity sets on purpose — "only lighting and keeping company" is how the
+    /// lighting rows prove a torch was placed by lighting rather than won by something else — and a
+    /// lookup that threw there turned every one of those scenes into a crash inside the tick.
+    /// </summary>
+    public FightEnemies? Fighting => fighting ??= Chooser.Actions.OfType<FightEnemies>().FirstOrDefault();
+    private FightEnemies? fighting;
     public readonly Positioner Positioner = new();
     public readonly ChooseMeetingPlace Meeting = new();
     public readonly CoordinateMovement Movement = new();
@@ -193,10 +209,41 @@ public sealed class Brain
         }
         Movement.SetObstacles(obstacles);
 
-        CompanionAction? action = Chooser.Choose(ctx);
+        // The course decides, and the activity performs. `DecideCourseEachTick` owns the whole decision:
+        // one frozen observation, one discovery pass over all six domains, one bounded order search
+        // priced by real consequences, and one published course whose next step this tick carries out.
+        //
+        // The legacy `Chooser.Choose` is no longer on this path. It is still compiled, because deleting
+        // the family chooser in the same change that first runs its replacement would leave no way to
+        // tell which of the two broke anything in play; the plan's migration table owns its removal and
+        // that happens once this has been played.
+        //
+        // The bound step supplies the position request rather than the activity's own `Execute`. That is
+        // the load-bearing half of the switch: a course's whole value is that the *course* decided where
+        // to go and in what order, and letting the activity re-choose a site would put the post-grant
+        // second chooser back — the one thing the plan names for deletion by name. The activity still
+        // performs the work, the positioner still resolves the point, and the motor is still the only
+        // writer to the body.
+        // Combat's front is a tactical search rather than a world scan, so it is the one domain whose
+        // opportunities do not exist until its own preparation has run. Every other source reads facts
+        // the snapshot captures for it. Preparing combat unconditionally is the cost of letting the
+        // course *choose* to fight rather than letting combat choose for itself: a shot the course never
+        // saw is a shot it cannot weigh against mining the vein beside it.
+        Fighting?.Prepare(ctx);
+        CourseDecision decision = Course.Decide(ctx, companion.Combat, Fighting?.LastSearch,
+            LimitPlanningWork.Current);
+        CompanionAction? action = decision.Activity.Length == 0 ? null
+            : Chooser.Actions.Find(candidate => candidate.Name == decision.Activity);
+        Chooser.Activity.Select(action, ctx);
         ChoiceEvaluated = true;
         Chooser.Activity.BeginExecution();
-        LastRequest = action?.Execute(ctx) ?? PositionRequest.Hold;
+        LastRequest = decision.Binding is { } step ? ExecuteCourseBinding.RequestFor(step)
+            // No step is companionship rather than a hold, because a course that found nothing worth
+            // doing must not look identical to a course that told the body to freeze.
+            : ExecuteCourseBinding.Companionship;
+        // The activity still runs its own tick, for the hand it reserves and the state it keeps; its
+        // returned request is discarded, because the course already said where the body goes.
+        _ = action?.Execute(ctx);
         DecideMs = Lap();
         // Recovery serves an explicit reunion objective, never an executor's class or a
         // coincidentally player-adjacent work destination. An occupied tool cannot start it.

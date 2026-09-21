@@ -90,6 +90,7 @@ internal static class VerifyEngineMotion
         ("native course travel queries share the decision allowance fairly", VerifyCourseTravelScheduling.Run),
         ("native course receipts preserve observation order and intent regions", VerifyRetainedCourseObservation.Run),
         ("one observation per tick carries every domain the course brain can act on", VerifyCourseSnapshotAssembly.Run),
+        ("the live brain tick asks a course what to do instead of the family chooser", VerifyTheCourseOwnsTheTick.Run),
         ("a course is priced for the harm it flies into and still cannot certify that it harms nobody", VerifyNativeConsequencePricing.Run),
         ("a bound course step names the activity that performs it and the place it happens", VerifyCourseBindingExecution.Run),
         ("collecting, lighting and pot breaking bind steps a course can hold", VerifyAssistanceCourseBindings.Run),

@@ -129,6 +129,10 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     private AttackPlan? preparedPlan;
     private SearchAttackPlans.SearchResult? preparedSearch;
     private SearchAttackPlans.SearchResult? lastSearch;
+    /// <summary>The priced attack front this activity last produced, which is combat's contribution to
+    /// the course observation. Combat is the one domain whose opportunities are not a world scan but a
+    /// tactical search, so the course cannot discover a shot without this having run first.</summary>
+    public SearchAttackPlans.SearchResult? LastSearch => lastSearch;
     /// <summary>The freshest worth a re-pricing ever established for this exact plan, and the plan it
     /// belongs to. A plan's own <c>Outcome</c> is written once, when the search commits it, and never
     /// refreshed — so a held plan offered on an allowance cut used to fall all the way back to what its
