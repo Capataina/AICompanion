@@ -190,15 +190,27 @@ internal static class VerifyCompanyIsTheFallback
         companion.NPC.velocity = Vector2.Zero;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         companion.Brain.Senses.Update(companion.NPC, player);
-        companion.Brain.Chooser.Choose(ctx);
-        return companion.Brain.Chooser.LastScores.Single(s => s.Action.Name == "keep-company").Raw;
+        // Keeping company's own offer, read from the activity rather than from the retired scorer's
+        // ledger. It is the one activity with no course domain to read instead, and that is deliberate
+        // rather than an omission: an empty course *is* companionship, so the course mints no opportunity
+        // for it and there is nothing for `ReadCourseWorthPerActivity` to find. What this row is about —
+        // how the rejoin value grows with distance and where it caps — has always been the activity's own
+        // arithmetic, and `Score()` after a preparation is that number at its source.
+        var company = companion.Brain.Chooser.Actions
+            .OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
+        company.Prepare(ctx);
+        return company.Score();
     }
 
     private static string Board(CompanionNPC companion, string when)
     {
-        var scores = companion.Brain.Chooser.LastScores;
-        string Of(string name) => scores.FirstOrDefault(s => s.Action.Name == name) is { Action: not null } s
-            ? $"{name} {s.Raw:0.000}/{s.Final:0.000} {s.Action.Eligibility}:{s.Action.EligibilityReason}" : $"{name} -";
+        // Each activity's own published offer, plus what the course made of its domain. The retired
+        // scorer's ledger is empty in anything the course decides, so a board read from it printed a row
+        // of dashes in exactly the failure messages a reader needs it for.
+        var worths = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
+            .ReadCourseWorthPerActivity.Of(companion.Brain);
+        string Of(string name) => worths.FirstOrDefault(w => w.Action.Name == name) is { Action: not null } w
+            ? $"{name} {w.Raw:0.000}/{w.Final:0.000} course:{w.Offer}:{w.OfferReason} own:{w.Action.Eligibility}:{w.Action.EligibilityReason}" : $"{name} -";
         return $"{when}: chosen {companion.Brain.LastAction?.Name ?? "none"}; {Of("combat")}; {Of("keep-company")}";
     }
 

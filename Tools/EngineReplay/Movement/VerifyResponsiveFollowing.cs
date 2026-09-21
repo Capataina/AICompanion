@@ -145,7 +145,13 @@ internal static class VerifyResponsiveFollowing
         brain.Chooser.Actions.RemoveAll(a => !ReferenceEquals(a, company));
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         brain.Senses.Update(companion.NPC, player);
-        Require(brain.Chooser.Choose(context) == company && company.Score() > 0, "company must be a positive ordinary offer while nearby");
+        // Prepared and selected rather than chosen: this scene has already removed every activity but
+        // company, so the family chooser was only ever picking the sole candidate, and the subject is the
+        // offer it makes and the purpose identity it keeps. `OwnCurrentActivity` is the owner the live
+        // tick hands the course's chosen activity to, and is deliberately not part of the retired scorer.
+        company.Prepare(context);
+        brain.Chooser.Activity.Select(company, context);
+        Require(ReferenceEquals(brain.Chooser.Current, company) && company.Score() > 0, "company must be a positive ordinary offer while nearby");
         long identity = brain.Chooser.Activity.Id;
         // Company beside a resting player is the inside method: the request aims at the region's centre and the
         // positioner parks in the clearest air inside it. Calm co-location never asks to rejoin, and the request
@@ -165,7 +171,9 @@ internal static class VerifyResponsiveFollowing
             + $"returnable={brain.Positioner.ReturnableCount} reach={brain.Positioner.ReachCount} complete={brain.Positioner.ReachComplete} reason={brain.Positioner.ChoiceReason}");
         player.Bottom += new Vector2(480, 0);
         brain.Senses.Update(companion.NPC, player);
-        Require(brain.Chooser.Choose(context) == company && company.Execute(context).Kind == RequestKind.WithPlayer,
+        company.Prepare(context);
+        brain.Chooser.Activity.Select(company, context);
+        Require(ReferenceEquals(brain.Chooser.Current, company) && company.Execute(context).Kind == RequestKind.WithPlayer,
             "departure must switch the same company activity to reunion");
         Require(brain.Chooser.Activity.Id == identity, "a company method change must not create a new purpose");
         var stranded = context with { Stranded = true };

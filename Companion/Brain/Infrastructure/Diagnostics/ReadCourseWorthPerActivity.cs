@@ -28,8 +28,13 @@ namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 public static class ReadCourseWorthPerActivity
 {
     /// <summary>One activity's worth as the course priced it, and how its census was admitted.</summary>
+    /// <summary><paramref name="Companionship"/> is what the best order led by this work pays for keeping
+    /// the companion away from the player, carried separately from <paramref name="Final"/> because a
+    /// reader comparing two jobs usually wants to know whether the difference is the work or the distance.
+    /// It is a cost, so more is worse — the opposite sense to the family chooser's reunion multiplier,
+    /// which was a fraction kept.</summary>
     public readonly record struct Worth(CompanionAction Action, float Raw, float Final,
-        string Offer, string OfferReason, bool Priced);
+        string Offer, string OfferReason, bool Priced, float Companionship = 0f);
 
     /// <summary>The default an activity with no course domain reports, kept as one literal because the
     /// recorder's column format and the report check that parses it both rest on this exact word.</summary>
@@ -45,7 +50,7 @@ public static class ReadCourseWorthPerActivity
 
     public static Worth Of(Brain brain, CompanionAction action)
     {
-        float raw = 0f, fin = 0f;
+        float raw = 0f, fin = 0f, gap = 0f;
         bool priced = false;
         foreach (string domain in action.CourseDomains)
             if (brain.Course.LastLeaders.TryGetValue(domain, out var leader))
@@ -57,6 +62,7 @@ public static class ReadCourseWorthPerActivity
                 priced = true;
                 raw = nominal;
                 fin = (float)(leader.UsefulEffects - leader.Harm - leader.Companionship);
+                gap = (float)leader.Companionship;
             }
 
         string offer = NotCompared, reason = "-";
@@ -71,6 +77,6 @@ public static class ReadCourseWorthPerActivity
                     offer = verdict;
                     reason = admitted.Reason.Length == 0 ? "-" : admitted.Reason;
                 }
-        return new Worth(action, raw, fin, offer, reason, priced);
+        return new Worth(action, raw, fin, offer, reason, priced, gap);
     }
 }
