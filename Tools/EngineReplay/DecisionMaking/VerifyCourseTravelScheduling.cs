@@ -68,7 +68,7 @@ internal static class VerifyCourseTravelScheduling
                 var projector = new AwaitEnemy(request);
                 var search = new SearchCourseOrders(1);
                 var owner = new RetainCourseModelQueries(snapshot, World(), 1, 1);
-                search.Begin(snapshot, new(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "fixture"),
+                search.Begin(snapshot, new(1, 1, 10, Array.Empty<UsefulNeed>(), true, 0, "fixture"),
                     Array.Empty<Opportunity>(), Array.Empty<OpportunityKey>(), projector);
                 for (int i = 0; i < 30 && !search.Exhausted; i++)
                 {
@@ -313,7 +313,7 @@ internal static class VerifyCourseTravelScheduling
         var owner = new RetainCourseModelQueries(original, World(), 1, 1);
         var projector = new AwaitTravel();
         var search = new SearchCourseOrders(1);
-        search.Begin(original, new(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "fixture"),
+        search.Begin(original, new(1, 1, 10, Array.Empty<UsefulNeed>(), true, 0, "fixture"),
             Array.Empty<Opportunity>(), Array.Empty<OpportunityKey>(), projector);
         for (int tick = 0; tick < 1000 && !search.Exhausted; tick++)
         {

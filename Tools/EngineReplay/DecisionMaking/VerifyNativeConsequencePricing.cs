@@ -72,7 +72,7 @@ internal static class VerifyNativeConsequencePricing
     private static ForecastCourseConsequences Forecast() => new(new CoursePoint(48, 80));
 
     private static CourseComparisonEpisode Episode()
-        => new(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "consequence-fixture");
+        => new(1, 1, 10, Array.Empty<UsefulNeed>(), true, 0, "consequence-fixture");
 
     private static ProjectedCourseState Successor(DecisionFactSnapshot facts)
         => new(new CoursePoint(240, 80), facts);

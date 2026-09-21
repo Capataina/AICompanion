@@ -14,6 +14,9 @@ using Eligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibilit
 using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
+using CourseEpisode = live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.CourseComparisonEpisode;
+using CourseNeed = live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.UsefulNeed;
+using CourseNeedKind = live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.NeedKind;
 
 /// <summary>
 /// Proposal 1's boss and event context, proven at three depths. The observation must say the world is
@@ -59,6 +62,7 @@ internal static class VerifyEncounterContext
         {
             TheObservationReadsNativeFactsAndFallsBackToSpawnPressure();
             TheEvaluatorChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork();
+            TheCourseChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork();
             TheLiveBrainStopsMiningOnlyWhereTheEventReachesIt();
         }
         finally
@@ -421,6 +425,42 @@ internal static class VerifyEncounterContext
         Require(stranded[0].Protection == 1f, $"a stranded companion's optional work is not charged for an encounter either; protection={stranded[0].Protection}");
         Require(invalid[0].Error == "invalid-encounter", $"an intensity outside 0..1 is an adapter defect and must be refused; error='{invalid[0].Error}'");
         Console.WriteLine($"  encounter evaluation rows: calm mine {calm[0].Final:0.###} hunt {calm[1].Final:0.###} keep {calm[2].Final:0.###}; full mine {full[0].Final:0.###} hunt {full[1].Final:0.###} keep {full[2].Final:0.###}; urgency+encounter protection {both[0].Protection:0.###}");
+    }
+
+    /// <summary>
+    /// The course's own relevance rule, read directly rather than through a whole brain, because the live
+    /// scene below can only show that *something* charged the encounter and this says what and how much.
+    ///
+    /// The row that matters most here is the pair: urgency and an equal encounter must cost the same as
+    /// either alone. They are two readings of one danger — a boss fight raises the player's urgency and
+    /// the encounter together — so a product would charge that situation twice and price a wounded player
+    /// in a blood moon at a quarter of what either says on its own. The chooser's rule was
+    /// <c>1 − max(urgency, intensity)</c> and the course carries the same max; written as a product it
+    /// would pass every other assertion in this method and fail only this one.
+    /// </summary>
+    private static void TheCourseChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork()
+    {
+        CourseEpisode At(double urgency, double intensity)
+            => new(1, 1, 10, System.Array.Empty<CourseNeed>(), true, intensity, "encounter-fixture", urgency);
+
+        Require(At(0, 0).RelevanceFor(CourseNeedKind.Loot) == 1,
+            $"a calm world must leave optional work whole; relevance={At(0, 0).RelevanceFor(CourseNeedKind.Loot)}");
+        Require(At(0, 1).RelevanceFor(CourseNeedKind.Loot) == 0,
+            $"a full encounter must remove optional work's value; relevance={At(0, 1).RelevanceFor(CourseNeedKind.Loot)}");
+        Require(At(0, 1).RelevanceFor(CourseNeedKind.HostileLife) == 1,
+            "a full encounter must leave a hostile's life worth its whole self, because danger suppresses work rather than inflating combat");
+        Require(System.Math.Abs(At(0, .5).RelevanceFor(CourseNeedKind.Loot) - .5) < 1e-9,
+            $"a half-strength encounter halves optional work; relevance={At(0, .5).RelevanceFor(CourseNeedKind.Loot)}");
+        double both = At(.6, .6).RelevanceFor(CourseNeedKind.Loot), urgencyOnly = At(.6, 0).RelevanceFor(CourseNeedKind.Loot);
+        Require(System.Math.Abs(both - urgencyOnly) < 1e-9 && System.Math.Abs(both - .4) < 1e-9,
+            $"urgency and an equal encounter are one danger read twice, so optional work must pay 0.4 once, not 0.16; both={both} urgency-only={urgencyOnly}");
+        bool refused = false;
+        try { _ = At(0, 1.5); }
+        catch (System.ArgumentOutOfRangeException) { refused = true; }
+        Require(refused, "an intensity outside 0..1 is an adapter defect and must be refused rather than clamped into a plausible number");
+        Console.WriteLine($"  encounter course relevance: calm {At(0, 0).RelevanceFor(CourseNeedKind.Loot):0.###} "
+            + $"full {At(0, 1).RelevanceFor(CourseNeedKind.Loot):0.###} half {At(0, .5).RelevanceFor(CourseNeedKind.Loot):0.###} "
+            + $"urgency+encounter {both:0.###} hostile-life {At(0, 1).RelevanceFor(CourseNeedKind.HostileLife):0.###}");
     }
 
     private static (string? Chosen, float Mine, string Source) MiningScene(bool bloodMoon, bool playerOnSurface)

@@ -18,7 +18,7 @@ internal static class VerifyCourseCore
     private static DecisionFactSnapshot Facts(long id = 1, long epoch = 1, params DecisionFact[] facts)
         => new(id, epoch, 100, 1, 0, facts);
     private static CourseComparisonEpisode Episode(params UsefulNeed[] needs)
-        => new(1, 1, 100, needs.Length == 0 ? new[] { new UsefulNeed(Loot, 20, 20, 1) } : needs, true, false, "fixture");
+        => new(1, 1, 100, needs.Length == 0 ? new[] { new UsefulNeed(Loot, 20, 20, 1) } : needs, true, 0, "fixture");
     private static PredictedEffect Effect(long id, double amount, double tick, EstimateStatus status = EstimateStatus.NativeBound)
         => new(id, Loot, amount, tick, tick, tick, status, Array.Empty<long>(), Array.Empty<EffectDelta>(), DependencyManifest.Empty);
     private static StepBinding Binding(long id, PredictedEffect[] effects, DependencyManifest? dependencies = null,
@@ -565,7 +565,7 @@ internal static class VerifyCourseCore
             "Numerical harm and gap bounds did not widen the objective interval.");
         Close(value.SelfHarm.Lower, .05 * Math.Exp(-.3), "Lower harm pairs minimum damage with latest impact");
         Close(value.SelfHarm.Upper, .15 * Math.Exp(-.1), "Upper harm pairs maximum damage with earliest impact");
-        var census = new CourseComparisonEpisode(1, 1, 100, Episode().Needs, false, false, "partial");
+        var census = new CourseComparisonEpisode(1, 1, 100, Episode().Needs, false, 0, "partial");
         Require(!CompareCourseOutcomes.Evaluate(plain, census).Total.HasJustifiedBounds, "An unfinished census certified exact preference.");
     }
 

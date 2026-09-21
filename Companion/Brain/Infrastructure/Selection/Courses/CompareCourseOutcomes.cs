@@ -16,13 +16,22 @@ public sealed class CourseComparisonEpisode
     /// <param name="protectionUrgency">How badly the player needs defending, on the threat sense's own
     /// 0..1 scale. It is the one route by which the player's danger reaches optional work, and it is the
     /// same quantity the family chooser used for exactly this, carried over rather than reinvented.</param>
+    /// <param name="encounterIntensity">How strongly the world is about one thing, on the encounter
+    /// sense's own 0..1 scale: one for any recognised boss or event, a ramp for inferred pressure, zero
+    /// otherwise. It is carried as that number rather than as a boolean because the two are not the same
+    /// claim — a boolean read as an intensity of one would zero every optional need the instant pressure
+    /// was inferred at all, which is stronger than the rule it imitates, and the ramp is precisely what
+    /// stops an ordinary busy cave reading like a blood moon.</param>
     public CourseComparisonEpisode(long id, long worldEpoch, double timeScale, IEnumerable<UsefulNeed> needs,
-        bool censusComplete, bool encounter, string relevanceFingerprint, double protectionUrgency = 0)
+        bool censusComplete, double encounterIntensity, string relevanceFingerprint, double protectionUrgency = 0)
     {
         if (!double.IsFinite(timeScale) || timeScale < 1) throw new ArgumentOutOfRangeException(nameof(timeScale));
         if (!double.IsFinite(protectionUrgency) || protectionUrgency < 0) throw new ArgumentOutOfRangeException(nameof(protectionUrgency));
+        if (!double.IsFinite(encounterIntensity) || encounterIntensity < 0 || encounterIntensity > 1)
+            throw new ArgumentOutOfRangeException(nameof(encounterIntensity),
+                "Encounter intensity is the sense's own 0..1 reading; anything else is an adapter defect rather than a value to clamp.");
         Id = id; WorldEpoch = worldEpoch; TimeScale = timeScale; CensusComplete = censusComplete;
-        Encounter = encounter; RelevanceFingerprint = relevanceFingerprint;
+        EncounterIntensity = encounterIntensity; RelevanceFingerprint = relevanceFingerprint;
         ProtectionUrgency = Math.Clamp(protectionUrgency, 0, 1);
         this.needs = needs.ToDictionary(n => n.Key);
         foreach (var need in this.needs.Values) _ = need.Worth(0);
@@ -31,7 +40,12 @@ public sealed class CourseComparisonEpisode
     public long WorldEpoch { get; }
     public double TimeScale { get; }
     public bool CensusComplete { get; }
-    public bool Encounter { get; }
+    /// <summary>How strongly the world is about one thing, 0 to 1, from the encounter sense's own reading.</summary>
+    public double EncounterIntensity { get; }
+    /// <summary>Whether an encounter is on at all, which is the only thing the ordering and interruption
+    /// rules need; any recognised source reads one, so a positive intensity is the encounter being on
+    /// rather than a threshold anybody picked.</summary>
+    public bool Encounter => EncounterIntensity > 0;
     public string RelevanceFingerprint { get; }
 
     /// <summary>How badly the player needs defending, 0 to 1, from the threat sense's own urgency rule.</summary>
@@ -75,15 +89,24 @@ public sealed class CourseComparisonEpisode
     /// Written the other way round — a bonus on combat — the same ordering would need a magnitude nobody
     /// could derive, and every tuning of it would move work's value too.
     ///
-    /// Encounter intensity is deliberately *not* folded in here, though the chooser's rule was
-    /// <c>1 − max(urgency, intensity)</c>. This episode carries the encounter as a boolean, and treating
-    /// that as an intensity of one would zero every optional need for the whole of any recognised event —
-    /// stronger than the rule it would be imitating, because inferred pressure ramps rather than
-    /// arriving at full strength. It is why a blood moon over the player still leaves mining valued
-    /// exactly as a quiet surface does.
+    /// Encounter intensity joins urgency here as of 21 September 2026, under the chooser's own rule
+    /// <c>1 − max(urgency, intensity)</c>, and the max is the whole of why it is one term and not two
+    /// factors multiplied. A boss fight raises the player's danger *and* the encounter, so multiplying
+    /// would charge one situation twice and price a wounded player in a blood moon at a quarter of what
+    /// either alone says; taking the larger reads them as two views of one danger, which is what they
+    /// are. It was left out until this date because the episode carried the encounter as a boolean, and a
+    /// boolean read as an intensity of one zeroes every optional need the instant pressure is inferred at
+    /// all — so the fix was upstream, in what the episode is handed, rather than in this expression. The
+    /// sense has published a ramping float the whole time.
+    ///
+    /// What this buys, measured on the mining scene: a blood moon over a surface player now stops the
+    /// same copper job the quiet scene takes, while the same blood moon with the player underground —
+    /// where the game does not run it, so the sense reads <c>none</c> — leaves mining valued to within a
+    /// ten-thousandth of the quiet scene. Both halves matter, because a term that stopped work under any
+    /// blood moon anywhere would pass the first assertion by being wrong everywhere.
     /// </summary>
     public double RelevanceFor(NeedKind kind)
-        => kind == NeedKind.HostileLife ? 1 : Math.Max(0, 1 - ProtectionUrgency);
+        => kind == NeedKind.HostileLife ? 1 : Math.Max(0, 1 - Math.Max(ProtectionUrgency, EncounterIntensity));
 
     public IEnumerable<UsefulNeed> Needs => needs.Values;
     public bool TryNeed(NeedKey key, out UsefulNeed need) => needs.TryGetValue(key, out need!);

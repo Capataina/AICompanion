@@ -115,7 +115,7 @@ internal static class VerifyCourseOrderProjection
         new[] { "use" }, DependencyManifest.Empty);
     private static DecisionFactSnapshot Facts() => new(1, 1, 100, 1, 0, Array.Empty<DecisionFact>());
     private static CourseComparisonEpisode Episode(IEnumerable<Opportunity> sites)
-        => new(1, 1, 10, sites.SelectMany(site => site.Needs), true, false, "fixture");
+        => new(1, 1, 10, sites.SelectMany(site => site.Needs), true, 0, "fixture");
 
     private static void SlicedOrder()
     {

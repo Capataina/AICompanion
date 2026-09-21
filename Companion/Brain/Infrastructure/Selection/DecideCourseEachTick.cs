@@ -308,9 +308,12 @@ public sealed class DecideCourseEachTick
                 context.Companion.Motor.LiveMaxSpeed, shortestLocalCycle: 1),
             candidates.SelectMany(candidate => candidate.Needs),
             censusComplete: discovery.Coverage.All(coverage => coverage.Exhausted),
-            // Any recognised source reads one, so a positive intensity is the encounter being on rather
-            // than a threshold anybody picked.
-            encounter: context.Senses.Encounter.Intensity > 0,
+            // The sense's own reading, passed as the float it is: one for any recognised boss or event,
+            // a ramp for inferred pressure. It reaches optional work through `RelevanceFor`, beside the
+            // player's urgency and under a max rather than a product, because a boss raises both and
+            // multiplying would charge one danger twice. Passed as a boolean before 21 September 2026,
+            // which is why a blood moon over the player valued his copper exactly as a quiet sky did.
+            encounterIntensity: context.Senses.Encounter.Intensity,
             relevanceFingerprint: CourseComparisonEpisode.Policy,
             // The one route by which the player's danger reaches optional work. Without it the course
             // has no term for him being hurt at all — its need kinds are illumination, loot, native

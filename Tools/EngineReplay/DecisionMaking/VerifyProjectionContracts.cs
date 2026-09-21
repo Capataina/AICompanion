@@ -37,7 +37,7 @@ internal static class VerifyProjectionContracts
         var key = new FactKey("cost-model", "unresolved");
         var facts = Facts(new DecisionFact(key, 1, new(Text: "unsupported-future"), FactEvidence.Unresolved));
         var reader = facts.Track(); reader.Read(key);
-        var episode = new CourseComparisonEpisode(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "fixture");
+        var episode = new CourseComparisonEpisode(1, 1, 10, Array.Empty<UsefulNeed>(), true, 0, "fixture");
         var binding = Binding(94001);
         BindingValidation Valid(StepBinding _) => new(OpportunityAdmission.KnownUsable, "fixture", false);
         CourseProjection Proposal(DependencyManifest reads, bool unknown) => new(new[] { binding }, Array.Empty<PredictedHarm>(),
@@ -153,7 +153,7 @@ internal static class VerifyProjectionContracts
         repair.Continue(index, new(double.PositiveInfinity));
         Require(repair.IsDirty(projection.ConsequenceId) && !repair.IsDirty(binding.Id),
             "a cost-only dependency either disappeared or revoked a legal native use");
-        var episode = new CourseComparisonEpisode(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "fixture");
+        var episode = new CourseComparisonEpisode(1, 1, 10, Array.Empty<UsefulNeed>(), true, 0, "fixture");
         var owner = new RetainCourse();
         BindingValidation Valid(StepBinding _) => new(OpportunityAdmission.KnownUsable, "fixture", false);
         var changed = Facts(new DecisionFact(key, 2, new(2), FactEvidence.Observed));
@@ -283,7 +283,7 @@ internal static class VerifyProjectionContracts
         var nominalOnly = new CourseProjection(new[] { Binding(126, new[] { Effect(127, 10, evidence: EstimateStatus.Nominal) }) },
             Array.Empty<PredictedHarm>(), Array.Empty<CompanionshipInterval>(), 0, true);
         _ = CourseDependencyIndex.Build(nominalOnly);
-        var episode = new CourseComparisonEpisode(1, 1, 10, new[] { new UsefulNeed(Loot, 1, 1, 1) }, true, false, "fixture");
+        var episode = new CourseComparisonEpisode(1, 1, 10, new[] { new UsefulNeed(Loot, 1, 1, 1) }, true, 0, "fixture");
         Require(CompareCourseOutcomes.Evaluate(nominalOnly, episode).Total.Nominal > 0,
             "A nominal effect without a causal descendant stopped contributing to nominal scoring.");
     }
@@ -299,7 +299,7 @@ internal static class VerifyProjectionContracts
         var owner = new RetainCourse();
         Require(owner.Consider(new CourseProjection(new[] { launch, unrelated }, Array.Empty<PredictedHarm>(),
             Array.Empty<CompanionshipInterval>(), 0, true), new CourseComparisonEpisode(1, 1, 10,
-            new[] { new UsefulNeed(Loot, 1, 1, 1) }, true, false, "fixture"), Facts(), usable, _ => usable),
+            new[] { new UsefulNeed(Loot, 1, 1, 1) }, true, 0, "fixture"), Facts(), usable, _ => usable),
             "The issued parent/child fixture did not publish.");
         owner.ObserveExecution(new(201, 1, 1, "fire", "fire", "projectile-created", 401,
             ExecutionBoundary.NativeUseComplete, "released"), new[] { 211L, 212L });
