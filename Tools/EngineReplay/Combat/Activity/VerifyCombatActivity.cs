@@ -115,6 +115,16 @@ internal static class VerifyCombatActivity
         player.statLife = 40;
         using var hostile = ClearAfter.At(30);
         Hostile(30, NPCID.Zombie, player.Bottom + new Vector2(48, 0), damage: 20, life: 400);
+        // Whether the threat can reach the player in this world at all, which decides whether the row's
+        // own premise is reachable before any brain change is judged against it. Enemy AI does not run
+        // headless and `AdvanceNative` advances only the companion, so a hostile spawned clear of the
+        // player may stand still for the whole scene — in which case no contact forecast, however
+        // correct, can ever predict him being hit, and the scene is asking for a preference no honest
+        // objective could hold. Measured rather than assumed, because this suite's documented
+        // environment facts have been wrong before.
+        NPC threat = Main.npc[30];
+        Vector2 threatStart = threat.Center;
+        float closestApproach = Vector2.Distance(threat.Center, player.Center);
         int combatTicks = 0;
         // Every tick's decision reason, not just the last one. `Last` is a single sticky readout, and a
         // scene where the course was retained for 119 ticks and freshly decided for one looks identical
@@ -128,8 +138,10 @@ internal static class VerifyCombatActivity
             string reason = companion.Brain.Course.Last.Reason;
             reasons[reason] = reasons.GetValueOrDefault(reason) + 1;
             if (companion.Brain.Chooser.Current?.Name == "combat") combatTicks++;
+            closestApproach = MathF.Min(closestApproach, Vector2.Distance(threat.Center, player.Center));
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
+        Console.WriteLine($"  danger-over-work threat: moved {Vector2.Distance(threat.Center, threatStart):0.0}px over 120 ticks, closest approach {closestApproach:0.0}px, boxes {threat.width}x{threat.height} vs player {player.width}x{player.height}");
         Console.WriteLine($"  danger-over-work decisions: {string.Join(" ", reasons.OrderByDescending(r => r.Value).Select(r => $"{r.Key}x{r.Value}"))}");
         // The three numbers that separate the ways this row can fail: whether the player reads as in
         // danger at all, whether the course found a shot to weigh, and what it decided. A bare tick

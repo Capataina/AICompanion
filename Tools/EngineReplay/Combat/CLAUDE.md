@@ -50,6 +50,23 @@ Two costs are worth knowing before adding a row here. Resolving a firing request
 
 `VerifySafetyIsALayerOnTheJob` (`--safety-layer`, in the default run; it was `VerifySafetyAftermath` while an escape still released the body after danger, and was renamed once nothing did) holds the scenes that make safety a layer on the job rather than a takeover, which is what the owner ruled on 15 September 2026. Its first scene is the reproduction of the first orb play's freeze: a damaging zombie beside the orb while the player walks forty tiles away, where the activity must never be suspended, the body must never sit still for the session reader's still run while he walks, and it must arrive after he stops. At the commit before the change that scene was red with spacing owning the feet and the activity suspended; it carries the takeover's signature and not the thirteen-second duration, because enemy AI does not run headless. The firing rows require a companion beside a zombie to keep firing its granted hand while nothing is suspended. The shot row puts a projectile on a guarding orb and requires a handful of ticks owned `evade` with the hand still available, the same guard identity throughout, and no hit. The intervening-hostile row requires guarding to pass a hostile between the body and the player without touching it. A pool scene and a surfacing row required an escape from water not to be vetoed into drowning by a shot above it; every liquid became air to the orb on 15 September 2026, there is no escape left to veto, and both went with it.
 
+## A hostile that cannot reach the victim cannot test a preference for defending it
+
+**Enemy AI does not run headless, so a hostile spawned clear of its victim stands exactly where it was put for the whole scene, and any row asking the brain to prefer protecting that victim is asking for a preference no honest objective could hold.** This is not the familiar "the fixture is quieter than the game" caveat; it inverts the row's own verdict, because a correct consequence forecast looks at a threat that provably never makes contact and prices the harm at zero — which is the right answer to the world the scene actually built.
+
+Measured on `danger lifts combat over work` on 21 September 2026, which spawns its zombie at `player.Bottom + (48, 0)`:
+
+```
+moved 0.0px over 120 ticks · closest approach 48.0px
+boxes 18x40 (zombie) against 20x42 (player) — half-widths sum to 19px
+```
+
+Twenty-nine pixels of clear air, permanently. Meanwhile `ProtectionUrgency` reads 0.757, because the threat sense reasons about a hostile *near* a wounded player rather than about a simulated contact. The two disagree, and headlessly the threat sense is the one that is wrong about this world.
+
+The consequence for anyone reading a red on such a row: **it cannot go green by any change to the brain**, so a session spent tuning the objective against it is a session spent against an instrument that cannot resolve the thing it measures. A scene that wants to test a defend-the-player preference has to build a threat that can genuinely reach him — placed in contact, or given a velocity the motion capture will carry into him, since `CaptureEnemyCourseMotion` simulates from the captured track rather than from the engine's AI and so will model an approach the engine never runs. Assert the reachability as a premise before reading any outcome, the way the danger row now prints its threat's displacement and closest approach.
+
+The same caution applies in reverse to every combat scene already here that passes: a scene whose hostile never moves is testing the arithmetic of a static tableau, which is usually exactly what was wanted, and is worth saying out loud rather than leaving for the next reader to assume either way.
+
 ## Encounter context
 
 `VerifyEncounterContext` saves and restores every world-event global it sets and runs fresh real `ThreatSense` and `EncounterSense` per row with the player's depth set by moving the surface line. Blood moon must be recognised on the surface and absent underground; Old One's Army and an observed Eye of Cthulhu at any depth. Invasion rows follow the spawner's gate; the pressure rows write the spawn cap the game would compute because the spawner cannot run headless. Every observation in the suite is its own engine tick because the pressure baseline is the admission ceiling.

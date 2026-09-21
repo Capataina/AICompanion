@@ -624,6 +624,7 @@ internal static class VerifyLightAndReachSenses
         brain.Chooser.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
 
         int first = -1, second = -1, companyBetween = 0;
+        var courseReasons = new Dictionary<string, int>(StringComparer.Ordinal);
         string trace = "";
         var placed = new List<Point>();
         double decideMax = 0, decideTotal = 0;
@@ -644,7 +645,14 @@ internal static class VerifyLightAndReachSenses
             // Counted as "not still lighting" rather than as "keeping company": a broken continuation that
             // yields nothing at all publishes no action and would pass a test looking for the other name.
             if (first >= 0 && second < 0 && brain.LastAction?.Name != "place-torches") companyBetween++;
+            AICompanion.Tools.EngineReplay.Observation.DescribeCourseFunnel.Count(courseReasons, brain.Course);
         }
+        // Chaining a second site is the retained course's headline capability, so when it does not happen
+        // the question is which of three things went wrong — the second site was never admitted, it was
+        // admitted and the two-site order lost on price, or it won and the body never arrived — and the
+        // funnel is the only thing that separates them. Printed before the first Require, because these
+        // rows throw and a diagnosis after the throw is a diagnosis nobody sees.
+        AICompanion.Tools.EngineReplay.Observation.DescribeCourseFunnel.Print("two-sites", brain.Course, courseReasons);
         Require(first >= 0, $"the lighting job must place a first torch on a dark floor; {trace}placed={placed.Count}");
         Require(second >= 0,
             $"lighting must keep the job after placing and place a second torch in the same region; {trace}placed={placed.Count}");

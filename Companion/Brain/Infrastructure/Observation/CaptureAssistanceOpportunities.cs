@@ -26,9 +26,13 @@ public sealed record AssistanceOpportunityFact(string Domain, string Target, lon
     double X, double Y, double? LandingX, double? LandingY, double? ContactX, double? ContactY, string Approach,
     bool WorkAllowed, double Amount, double CensusAmount, string Admission, string Reason, string Detail, int Prefix = 0)
 {
+    /// <summary>A tile site. `x`/`y` is the tile the hand acts on; `contact` is where the body hovers
+    /// while it does, and the two are different points for any tile with terrain beside it. A null
+    /// contact means no pose within the tool's reach could hold the body, which is a site the binder
+    /// must refuse rather than one it may fly into.</summary>
     public AssistanceOpportunityFact(string domain, string target, long generation, double x, double y, double amount,
-        double censusAmount, string admission, string reason, string detail)
-        : this(domain, target, generation, 0, 0, x, y, null, null, null, null, "Unknown", false,
+        double censusAmount, string admission, string reason, string detail, (double X, double Y)? contact = null)
+        : this(domain, target, generation, 0, 0, x, y, null, null, contact?.X, contact?.Y, "Unknown", false,
             amount, censusAmount, admission, reason, detail) { }
 }
 public readonly record struct AssistanceCaptureCoverage(string Source, long Examined, long Total, bool Exhausted, bool BudgetCut);
@@ -195,13 +199,19 @@ public sealed class CaptureAssistanceOpportunities
                 bool enabled = PlayerIntegration.CompanionPreferences.Current.PotBreaking;
                 bool capacity = context.Companion.Bag.Count < Inventory.CompanionInventory.Slots;
                 ReachVerdict reach = senses.Reach.Reachable(point);
+                // A pot is a two-by-two whose origin is its top-left, so the body is placed against the
+                // origin tile rather than against the centre the site publishes; the same seam as a
+                // torch, and it gets the same answer rather than a second one.
+                var contact = WorkingPose(point);
                 string admission = !enabled ? "unusable" : !capacity ? "unusable" : protectedHome ? "unusable"
+                    : contact == null ? "unusable"
                     : reach == ReachVerdict.NotYet ? "unknown" : reach == ReachVerdict.Unreachable ? "unusable" : "usable";
                 string reason = !enabled ? "pot-breaking-disabled" : !capacity ? "cargo-full-for-unknown-contents"
-                    : protectedHome ? "protected" : reach == ReachVerdict.NotYet ? "reach-not-yet"
+                    : protectedHome ? "protected" : contact == null ? "no-pose-holds-the-body-within-reach"
+                    : reach == ReachVerdict.NotYet ? "reach-not-yet"
                     : reach == ReachVerdict.Unreachable ? "reach-unreachable" : "observed-pot-contents-unknown";
                 var value = new AssistanceOpportunityFact("pot-target", $"tile:{point.X},{point.Y}", 0, point.X * 16 + 16, point.Y * 16 + 16,
-                    1, 1, admission, reason, "contents=unknown;policy=" + enabled + ";capacity=" + capacity + ";origin=2x2");
+                    1, 1, admission, reason, "contents=unknown;policy=" + enabled + ";capacity=" + capacity + ";origin=2x2", contact);
                 facts.Add(Fact("pot-target", value.Target, 0, value));
             }
     }
@@ -253,14 +263,68 @@ public sealed class CaptureAssistanceOpportunities
                 // A tile the policy or a body refuses is not published at all, which is why there is no
                 // `placement-policy-or-contact` arm any more: that reason described the absence of an
                 // opportunity rather than a property of one.
+                // A site with no pose the body can hold is refused here rather than published and then
+                // refused by travel, because travel's refusal is per order and this one is per site: the
+                // same unusable site was otherwise re-bound inside every order that contained it.
+                var contact = WorkingPose(point);
                 string admission = !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "unknown" : "unusable"
+                    : contact == null ? "unusable"
                     : reach == ReachVerdict.NotYet ? "unknown" : reach == ReachVerdict.Unreachable ? "unusable" : "usable";
                 string reason = !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "light-unread" : "not-persistently-dark"
+                    : contact == null ? "no-pose-holds-the-body-within-reach"
                     : reach == ReachVerdict.NotYet ? "reach-not-yet" : reach == ReachVerdict.Unreachable ? "reach-unreachable" : "observed-persistent-darkness";
                 var value = new AssistanceOpportunityFact("light-target", $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8,
-                    reading.IsDark ? 1 : 0, reading.IsDark ? 1 : 0, admission, reason, $"light={reading.Light};brightness={reading.Brightness:R};coverage={coverage.Area}");
+                    reading.IsDark ? 1 : 0, reading.IsDark ? 1 : 0, admission, reason, $"light={reading.Light};brightness={reading.Brightness:R};coverage={coverage.Area}", contact);
                 facts.Add(Fact("light-target", value.Target, 0, value));
             }
+    }
+
+    /// <summary>
+    /// Where the body must hover to work a tile, which is not the tile.
+    ///
+    /// A drop's capture has always published a contact pose, because a pickup happens where the item
+    /// lies. A tile site published the tile's own centre and left the contact pose null, and the binder
+    /// then handed that centre to travel as a destination — with a comment saying the positioner's
+    /// tool-reach proof would admit the hover beside it, which is true and happens far too late.
+    /// `CaptureCourseTravel` refuses any destination whose circle overlaps terrain before a positioner
+    /// ever sees the binding, so a torch site sitting on a floor was refused by construction: the orb's
+    /// radius is ten pixels and a tile is sixteen, so a circle centred in the air tile above a floor
+    /// reaches ten pixels down into eight pixels of clearance. Measured on the two-site lighting scene,
+    /// that refused 130 of 133 orders with `travel-endpoint-overlaps-terrain` and left the companion
+    /// holding one unexecutable course for 1798 ticks.
+    ///
+    /// The durable shape, which is why this is a capture-side answer rather than a check at the travel
+    /// gate: **a work site and a body destination are two different quantities, and one field carrying
+    /// both means the two ends of the seam disagree without either being wrong on its own.** The binder
+    /// is pure and reads a frozen snapshot, so it cannot do this geometry; the capture runs natively
+    /// beside the tile world and can. Every tile domain therefore publishes both — `X`/`Y` stays the
+    /// site the hand acts on, and the contact pose is where the body waits while it does.
+    ///
+    /// Candidates are the site itself first, because a torch in open air with room for the body is the
+    /// common case and costs one test, then the eight neighbours, then the ring beyond them. Ordered by
+    /// true distance so the nearest usable hover wins, and bounded at two tiles because a pose further
+    /// away than the tool's own reach cannot work the tile anyway — `InReach` is the second test rather
+    /// than a distance constant, so the bound follows the reach the player actually granted.
+    /// </summary>
+    private static (double X, double Y)? WorkingPose(Point tile)
+    {
+        var world = MovementQueries.World;
+        if (world == null) return null;
+        var site = new Vector2(tile.X * 16 + 8, tile.Y * 16 + 8);
+        (double X, double Y)? best = null;
+        double bestDistance = double.PositiveInfinity;
+        for (int dx = -2; dx <= 2; dx++)
+            for (int dy = -2; dy <= 2; dy++)
+            {
+                var candidate = new Vector2(site.X + dx * 16, site.Y + dy * 16);
+                double distance = Vector2.DistanceSquared(candidate, site);
+                if (distance >= bestDistance) continue;
+                if (CircleContact.Overlaps(world, candidate)) continue;
+                if (!FindToolAccess.InReach(candidate, tile)) continue;
+                best = (candidate.X, candidate.Y);
+                bestDistance = distance;
+            }
+        return best;
     }
 
     /// <summary>The census-completeness fact a discovery source reads before it may call its own
