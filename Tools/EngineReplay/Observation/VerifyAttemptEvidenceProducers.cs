@@ -128,11 +128,30 @@ internal static class VerifyAttemptEvidenceProducers
             $"a world unload must end the file with one end marker naming its {capture.Rows.Count} rows; trailer: {string.Join(" | ", capture.Trailer)}");
         string closing = capture.Trailer[0]["# closing=".Length..];
         using var diagnostics = JsonDocument.Parse(capture.Trailer[1]["# diagnostics=".Length..]);
-        long written = diagnostics.RootElement.GetProperty("LegacyEvent").GetProperty("Written").GetInt64();
-        Require(written == capture.Events.Count && Capture.Long(Capture.Field(closing, "events-offered")) == written
+        // Two channels write into one sidecar, and this used to compare one of them against the total.
+        //
+        // `Write` feeds `Kind.LegacyEvent` and is what `events-offered` counts; `RecordCourse` feeds
+        // `Kind.Course` through `TryEnqueueCourse` and is counted separately. Both land as lines in the
+        // same `-events.jsonl`, so the moment any course record is written — which is every decision,
+        // since schema 0.41.0 — the legacy count is smaller than the file and the row failed on a
+        // mismatch that was arithmetic rather than loss.
+        //
+        // Comparing like with like restores the property and widens it: the sidecar must hold exactly
+        // what *both* channels say they wrote, so a course record lost on its way to disk now fails
+        // here too, where before it could not have been noticed at all.
+        long legacy = diagnostics.RootElement.GetProperty("LegacyEvent").GetProperty("Written").GetInt64();
+        long course = diagnostics.RootElement.TryGetProperty("Course", out var courseChannel)
+            ? courseChannel.GetProperty("Written").GetInt64() : 0;
+        // `events-offered` is the whole stream's counter and always was — it reads 268 where the legacy
+        // channel wrote 151 and the course channel 117 — so it is the sum it must equal, not either
+        // part. The old assertion compared it against `LegacyEvent.Written` and happened to hold only
+        // while nothing but legacy events existed.
+        Require(legacy + course == capture.Events.Count
+                && Capture.Long(Capture.Field(closing, "events-offered")) == legacy + course
                 && Capture.Field(closing, "events-dropped") == "0"
                 && Capture.Field(closing, "terrain-evictions") == "0" && Capture.Long(Capture.Field(closing, "events-coalesced")) >= 0,
-            $"the end marker must count exactly the {capture.Events.Count} occurrence(s) its sidecar holds, with none dropped or evicted: {capture.Trailer[0]}");
+            $"the end marker must count exactly the {capture.Events.Count} occurrence(s) its sidecar holds, "
+            + $"with none dropped or evicted; legacy={legacy} course={course}: {capture.Trailer[0]}");
         Require(Capture.Field(capture.Trailer[2], "diagnostics-incomplete") == "False"
                 && Capture.Field(capture.Trailer[2], "diagnostics-failure") == ""
                 && Capture.Field(capture.Trailer[2], "diagnostics-dropped") == "0",
@@ -140,7 +159,9 @@ internal static class VerifyAttemptEvidenceProducers
         int lastRow = capture.Rows.Count - 1;
         Require(capture.Text(0, "record_ms") == "-"
                 && Enumerable.Range(1, lastRow).All(r => double.TryParse(capture.Text(r, "record_ms"), NumberStyles.Float, CultureInfo.InvariantCulture, out double ms) && ms >= 0)
-                && capture.Long(lastRow, "events_written") <= written && capture.Text(lastRow, "events_dropped") == "0",
+                // The row's running `events_written` is the whole stream's, like the closing counter, so
+                // it is bounded by both channels together rather than by the legacy one alone.
+                && capture.Long(lastRow, "events_written") <= legacy + course && capture.Text(lastRow, "events_dropped") == "0",
             $"the first row must carry no cost and every later row a non-negative one, and the running totals must not pass the closing ones; first {capture.Text(0, "record_ms")}, last written {capture.Text(lastRow, "events_written")}");
         string? retention = capture.Preamble.FirstOrDefault(line => line.StartsWith("# retention=", StringComparison.Ordinal));
         string[] bounds = { "terrain-snapshots-remembered", "terrain-captures-per-tick", "recent-attempt-outcomes", "cargo-transfer-ledger",
@@ -248,7 +269,19 @@ internal static class VerifyAttemptEvidenceProducers
             {
                 toolRows++;
                 Point work = ore ?? throw new InvalidOperationException($"a scene with no tool target wrote a tool-reach row at tick {capture.Text(row, "tick")}: {capture.Text(row, "region_work_tile")}");
-                Require(capture.Text(row, "region_work_tile") == $"{work.X},{work.Y}", $"a tool-reach row at tick {capture.Text(row, "tick")} names work tile {capture.Text(row, "region_work_tile")}, not the scene's ore {work}");
+                // The named tile's own contents go in the message: a row naming a tile the scene never
+                // seeded is a different finding from one naming the wrong seeded tile, and the two want
+                // opposite fixes — the first is a binding built on nothing, the second a choice between
+                // real targets.
+                string named = capture.Text(row, "region_work_tile");
+                string[] parts = named.Split(',');
+                string contents = parts.Length == 2 && int.TryParse(parts[0], out int nx) && int.TryParse(parts[1], out int ny)
+                    && nx > 0 && ny > 0 && nx < Main.maxTilesX && ny < Main.maxTilesY
+                    ? $"has-tile={Main.tile[nx, ny].HasTile} type={Main.tile[nx, ny].TileType}"
+                    : "off-map-or-unparsed";
+                Require(named == $"{work.X},{work.Y}",
+                    $"a tool-reach row at tick {capture.Text(row, "tick")} names work tile {named} ({contents}), "
+                    + $"not the scene's ore {work}");
                 var stand = PairOf(capture.Text(row, "region_anchor_px"));
                 var reach = PairOf(capture.Text(row, "region_reach"));
                 Require(stand is not null && reach is not null, $"a tool-reach row at tick {capture.Text(row, "tick")} has no stand or reach: {capture.Text(row, "region_anchor_px")} {capture.Text(row, "region_reach")}");

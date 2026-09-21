@@ -1,10 +1,12 @@
 #nullable enable
 
 using System;
+using System.Globalization;
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Selection;
 
@@ -63,8 +65,42 @@ public static class ExecuteCourseBinding
         if (binding.Opportunity.Purpose == "fire")
             return new PositionRequest(RequestKind.FireFrom, pose);
         return binding.Opportunity.Purpose is "mine" or "chop" or "light" or "break-pot"
-            ? PositionRequest.ExactAt(pose, new Point((int)(binding.Pose.X / 16), (int)(binding.Pose.Y / 16)))
+            ? PositionRequest.ExactAt(pose, WorkTileOf(binding.Opportunity))
             : PositionRequest.ExactAt(pose);
+    }
+
+    /// <summary>
+    /// The tile the hand acts on, read from the opportunity's own identity rather than from the pose.
+    ///
+    /// This used to be <c>new Point((int)(binding.Pose.X / 16), (int)(binding.Pose.Y / 16))</c>, which is
+    /// the tile the *body* occupies. For every tile domain those are different points by construction:
+    /// the pose is a hover beside the work, and a body hovering beside an ore tile is in air. Measured
+    /// on the mining evidence scene, where the only copper is at 25,59 and the recorded work tile read
+    /// 24,59 with <c>has-tile=False type=0</c> — a tool-reach success region declared over nothing, so
+    /// every arrival verdict computed from it was judged against a tile the scene never seeded.
+    ///
+    /// It is the same confusion the torch census had, one layer further on: **a work site and a body
+    /// destination are two different quantities, and a field that carries one cannot be asked for the
+    /// other.** The opportunity key is the honest source because it is the identity the binder
+    /// validated the site against and the recorder joins effects by.
+    ///
+    /// Two shapes exist and both are produced by this tree: <c>tile:x,y</c> from the light and pot
+    /// captures, and <c>tile:material:x,y</c> from gathering, which carries the material so a replaced
+    /// tile is a different opportunity. An unrecognised shape throws rather than guessing a tile,
+    /// because a silently wrong work tile is what this replaced.
+    /// </summary>
+    internal static Point WorkTileOf(OpportunityKey opportunity)
+    {
+        string target = opportunity.Target;
+        int comma = target.LastIndexOf(',');
+        int colon = comma < 0 ? -1 : target.LastIndexOf(':', comma);
+        if (colon >= 0 && comma > colon
+            && int.TryParse(target.AsSpan(colon + 1, comma - colon - 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out int x)
+            && int.TryParse(target.AsSpan(comma + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out int y))
+            return new Point(x, y);
+        throw new ArgumentOutOfRangeException(nameof(opportunity), target,
+            "A tile-work opportunity must name its tile as 'tile:x,y' or 'tile:material:x,y'; the work "
+            + "tile cannot be recovered from the body's pose, which is a hover beside the work.");
     }
 
     /// <summary>

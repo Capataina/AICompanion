@@ -104,7 +104,16 @@ public sealed class BrainTelemetry : ModSystem
     // that writes them produces nothing. A reader of a 0.41.0-or-earlier capture finds family
     // nominations and no course entries; a reader of this one finds the reverse, and the absence is the
     // change the append convention cannot carry.
-    private const string Schema = "0.42.0";
+    // 0.43.0 — `choice_id` and `choice_tick` are the course's decision identity and its source tick,
+    // where they were the family chooser's `EvaluationId`. A column whose *meaning* moves is the one
+    // change the append convention cannot carry, so it takes a version even though no column moved
+    // position. A reader of 0.42.0 or earlier is reading the chooser's comparison; from here it is the
+    // course's, and between the tick switch and this bump it was the chooser's frozen at zero.
+    //
+    // The identity advances on a changed settled decision rather than per tick, because a course is
+    // carried until its next use stops validating and a held choice outliving its rescore is the design
+    // rather than churn.
+    private const string Schema = "0.43.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -704,7 +713,7 @@ public sealed class BrainTelemetry : ModSystem
             var preferences = PlayerIntegration.CompanionPreferences.Current;
             board.Append(CultureInfo.InvariantCulture, $";movement-stalled={brain.MovementStalled};activity-status={brain.ActivityStatus};activity-target={brain.LastAction?.ActivityTarget};activity-radius={preferences.NewActivityRadius};continuation-radius={preferences.ActiveActivityRadius};recovery-radius={preferences.RecoveryRadius}");
             GodsEyeEvents.RecordDecision(npc, brain.LastAction?.Name ?? "-", board.ToString(), brain.LastRequest.Kind.ToString(),
-                activityControls + $";freshness={(choiceEvaluated ? "fresh" : "stale-or-not-executed")};brain-fresh={brainExecuted};choice-id={brain.Chooser.EvaluationId};choice-tick={brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};execution={decision};control-source={companion.Motor.ControlSource}");
+                activityControls + $";freshness={(choiceEvaluated ? "fresh" : "stale-or-not-executed")};brain-fresh={brainExecuted};choice-id={brain.Course.DecisionId};choice-tick={brain.Course.DecisionTick?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};execution={decision};control-source={companion.Motor.ControlSource}");
             lastDecision = decision;
         }
         GodsEyeEvents.RecordMovementState(npc, brain.Navigator);
@@ -1026,8 +1035,13 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(combat?.OfferedPlan?.TargetKillTicks?.Length ?? 0)
             .Append('\t').Append((combat?.OfferedPlan?.Outcome.PlayerHarmPrevented ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(companion.Combat.CooldownTicks).Append('\t').Append((int)(combat?.ForecastTicks() ?? 0)).Append('\t').Append(combat?.EligibilityReason ?? "unavailable");
-        sb.Append('\t').Append(choiceEvaluated ? 1 : 0).Append('\t').Append(brain.Chooser.EvaluationId)
-            .Append('\t').Append(brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "-1");
+        // `choice_id` and `choice_tick` come from the course since schema 0.43.0. They used to read
+        // `Chooser.EvaluationId`, which the course brain never advances, so from the tick switch until
+        // that bump every row and every `tool-effect` in a played session claimed comparison identity
+        // zero — the join from a strike back to the decision that chose it was silently meaningless
+        // rather than missing, which is the worse of the two.
+        sb.Append('\t').Append(choiceEvaluated ? 1 : 0).Append('\t').Append(brain.Course.DecisionId)
+            .Append('\t').Append(brain.Course.DecisionTick?.ToString(CultureInfo.InvariantCulture) ?? "-1");
         sb.Append('\t').Append(controlFresh ? 1 : 0).Append('\t').Append(controlGrant?.Id ?? 0)
             .Append('\t').Append(controlGrant?.Tick.ToString(CultureInfo.InvariantCulture) ?? "-1")
             .Append('\t').Append(controlGrant?.Hand.ToString() ?? "unavailable")

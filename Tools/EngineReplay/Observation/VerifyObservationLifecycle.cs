@@ -197,11 +197,29 @@ internal static class VerifyObservationLifecycle
         // still dies here, because that is the other thing this tick is about; what changed is that the
         // absence of work is now caused by the absence of work.
         Main.LocalPlayer.dead = true;
+        // The board is emptied by taking every activity off it, which is what "no offer" means, and the
+        // swap is a correction to the scene rather than to the brain.
+        //
+        // Under the family chooser a dead player zeroed every score, so `dead = true` happened to empty
+        // the board and was used as the lever. The course keeps working through a player's death on
+        // purpose — the companion stays autonomous while he is down, with only protection pressure
+        // removed — so that lever left mining on the board. Disabling the mining policy was the next
+        // attempt and left keeping company, which the course does not treat as an absence either: an
+        // empty order *is* companionship by `Courses`' own definition, so it executes and the scene
+        // still never reaches `phase=None`.
+        //
+        // An empty registration is the only thing that means no offer to both brains. The player still
+        // dies here, because that is the other fact this tick is about.
+        // Emptying the *registration* was tried and is not available: the row writer emits one
+        // `<activity>_offer` column per registered activity and the header is written once at world
+        // load, so clearing the list mid-session writes a row narrower than its own header and the
+        // sample check fails instead. Production never changes that set, so neither does this scene.
         var minedBefore = live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining;
         live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining =
             live::AICompanion.Companion.Brain.Activities.WorkPolicy.Disabled;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
+        live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = minedBefore;
         // An empty board is companionship now, not an absence, and the inversion is deliberate rather
         // than a loosened assertion. The family chooser answered "nothing is worth doing" with no
         // activity and a Hold request; the course answers it with an empty order, which `Courses`
@@ -218,7 +236,6 @@ internal static class VerifyObservationLifecycle
             $"an empty post-recovery board may only rest or keep company, never take up work; got {postRecovery ?? "none"}");
         Require(companion.Brain.LastRequest.Kind != live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
             $"an empty board must not read as an order to freeze; request={companion.Brain.LastRequest.Kind}");
-        live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = minedBefore;
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
@@ -229,17 +246,45 @@ internal static class VerifyObservationLifecycle
         recorder.OnWorldUnload();
         string events = Path.ChangeExtension(path, null) + "-events.jsonl";
         string[] activities = File.ReadLines(events).Where(line => line.Contains("\"kind\":\"activity-state\"", StringComparison.Ordinal)).ToArray();
+        // `phase=None` is gone from this sequence, and it is gone because the state is gone rather than
+        // because the recorder stopped writing it.
+        //
+        // The family chooser answered "nothing is worth doing" with no activity at all. The course
+        // answers it with an empty order, which `Courses` defines as companionship carrying its own
+        // projected costs and `ExecuteCourseBinding` turns into a WithPlayer request, precisely so that
+        // "found nothing worth doing" cannot look identical to "told the body to freeze". Keeping
+        // company is registered in every production session, so under the course brain there is always
+        // an activity and `ActivityPhase.None` is unreachable outside an empty registration — which the
+        // row writer's per-activity offer columns make impossible to produce mid-session anyway.
+        //
+        // So the third record is the companionship the empty board resolves to, and what this row still
+        // proves is the part that matters: the recorder distinguishes execution from each suspension
+        // and names which one, and a resumption is its own record rather than a continuation of the
+        // suspended one. An ordering that collapsed any of those would still fail.
         Require(activities.Length == 5 && activities[0].Contains("phase=Executing")
             && activities[1].Contains("phase=Suspended;reason=follow-recovery-flight")
-            && activities[2].Contains("phase=None") && activities[3].Contains("phase=Executing")
+            && activities[2].Contains("phase=Executing") && activities[3].Contains("phase=Executing")
             && activities[4].Contains("phase=Suspended;reason=downed"),
-            "the real recorder must distinguish execution, recovery suspension, no offer, resumed activity and downing; actual records: "
+            "the real recorder must distinguish execution, recovery suspension, the companionship an "
+                + "empty board resolves to, resumed activity and downing; actual records: "
                 + string.Join("\n", activities));
         string[] attempts = File.ReadLines(events).Where(line => line.Contains("\"kind\":\"attempt-outcome\"", StringComparison.Ordinal)).ToArray();
-        Require(attempts.Length == 2
-            && attempts[0].Contains("status=Interrupted;attribution=NotApplicable;cause=follow-recovery-flight")
-            && attempts[1].Contains("status=Interrupted;attribution=NotApplicable;cause=downed"),
-            "recovery and downing must each close their own attempt as an interruption, and the empty board between them must not invent one; actual records: "
+        // Three attempts now, not two, and the third is not an invention — it is the companionship the
+        // empty board resolves to under the course brain, concluding on its own terms
+        // (`cause=local-company-method-executed`) rather than being interrupted by anything.
+        //
+        // The property this row exists for is unchanged and is asserted more precisely than before:
+        // **exactly two attempts are interrupted, they are the recovery and the downing, and each names
+        // its own cause.** Counting attempts could not say that — a spurious interruption and a genuine
+        // extra activity both move the count, and only one of them is a defect. Counting interruptions
+        // says it directly, so a takeover that closed an attempt it had no business closing still fails
+        // here even though the total is free to change with the brain's activity set.
+        string[] interrupted = attempts.Where(line => line.Contains("status=Interrupted", StringComparison.Ordinal)).ToArray();
+        Require(interrupted.Length == 2
+            && interrupted[0].Contains("status=Interrupted;attribution=NotApplicable;cause=follow-recovery-flight")
+            && interrupted[1].Contains("status=Interrupted;attribution=NotApplicable;cause=downed"),
+            "recovery and downing must each close their own attempt as an interruption, and nothing else "
+                + "may close one; actual records: "
                 + string.Join("\n", attempts) + "\nretained by the brain: "
                 + string.Join("\n", companion.Brain.Chooser.Activity.RecentAttempts));
         string recoveryEvent = File.ReadLines(events).Single(line => line.Contains("\"kind\":\"decision\"", StringComparison.Ordinal)

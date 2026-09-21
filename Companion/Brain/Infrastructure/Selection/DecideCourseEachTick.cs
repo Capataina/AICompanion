@@ -166,6 +166,28 @@ public sealed class DecideCourseEachTick
     public IReadOnlyDictionary<string, CourseValue> LastLeaders { get; private set; }
         = new Dictionary<string, CourseValue>(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Which decision produced the action being carried out, and when it was reached.
+    ///
+    /// The recorder writes these as the capture's `choice_id` and `choice_tick`, and every `tool-effect`
+    /// occurrence carries the comparison identity that selected the executing action, so that a strike
+    /// can be joined back to the decision that chose it. Under the family chooser they came from
+    /// `Chooser.EvaluationId`, which the course brain never advances — so from the tick switch until
+    /// this was added, every effect in a played session claimed the same comparison, identity zero, and
+    /// the join was silently meaningless rather than absent.
+    ///
+    /// It advances when a decision *settles*, not when one begins, because a decision legitimately
+    /// spans several ticks here: a travel query can cost more than a tick's leftover allowance, so the
+    /// observation is frozen for the life of the decision rather than for one tick. Counting starts
+    /// would make a reader see several identities for one choice and read them as churn.
+    /// </summary>
+    public long DecisionId { get; private set; }
+    public ulong? DecisionTick { get; private set; }
+    /// <summary>The one reason that means the tick carried a course rather than decided one. Named
+    /// because two places must agree on it: the site that publishes it and the identity that must not
+    /// advance for it.</summary>
+    internal const string RetainedReason = "course-retained";
+
     public void ResetWorld()
     {
         observation.ResetWorld();
@@ -254,7 +276,7 @@ public sealed class DecideCourseEachTick
         if (NextStep(out StepBinding? held) && held != null)
         {
             BindingValidation validation = binder.ValidateNextUse(held, facts);
-            if (validation.CanUse) return Carry(held, "course-retained");
+            if (validation.CanUse) return Carry(held, RetainedReason);
             // The use is recorded as invalid and then the course is released, and the release is not
             // optional. `Consider` refuses to compare two futures unless the incumbent was reprojected
             // from the observation doing the comparing, and throws rather than guessing — which is the
@@ -418,6 +440,20 @@ public sealed class DecideCourseEachTick
     /// </summary>
     private CourseDecision Trace(CourseDecision decision)
     {
+        // The identity advances once per decision actually *reached*, and carrying a retained course is
+        // not reaching one. A course is kept until its next use stops validating, so those ticks are
+        // one choice outliving its rescore by design; advancing there would report the design as churn
+        // and break the join from a strike back to the decision that chose it. A tick that genuinely
+        // decides advances it even when the outcome repeats, because a fresh comparison that lands on
+        // the same answer is still a fresh comparison — which is what the chooser's `EvaluationId`
+        // meant, and what readers of `choice_id` have always been told it means.
+        //
+        // An unsettled tick advances nothing: a decision still running has not chosen anything yet.
+        if (decision.Settled && decision.Reason != RetainedReason)
+        {
+            DecisionId++;
+            DecisionTick = Terraria.Main.GameUpdateCount;
+        }
         DecisionFactSnapshot? facts = observation.Current;
         if (facts == null) return decision;
         RetainedCourse? course = Course.Current;
