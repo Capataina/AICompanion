@@ -269,7 +269,14 @@ public sealed class BrainOverlay : ModSystem
     private static void DrawDecisions(SpriteBatch sb, Rectangle panel, CompanionNPC? companion, int rows)
     {
         if (companion == null) return;
-        var scores = companion.Brain.Chooser.LastScores;
+        // The course's worth per activity, not the retired chooser's score board. This panel drew zero
+        // rows in every played session from `0bb2c8a` until schema 0.44.0, because `Chooser.LastScores`
+        // is filled only by a procedure the tick stopped calling — an empty panel beside a companion
+        // visibly deciding things, which reads as the inspector being broken rather than as the brain
+        // having moved. The hover text names the course's terms for the same reason the bars do: the old
+        // line multiplied five chooser factors that no longer exist, so keeping its wording would have
+        // been a sentence about a brain nobody runs.
+        var scores = ReadCourseWorthPerActivity.Of(companion.Brain);
         scroll = Math.Clamp(scroll, 0, Math.Max(0, scores.Count - rows));
         for (int i = scroll; i < Math.Min(scores.Count, scroll + rows); i++)
         {
@@ -282,12 +289,14 @@ public sealed class BrainOverlay : ModSystem
             Border(sb, new Rectangle(start, bottom + 3, (int)(Math.Clamp(score.Raw / 1.5f, 0, 1) * width), 8), Color.LightSteelBlue);
             Fill(sb, new Rectangle(start, bottom + 4, (int)(Math.Clamp(score.Final / 1.5f, 0, 1) * width), 6), ReferenceEquals(score.Action, companion.Brain.LastAction) ? Color.Gold : Color.CornflowerBlue);
             Text(sb, score.Final.ToString("0.00"), panel.Right - 37, bottom, Color.White, .48f);
-            if (row.Contains(Mouse)) Main.instance.MouseText($"{score.Action.Name}: {score.Raw:0.000} × protection {score.Protection:0.00} × commitment {score.Commitment:0.00} × safety horizon {score.Horizon:0.00} × useful work {score.UsefulWork:0.00} × reunion {score.Reunion:0.00} = {score.Final:0.000}"
-                + $"\nOffer: {score.Eligibility} ({score.EligibilityReason})"
-                + (score.Error.Length > 0 ? $"\nUnavailable: {score.Error}" : "")
-                + (score.MethodEvidence.Length > 0 ? $"\nMethod: {score.MethodEvidence}" : ""));
+            if (row.Contains(Mouse)) Main.instance.MouseText(
+                score.Priced
+                    ? $"{score.Action.Name}: the best course led by this work is worth {score.Raw:0.000} nominally, {score.Final:0.000} after its harm and company cost"
+                        + $"\nCensus: {score.Offer} ({score.OfferReason})"
+                    : $"{score.Action.Name}: the course priced no order led by this work"
+                        + $"\nCensus: {score.Offer} ({score.OfferReason})");
         }
-        Text(sb, scores.Count > rows ? "Scroll to inspect every behaviour" : "Raw score: outline   Final score: fill   Winner: gold", panel.X + 14, panel.Bottom - 20, Color.LightSteelBlue, .48f);
+        Text(sb, scores.Count > rows ? "Scroll to inspect every behaviour" : "Nominal: outline   After harm and company: fill   Running: gold", panel.X + 14, panel.Bottom - 20, Color.LightSteelBlue, .48f);
     }
     /// <summary>
     /// What the companion is doing about its choice, line by line from <see cref="DescribeExecutionEvidence"/>: each family's

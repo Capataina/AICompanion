@@ -156,16 +156,8 @@ public sealed class BrainTelemetry : ModSystem
     /// </summary>
     private static (float Raw, float Final) CourseWorthOf(Brain brain, Activities.CompanionAction action)
     {
-        float raw = 0f, fin = 0f;
-        foreach (string domain in action.CourseDomains)
-            if (brain.Course.LastLeaders.TryGetValue(domain, out var leader))
-            {
-                float nominal = (float)leader.Total.Nominal;
-                if (nominal <= raw && raw != 0f) continue;
-                raw = nominal;
-                fin = (float)(leader.UsefulEffects - leader.Harm - leader.Companionship);
-            }
-        return (raw, fin);
+        var worth = ReadCourseWorthPerActivity.Of(brain, action);
+        return (worth.Raw, worth.Final);
     }
 
     public static string FactorList(in Selection.Chooser.Scored score)
@@ -1143,19 +1135,10 @@ public sealed class BrainTelemetry : ModSystem
         // survives for an activity the course mints no domain for, which is its original meaning.
         foreach (var a in brain.Chooser.Actions)
         {
-            string offer = "not-compared";
-            foreach (string domain in a.CourseDomains)
-                foreach (var admitted in brain.Course.Admitted)
-                    if (StringComparer.Ordinal.Equals(admitted.Domain, domain))
-                    {
-                        string reason = admitted.Reason.Length == 0 ? "-" : admitted.Reason;
-                        string verdict = admitted.Usable > 0 ? "Usable"
-                            : admitted.Unresolved > 0 ? "Unresolved"
-                            : admitted.Unusable > 0 ? "KnownUnusable" : "NoOpportunity";
-                        // The better of two domains wins, the way collection's two methods always did:
-                        // a usable drop is not hidden by an unusable pot.
-                        if (offer == "not-compared" || verdict == "Usable") offer = verdict + ":" + reason;
-                    }
+            var worth = ReadCourseWorthPerActivity.Of(brain, a);
+            string offer = worth.Offer == ReadCourseWorthPerActivity.NotCompared
+                ? ReadCourseWorthPerActivity.NotCompared
+                : worth.Offer + ":" + worth.OfferReason;
             sb.Append('\t').Append(offer);
         }
         // Retained from the last completed comparison, like the score board; -1 before any.

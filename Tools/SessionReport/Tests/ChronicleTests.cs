@@ -2018,8 +2018,17 @@ public static class ChronicleTests
         // colon, and the default that stands when no domain answered. This pin firing is what caught the
         // change rather than a capture quietly failing to parse months later, which is the whole reason
         // producer literals are pinned at all.
-        Require(telemetry.Contains("offer = verdict + \":\" + reason", StringComparison.Ordinal)
-                && telemetry.Contains("string offer = \"not-compared\"", StringComparison.Ordinal),
+        // The producer moved again in the same afternoon, from an inline block in the recorder to the
+        // shared `ReadCourseWorthPerActivity` the recorder, the overlay and the inspector all read, so the
+        // pin follows it to its new file rather than being loosened to something both would satisfy. The
+        // shape the eligibility check parses is unchanged — `<verdict>:<reason>`, with `not-compared` for
+        // an activity nothing minted an opportunity for — and these are the two literals that decide it:
+        // the verdict ladder that writes the part before the colon, and the one constant the default word
+        // now lives in, so a rename of that word fails here instead of in a capture months later.
+        string worth = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "ReadCourseWorthPerActivity.cs");
+        Require(worth.Contains("admitted.Usable > 0 ? \"Usable\"", StringComparison.Ordinal)
+                && worth.Contains("public const string NotCompared = \"not-compared\"", StringComparison.Ordinal)
+                && telemetry.Contains("worth.Offer + \":\" + worth.OfferReason", StringComparison.Ordinal),
             "the offer column format the eligibility check parses has changed");
         Require(offers.Contains("NoOpportunity, PolicyForbidden, KnownUnusable, Unresolved, Usable, Deferred }", StringComparison.Ordinal),
             "the offer eligibility names have changed");

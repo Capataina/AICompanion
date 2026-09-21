@@ -29,17 +29,21 @@ public static class DescribeExecutionEvidence
         var lines = new List<Line>();
         var chooser = brain.Chooser;
 
-        lines.Add(new("Offers by family", Heading: true));
-        if (chooser.LastScores.Count == 0) lines.Add(new("no comparison has run yet"));
-        foreach (var family in chooser.LastScores.GroupBy(score => score.Action.Family))
+        // The course's worth per activity rather than the retired chooser's family nominations. This
+        // section printed "no comparison has run yet" for whole sessions after `0bb2c8a`, and it was
+        // telling the truth about `Chooser.LastScores` while being wrong about the companion, which had
+        // decided something on every one of those ticks. Families are kept as the grouping because that
+        // is how a reader looks for a job, not because the course nominates by family.
+        lines.Add(new("What each job is worth to the course", Heading: true));
+        var worths = ReadCourseWorthPerActivity.Of(brain);
+        if (worths.Count == 0) lines.Add(new("no activity is registered"));
+        foreach (var family in worths.GroupBy(worth => worth.Action.Family))
         {
-            var nomination = chooser.LastNominations.FirstOrDefault(n => n.Family == family.Key);
-            lines.Add(new(nomination.Activity is { } nominee
-                ? $"{family.Key}: nominated {nominee.Name} at {F(nominee.Final)}"
-                : $"{family.Key}: nominated nothing"));
+            lines.Add(new($"{family.Key}"));
             foreach (var offer in family)
-                lines.Add(new($"  {offer.Action.Name} {offer.Eligibility}:{(offer.EligibilityReason.Length > 0 ? offer.EligibilityReason : "-")} raw {F(offer.Raw)} final {F(offer.Final)}"
-                    + (ReferenceEquals(offer.Action, brain.LastAction) ? "  selected" : "")));
+                lines.Add(new($"  {offer.Action.Name} {offer.Offer}:{offer.OfferReason} "
+                    + (offer.Priced ? $"nominal {F(offer.Raw)} after costs {F(offer.Final)}" : "no order priced")
+                    + (ReferenceEquals(offer.Action, brain.LastAction) ? "  running" : "")));
         }
 
         lines.Add(new("Where the purpose succeeds", Heading: true));
