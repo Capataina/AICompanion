@@ -24,12 +24,29 @@ internal static class MeasureCombatCost
     public static int Execute()
     {
         // The first run pays JIT compilation for every combat path and is discarded.
-        Scenario(print: false);
-        Scenario(print: true);
+        Scenario(print: false, productionClock: true);
+        Scenario(print: true, productionClock: true);
+        Scenario(print: true, productionClock: false);
         return 0;
     }
 
-    private static void Scenario(bool print)
+    /// <summary>
+    /// <paramref name="productionClock"/> decides which of two different questions this scene answers,
+    /// and conflating them is how the number in AIC-445 came to be quoted against a frame budget it was
+    /// never measured against. `Program.cs` lifts the millisecond allowances for the whole process — the
+    /// harness-wide rule that stops a wall clock deciding any verdict — so every figure this scene printed
+    /// before 21 September 2026 was the brain running with **no deadline at all**. That is a real and
+    /// useful quantity: it is the work the brain would like to do, and how far above a frame it sits is
+    /// how much production is cutting. It is not what a frame costs.
+    ///
+    /// With the clock in, `LimitPlanningWork` bounds the tick the way it does in a game, so the printed
+    /// distribution is the one a player would feel. Both are printed, labelled, because a reader who sees
+    /// only the first cannot tell a brain that is slow from a brain that is being cut hard, and those want
+    /// opposite fixes: the first is an optimisation, the second is a search returning less than it should.
+    /// The regime is restored to what was found rather than to a literal, because a literal here is the
+    /// harness default written down twice.
+    /// </summary>
+    private static void Scenario(bool print, bool productionClock)
     {
         var (_, context) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper,
             new Point(30, 59), new Point(31, 59), new Point(32, 59), new Point(33, 59));
@@ -60,6 +77,14 @@ internal static class MeasureCombatCost
         }
         Player player = Main.player[0];
         var stopwatch = new Stopwatch();
+        // Both copies, because EngineReplay compiles the movement core a second time beside the `live`
+        // alias and setting one leaves the brain reading the other.
+        bool liftedHere = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded;
+        bool liftedThere = AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = !productionClock;
+        AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = !productionClock;
+        try
+        {
         for (int tick = 0; tick < Ticks; tick++)
         {
             player.velocity = new Vector2(tick < 200 ? 0 : tick < 400 ? 3 : -3, 0);
@@ -83,8 +108,18 @@ internal static class MeasureCombatCost
                     if (family.Family.ToString() == "Combat") Sample("prepare Combat", family.Milliseconds);
             Sample("AI total", ai);
         }
+        }
+        finally
+        {
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = liftedHere;
+            AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = liftedThere;
+        }
         if (!print) return;
-        Console.WriteLine($"combat cost, {Ticks} ticks, four stationary hostiles, milliseconds (lower is better):");
+        double allowance = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.TotalPlanningMilliseconds;
+        string regime = productionClock
+            ? $"under the production clock of {allowance} ms a tick — what a frame costs"
+            : "with the millisecond allowances lifted — the work the brain would like to do, not what a frame costs";
+        Console.WriteLine($"combat cost, {Ticks} ticks, four stationary hostiles, {regime}, milliseconds (lower is better):");
         Console.WriteLine("  phase                                   p50      p95      max     mean");
         foreach (var (phase, values) in timings)
         {

@@ -75,6 +75,7 @@ The standalone flags are the fourth row's cause and it is structural rather than
 --evidence-scenes[=dir] four stalls driven through the real recorder; keeps its captures
 --brain-cost           per-phase timings and the recording-invariance proof
 --combat-cost          the attack-planning rows then C1: forty-hostile p50/p90/p99 with and without the sim cache. P1–P8 JIT the path; a cold C1-only process is 39 ms cached and misses the frame.
+--crowd-cost           the whole brain over 600 ticks with four hostiles and a boss, printed twice: under the production clock, which is what a frame costs, and with the allowances lifted, which is the work the brain would like to do. Read the first against a frame and the gap between them as how hard production is cutting.
 --combat-purpose       the danger matrix, the pursuit rows, guard access and identity
 --safety-layer         safety as a layer: an enemy beside a leaving player, firing on, a bent guard, an intervening hostile
 --dodge-repro          one arrow advanced by hand at body height on dry floor
@@ -85,6 +86,8 @@ The standalone flags are the fourth row's cause and it is structural rather than
 `--brain-cost`, `--evidence-scenes` and `--dodge-repro` are instruments rather than suites: they measure or record, and `--brain-cost` asserts nothing about behaviour. `--combat-cost` is the attack-planning suite: P1–P8 JIT the generators and beam, then C1 (forty hostiles, cache vs no-cache p50/p90/p99, 99th with cache inside one frame). A C1-only process measures 39 ms cached because those methods have never run; after the P-rows the same scene is 12 ms. Three untimed cached crowd searches fill the sim cache so p99 is not the compiling miss. The four-hostile full-brain dump stays behind `VerifyEngineMotion`'s `combatCostOnly` path, which this flag no longer takes.
 
 **Any timing from this suite is comparable only to another taken the same way.** A fixture run alone through its own flag pays JIT compilation for the whole planning path on first use, where the same fixture inside the default suite does not; a twelvefold difference was once credited to a change that had in fact moved the worst tick by nothing.
+
+**The regime is half of "the same way", and it is the half that has actually misled somebody.** `Program.cs` lifts the millisecond allowances for the entire process before any flag dispatches, so a cost instrument that does not put the clock back is timing a brain with no deadline. `--crowd-cost` was read that way for a day: 22 ms mean and 814 ms worst, quoted against a 16.67 ms frame and filed as the brain halving the frame rate whenever a fight starts. Under the production clock the same scene is 4.46 ms mean and 15.23 ms worst, inside the frame on every one of 600 ticks. **An unbounded figure is not a frame cost and must never be compared to a frame budget.** What the lifted figure *is* good for is the gap: on that scene the brain wants roughly six times the mean it is allowed, `decide` sits at its 12 ms allowance on 5% of ticks, and the visible price is behavioural rather than dropped frames — combat holds 593 of 600 ticks unbounded and 406 under the clock, with keep-company taking the difference. So the two regimes answer different questions and the instrument prints both, labelled.
 
 ## The `live` alias, and the two copies of every static
 
