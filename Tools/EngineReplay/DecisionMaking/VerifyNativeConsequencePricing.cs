@@ -36,7 +36,8 @@ internal static class VerifyNativeConsequencePricing
         }
         Row("G12 unanswered travel suspends the pricing and forwards its request", PendingForwardsItsTravelRequest);
         Row("G12 an unpriced harm is unresolved, never zero", HostilesLeaveTheTailUnresolved);
-        Row("G12 an empty finished census is the one case harm may read as none", EmptyCensusMayResolve);
+        Row("G12 harm stays unresolved even with an empty census", HarmIsNeverProvenAbsent);
+        Row("G12 a second candidate order is priced from its own pose, not the first's", EachOrderIsPricedFromItsOwnStart);
         return red;
     }
 
@@ -57,8 +58,7 @@ internal static class VerifyNativeConsequencePricing
             new CapturedCompanionshipRegion(new(48, 80), new(20, 20), default, 100, 100, true))), FactEvidence.Observed)
     });
 
-    private static ForecastCourseConsequences Forecast(int hostiles, bool censusComplete)
-        => new(new CoursePoint(48, 80), hostiles, censusComplete);
+    private static ForecastCourseConsequences Forecast() => new(new CoursePoint(48, 80));
 
     private static CourseComparisonEpisode Episode()
         => new(1, 1, 10, Array.Empty<UsefulNeed>(), true, false, "consequence-fixture");
@@ -72,29 +72,10 @@ internal static class VerifyNativeConsequencePricing
     /// evaluation, the owner answers it against the frozen world, and the same forecast resumes on the
     /// model-extended snapshot rather than restarting.
     /// </summary>
-    private static CourseProjectionResult Price(int hostiles, bool censusComplete)
+    private static CourseProjectionResult Price()
     {
-        DecisionFactSnapshot facts = Snapshot();
-        var owner = new RetainCourseModelQueries(facts, World(), 2, 4);
-        var forecast = Forecast(hostiles, censusComplete);
-
-        for (int slice = 0; slice < 200; slice++)
-        {
-            CourseProjectionResult result = forecast.Continue(Array.Empty<StepBinding>(), Successor(owner.Snapshot),
-                owner.Snapshot, Episode(), new DecisionWorkCursor(), new(double.PositiveInfinity));
-            if (result.Status != ProjectionStatus.Pending) return result;
-
-            Require(result.RequiredTravel is { Count: > 0 },
-                "the pricing suspended without naming the travel it is waiting on, so nothing can ever answer it");
-            foreach (CourseTravelRequest request in result.RequiredTravel!)
-                owner.RequestTravel(request);
-            var budget = new DecisionWorkBudget(double.PositiveInfinity, 64);
-            // The owner's travel capture checks it is borrowing the active allowance, so the slice's
-            // own budget has to be the standing one rather than sit beside it.
-            using (LimitPlanningWork.Own(budget))
-                owner.Continue(budget);
-        }
-        throw new InvalidOperationException("the pricing never settled within 200 model slices");
+        var owner = new RetainCourseModelQueries(Snapshot(), World(), 2, 4);
+        return Settle(Forecast(), owner, new CoursePoint(240, 80));
     }
 
     /// <summary>A suspended pricing must name what it waits on. The domain cursor stays on the candidate
@@ -102,7 +83,7 @@ internal static class VerifyNativeConsequencePricing
     private static void PendingForwardsItsTravelRequest()
     {
         DecisionFactSnapshot facts = Snapshot();
-        CourseProjectionResult first = Forecast(0, true).Continue(Array.Empty<StepBinding>(), Successor(facts),
+        CourseProjectionResult first = Forecast().Continue(Array.Empty<StepBinding>(), Successor(facts),
             facts, Episode(), new DecisionWorkCursor(), new(double.PositiveInfinity));
         Require(first.Status == ProjectionStatus.Pending,
             $"a pricing with no captured travel should suspend; status={first.Status}");
@@ -115,7 +96,7 @@ internal static class VerifyNativeConsequencePricing
     /// unresolved; the alternative is an empty harm list that reads as safety.</summary>
     private static void HostilesLeaveTheTailUnresolved()
     {
-        CourseProjectionResult result = Price(hostiles: 3, censusComplete: true);
+        CourseProjectionResult result = Price();
         Require(result.Status == ProjectionStatus.Complete,
             $"answered travel should complete the pricing; status={result.Status} reason={result.Reason}");
         Require(result.Projection is { } priced && priced.TailUnresolved,
@@ -127,16 +108,70 @@ internal static class VerifyNativeConsequencePricing
             "the pricing published an empty consequence manifest, which asserts a calculation with no captured inputs and can never be dirtied when they change");
     }
 
-    /// <summary>The one case an empty harm list is the truth, and the one beside it that is not.</summary>
-    private static void EmptyCensusMayResolve()
+    /// <summary>
+    /// Harm is never proven absent, and an empty census is not the exception it looks like.
+    ///
+    /// An earlier version of this provider resolved the tail when a finished census held no hostile.
+    /// That read proof about one instant of `Main.npc[]` as proof about a whole projected journey
+    /// including the return leg, and it certified zero harm to the *player* too, about which a
+    /// hostile-slot census says nothing. Permanently uncertain is the honest state until harm is
+    /// modelled, and it costs only that no course can yet be preferred for being safer.
+    /// </summary>
+    private static void HarmIsNeverProvenAbsent()
     {
-        CourseProjectionResult finished = Price(hostiles: 0, censusComplete: true);
-        Require(finished.Projection is { } priced && !priced.TailUnresolved,
-            "a finished census holding no hostile still refused to resolve its tail, which would leave every course permanently uncertain");
+        CourseProjectionResult empty = Price();
+        Require(empty.Projection is { } priced && priced.TailUnresolved,
+            "an empty census resolved the tail, which reads a moment's observation as proof about a horizon and says nothing about player harm at all");
+        Require(empty.Projection!.Harm.Count == 0, "a harm was reported that no model produced");
+    }
 
-        CourseProjectionResult partial = Price(hostiles: 0, censusComplete: false);
-        Require(partial.Projection is { } unfinished && unfinished.TailUnresolved,
-            "an unfinished census with nothing found so far read as proven safety, which is the exhausted-bound mistake one layer up");
+    /// <summary>
+    /// The row the `BeginOrder` leak lived under. One forecast object prices two different candidate
+    /// orders in a search, and each must be priced from its own starting state.
+    ///
+    /// It exists because the two fixtures either side of this seam each used a stand-in for the other:
+    /// this file drove the real forecast against a hand-built snapshot and never through `BindCourseOrder`,
+    /// while `VerifyCourseOrderProjection` drove the real binder against a fixture forecast. The leak sat
+    /// exactly in the gap — a retained companionship leg handed to every later order verbatim, priced from
+    /// a pose it had never seen and asking for no travel to reach it. With harm unresolved, companionship
+    /// is the only cost term, so every candidate order cost the same.
+    /// </summary>
+    private static void EachOrderIsPricedFromItsOwnStart()
+    {
+        DecisionFactSnapshot facts = Snapshot();
+        var owner = new RetainCourseModelQueries(facts, World(), 2, 4);
+        var forecast = new ForecastCourseConsequences(new CoursePoint(48, 80));
+
+        CourseProjectionResult first = Settle(forecast, owner, new CoursePoint(240, 80));
+        CourseProjectionResult second = Settle(forecast, owner, new CoursePoint(64, 88));
+
+        Require(first.Projection != null && second.Projection != null,
+            "one of the two candidate orders never priced at all");
+        Require(first.Projection!.Companionship.Count > 0 && second.Projection!.Companionship.Count > 0,
+            "a candidate order priced with no companionship interval");
+        // Two starting poses at genuinely different distances from the same reunion point cannot honestly
+        // produce one identical cost. Equality here is the retained leg being reused, not a coincidence.
+        Require(first.Projection!.ReunionTick != second.Projection!.ReunionTick
+                || !first.Projection!.Companionship.SequenceEqual(second.Projection!.Companionship),
+            $"two orders starting {240 - 64} px apart priced identically, so the second was handed the first's retained leg; end={first.Projection!.ReunionTick}");
+    }
+
+    /// <summary>Drives one order to a terminal answer through the model queue, from a given start.</summary>
+    private static CourseProjectionResult Settle(ForecastCourseConsequences forecast,
+        RetainCourseModelQueries owner, CoursePoint start)
+    {
+        for (int slice = 0; slice < 200; slice++)
+        {
+            var successor = new ProjectedCourseState(start, owner.Snapshot);
+            CourseProjectionResult result = forecast.Continue(Array.Empty<StepBinding>(), successor,
+                owner.Snapshot, Episode(), new DecisionWorkCursor(), new(double.PositiveInfinity));
+            if (result.Status != ProjectionStatus.Pending) return result;
+            foreach (CourseTravelRequest request in result.RequiredTravel ?? Array.Empty<CourseTravelRequest>())
+                owner.RequestTravel(request);
+            var budget = new DecisionWorkBudget(double.PositiveInfinity, 64);
+            using (LimitPlanningWork.Own(budget)) owner.Continue(budget);
+        }
+        throw new InvalidOperationException("an order never settled within 200 model slices");
     }
 
     private static void Require(bool condition, string message)

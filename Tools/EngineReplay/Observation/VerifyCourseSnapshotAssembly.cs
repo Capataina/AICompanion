@@ -50,10 +50,22 @@ internal static class VerifyCourseSnapshotAssembly
         ctx.Senses.Loot.Pickups.Clear();
         DecisionFactSnapshot snapshot = Fresh().Capture(ctx, ctx.Companion.Combat, null, new(double.PositiveInfinity));
 
+        // Every domain must publish a coverage fact, and any domain claiming Observed must name a
+        // non-empty area it actually swept. The second half is the one that matters: in colour mode the
+        // light window is intersected with the engine's own processed area, which is empty until the
+        // engine has scanned near the companion — and it never has in a headless scene. Asserting
+        // Observed for all five passed only because the capture used to publish Observed unconditionally,
+        // which is a finished census of a world nobody looked at. Unresolved here is the honest answer
+        // and the row now demands that the two agree with each other.
         foreach (string coverage in new[] { "collect-coverage", "light-coverage", "pot-coverage", "mine-coverage", "chop-coverage" })
-            Require(snapshot.TryRead(new FactKey(coverage, "native-census"), out DecisionFact fact)
-                && fact.Evidence == FactEvidence.Observed,
-                $"the assembled snapshot carries no observed {coverage}, so that domain can never finish a census");
+        {
+            Require(snapshot.TryRead(new FactKey(coverage, "native-census"), out DecisionFact fact),
+                $"the assembled snapshot carries no {coverage} at all, so that domain can never finish a census");
+            Require(fact.Evidence is FactEvidence.Observed or FactEvidence.Unresolved,
+                $"{coverage} published evidence {fact.Evidence}, which is neither a finished census nor an unfinished one");
+            Require(fact.Evidence != FactEvidence.Observed || !fact.Value.Text.Contains("unscanned", StringComparison.Ordinal),
+                $"{coverage} called an unscanned area a finished census");
+        }
 
         Require(snapshot.TryRead(CapturedContactCensus.Key, out _),
             "the assembled snapshot carries no contact census, so harm has no captured geometry to forecast from");

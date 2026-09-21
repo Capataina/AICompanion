@@ -63,11 +63,12 @@ internal static class VerifyCourseBindingExecution
     /// enumerates, prices and then cannot turn into a step, so that work simply never appears in any
     /// course — the same silent-never failure as a missing coverage fact, one layer up.
     ///
-    /// This row is a **known gap made visible**, not a guard over settled ground: collect, light and
-    /// pot have sources and no binder as of 21 September 2026, so it names them rather than asserting
-    /// they are absent. When a binder lands, move that domain out of the pending list and the row
-    /// starts guarding it. The list is here rather than in prose because prose about an unfinished
-    /// migration goes stale and a list the suite reads does not.
+    /// The domain list is taken from the **sources**, by constructing every one the tree has and asking
+    /// its own <c>Name</c>, and only then checked against the binders. The first version of this row
+    /// built the binders and asserted the resulting set contained the domains it had just used to build
+    /// them, which is <c>assert(observed, THE_CONSTANT)</c>: it could not fail, it would have stayed
+    /// green if a sixth source landed with no binder, and its name advertised a capability it never
+    /// touched. A coverage row whose two sides come from the same place covers nothing.
     /// </summary>
     private static void EveryDomainCanBind()
     {
@@ -87,11 +88,23 @@ internal static class VerifyCourseBindingExecution
         };
         HashSet<string> implemented = binders.Select(b => b.Domain).ToHashSet(StringComparer.Ordinal);
 
-        // Every domain with a source, now guarded rather than half-pending. Keeping company is the
-        // sixth job and deliberately has no source at all: an empty order *is* companionship.
-        foreach (string domain in new[] { "mine-target", "chop-target", "collect-target", "light-target", "pot-target" })
+        // The other side of the comparison, asked of the sources themselves. Combat's source names its
+        // own domain; the other two take theirs, exactly as production constructs them. Keeping company
+        // is the sixth job and deliberately has no source at all: an empty order *is* companionship.
+        var sources = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.IOpportunitySource[]
+        {
+            new live::AICompanion.Companion.Brain.Activities.Gathering.GatheringOpportunitySource("mine-target"),
+            new live::AICompanion.Companion.Brain.Activities.Gathering.GatheringOpportunitySource("chop-target"),
+            new live::AICompanion.Companion.Brain.Activities.Combat.CombatOpportunitySource(),
+            new DiscoverAssistanceOpportunities("collect-target"),
+            new DiscoverAssistanceOpportunities("light-target"),
+            new DiscoverAssistanceOpportunities("pot-target"),
+        };
+        Require(sources.Length > 0, "no source was constructed, so this row proves nothing");
+
+        foreach (string domain in sources.Select(s => s.Name).Distinct(StringComparer.Ordinal))
             Require(implemented.Contains(domain),
-                $"'{domain}' has no binder, so its opportunities would be priced and never become a step. Binders: {string.Join(", ", implemented.OrderBy(d => d))}");
+                $"the source '{domain}' has no binder, so its opportunities would be discovered, priced and never become a step. Binders: {string.Join(", ", implemented.OrderBy(d => d))}");
     }
 
     private static void StandsAndTilesKeepTheirKinds()

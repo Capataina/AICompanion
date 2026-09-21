@@ -60,16 +60,22 @@ internal static class VerifyAssistanceOpportunityDiscovery
         IReadOnlyList<DecisionFact> captured = capture.Capture(ctx.Senses, ctx);
         var facts = new DecisionFactSnapshot(91, 1, ctx.Senses.Tick, 1, 0, captured);
 
+        // Each domain must publish a coverage fact, and the discovery that reads it must agree with what
+        // it says. Asserting Observed for all three was wrong: in colour mode the light window is
+        // intersected with the engine's own processed area, which is empty until the engine scans near
+        // the companion and never does in a headless scene — so Unresolved is the honest answer there,
+        // and the contract worth guarding is that capture and discovery reach the *same* verdict rather
+        // than that the verdict is always the optimistic one.
         foreach (string domain in new[] { "collect-target", "light-target", "pot-target" })
         {
             string coverage = domain.Replace("-target", "-coverage", StringComparison.Ordinal);
-            Require(facts.TryRead(new FactKey(coverage, "native-census"), out DecisionFact fact)
-                && fact.Evidence == FactEvidence.Observed,
-                $"the real capture published no observed {coverage}, so {domain} discovery can never report a finished census");
+            Require(facts.TryRead(new FactKey(coverage, "native-census"), out DecisionFact fact),
+                $"the real capture published no {coverage} at all, so {domain} discovery can never report a finished census");
+            bool swept = fact.Evidence == FactEvidence.Observed;
             var slice = new DiscoverAssistanceOpportunities(domain)
                 .Continue(facts, new DecisionWorkCursor(), new(double.PositiveInfinity));
-            Require(slice.Coverage.Exhausted,
-                $"{domain} discovery read the real capture and still could not call its census exhausted");
+            Require(slice.Coverage.Exhausted == swept,
+                $"{domain} discovery reported exhausted={slice.Coverage.Exhausted} while its capture published {fact.Evidence}; the two halves of the seam disagree");
         }
 
         // The same question asked of the other half of the class. Gathering publishes its two coverage

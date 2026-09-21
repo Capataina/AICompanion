@@ -213,11 +213,13 @@ public sealed class CaptureAssistanceOpportunities
         Rectangle area = new(heading.X - work, heading.Y - work, 2 * work + 1, 2 * work + 1);
         LightSense.Coverage coverage = LightSense.Coverage.Current();
         if (!coverage.Legacy) area = Rectangle.Intersect(area, coverage.Area);
-        // Same contract as the pot scan: the whole area is swept, so the census is complete for the
-        // area it names. The area itself is already clipped to what the engine has actually lit, so a
-        // tile outside it is absent from the census rather than claimed dark — which is the light
-        // sense's own three-valued rule surviving into the captured facts.
-        facts.Add(Coverage("light-coverage", area));
+        // The whole area is swept, so the census is complete for the area it names — but only if that
+        // area is a place. In colour mode the window is intersected with the engine's own processed
+        // area, which is empty before the engine has ever scanned near the companion, and an empty
+        // rectangle sweeps nothing while still reporting a finished sweep. That would be a finished
+        // census of a world nobody looked at, which is the one confusion coverage exists to prevent, so
+        // an empty area publishes Unresolved and the domain honestly reports an unanswered question.
+        facts.Add(Coverage("light-coverage", area, area.Width > 0 && area.Height > 0));
         for (int x = area.Left; x < area.Right; x++)
             for (int y = area.Top; y < area.Bottom; y++)
             {
@@ -240,13 +242,17 @@ public sealed class CaptureAssistanceOpportunities
     /// enumeration exhausted. It carries the swept area so a reader can tell which world a complete
     /// answer is complete about, and it is versioned by that text so an unchanged window keeps one
     /// version across observations rather than dirtying every dependent estimate each tick.</summary>
-    private DecisionFact Coverage(string kind, Rectangle scanned)
+    private DecisionFact Coverage(string kind, Rectangle scanned, bool swept = true)
     {
         var key = new FactKey(kind, "native-census");
-        string text = $"exhaustive;area={scanned.Left},{scanned.Top}:{scanned.Width}x{scanned.Height}";
+        // The area is named rather than only the verdict, because "complete" is only meaningful about
+        // somewhere. World edges are the one caveat the word "exhaustive" overstates: both scans skip a
+        // margin through WorldGen.InWorld, so a window overlapping the edge of the world sweeps slightly
+        // less than the rectangle it publishes.
+        string text = $"{(swept ? "exhaustive" : "unscanned")};area={scanned.Left},{scanned.Top}:{scanned.Width}x{scanned.Height};world-edge-margin-skipped";
         long current = factVersions.TryGetValue(key, out var prior) && prior.Text == text ? prior.Version : ++version;
         factVersions[key] = (text, current);
-        return new(key, current, new FactValue(Text: text), FactEvidence.Observed);
+        return new(key, current, new FactValue(Text: text), swept ? FactEvidence.Observed : FactEvidence.Unresolved);
     }
 
     private DecisionFact Fact(string kind, string identity, long generation, AssistanceOpportunityFact value)
