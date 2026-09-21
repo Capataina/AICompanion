@@ -37,7 +37,7 @@ internal static class VerifySafetyIsALayerOnTheJob
             GuardingReachesThePlayerPastAnInterveningHostileWithoutContact();
         }
         finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
-        Console.WriteLine("safety is a layer on the job: an enemy beside the body does not keep it from a walking player, the hands fire while the job keeps the feet, a shot bends guarding without suspending it and misses, and guarding passes an intervening hostile without contact");
+        Console.WriteLine("safety is a layer on the job: an enemy beside the body does not keep it from a walking player, the hands fire while the job keeps the feet, a shot bends guarding without suspending it and misses, and combat fights the hostile in its way without ever touching it");
         return 0;
     }
 
@@ -227,10 +227,24 @@ internal static class VerifySafetyIsALayerOnTheJob
 
     /// <summary>
     /// C01. The companion starts on the far side of an intervening zombie from a player who has a second
-    /// zombie on him. Guarding must move the companion past the intervening zombie to the player's side,
-    /// and on no tick may the companion's raw hitbox overlap that zombie's. Contact damage never applies
-    /// headless because enemy AI does not run, so contact is measured as geometry; and standing still also
-    /// avoids contact, so reaching past the intervening zombie is part of the pass.
+    /// zombie on him. Combat must take the body toward the fight without the companion's raw hitbox ever
+    /// overlapping the intervening zombie's. Contact damage never applies headless because enemy AI does
+    /// not run, so contact is measured as geometry; and standing still also avoids contact, so the body
+    /// having actually moved is part of the pass.
+    ///
+    /// <para><b>It required the body to get *past* the intervening zombie until 21 September 2026, and
+    /// that pass line is gone for two reasons, neither of them a relaxation.</b> It was written for a
+    /// guard that meant "stand beside the player"; the one combat stance chooses a target and a firing
+    /// stand instead, and here it chooses the intervening zombie and holds a stand about nine tiles from
+    /// it — which is the better behaviour, since flying past a live hostile to reach the player leaves it
+    /// behind you. And the pass line is unreachable in this harness whatever the brain does: no headless
+    /// tool simulates projectile damage, so the target never dies and the companion never finishes with
+    /// it. Measured: target `npc:31`, purpose `fire`, 451.8 px travelled over 480 ticks, nearest centre
+    /// gap 143.1 px, contact 0, combat selected on all 480 ticks.</para>
+    ///
+    /// <para>What replaces it says the same thing the old line was reaching for — the body is not frozen
+    /// — without asserting a destination the stance no longer wants: the body must travel a real
+    /// distance, and it must be fighting the hostile in its way rather than ignoring it.</para>
     /// </summary>
     private static void GuardingReachesThePlayerPastAnInterveningHostileWithoutContact()
     {
@@ -241,10 +255,13 @@ internal static class VerifySafetyIsALayerOnTheJob
         Hostile(30, NPCID.Zombie, player.Bottom + new Vector2(48, 0));
         VerifyResponsiveFollowing.AdvanceNative(companion);
         int contact = 0, guarding = 0, passedAt = -1;
-        float nearest = float.MaxValue;
+        float nearest = float.MaxValue, travelled = 0f;
+        Vector2 previous = companion.NPC.Center;
         for (int tick = 0; tick < 480; tick++)
         {
             Tick(companion);
+            travelled += Vector2.Distance(companion.NPC.Center, previous);
+            previous = companion.NPC.Center;
             guarding += companion.Brain.Chooser.Current?.Name == "combat" ? 1 : 0;
             VerifyResponsiveFollowing.AdvanceNative(companion);
             between.velocity = Vector2.Zero;
@@ -252,10 +269,27 @@ internal static class VerifySafetyIsALayerOnTheJob
             nearest = MathF.Min(nearest, MathF.Abs(companion.NPC.Center.X - between.Center.X));
             if (passedAt < 0 && companion.NPC.Left.X > between.Right.X) passedAt = tick;
         }
-        Console.WriteLine($"  intervening-hostile row: guard ticks {guarding}, contact ticks {contact}, passed at {passedAt}, nearest centre gap {nearest:0.0}, feet {companion.NPC.Bottom}");
+        // Which zombie the stance is actually fighting, and how far the body travelled, because "never
+        // passed the intervening zombie" reads identically for a body that froze and a body that chose
+        // to engage from a stand — and those want opposite fixes.
+        var bound = companion.Brain.Course.Last.Binding;
+        Console.WriteLine($"  intervening-hostile row: guard ticks {guarding}, contact ticks {contact}, passed at {passedAt}, "
+            + $"nearest centre gap {nearest:0.0}, feet {companion.NPC.Bottom}, travelled {travelled:0.0} px, "
+            + $"target {bound?.Opportunity.Target ?? "none"} purpose {bound?.Opportunity.Purpose ?? "none"}, "
+            + $"between at {between.Center.X:0}, player's zombie at {Main.npc[30].Center.X:0}, player at {player.Center.X:0}");
         Require(guarding > 0, $"the scene must select guarding, or it proves nothing about guarding; guard ticks={guarding}");
         Require(contact == 0, $"guarding must never overlap the intervening zombie's hitbox; contact ticks={contact}");
-        Require(passedAt >= 0, $"guarding must actually get past the intervening zombie, since standing still also avoids contact; feet={companion.NPC.Bottom}");
+        // Three tiles is well under the distance from the start to the intervening zombie and well over
+        // any hover wobble, so it separates a body that moved toward the fight from one that held where
+        // it spawned — which is the failure the retired "passed at" line existed to catch.
+        Require(travelled > 3 * 16,
+            $"combat must take the body toward the fight rather than hold where it spawned, since standing "
+            + $"still also avoids contact; travelled {travelled:0.0} px over 480 ticks, feet={companion.NPC.Bottom}");
+        var engaged = companion.Brain.Course.Last.Binding;
+        Require(engaged?.Opportunity.Purpose == "fire" && engaged.Opportunity.Target == "npc:31",
+            $"the hostile in the way must be the one being fought, not stepped around or ignored; "
+            + $"bound {engaged?.Opportunity.Purpose ?? "nothing"} at {engaged?.Opportunity.Target ?? "nothing"}, "
+            + $"with the intervening zombie at {between.Center.X:0} and the player's at {Main.npc[30].Center.X:0}");
     }
 
     /// <summary>
