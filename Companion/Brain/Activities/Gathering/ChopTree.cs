@@ -21,6 +21,7 @@ public sealed class ChopTree : CompanionAction
 {
     public override string Name => "chop";
     public override PurposeFamily Family => PurposeFamily.Gathering;
+    public override string[] CourseDomains => new[] { "chop-target" };
     public override Vector2? ActivityTarget => prepared?.Target;
     public override object? ActivityIdentity => prepared?.Binding;
     public override string PreparedTargetRejection => WorkPolicies.Chopping == WorkPolicy.Disabled ? "work-disabled" : prepared is { } candidate

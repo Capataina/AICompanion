@@ -34,6 +34,9 @@ namespace AICompanion.Companion.Brain.Activities.NearbyAssistance;
 public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSource
 {
     public override string Name => "place-torches";
+    /// <summary>The activity is `place-torches` and the domain is `light-target`: the course names the
+    /// need, the activity names the act.</summary>
+    public override string[] CourseDomains => new[] { "light-target" };
     protected override float Utility => value;
     // A placed torch is observed; whether it lit anything useful is not measured by this method.
     protected override string CompletedEffect => "torch-placed-coverage-unmeasured";

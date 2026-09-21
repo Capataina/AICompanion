@@ -2010,7 +2010,16 @@ public static class ChronicleTests
                 && events.Contains("attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick}", StringComparison.Ordinal)
                 && events.Contains("attemptId <= lastAttemptRecorded", StringComparison.Ordinal),
             "an occurrence payload or the outcome cursor the identity join reads has changed");
-        Require(telemetry.Contains("offer = s.Eligibility + \":\" + s.EligibilityReason", StringComparison.Ordinal) && telemetry.Contains("string offer = \"not-compared\"", StringComparison.Ordinal),
+        // The offer column's producer moved from the retired chooser's eligibility to the course's own
+        // three-valued census admission at schema 0.44.0, and this pin moved with it rather than being
+        // relaxed. What the eligibility check parses is unchanged — `<verdict>:<reason>` with
+        // `not-compared` for an activity nothing minted an opportunity for — so the two literals pinned
+        // here are the ones that decide that shape: the verdict ladder that writes the part before the
+        // colon, and the default that stands when no domain answered. This pin firing is what caught the
+        // change rather than a capture quietly failing to parse months later, which is the whole reason
+        // producer literals are pinned at all.
+        Require(telemetry.Contains("offer = verdict + \":\" + reason", StringComparison.Ordinal)
+                && telemetry.Contains("string offer = \"not-compared\"", StringComparison.Ordinal),
             "the offer column format the eligibility check parses has changed");
         Require(offers.Contains("NoOpportunity, PolicyForbidden, KnownUnusable, Unresolved, Usable, Deferred }", StringComparison.Ordinal),
             "the offer eligibility names have changed");

@@ -72,6 +72,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     }
     public override string Name => "combat";
     public override PurposeFamily Family => PurposeFamily.Combat;
+    public override string[] CourseDomains => new[] { CombatCourseFacts.Domain };
 
     /// <summary>An excursion when the offered plan's stand takes real travel; a fight from here is not.</summary>
     public override bool IsExcursion => OfferedPlan is { } plan

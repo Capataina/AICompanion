@@ -104,6 +104,21 @@ public abstract class CompanionAction
 
     public abstract string Name { get; }
     public abstract PurposeFamily Family { get; }
+
+    /// <summary>
+    /// Which course opportunity domains this activity performs, so the recorder can say what the course
+    /// thought each job was worth under the activity's own column names. Empty means the course mints no
+    /// opportunity for it — keeping company is the case, since an empty course *is* companionship rather
+    /// than a domain anybody discovers.
+    ///
+    /// It is declared here, beside the activity, rather than derived from the name or held in a table in
+    /// the recorder, because the two vocabularies genuinely differ and every difference is a decision:
+    /// combat's activity is `combat` while its domain is combat's own use domain, lighting's activity is
+    /// `place-torches` while its domain is `light-target`, and collection performs two domains rather than
+    /// one. `ExecuteCourseBinding` writes the same mapping in the other direction for the same reason, and
+    /// a third copy in the recorder would be the one that drifted.
+    /// </summary>
+    public virtual string[] CourseDomains => System.Array.Empty<string>();
     /// <summary>Optional excursions yield to regrouping; protection and survival opt out.</summary>
     public virtual bool IsExcursion => true;
 

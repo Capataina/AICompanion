@@ -24,6 +24,10 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
 {
     public override string Name => "collect";
     public override PurposeFamily Family => PurposeFamily.NearbyAssistance;
+    /// <summary>Two domains, because this activity performs two methods: a known drop and a pot whose
+    /// contents are unknown. The course prices them separately and the record shows the better of the two
+    /// under this activity's name, which is the same shape the offer already had.</summary>
+    public override string[] CourseDomains => new[] { CollectDomain, PotDomain };
 
     /// <summary>A drop chosen for collection: the item object and its type, where it lay when proven, the contact pose the
     /// companion walks to, the quantity the cargo can take, and what that quantity and walk are worth.</summary>

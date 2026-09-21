@@ -26,6 +26,7 @@ public sealed class MineOre : CompanionAction
 {
     public override string Name => "mine";
     public override PurposeFamily Family => PurposeFamily.Gathering;
+    public override string[] CourseDomains => new[] { "mine-target" };
     public override Vector2? ActivityTarget => preparedTarget;
     private Vector2? preparedTarget;
     private float preparedValue, preparedTrip;

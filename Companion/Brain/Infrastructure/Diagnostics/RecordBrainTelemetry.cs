@@ -113,7 +113,18 @@ public sealed class BrainTelemetry : ModSystem
     // The identity advances on a changed settled decision rather than per tick, because a course is
     // carried until its next use stops validating and a held choice outliving its rescore is the design
     // rather than churn.
-    private const string Schema = "0.43.0";
+    // 0.44.0 moves three column families off the retired family chooser and onto the course, with no name
+    // and no index changing: `<activity>_raw` / `_fin` now carry what the best order that domain leads was
+    // worth, and `<activity>_offer` carries the course's own three-valued census admission. The schema
+    // moves because the *meaning* moved, which is the case this project's own reader guide says needs a
+    // witness rather than trust in a capture being new. What it fixes is not cosmetic: those columns had
+    // read the literal `0.00` and `not-compared` in every played session since `0bb2c8a` put the course on
+    // the tick and left `Chooser.LastScores` unfilled, and the three checks that grade a fight —
+    // `CheckTheFight`, `CheckThePlayersReference`, `CheckOffersAttemptsAndGrants` — take exactly those
+    // columns as their evidence, so all three were grading constants. `<activity>_time` stays at 1.000 and
+    // is documented at its site as constant by design, because the course has no per-activity time factor
+    // to report and inventing one would be the very substitution this bump exists to declare.
+    private const string Schema = "0.44.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -121,6 +132,42 @@ public sealed class BrainTelemetry : ModSystem
     /// apply them, then the raw value and the final, then the error, the offer and the method evidence. The method evidence
     /// is last because its text is free and may itself hold commas; readers take a factor by its name, never by position.
     /// </summary>
+    /// <summary>
+    /// What the course thought this activity's work was worth, under the activity's own column names.
+    ///
+    /// **These two columns read the course since schema 0.44.0, and read the retired family chooser
+    /// before it, which is why the schema moved for a pair of columns whose names did not.** From
+    /// `0bb2c8a` — the commit that put the course on the tick — until that schema, `Chooser.LastScores`
+    /// was never filled in a played session, so every `<activity>_raw` and `<activity>_fin` in every
+    /// capture was the literal `0.00`. That is not a cosmetic gap: `CheckTheFight` names `combat_raw` and
+    /// `combat_fin` in its `Needs` and `CheckThePlayersReference` reads four of these columns, so the two
+    /// checks that grade a fight were grading constants, and a reader comparing a course capture against
+    /// a pre-`0bb2c8a` one would have read the brain as having stopped valuing anything at all.
+    ///
+    /// The quantity genuinely changed with the brain and the schema is the witness for that: the chooser
+    /// scored each activity independently every tick, where the course scores whole orders and reports the
+    /// best order each domain leads. So `raw` is that leader's nominal total and `fin` is what survives
+    /// its harm and companionship terms — the same two questions the old pair answered, computed by a
+    /// different procedure. An activity performing more than one domain reports its best, which is what
+    /// the offer column beside it already did across collection's two methods.
+    ///
+    /// Zero for an activity the course minted no opportunity for is honest rather than missing: keeping
+    /// company declares no domain at all, because an empty course *is* companionship.
+    /// </summary>
+    private static (float Raw, float Final) CourseWorthOf(Brain brain, Activities.CompanionAction action)
+    {
+        float raw = 0f, fin = 0f;
+        foreach (string domain in action.CourseDomains)
+            if (brain.Course.LastLeaders.TryGetValue(domain, out var leader))
+            {
+                float nominal = (float)leader.Total.Nominal;
+                if (nominal <= raw && raw != 0f) continue;
+                raw = nominal;
+                fin = (float)(leader.UsefulEffects - leader.Harm - leader.Companionship);
+            }
+        return (raw, fin);
+    }
+
     public static string FactorList(in Selection.Chooser.Scored score)
         => FormattableString.Invariant(
             $"protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},time:{score.Time:0.000},player-fit:{score.PlayerFit:0.000},order:{score.Order:0.000},raw:{score.Raw:0.000},final:{score.Final:0.000},")
@@ -857,9 +904,7 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(brain.Reflexes.Active ?? "-");
         foreach (var a in brain.Chooser.Actions)
         {
-            float raw = 0f, fin = 0f;
-            foreach (var s in brain.Chooser.LastScores)
-                if (ReferenceEquals(s.Action, a)) { raw = s.Raw; fin = s.Final; break; }
+            (float raw, float fin) = CourseWorthOf(brain, a);
             sb.Append('\t').Append(raw.ToString("0.00")).Append('\t').Append(fin.ToString("0.00"));
         }
 
@@ -1085,13 +1130,32 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(attempt?.ProductiveEffects ?? -1)
             .Append('\t').Append(attempt?.StartTick.ToString(CultureInfo.InvariantCulture) ?? "-1")
             .Append('\t').Append(attempt?.EndTick.ToString(CultureInfo.InvariantCulture) ?? "-1");
-        // The retained board's classification, keyed like the raw/final pairs; an activity absent
-        // from the latest comparison says so rather than borrowing an eligibility it never received.
+        // The course's own admission, keyed like the raw/final pairs. Since schema 0.44.0 this reads the
+        // three-valued census admission rather than the retired chooser's eligibility, for the reason
+        // `CourseWorthOf` gives: the chooser's board has not been filled in a played session since
+        // `0bb2c8a`, so every one of these columns read the literal `not-compared`, and
+        // `CheckOffersAttemptsAndGrants` — whose whole subject is this column — was reading that.
+        //
+        // The vocabulary is deliberately the course's three values rather than a translation into the old
+        // eligibility enum. A translation would have to invent which `OfferEligibility` a partly-usable
+        // census corresponds to, and the distinction the course actually draws is the one the offer
+        // vocabulary was reaching for anyway: usable, not yet known, proven unusable. `not-compared`
+        // survives for an activity the course mints no domain for, which is its original meaning.
         foreach (var a in brain.Chooser.Actions)
         {
             string offer = "not-compared";
-            foreach (var s in brain.Chooser.LastScores)
-                if (ReferenceEquals(s.Action, a)) { offer = s.Eligibility + ":" + s.EligibilityReason; break; }
+            foreach (string domain in a.CourseDomains)
+                foreach (var admitted in brain.Course.Admitted)
+                    if (StringComparer.Ordinal.Equals(admitted.Domain, domain))
+                    {
+                        string reason = admitted.Reason.Length == 0 ? "-" : admitted.Reason;
+                        string verdict = admitted.Usable > 0 ? "Usable"
+                            : admitted.Unresolved > 0 ? "Unresolved"
+                            : admitted.Unusable > 0 ? "KnownUnusable" : "NoOpportunity";
+                        // The better of two domains wins, the way collection's two methods always did:
+                        // a usable drop is not hidden by an unusable pot.
+                        if (offer == "not-compared" || verdict == "Usable") offer = verdict + ":" + reason;
+                    }
             sb.Append('\t').Append(offer);
         }
         // Retained from the last completed comparison, like the score board; -1 before any.
@@ -1191,14 +1255,20 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(intent.Pull(companion.NPC.Bottom).ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(brain.Chooser.LastTaskOrder.Length == 0 ? "-" : brain.Chooser.LastTaskOrder)
             .Append('\t').Append(brain.Chooser.LastTaskOrderRunnerUp.Length == 0 ? "-" : brain.Chooser.LastTaskOrderRunnerUp);
-        // Lane A, schema 0.35.0: the time factor each activity's final carried, one where the activity was not compared.
-        foreach (var a in brain.Chooser.Actions)
-        {
-            float time = 1f;
-            foreach (var s in brain.Chooser.LastScores)
-                if (ReferenceEquals(s.Action, a)) { time = s.Time; break; }
-            sb.Append('\t').Append(time.ToString("0.000", CultureInfo.InvariantCulture));
-        }
+        // Lane A, schema 0.35.0: the time factor each activity's final carried.
+        //
+        // **This one is constant at 1.000 under the course, by design rather than by the accident that
+        // froze its neighbours, and it is kept rather than repointed or deleted.** It was the family
+        // chooser's per-activity time discount — `window / (window + ticks until done)` — and the course
+        // has no such multiplier to offer: its time cost is inside an order's own projection, charged as
+        // the harm and companionship a longer order accumulates, so there is no per-activity number to
+        // read. Filling it with the nearest-looking course term would put a different quantity under a
+        // name readers already know, which is the failure the raw/fin pair's schema bump exists to avoid.
+        // `CheckThePlayersReference` reads it among four columns and a constant one is honest there.
+        // It is not deleted because that would take the column's index with it, and the two checks that
+        // read this block address columns by name only because the names have never moved.
+        foreach (var _ in brain.Chooser.Actions)
+            sb.Append('\t').Append(1f.ToString("0.000", CultureInfo.InvariantCulture));
         // Each funnel's furthest candidate's refusing stage, and the funnel as an occurrence when its outcome changed.
         foreach (var a in brain.Chooser.Actions)
             if (a is Activities.ICandidateFunnelSource source)
