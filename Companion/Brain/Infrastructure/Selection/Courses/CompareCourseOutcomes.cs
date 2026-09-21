@@ -79,10 +79,25 @@ public sealed class CourseComparisonEpisode
     /// owns *a threat that keeps hitting*. Where a course does kill the threat inside the horizon the
     /// forecast carries it properly and this multiplier is not what decides — the truncation is.
     ///
-    /// **Delete this when contact harm models repeated hits**, which needs the successor model the harm
-    /// forecast names: native immunity windows, knockback displacement and the hit hooks. Until then a
-    /// scene where urgency and sustained predicted harm disagree is a scene this term gets wrong, and
-    /// that is its failure case.
+    /// **Delete this when a course's own kill truncates the harm it prevents inside the forecast's
+    /// horizon.** The condition used to name repeated hits, and that model was built on 21 September
+    /// 2026 — the immunity window is in `ForecastContactHarm` and the harm term does discriminate now,
+    /// where it was pinned identical on every course before. It is still not what decides the behaviour,
+    /// measured single-variable on `danger lifts combat over work` that evening: with the urgency half
+    /// of this term removed and the encounter half left standing, combat takes **0 of 120 ticks**
+    /// against **109 of 120** with it.
+    ///
+    /// The numbers say where the gap moved to rather than that it closed. Idling reads a harm of 0.6184
+    /// where any course that moves the body reads 0.9082, so repeated hits are being priced; but combat
+    /// and mining read 0.9082 *as each other*, to four decimals, which means the player is hit the same
+    /// number of times whether the companion fights the zombie or mines beside it. A course's predicted
+    /// kill never lands inside the horizon on that scene, so the truncation that would pay for defending
+    /// never fires and combat's entire advantage is a useful-effects margin of 0.0067.
+    ///
+    /// So the failure case has changed with the condition: this term is wrong wherever urgency and a
+    /// *truncated* harm forecast disagree, and the thing to investigate is the kill rather than the hits
+    /// — whether the horizon is shorter than the time to kill, whether a partial kill should contribute
+    /// at all, or whether the fixture's companion is simply under-armed. `AIC-439` carries the table.
     ///
     /// The shape is the chooser's own rather than a new invention: danger suppresses *work* rather than
     /// inflating combat, so a non-combat need pays <c>1 − urgency</c> and a hostile's life pays in full.
