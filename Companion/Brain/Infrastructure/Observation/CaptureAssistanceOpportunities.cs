@@ -176,6 +176,13 @@ public sealed class CaptureAssistanceOpportunities
     private void CapturePots(Senses senses, Activities.ActionContext context, List<DecisionFact> facts)
     {
         Point centre = context.Npc.Center.ToTileCoordinates();
+        Rectangle scanned = new(centre.X - 18, centre.Y - 14, 37, 29);
+        // The scan sweeps its whole window with no cursor and no borrowed allowance, so unlike the
+        // drop census it cannot stop part-way and its coverage is observed rather than unresolved.
+        // Without this fact DiscoverAssistanceOpportunities("pot-target") reads pot-coverage as
+        // Missing, never reports an exhausted census, and — by the rule that optional work does not
+        // start on an unanswered search — no pot is ever broken.
+        facts.Add(Coverage("pot-coverage", scanned));
         for (int x = centre.X - 18; x <= centre.X + 18; x++)
             for (int y = centre.Y - 14; y <= centre.Y + 14; y++)
             {
@@ -206,6 +213,11 @@ public sealed class CaptureAssistanceOpportunities
         Rectangle area = new(heading.X - work, heading.Y - work, 2 * work + 1, 2 * work + 1);
         LightSense.Coverage coverage = LightSense.Coverage.Current();
         if (!coverage.Legacy) area = Rectangle.Intersect(area, coverage.Area);
+        // Same contract as the pot scan: the whole area is swept, so the census is complete for the
+        // area it names. The area itself is already clipped to what the engine has actually lit, so a
+        // tile outside it is absent from the census rather than claimed dark — which is the light
+        // sense's own three-valued rule surviving into the captured facts.
+        facts.Add(Coverage("light-coverage", area));
         for (int x = area.Left; x < area.Right; x++)
             for (int y = area.Top; y < area.Bottom; y++)
             {
@@ -222,6 +234,19 @@ public sealed class CaptureAssistanceOpportunities
                     reading.IsDark ? 1 : 0, reading.IsDark ? 1 : 0, admission, reason, $"light={reading.Light};brightness={reading.Brightness:R};coverage={coverage.Area}");
                 facts.Add(Fact("light-target", value.Target, 0, value));
             }
+    }
+
+    /// <summary>The census-completeness fact a discovery source reads before it may call its own
+    /// enumeration exhausted. It carries the swept area so a reader can tell which world a complete
+    /// answer is complete about, and it is versioned by that text so an unchanged window keeps one
+    /// version across observations rather than dirtying every dependent estimate each tick.</summary>
+    private DecisionFact Coverage(string kind, Rectangle scanned)
+    {
+        var key = new FactKey(kind, "native-census");
+        string text = $"exhaustive;area={scanned.Left},{scanned.Top}:{scanned.Width}x{scanned.Height}";
+        long current = factVersions.TryGetValue(key, out var prior) && prior.Text == text ? prior.Version : ++version;
+        factVersions[key] = (text, current);
+        return new(key, current, new FactValue(Text: text), FactEvidence.Observed);
     }
 
     private DecisionFact Fact(string kind, string identity, long generation, AssistanceOpportunityFact value)

@@ -29,8 +29,48 @@ internal static class VerifyAssistanceOpportunityDiscovery
         Row("G08 replacement generation is a new opportunity", ReplacementDoesNotReuseIdentity());
         Row("G02 immutable capture ignores later caller mutation", CaptureIsImmutable());
         Row("G08 native drop census survives slicing and live item mutation", NativeDropCensus());
+        Row("G03 every assistance domain's real capture feeds its own discovery", CaptureFeedsDiscovery());
         return red;
     }
+
+    /// <summary>
+    /// The seam, driven end to end: the real native capture produces the facts, and the three real
+    /// sources read them. Every other row in this file hands a source facts written by hand, which is
+    /// right for testing the source and is exactly why this gap survived — each half was correct
+    /// against a fixture and the two halves did not agree with each other.
+    ///
+    /// What they disagreed about: a source calls its census exhausted only when it reads a
+    /// `&lt;domain&gt;-coverage` fact as Observed, and the capture emitted that fact for drops alone. Light
+    /// and pot sites were published with no coverage, so their census could never read complete, and
+    /// by this tree's rule that optional work does not start on an unanswered search, a wired brain
+    /// would never have placed a torch or broken a pot. Nothing caught it because nothing ran both
+    /// halves together until the live tick was being wired.
+    ///
+    /// The row asserts exhaustion rather than a site count on purpose. An empty floor has no drops,
+    /// no pots and no dark tiles, so the counts are legitimately zero and only the coverage answer
+    /// distinguishes "looked and found nothing" from "never finished looking" — which is the whole
+    /// three-valued rule this codebase keeps everywhere else.
+    /// </summary>
+    private static Action CaptureFeedsDiscovery() => () =>
+    {
+        var ctx = VerifyCollectionContracts.SetUpFloor();
+        ctx.Senses.Loot.Pickups.Clear();
+        var capture = new CaptureAssistanceOpportunities();
+        IReadOnlyList<DecisionFact> captured = capture.Capture(ctx.Senses, ctx);
+        var facts = new DecisionFactSnapshot(91, 1, ctx.Senses.Tick, 1, 0, captured);
+
+        foreach (string domain in new[] { "collect-target", "light-target", "pot-target" })
+        {
+            string coverage = domain.Replace("-target", "-coverage", StringComparison.Ordinal);
+            Require(facts.TryRead(new FactKey(coverage, "native-census"), out DecisionFact fact)
+                && fact.Evidence == FactEvidence.Observed,
+                $"the real capture published no observed {coverage}, so {domain} discovery can never report a finished census");
+            var slice = new DiscoverAssistanceOpportunities(domain)
+                .Continue(facts, new DecisionWorkCursor(), new(double.PositiveInfinity));
+            Require(slice.Coverage.Exhausted,
+                $"{domain} discovery read the real capture and still could not call its census exhausted");
+        }
+    };
 
     private static Action AllCapturedSitesAppear() => () =>
     {
