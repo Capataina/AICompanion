@@ -60,13 +60,30 @@ public sealed class AssembleCourseSnapshot
         facts.AddRange(CombatCourseFacts.Capture(context, combat, search));
         facts.Add(CaptureCompanionshipInputs.Capture(context, ordinal));
         facts.Add(CaptureCourseContactCensus.Capture(budget).ToFact(ordinal));
+        // Both victims, because harm is priced for the companion and for the player and neither can be
+        // forecast without its own captured defence, life and immunity channels. A victim that could not
+        // be captured under this tick's allowance is simply absent, which the harm forecast reads as an
+        // unresolved actor rather than an actor who cannot be hurt.
+        if (CaptureContactVictim.Capture(context.Npc, budget) is { } companion) facts.Add(companion.ToFact(ordinal));
+        if (CaptureContactVictim.Capture(context.Player, budget) is { } player) facts.Add(player.ToFact(ordinal));
 
         // The five identity fields are compared in full by IsModelExtensionOf, which is how a derived
         // query that finishes after the freeze is admitted without letting it change the world the
         // decision was made about. The id rises per observation; the tick, epoch and watermark are the
         // world's own, so a snapshot cannot claim to extend one taken in a different world or frame.
+        //
+        // The tick is the engine's own frame counter and deliberately not `Senses.Tick`, which is a
+        // per-companion counter that starts at zero on every spawn. Three components downstream already
+        // stamp `Main.GameUpdateCount` — the contact census, both victim captures and the model
+        // scheduler's own observation tick — and `RetainCourseModelQueries` refuses a snapshot whose tick
+        // disagrees with the census inside it. That refusal reads the census tick alone rather than its
+        // contents, so stamping the sense's counter here made *every* assembled snapshot throw the moment
+        // the coordinator built its model owner, empty world included, and nothing could catch it: this
+        // assembler's fixture never handed a snapshot to that owner, and the owner's fixtures all
+        // hand-built snapshots of their own. The guard for it now lives in
+        // `Tools/EngineReplay/Observation/VerifyCourseSnapshotAssembly.cs`, which crosses that seam.
         Current = new DecisionFactSnapshot(++id, CollectNativeEffectReceipts.WorldEpoch,
-            context.Senses.Tick, ordinal, CollectNativeEffectReceipts.Watermark, facts);
+            (long)Terraria.Main.GameUpdateCount, ordinal, CollectNativeEffectReceipts.Watermark, facts);
         return Current;
     }
 

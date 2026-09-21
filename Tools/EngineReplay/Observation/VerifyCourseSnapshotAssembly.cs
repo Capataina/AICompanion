@@ -29,7 +29,35 @@ internal static class VerifyCourseSnapshotAssembly
         Row("G01 one snapshot carries every domain's census", EveryDomainAppears);
         Row("G01 each tick is a new observation, not an extension of the last", EachTickIsItsOwnObservation);
         Row("G01 a world reset ends the snapshot sequence", ResetEndsTheSequence);
+        Row("G01 an assembled snapshot is accepted by the model owner that has to consume it", TheModelOwnerAcceptsIt);
         return red;
+    }
+
+    /// <summary>
+    /// The seam nobody was standing on, and the class of defect this repository has now produced four
+    /// times: two halves of one boundary, each only ever tested against a hand-written stand-in for the
+    /// other, agreeing with their fixtures and not with each other.
+    ///
+    /// `RetainCourseModelQueries` is the consumer of an assembled snapshot in the wired brain, and it
+    /// refuses one whose own tick disagrees with the contact census inside it — a census from one frame
+    /// indexed under another frame's observation being exactly the mixed-observation defect the freeze
+    /// exists to stop. This assembler stamped `Senses.Tick`, a per-companion counter starting at zero on
+    /// every spawn, while the census, both victim captures and the model scheduler all stamp
+    /// `Main.GameUpdateCount`. So the first live snapshot holding any hostile would have thrown the
+    /// moment the coordinator built its model owner, and no existing row could see it: the owner's own
+    /// fixtures all hand-build their snapshots, and this file had never handed one to the owner.
+    ///
+    /// The row deliberately constructs the owner rather than asserting the tick's value. A row reading
+    /// `snapshot.Tick == Main.GameUpdateCount` would be this file agreeing with itself about a
+    /// convention; constructing the consumer is the only form that fails when the two sides drift again.
+    /// </summary>
+    private static void TheModelOwnerAcceptsIt()
+    {
+        var ctx = VerifyCollectionContracts.SetUpFloor();
+        DecisionFactSnapshot snapshot = Fresh().Capture(ctx, ctx.Companion.Combat, null, new(double.PositiveInfinity));
+        Require(snapshot.TryRead(CapturedContactCensus.Key, out _),
+            "the assembled snapshot carries no contact census, so this row would pass on a snapshot the owner never checks");
+        _ = new RetainCourseModelQueries(snapshot, live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World, 1, 4);
     }
 
     private static AssembleCourseSnapshot Fresh() => new();
@@ -74,8 +102,13 @@ internal static class VerifyCourseSnapshotAssembly
 
         Require(snapshot.Facts.Count == snapshot.Facts.Select(f => f.Key).Distinct().Count(),
             "two captures published the same fact key into one observation");
-        Require(snapshot.Tick == ctx.Senses.Tick,
-            $"the snapshot's clock is not the tick it observed; snapshot={snapshot.Tick} senses={ctx.Senses.Tick}");
+        // The engine's frame counter, not `Senses.Tick`, which restarts at zero on every companion spawn
+        // and is therefore not a clock anything outside the brain can be compared against. Every capture
+        // inside this snapshot stamps the engine's counter, so a snapshot stamping a different one is a
+        // frozen observation whose parts disagree about which frame they came from. `TheModelOwnerAcceptsIt`
+        // is what actually fails when the two drift; this line only states which clock is the right one.
+        Require(snapshot.Tick == (long)Terraria.Main.GameUpdateCount,
+            $"the snapshot's clock is not the frame its captures observed; snapshot={snapshot.Tick} frame={Terraria.Main.GameUpdateCount}");
     }
 
     /// <summary>
