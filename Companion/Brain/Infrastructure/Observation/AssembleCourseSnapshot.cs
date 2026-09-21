@@ -70,8 +70,16 @@ public sealed class AssembleCourseSnapshot
         return Current;
     }
 
-    /// <summary>A world reload must not leave a capture holding the previous world's sites, and must
-    /// not let the next snapshot id look like a continuation of the old world's sequence.</summary>
+    /// <summary>
+    /// A world reload must not leave a capture holding the previous world's sites.
+    ///
+    /// The id restarts at zero, and it is worth being exact about what that does and does not buy: it
+    /// makes the new world replay ids 1, 2, 3 — the *same* ids the old world used — so it cannot be what
+    /// stops a snapshot claiming to extend one from a previous world. `WorldEpoch` is what does that,
+    /// because <see cref="DecisionFactSnapshot.IsModelExtensionOf"/> compares it alongside the id. An
+    /// earlier comment here claimed the reset was the guard, which would have misled anyone who later
+    /// relied on ids alone being unique across worlds. They are not.
+    /// </summary>
     public void ResetWorld()
     {
         assistance.ResetWorld();

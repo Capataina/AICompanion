@@ -9,7 +9,9 @@ DecisionMaking/
 ├─ VerifyProjectionContracts.cs causal effect reads, resource phases, fair discovery and receipt retirement
 ├─ VerifyCourseOrderProjection.cs one-operation cuts, completed-query extensions, empty-order cost handoff, frozen-input guards and shared region-curve equivalence
 ├─ VerifyCompanionshipForecast.cs region integration, subdivision invariance, whole-course suspension and captured arrival evidence
-└─ VerifyCourseTravelScheduling.cs native query fairness, model-catalogue completion, deferred terrain edits, capacity and reset
+├─ VerifyCourseTravelScheduling.cs native query fairness, model-catalogue completion, deferred terrain edits, capacity and reset
+├─ VerifyNativeConsequencePricing.cs the native provider's honesty: travel suspended and forwarded, harm never proven absent, each order priced from its own start
+└─ VerifyCourseBindingExecution.cs a bound step's activity and position request, and every source having a binder at all
 ```
 
 Run from the repository root with `dotnet run --project Tools/EngineReplay -p:UseAppHost=false -- --retained-course-core`. Each row states the relevant plan gate, but a row covering a core seam does not complete that gate's native scene. Generated native event sequences, matched reactive/exact comparison, model fidelity and exact snapshot replay remain distinct obligations of the full plan.

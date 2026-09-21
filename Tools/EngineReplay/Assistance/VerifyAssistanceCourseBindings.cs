@@ -33,6 +33,7 @@ internal static class VerifyAssistanceCourseBindings
         Row("G03 missing travel is a pending request, not a refusal", MissingTravelIsPending);
         Row("G03 a hand is reserved for a use and not for a pickup", HandIsReservedOnlyForAUse);
         Row("G03 a moved drop retires its application, not its opportunity", MovedDropRetiresTheApplication);
+        Row("G03 a changed torch item retires the binding that named the old one", ChangedTorchItemRetiresTheBinding);
         return red;
     }
 
@@ -132,6 +133,27 @@ internal static class VerifyAssistanceCourseBindings
             "an unchanged drop did not retain its binding");
         Require(!gate.ValidateNextUse(binding, Snapshot(original with { X = 200 })).CanUse,
             "a drop that rolled kept a binding pointing at where it used to be");
+    }
+
+    /// <summary>
+    /// The tool a binding names must be able to change, or naming it proves nothing.
+    ///
+    /// `ValidateNextUse` compares `binding.Tool` against the site's current tool. That comparison was
+    /// unable to fail while `Tool()` returned a bare per-domain constant — the constant is implied by
+    /// the domain equality checked two terms earlier, so deleting the whole comparison left every row
+    /// green. A torch is the assistance case where the tool genuinely varies, because the item type
+    /// decides what gets placed, so the binding names it and a swap retires the application.
+    /// </summary>
+    private static void ChangedTorchItemRetiresTheBinding()
+    {
+        AssistanceOpportunityFact original = Site("light-target", "tile:5,6") with { ItemType = 8 };
+        StepBinding binding = Bind(Snapshot(original), "light-target").Binding
+            ?? throw new InvalidOperationException("the torch scene did not bind at all");
+        var gate = new BindOpportunity(new[] { new AssistanceOpportunityBinder("light-target") });
+        Require(gate.ValidateNextUse(binding, Snapshot(original)).CanUse,
+            "an unchanged torch did not retain its binding");
+        Require(!gate.ValidateNextUse(binding, Snapshot(original with { ItemType = 974 })).CanUse,
+            "a binding that named one torch item stayed valid against a different one, so the tool it names is decoration");
     }
 
     private static void Require(bool condition, string message)

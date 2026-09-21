@@ -13,6 +13,8 @@ Observation/
 ├─ VerifyTravelEpisodes.cs            a journey recorded against the ticks the body could travel
 ├─ VerifyIntentRegionHoldsThePlayer.cs the region's ruled shape on every distance mode, and a recorded player inside it on every row
 ├─ VerifyWayToPlayerIsAnsweredInThreeValues.cs the way to the player resumed until answered, never read as proven before, and its cost under production allowances
+├─ VerifyCourseSnapshotAssembly.cs    one frozen observation per tick, every domain's census in it, and each tick its own
+├─ VerifyRetainedCourseObservation.cs native course receipts, observation order and intent regions
 ├─ RecordEvidenceScenes.cs            four stalls driven through the real recorder, captures kept
 ├─ MeasureBrainCost.cs                per-phase timings, and the recording-invariance proof
 └─ GodsEyeTestStubs.cs                test-local telemetry and mod stubs for the writer

@@ -95,22 +95,39 @@ public sealed class AssistanceOpportunityBinder : IOpportunityBinder
 
         double arrival = state.Tick + travel.Ticks;
         double completedAt = UsesHand ? arrival + 1 : arrival;
-        double amount = Math.Min(Math.Max(0, site.Amount), state.Remaining(need));
-        if (amount <= 0) return new(null, OpportunityAdmission.KnownUnusable, "assistance-nothing-left", false);
 
-        // The site after this step: satisfied, and no longer offering what it just gave.
+        // Two different amounts, and conflating them is how the successor starts lying.
+        //
+        // `physical` is what the native mechanism actually does: a pot breaks, a torch is placed, a drop
+        // is taken whole. `credited` is what this course may still be rewarded for, which the reward
+        // allocation caps. Gathering's binder keeps these apart and says why in its own comment — the
+        // native mechanism applies its whole hit and CompareCourseOutcomes caps the credit — and the
+        // first version here did not: it computed the credited amount and then derived the *physical*
+        // successor from it, so a site whose credit ran short would be projected as still offering
+        // something the native mechanism will not leave. For a pot or a torch, which are atomic, that
+        // successor is wrong by construction rather than merely imprecise.
+        double physical = Math.Max(0, site.Amount);
+        double credited = Math.Min(physical, state.Remaining(need));
+        if (physical <= 0) return new(null, OpportunityAdmission.KnownUnusable, "assistance-nothing-left", false);
+        if (credited <= 0) return new(null, OpportunityAdmission.KnownUnusable, "assistance-already-projected", false);
+
+        // The site after this step, derived from what the mechanism does rather than from what the
+        // course may claim for it.
+        double remaining = Math.Max(0, site.Amount - physical);
         var after = site with
         {
-            Amount = Math.Max(0, site.Amount - amount),
-            Admission = site.Amount - amount <= 0 ? "unusable" : site.Admission,
-            Reason = site.Amount - amount <= 0 ? "projected-assistance-completed" : site.Reason,
+            Amount = remaining,
+            Admission = remaining <= 0 ? "unusable" : site.Admission,
+            Reason = remaining <= 0 ? "projected-assistance-completed" : site.Reason,
         };
 
         long bindingId = CourseIdentity.Next();
         DependencyManifest dependencies = facts.Manifest();
         long[] parents = state.ReadEffects.ToArray();
         bool immediateTravel = travel.Ticks == 0 && travel.From == travel.To;
-        var effect = new PredictedEffect(CourseIdentity.Next(), needKey, amount, completedAt, completedAt,
+        // The effect carries the credited amount, because that is what this course may be rewarded for;
+        // the delta above carries the physical one, because that is what the world will look like.
+        var effect = new PredictedEffect(CourseIdentity.Next(), needKey, credited, completedAt, completedAt,
             immediateTravel ? completedAt : double.PositiveInfinity,
             immediateTravel ? EstimateStatus.ModelBound : EstimateStatus.Nominal, parents.Append(bindingId),
             new[] { new EffectDelta(targetKey, new(Amount: after.Amount, Text: JsonSerializer.Serialize(after))) },
@@ -150,13 +167,22 @@ public sealed class AssistanceOpportunityBinder : IOpportunityBinder
             same ? "assistance-binding-retained" : "assistance-application-changed", !same);
     }
 
-    /// <summary>What the hand holds for this step. A drop needs nothing; a torch and a pot are named by
-    /// their domain rather than by an item, because the companion's own mechanism performs them and the
-    /// supply is checked live at use time rather than reserved here.</summary>
+    /// <summary>
+    /// What the hand holds for this step, named so that a change to it can retire a binding.
+    ///
+    /// The first version returned a bare per-domain constant, which made the tool comparison in
+    /// <see cref="ValidateNextUse"/> unable to fail: the constant is implied by the domain equality
+    /// checked two terms earlier, so deleting the comparison changed no row. Gathering's equivalent
+    /// carries the pickaxe's type, prefix, power and use time, so swapping a copper pick for a gold one
+    /// retires the binding — and that is what a re-validation is for. A torch is the assistance case
+    /// where the same thing can happen, since the item type decides what is placed, so it is named here.
+    /// A drop needs no tool and says so; a pot is broken by the companion's own mechanism with no item
+    /// behind it, so its name is the mechanism.
+    /// </summary>
     private string Tool(AssistanceOpportunityFact site) => Domain switch
     {
         "collect-target" => "",
-        "light-target" => "torch",
+        "light-target" => $"torch:{site.ItemType}:{site.Prefix}",
         _ => "pot-breaker",
     };
 
