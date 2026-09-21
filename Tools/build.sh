@@ -93,10 +93,21 @@ while [ $# -gt 0 ]; do
     -h|--help) usage; exit 0 ;;
     -*) echo "build: unknown option $1" >&2; usage >&2; exit 2 ;;
     all) targets="$targets mod $(tool_slugs | tr '\n' ' ')"; shift ;;
-    *) targets="$targets $1"; shift ;;
+    *)
+      # An empty or whitespace-only argument is refused rather than ignored. Appending it leaves
+      # `targets` non-empty but wordless, so the default below does not fire and the build loop
+      # iterates zero times — nothing built, nothing printed, exit 0, which is the silence this
+      # repository refuses everywhere else. A caller who wants the default passes no argument.
+      if [ -z "$(printf '%s' "$1" | tr -d '[:space:]')" ]; then
+        echo "build: empty target name; pass no argument for the mod, or a target name" >&2
+        usage >&2
+        exit 2
+      fi
+      targets="$targets $1"; shift ;;
   esac
 done
-[ -z "$targets" ] && targets="mod"
+# Counted in words rather than characters, so a value that is whitespace cannot read as a request.
+[ "$(printf '%s' "$targets" | wc -w | tr -d ' ')" -eq 0 ] && targets="mod"
 
 # Every requested target is resolved before any of them is built, so an unknown name costs nothing
 # and is reported before a five-minute build rather than after it.

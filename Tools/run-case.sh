@@ -12,11 +12,20 @@
 #
 # Three things it does that the hand-typed line did not. It builds the instrument first and stops on
 # the compiler's errors rather than running a stale assembly — the repository's oldest trap, a
-# "Build succeeded" in two seconds over a DLL that never changed. It records nothing: no
-# AIC_LEDGER_RUN is opened, so the ledger store gains no file and the run cannot be mistaken later
-# for a scored one. And it refuses to be silent about a fragment that matched nothing, which is the
-# failure this suite is most careful about everywhere else: an unmatched filter prints no rows,
-# exits 0, and looks exactly like a case that passed.
+# "Build succeeded" in two seconds over a DLL that never changed. It leaves the ledger store
+# untouched: rows go to a temp file outside `Tools/Ledger/runs/`, which is the only directory
+# `CompareRunsAndScore` scans for baselines, so nothing this script writes can be resolved as one
+# however clean its header looks. And it refuses to be silent about a fragment that matched nothing,
+# which is the failure this suite is most careful about everywhere else: an unmatched filter prints
+# no rows, exits 0, and looks exactly like a case that passed.
+#
+# Those first two used to be in tension and the first version of this script lost to it. Opening no
+# run file at all kept the store cleaner still, and removed the only channel a passing row travels
+# on, because `EmitLedgerRows.Row` writes to the run file and returns without printing. Rows read
+# off stdout therefore reported ledger, nav-replay and session-report cases that ran and passed as
+# never having been asked. Reading the rows where the emitter already writes them gives an exact
+# count per verdict and keeps the isolation, because isolation was always about *where* the file is
+# rather than about whether one exists.
 #
 # What stays with the caller is which case to run and what its output means. Nothing here grades a
 # number, and a red case is reported rather than interpreted.
@@ -141,20 +150,34 @@ fi
 native="${AIC_TMODLOADER_NATIVE:-$HOME/Library/Application Support/Steam/steamapps/common/tModLoader/Libraries/Native/OSX}"
 
 out=$(mktemp)
-# AIC_LEDGER_RUN is cleared rather than merely left unset. The emitter writes a row only when that
-# variable names a file, and empty reads as null, so this records nothing — but a caller who already
-# exported one, or a shell left over from a verify run, would otherwise file one-case probe rows
-# into a real run, and a run file from a probe is a clean, unfiltered-looking record that the next
-# scoreboard would happily resolve as a baseline. Not inheriting is the property; unset by default
-# is only the usual case.
-DYLD_LIBRARY_PATH="$native" AIC_LEDGER_RUN= AIC_LEDGER_CASE="$name" \
+ledger=$(mktemp)
+# The run file is a temp path rather than an absent one, and that is a correction to how this script
+# first shipped. Clearing AIC_LEDGER_RUN did keep the store clean, but it also removed the only
+# channel a *passing* row can travel on: `EmitLedgerRows.Row` appends to the run file and returns
+# without printing, and Pass, Fail, Skipped and Measure all route through it. Only Detail, the
+# exception path and EngineReplay's own RunOneRow reach stdout at all, so on ledger, nav-replay and
+# session-report a case that ran and passed printed no row-shaped line, and a wrapper counting rows
+# off the terminal reported it as never having been asked. That is this repository's own
+# silence-reads-wrong defect — the one check-navigation-boundary.sh shipped once — firing in the
+# mirror direction, and a second pattern in the grep would not have closed it, because a row that is
+# never printed cannot be matched by any pattern.
+#
+# Writing rows where the emitter already writes them keeps both properties at once. Isolation is
+# preserved because CompareRunsAndScore resolves a baseline by scanning Tools/Ledger/runs/, so a
+# path under the system temp directory is unreachable as one however clean its header looks, and the
+# file is deleted below in any case. A caller who exported a real AIC_LEDGER_RUN is still refused,
+# because this assignment replaces theirs rather than merely hoping none is set.
+DYLD_LIBRARY_PATH="$native" AIC_LEDGER_RUN="$ledger" AIC_LEDGER_CASE="$name" \
   dotnet run --project "$project" --no-build $arguments >"$out" 2>&1
 run_status=$?
 
-# The leading-whitespace tolerance is not cosmetic: CombatAudit indents every row it prints by two
-# spaces, and an anchored pattern read its whole self-test as nothing having run.
-rows=$(grep -cE "^[[:space:]]*(GREEN|RED|PASS|FAIL|SKIP|row |measure )|failed:" "$out")
-failures=$(grep -cE "^[[:space:]]*(RED|FAIL)|failed:" "$out")
+# Counted from the rows themselves. A skipped row is a case the instrument declined by name, so the
+# rows that *ran* are the total less those — which is what separates "your fragment matched nothing"
+# from "everything matched and passed", a distinction the stdout stream could not carry.
+rows=$(grep -c '"kind":"row"' "$ledger" || :)
+skipped=$(grep -c '"verdict":"skipped"' "$ledger" || :)
+failures=$(grep -c '"verdict":"fail"' "$ledger" || :)
+ran=$((rows - skipped))
 
 # A clean run is compressed to its rows, because everything else an instrument prints on the way is
 # scene detail and the point of running one case is not to read it. A run that failed is not
@@ -165,29 +188,51 @@ failures=$(grep -cE "^[[:space:]]*(RED|FAIL)|failed:" "$out")
 if [ "$full" -eq 1 ] || [ "$failures" -gt 0 ] || [ "$run_status" -ne 0 ]; then
   cat "$out"
 else
-  grep -E "^[[:space:]]*(GREEN|RED|PASS|FAIL|SKIP|row |measure )|failed:|Exception" "$out"
+  # The stdout filter first, because an instrument that does narrate says it better than a row does.
+  # Where it yields nothing the rows themselves are printed, so an instrument that files without
+  # printing still shows its work instead of reporting a bare count.
+  narrated=$(grep -E "^[[:space:]]*(GREEN|RED|PASS|FAIL|SKIP|row |measure )|failed:|Exception" "$out" || :)
+  if [ -n "$narrated" ]; then
+    echo "$narrated"
+  else
+    sed -n 's/.*"case":"\([^"]*\)".*"verdict":"\([^"]*\)".*/  \2	\1/p' "$ledger" | grep -v '^  skipped	' || :
+  fi
 fi
-rm -f "$out"
+rm -f "$out" "$ledger"
 
-# Silence is the answer this script exists to refuse. A fragment nobody has in their tree selects no
-# case, prints nothing and exits 0, which on a terminal is indistinguishable from a case that ran
-# and passed — so it is exit 2, the code this repository keeps for a question that was never asked.
-if [ "$rows" -eq 0 ] && [ "$run_status" -eq 0 ]; then
-  echo "run-case: no case in $instrument matched \"$name\", so nothing was checked" >&2
+# combat-audit files its rows through EmitLedgerRows.Pass and .Fail directly, where only
+# EmitLedgerRows.Case consults the selection, so AIC_LEDGER_CASE reaches it and does nothing. Every
+# row runs whatever fragment is passed. Saying so on every run is the honest handling available from
+# a shell: the count below is its whole self-test rather than an answer about the named case, and a
+# reader who is not told that reads a green line as being about the thing they asked for.
+if [ "$instrument" = "combat-audit" ]; then
+  echo "run-case: combat-audit ignores the case fragment, so the rows below are its whole self-test" >&2
+fi
+
+# Silence is the answer this script exists to refuse, in both directions. A fragment nobody has in
+# their tree runs no case, which is exit 2 — the code this repository keeps for a question that was
+# never asked — and it is distinguished from a clean pass by the rows the instrument filed rather
+# than by what it happened to print.
+if [ "$ran" -eq 0 ] && [ "$run_status" -eq 0 ]; then
+  if [ "$instrument" = "combat-audit" ]; then
+    echo "run-case: combat-audit filed no row at all, which means the instrument is broken rather than that combat is fine" >&2
+  else
+    echo "run-case: no case in $instrument matched \"$name\", so nothing was checked ($skipped declined by name)" >&2
+  fi
   exit 2
 fi
 
 if [ "$failures" -gt 0 ] || [ "$run_status" -ne 0 ]; then
-  if [ "$rows" -eq 0 ]; then
+  if [ "$ran" -eq 0 ]; then
     # The instrument failed and filed nothing a reader can point at, which is the shape the ledger's
     # own `error` command exists for. Saying "0 rows" plainly is the whole of the report here: the
     # output above is all there is, and pretending to a count would be worse than admitting to none.
-    echo "run-case: \"$name\" through $instrument — exit $run_status, no row printed; the output above is everything it said"
+    echo "run-case: \"$name\" through $instrument — exit $run_status, no row filed; the output above is everything it said"
   else
-    echo "run-case: \"$name\" through $instrument — $rows row(s), $failures reporting a failure, exit $run_status"
+    echo "run-case: \"$name\" through $instrument — $ran row(s), $failures reporting a failure, exit $run_status"
   fi
   exit 1
 fi
 
-echo "run-case: \"$name\" through $instrument — $rows row(s), nothing red"
+echo "run-case: \"$name\" through $instrument — $ran row(s), nothing red"
 exit 0
