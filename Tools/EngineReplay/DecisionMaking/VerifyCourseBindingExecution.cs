@@ -113,11 +113,28 @@ internal static class VerifyCourseBindingExecution
         Require(fire.Kind == RequestKind.FireFrom,
             $"a firing stand asked for {fire.Kind}, which routes around the combat stance's own admission and its rock fallback");
 
-        PositionRequest ore = ExecuteCourseBinding.RequestFor(Binding("mine", 320, 160));
-        Require(ore.Kind == RequestKind.Exact && ore.WorkTile == new Microsoft.Xna.Framework.Point(20, 10),
-            $"tile work lost its work tile, so the positioner cannot apply the tool-reach proof that admitted the pose; kind={ore.Kind} tile={ore.WorkTile}");
+        // The pose here is 320,160, whose own tile is 20,10 — deliberately a different point from the
+        // tile the opportunity names, because that difference is the whole row. The work tile used to be
+        // derived from the pose, which is a hover *beside* the work and therefore in air; a row asserting
+        // 20,10 was asserting the defect. Both minted shapes are read, so a parser that handles the
+        // gathering form and drops the light form cannot pass here.
+        PositionRequest ore = ExecuteCourseBinding.RequestFor(Binding("mine", 320, 160, "tile:copper:25,59"));
+        Require(ore.Kind == RequestKind.Exact && ore.WorkTile == new Microsoft.Xna.Framework.Point(25, 59),
+            $"tile work named the wrong tile, so the positioner applies its tool-reach proof to a place the hand never acts on; kind={ore.Kind} tile={ore.WorkTile}");
+        Require(ore.WorkTile != new Microsoft.Xna.Framework.Point(20, 10),
+            "the work tile is the body's own pose tile again, which is air beside the work rather than the work");
 
-        PositionRequest drop = ExecuteCourseBinding.RequestFor(Binding("collect", 320, 160));
+        PositionRequest lit = ExecuteCourseBinding.RequestFor(Binding("light", 320, 160, "tile:7,3"));
+        Require(lit.WorkTile == new Microsoft.Xna.Framework.Point(7, 3),
+            $"a torch site minted as 'tile:x,y' lost its tile, so only the gathering shape is actually parsed; tile={lit.WorkTile}");
+
+        bool refusedNameless = false;
+        try { ExecuteCourseBinding.RequestFor(Binding("mine", 320, 160, "target")); }
+        catch (ArgumentOutOfRangeException) { refusedNameless = true; }
+        Require(refusedNameless,
+            "a tile-work opportunity whose target names no tile was given one anyway, which is the silently-wrong work tile this replaced");
+
+        PositionRequest drop = ExecuteCourseBinding.RequestFor(Binding("collect", 320, 160, "item:3"));
         Require(drop.Kind == RequestKind.Exact && drop.WorkTile == null,
             "a drop is taken by contact and named a work tile, which would ask for a tool-reach proof nothing needs");
 
@@ -133,8 +150,8 @@ internal static class VerifyCourseBindingExecution
         Require(refused, "an unmapped purpose was silently given an executor, so a new domain would inherit somebody else's activity");
     }
 
-    private static StepBinding Binding(string purpose, double x, double y)
-        => new(1, new OpportunityKey("fixture-domain", purpose, "target", 0), "method", new CoursePoint(x, y),
+    private static StepBinding Binding(string purpose, double x, double y, string target = "target")
+        => new(1, new OpportunityKey("fixture-domain", purpose, target, 0), "method", new CoursePoint(x, y),
             "tool", 1, 1, 0, 0, 0, Array.Empty<ResourcePhase>(), Array.Empty<PredictedEffect>(),
             Array.Empty<long>(), DependencyManifest.Empty, useProven: true);
 
