@@ -338,23 +338,26 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
                     // this the downed companion is the worst case rather than an edge one: `EnterDowned`
                     // sets life to 1 and dontTakeDamage true, so every hostile near a downed body priced
                     // as a lethal hit on a course the game would let it fly through untouched.
+                    // The victim's own live immunity is the whole floor, and it is worth knowing that a
+                    // second term stood beside it until 21 September 2026 without ever being able to do
+                    // anything. It read `Math.Max(ready, ceil(successor.Tick))` and was written to skip
+                    // ticks belonging to an executed prefix whose trajectory this forecast was not handed.
+                    // There are none. **The projection clock is relative to the decision, never to the
+                    // engine**, and three independent places enforce that: `DecideCourseEachTick` builds
+                    // its initial state with no start tick, `BindCourseOrder` hands this the origin as
+                    // `initial.Fork()`, and `SampleContactTrajectory` refuses outright any trajectory
+                    // whose first pose is not at tick zero. So the term read `Math.Max(ready, 0)` in every
+                    // production decision and in every scene that can legally be built — building a
+                    // fixture at a start tick of 30 to make it observable is what proved it, by throwing
+                    // on that third guard.
+                    //
+                    // A course carrying its own executed prefix is the thing that term was reaching for,
+                    // and it needs an absolute clock rather than a guard: every consumer of an interval,
+                    // a harm tick or a horizon would have to agree on which clock it is on, and the
+                    // trajectory guard would have to move with them. Nothing needs it, so the guard goes
+                    // rather than standing as a protection the arithmetic cannot give (AIC-446).
                     new ContactActor(HarmActor.Companion, victim.ContactEnabled ? victim.Life : 0,
-                        // The victim's own live immunity is the floor that does work here.
-                        //
-                        // **The `successor.Tick` term beside it is inert, measured 21 September 2026.**
-                        // It was written to skip ticks belonging to an executed prefix whose trajectory
-                        // this forecast was not handed — but there are none, because the projection clock
-                        // is relative to the decision rather than to the engine: `DecideCourseEachTick`
-                        // builds its initial state with no start tick, `BindCourseOrder` hands this the
-                        // origin as `initial.Fork()`, and `SampleContactTrajectory` refuses outright any
-                        // trajectory whose first pose is not at tick zero. So this reads `Math.Max(ready,
-                        // 0)` in every production decision and in every scene that can legally be built.
-                        //
-                        // It is left standing rather than deleted because which of the two is wrong is a
-                        // design question — an inert guard, or a clock that ought to be absolute — and
-                        // `AIC-446` carries it. What must not happen is the comment continuing to claim a
-                        // protection the arithmetic cannot provide, which is what it did until now.
-                        Math.Max(victim.OrdinaryReadyTick, (int)Math.Ceiling(successor.Tick)), boxes),
+                        victim.OrdinaryReadyTick, boxes),
                 };
             // The player, priced from tick zero rather than from the course's start: the companion's
             // prefix is unpriced because this forecast was never handed its trajectory, and the player
