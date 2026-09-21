@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using live::AICompanion.Companion.Brain.Activities.Combat.Planning;
+using live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 
 namespace AICompanion.Tools.CombatAudit;
@@ -43,7 +44,7 @@ internal static class AuditWeights
         bool Allows(Vector2 point) => Vector2.DistanceSquared(point, heading) <= radius * radius
             && Vector2.DistanceSquared(feet, heading) <= radius * radius;
         CombatWeights weights = factor == 1f ? restored.Weights : restored.Weights.Scaled(objective, factor);
-        PlanningBudget budget = PlanningBudget.Unbounded();
+        DecisionWorkBudget budget = new(double.PositiveInfinity);
         AttackLearning.ForceMeans = true;
         SearchAttackPlans.SearchResult result;
         try

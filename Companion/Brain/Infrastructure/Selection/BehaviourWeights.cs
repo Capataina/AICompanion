@@ -389,10 +389,11 @@ public static class Weights
     /// A spawn at the edge of vision is not a new fight.</summary>
     public const float CombatNewHostileUrgency = 0.2f;
 
-    /// <summary>The simulated uses beside the milliseconds: the count cuts the same search at the same
-    /// simulation on every machine, so a cut is reproducible and the audit replays it exactly. Sized from
-    /// measured decisions with headroom (see the budget-by-count commit); the C1 row owns the ceiling.</summary>
-    public const int CombatPlanningMaxSimulations = 4000;
+    // CombatPlanningMaxSimulations lived here until combat's private PlanningBudget was retired for the
+    // shared DecisionWorkBudget. Production now bounds tactical work by the borrowed deadline alone and
+    // caps no operation count, so the constant had no reader and its comment described a mechanism that
+    // no longer exists. A deterministic cut is expressed by a fixture constructing its own explicit
+    // operation allowance, which is what the plan asks for and what the combat audit's cut row does.
 
     /// <summary>The distance scale the proposal-target score falls over: the hunt reach, kept.</summary>
     public const float CombatProposalReach = 1100f;

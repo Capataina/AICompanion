@@ -815,8 +815,12 @@ internal static class VerifyWeaponLearning
         bool revising = Reranked(() => L.ObserveDebuff(ItemID.WoodenBow, NPCID.Zombie, applied: false, 0));
         Establish();
         bool jumping = Reranked(() => scene.Enemy.position.X += 100f);
-        EmitLedgerRows.Detail($"target hold: ordinary motion kept it {keptTicks} of 3 ticks; re-ranked on a hostile appearing {appearing}, leaving {leaving}, the learner revising {revising}, a hundred-pixel jump {jumping}");
-        Require(motionHeld, $"ordinary motion of the target and the orb keeps the hold; kept {keptTicks} of 3 ticks");
+        // The reason the commitment ended, not only that it did: a row that says "kept 0 of 3" and
+        // stops names a symptom, and the reader then has to rebuild the scene to find out which of
+        // seven checks released it.
+        string motionReason = combat.Planner.LastInvalidation;
+        EmitLedgerRows.Detail($"target hold: ordinary motion kept it {keptTicks} of 3 ticks (last release: {motionReason}); re-ranked on a hostile appearing {appearing}, leaving {leaving}, the learner revising {revising}, a hundred-pixel jump {jumping}");
+        Require(motionHeld, $"ordinary motion of the target and the orb keeps the hold; kept {keptTicks} of 3 ticks, last release {motionReason}");
         Require(appearing, "a hostile appearing re-ranks at once");
         Require(leaving, "a hostile leaving re-ranks at once");
         Require(revising, "the learner revising re-ranks at once");

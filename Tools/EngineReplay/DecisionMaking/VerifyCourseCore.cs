@@ -386,7 +386,7 @@ internal static class VerifyCourseCore
         var world = new TextTileWorld(0, 0, new[] { "##########", "#........#", "#........#", "#........#", "##########" });
         var search = new FreeSpaceSearch(world, new(2, 2), new(8, 2), priceClearance: false);
         var empty = new DecisionWorkBudget(double.PositiveInfinity, 0);
-        LimitPlanningWork.Begin(empty);
+        LimitPlanningWork.Restart(empty);
         try
         {
             Require(!search.Advance(1000) && search.Expansions == 0 && empty.FirstCutSubsystem == "free-space",
@@ -397,7 +397,7 @@ internal static class VerifyCourseCore
         while (!search.Finished && slices++ < 100)
         {
             var one = new DecisionWorkBudget(double.PositiveInfinity, 1);
-            LimitPlanningWork.Begin(one);
+            LimitPlanningWork.Restart(one);
             try
             {
                 int before = search.Expansions;

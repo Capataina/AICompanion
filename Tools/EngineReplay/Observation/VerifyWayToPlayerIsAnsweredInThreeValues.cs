@@ -212,13 +212,13 @@ internal static class VerifyWayToPlayerIsAnsweredInThreeValues
         for (int tick = 0; tick < 600; tick++)
         {
             Vector2 player = start + step * tick, body = player + new Vector2(-48f, -48f);
-            LimitPlanningWork.Begin(Weights.TotalPlanningMilliseconds);
+            LimitPlanningWork.Restart(Weights.TotalPlanningMilliseconds);
             sense.Update(body, player, step, true, false, 60);
             sense.ObserveWayToPlayer(body, player);
             now.Add(sense.LastFloodMs);
             LimitPlanningWork.End();
 
-            LimitPlanningWork.Begin(Weights.TotalPlanningMilliseconds);
+            LimitPlanningWork.Restart(Weights.TotalPlanningMilliseconds);
             reference.Update(body, player, step, true, false, 60);
             var region = reference.Region;
             float grow = Navigator.SettleRadius + 16f;

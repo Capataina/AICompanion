@@ -96,7 +96,7 @@ internal static class VerifyAssistanceTrips
         LimitPlanningWork.Unbounded = false;
         try
         {
-            LimitPlanningWork.Begin(0.000001);
+            LimitPlanningWork.Restart(0.000001);
             Thread.Sleep(2);
             Require(LimitPlanningWork.Expired, "the allowance must already be spent, or the refusal row tests nothing");
             incidental.Consider(ctx, HandGrant.Available, false, null, 0);

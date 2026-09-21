@@ -807,7 +807,7 @@ internal static class VerifyTorchPlacementRule
                 if (!SearchTileDeferred(p)) into.Add((into.Count, into.Count, p));
             if (!ExpireDeadlineAfterGathering) return;
             LimitPlanningWork.Unbounded = false;
-            LimitPlanningWork.Begin(0);
+            LimitPlanningWork.Restart(0);
         }
     }
 

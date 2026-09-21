@@ -19,14 +19,38 @@ namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 public static class ReevaluateAttackPlan
 {
 /// <summary>
+/// What a re-pricing can say, in three answers rather than two. A priced outcome is the plan's worth
+/// now. A priced absence — no remaining use solves — invalidates the plan. A cut is neither: the
+/// shared allowance ran out before the uses could be re-flown, which says nothing whatever about
+/// whether they still solve, and must not release a commitment that nothing has invalidated.
+///
+/// The two were one answer until this was written, and the cost was live: <c>Cut</c> on a
+/// <c>DecisionWorkBudget</c> is sticky, so once anything on a tick had cut the shared allowance every
+/// subsequent re-price returned null and combat released its committed plan with the reason
+/// "uses-stopped-solving" — a reason that was also false in the record. That is the wait-for-certainty
+/// failure the canonical plan's section 2 forbids by name: between execution boundaries a valid
+/// current action is retained unless required repair removes its admission or another executable
+/// continuation proves a higher future value, and an exhausted allowance is neither.
+/// </summary>
+public readonly record struct Repricing(CombatOutcome? Outcome, bool Cut)
+{
+    /// <summary>Priced, and the plan is worth this.</summary>
+    public bool Priced => Outcome != null;
+    /// <summary>Not priced because the allowance ran out. Keep the plan; do not read it as a refusal.</summary>
+    public bool Unresolved => Outcome == null && Cut;
+    /// <summary>Priced and refused: no remaining use solves, so the plan is genuinely invalid.</summary>
+    public bool Refused => Outcome == null && !Cut;
+}
+
+/// <summary>
 /// The committed plan's outcome against this tick's forecast: its remaining uses re-flown from the stand
-/// at their planned aims, so a wall the search never saw prices the plan honestly. Null when no remaining
-/// use solves any more, which invalidates the plan rather than offering a fight that cannot happen.
+/// at their planned aims, so a wall the search never saw prices the plan honestly. See
+/// <see cref="Repricing"/> for why a cut is reported apart from a refusal.
 /// The audit replays the hold through the same method: a snapshot's committed plan, shifted into the
 /// audit's tick space, re-priced against the restored forecast, so the exhaustive front is graded
 /// against what the plan is worth now rather than what the search paid for it then.
 /// </summary>
-public static CombatOutcome? Reevaluate(in ActionContext ctx, CompanionCombat combat,
+public static Repricing Reevaluate(in ActionContext ctx, CompanionCombat combat,
     IReadOnlyList<EnemyForecast> enemies, AttackPlan plan, CombatWeights weights, ref DecisionWorkBudget budget)
 {
     int tick = ctx.Senses.Tick;
@@ -62,7 +86,7 @@ public static CombatOutcome? Reevaluate(in ActionContext ctx, CompanionCombat co
         {
             sim = SimulateUse.Simulate(id, muzzle, use.AimPoint, use.LaunchDirection, world, enemies, modifiers, fireTick, ref budget);
             if (budget.Cut)
-                return null;
+                return new Repricing(null, Cut: true);
             CacheSimulatedUses.Store(id, modifiers, muzzle, use.AimPoint, fireTick, knowledge, world.RefreshCount, sim);
         }
         else
@@ -89,7 +113,7 @@ public static CombatOutcome? Reevaluate(in ActionContext ctx, CompanionCombat co
             overdueCovered = true;
     }
     if (attacks.Count == 0)
-        return null;
+        return new Repricing(null, Cut: false);
     attacks.Reverse();
     float travel = Vector2.Distance(ctx.Npc.Center, segment.Stand.Stand) <= Weights.CombatStandArrivalPx ? 0f
         : Vector2.Distance(ctx.Npc.Center, segment.Stand.Stand) / OrbPace.MaxSpeed;
@@ -104,7 +128,7 @@ public static CombatOutcome? Reevaluate(in ActionContext ctx, CompanionCombat co
         Math.Max(1, ctx.Player.statLife), Math.Max(1, ctx.Npc.life),
         Math.Max(1, ctx.Companion.Mana.Max), 0f);
     var evalTargets = ForecastUses.AttackTargets(ctx);
-    return EvaluateAttackOutcomes.EvaluateVector(attacks[0], attacks, evalTargets,
-        Math.Max(0, combat.CooldownTicks), horizon, context, weights).Outcome;
+    return new Repricing(EvaluateAttackOutcomes.EvaluateVector(attacks[0], attacks, evalTargets,
+        Math.Max(0, combat.CooldownTicks), horizon, context, weights).Outcome, Cut: false);
 }
 }

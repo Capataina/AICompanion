@@ -228,10 +228,19 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         if (plan != null && combat.Planner.Validate(ctx, positioner, allows, running))
         {
             DecisionWorkBudget heldBudget = LimitPlanningWork.Current;
-            CombatOutcome? fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, plan, weights, ref heldBudget);
-            if (fresh != null)
+            ReevaluateAttackPlan.Repricing fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, plan, weights, ref heldBudget);
+            if (fresh.Priced)
             {
-                OfferFromPlan(ctx, plan, fresh.Value, weights, frontSize: 1, cut: false);
+                OfferFromPlan(ctx, plan, fresh.Outcome!.Value, weights, frontSize: 1, cut: false);
+                return;
+            }
+            if (fresh.Unresolved)
+            {
+                // The allowance ran out before the held plan could be re-flown. Validate has already
+                // checked its stand, its targets and its admission this tick, so nothing about the
+                // world says this fight is over — only that there was no time to re-price it. It keeps
+                // the body at the worth its own search paid for it and is re-priced next tick.
+                OfferFromPlan(ctx, plan, plan.Outcome, weights, frontSize: 1, cut: true);
                 return;
             }
             combat.Planner.Release("uses-stopped-solving");
@@ -240,10 +249,18 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         if (plan == null && preparedPlan != null && combat.Planner.CheckPrepared(ctx, positioner, allows, preparedPlan))
         {
             DecisionWorkBudget preparedBudget = LimitPlanningWork.Current;
-            CombatOutcome? fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, preparedPlan, weights, ref preparedBudget);
-            if (fresh != null)
+            ReevaluateAttackPlan.Repricing fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, preparedPlan, weights, ref preparedBudget);
+            if (fresh.Unresolved)
             {
-                OfferFromPlan(ctx, preparedPlan, fresh.Value, weights, frontSize: 1, cut: false);
+                // Same rule one step down: a prepared plan the allowance could not re-price is not a
+                // prepared plan that stopped solving, so it is offered at its searched worth rather
+                // than discarded and re-searched from nothing on the next tick.
+                OfferFromPlan(ctx, preparedPlan, preparedPlan.Outcome, weights, frontSize: 1, cut: true);
+                return;
+            }
+            if (fresh.Priced)
+            {
+                OfferFromPlan(ctx, preparedPlan, fresh.Outcome!.Value, weights, frontSize: 1, cut: false);
                 if (running)
                 {
                     CommitAndRecord(ctx, combat, preparedPlan, preparedSearch, null, weights, running);
@@ -366,7 +383,10 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
             AttackPlan plan = combat.Planner.Committed;
             DecisionWorkBudget validationBudget = LimitPlanningWork.Current;
-            if (ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, plan, weights, ref validationBudget) == null)
+            // Only a priced refusal earns the "uses stopped solving" reason. A cut cannot tell whether
+            // they still solve, so the release keeps the caller's own reason rather than asserting
+            // something the allowance never let it find out.
+            if (ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, plan, weights, ref validationBudget).Refused)
                 combat.Planner.Release("uses-stopped-solving");
             else
                 combat.Planner.Release(refusal);

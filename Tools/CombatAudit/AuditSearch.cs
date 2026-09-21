@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using live::AICompanion.Companion.Brain.Activities.Combat.Planning;
+using live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 
 namespace AICompanion.Tools.CombatAudit;
@@ -33,7 +34,7 @@ internal static class AuditSearch
         var positioner = restored.Companion.Brain.Positioner;
         var ctx = restored.Ctx;
         Func<Vector2, bool> Allows = RestoreSnapshot.AllowanceQuery(restored);
-        PlanningBudget budget = Budget(restored.Snapshot.AllowanceMs, restored.Snapshot.MaxSimulations);
+        DecisionWorkBudget budget = Budget(restored.Snapshot.AllowanceMs, restored.Snapshot.MaxSimulations);
         // No forced means: the sampler draws deterministically at the restored tick, so the replay draws what
         // the live search drew. Forcing means here would price the replay at the posterior mean against live
         // samples and diverge on every calm snapshot; the sweep keeps its own forcing, where noise-free
@@ -85,7 +86,7 @@ internal static class AuditSearch
             RestoreSnapshot.GrowFlood(restored);
             (grid, capped) = Grid(restored);
         }
-        PlanningBudget budget = PlanningBudget.Unbounded();
+        DecisionWorkBudget budget = Unbounded();
         AttackLearning.ForceMeans = true;
         // The grid grades against everything at the live depth; the live proposals alone replay the live
         // decision's own set, so they run at the recorded depth — a depth-one recording replays depth one.
@@ -103,8 +104,13 @@ internal static class AuditSearch
         if (restored.CommittedShifted == null || result.Plan == null)
             return new ExhaustiveVerdict(result.Plan != null, 0f, "none", result.Plan?.Segments[0].Stand.Stand,
                 result.Plan?.Weighted ?? 0f, capped, grid.Count, result.FrontSize);
+        // A fresh unbounded allowance rather than the one the grid search just spent: the committed
+        // plan and the grid have to be priced under the same conditions for the regret to mean
+        // anything, and a reprice charged to an exhausted budget would cut instantly and report the
+        // committed plan as unpriceable rather than as worse.
+        DecisionWorkBudget repriceBudget = Unbounded();
         CombatOutcome? repriced = ReevaluateAttackPlan.Reevaluate(ctx, combat, restored.Enemies,
-            restored.CommittedShifted, restored.Weights);
+            restored.CommittedShifted, restored.Weights, ref repriceBudget).Outcome;
         if (repriced == null)
             return new ExhaustiveVerdict(false, result.Plan.Weighted, "none", result.Plan.Segments[0].Stand.Stand,
                 result.Plan.Weighted, capped, grid.Count, result.FrontSize);
@@ -126,10 +132,15 @@ internal static class AuditSearch
             result.Plan.Weighted, capped, grid.Count, result.FrontSize);
     }
 
-    private static PlanningBudget Budget(float allowanceMs, int maxSimulations)
+    private static DecisionWorkBudget Budget(float allowanceMs, int maxSimulations)
         => !float.IsFinite(allowanceMs) || allowanceMs >= float.MaxValue
-            ? PlanningBudget.Unbounded()
-            : PlanningBudget.FromMilliseconds(allowanceMs, maxSimulations);
+            ? Unbounded()
+            : new DecisionWorkBudget(allowanceMs, maxSimulations);
+
+    /// <summary>The audit's own allowance: no deadline and no operation cap, because grading the
+    /// committed plan against an exhaustive grid is the point. This is never the live budget — a
+    /// verdict drawn under it says what the search could have found, not what it had time to.</summary>
+    private static DecisionWorkBudget Unbounded() => new(double.PositiveInfinity);
 
     private static void ComparePlans(AttackPlan expected, AttackPlan actual, List<string> diffs)
     {

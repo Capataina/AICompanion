@@ -86,10 +86,27 @@ internal static class ResetProcessState
     /// </summary>
     internal static void BeforeCase(bool keepProductionAllowances)
     {
+        // The allowance is *installed* here, not merely cleared. Combat's tactical work and the aimer
+        // borrow `LimitPlanningWork.Current`, which throws when nothing is standing; in production the
+        // brain tick always has one open around every one of those calls, so a reset that only ended
+        // the previous case's budget left eleven behaviour fixtures throwing
+        // "Decision work must begin before borrowing its budget" the moment combat moved off its own
+        // private PlanningBudget. Beginning one per case is the harness half of the production
+        // contract rather than a lenience: the millisecond figure is the production constant, and the
+        // lift above turns it into an infinite deadline for every case that is not about a deadline,
+        // so the work-count limits each query carries stay the only bound.
+        //
+        // Rejected: catching the throw inside `Current` by lazily minting a budget when none is
+        // standing. That reads as the smaller change and destroys the guarantee the throw exists for —
+        // the plan's "no consumer can silently buy a second production deadline after exhausting the
+        // first" — by making the absence of an owner indistinguishable from a fresh allowance.
+        // Also rejected: wrapping each of the eleven fixtures, which fixes today's eleven and leaves
+        // the twelfth fixture's author to discover the obligation through a stack trace.
         LimitPlanningWork.Unbounded = !keepProductionAllowances;
-        LimitPlanningWork.End();
+        LimitPlanningWork.Restart(live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.TotalPlanningMilliseconds);
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = !keepProductionAllowances;
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.End();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Restart(
+            live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.TotalPlanningMilliseconds);
 
         // Every one of these is flat in ...Infrastructure.Movement: Contact/, FreeSpace/ and
         // Steering/ are folders that the files inside do not turn into namespaces, so a qualified

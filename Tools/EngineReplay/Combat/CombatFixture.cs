@@ -34,19 +34,28 @@ internal static class CombatFixture
     private sealed class FixtureDecision : IDisposable
     {
         private readonly bool ownsBudget;
+        private readonly PlanningWork.Ownership ownership;
 
         public FixtureDecision(Budget? fixtureBudget)
         {
-            if (PlanningWork.IsActive)
+            // A row that supplies its own allowance is asserting something *about* that allowance —
+            // the retained-course budget rows cut a broad search after a sibling spend — so it takes
+            // over even when one is already standing. Borrowing the ambient one instead silently
+            // ignored the row's own budget and the cut it was written to observe never happened.
+            // A row with no allowance of its own borrows an already-running tick unchanged, which is
+            // what keeps a nested call from minting a second deadline.
+            if (fixtureBudget == null && PlanningWork.IsActive)
                 return;
-            PlanningWork.Begin(fixtureBudget ?? new Budget(double.PositiveInfinity, long.MaxValue, () => 0, 1));
+            ownership = PlanningWork.Own(double.PositiveInfinity);
+            if (fixtureBudget != null)
+                PlanningWork.Restart(fixtureBudget);
             ownsBudget = true;
         }
 
         public void Dispose()
         {
             if (ownsBudget)
-                PlanningWork.End();
+                ownership.Dispose();
         }
     }
 

@@ -103,7 +103,11 @@ public sealed class Brain
         LastTick = Terraria.Main.GameUpdateCount;
         ChoiceEvaluated = false;
         whole.Restart();
-        LimitPlanningWork.Begin(Weights.TotalPlanningMilliseconds);
+        // The tick owns the allowance and hands back whatever was standing before it. In the game
+        // nothing is, so this is the Begin/End pair it always was; under a harness that installs an
+        // ambient allowance per case, a fixture driving a whole tick no longer leaves the rows after
+        // it with nothing to borrow.
+        LimitPlanningWork.Ownership allowance = LimitPlanningWork.Own(Weights.TotalPlanningMilliseconds);
         ReflexMs = DecideMs = PositionMs = NavigateMs = FinaliseMs = 0;
         try
         {
@@ -112,7 +116,7 @@ public sealed class Brain
         }
         finally
         {
-            LimitPlanningWork.End();
+            allowance.Dispose();
             TotalMs = whole.Elapsed.TotalMilliseconds;
         }
     }

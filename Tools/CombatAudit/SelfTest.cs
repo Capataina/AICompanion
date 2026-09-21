@@ -16,6 +16,7 @@ using live::AICompanion.Companion.Brain.Activities.Combat.Planning;
 using live::AICompanion.Companion.Brain.Infrastructure.Movement;
 using live::AICompanion.Companion.Brain.Infrastructure.Observation;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection;
+using live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 using live::AICompanion.Companion.CharacterBody;
 using live::AICompanion.Companion.PlayerIntegration;
@@ -185,7 +186,7 @@ internal static class SelfTest
         SearchAttackPlans.SearchOptions? options = null)
     {
         var combat = scene.Companion.Combat;
-        var budget = PlanningBudget.FromMilliseconds(1000f);
+        var budget = new DecisionWorkBudget(1000d);
         return SearchAttackPlans.SearchDepthOne(scene.Ctx, combat, scene.Companion.Brain.Positioner,
             Allows(scene), weights, planId, ref budget, options);
     }
@@ -200,7 +201,7 @@ internal static class SelfTest
             (25, NPCID.Zombie, new Vector2(51, 59)));
         var combat = scene.Companion.Combat;
         CombatWeights weights = WeighCombatObjectives.ForSenses(scene.Ctx);
-        var budget = PlanningBudget.FromMilliseconds(1000f);
+        var budget = new DecisionWorkBudget(1000d);
         SearchAttackPlans.SearchResult result = SearchAttackPlans.SearchDepthOne(scene.Ctx, combat,
             scene.Companion.Brain.Positioner, Allows(scene), weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the live search offers nothing: " + result.Reason);
@@ -211,7 +212,7 @@ internal static class SelfTest
         // The mutation: verdicts omitted, proposals kept. The restored flood never grew, so every stand
         // re-assesses undecided and the replay offers nothing — the snapshot without verdicts is not a replay.
         var combat2 = restored.Companion.Combat;
-        var budget2 = PlanningBudget.Unbounded();
+        var budget2 = new DecisionWorkBudget(double.PositiveInfinity);
         SearchAttackPlans.SearchResult dropped = SearchAttackPlans.SearchDepthOne(restored.Ctx, combat2,
             restored.Companion.Brain.Positioner, Allows(new Scene { Companion = restored.Companion, Ctx = restored.Ctx, Radius = restored.Snapshot.AllowanceRadius }),
             restored.Weights, combat2.NextPlanId++, ref budget2,
@@ -237,7 +238,7 @@ internal static class SelfTest
         var calmCombat = calm.Companion.Combat;
         CombatWeights calmWeights = WeighCombatObjectives.ForSenses(calm.Ctx);
         Require(Forecasts.Explore(calm.Ctx), "premise: the calm scene explores");
-        var calmBudget = PlanningBudget.FromMilliseconds(1000f);
+        var calmBudget = new DecisionWorkBudget(1000d);
         SearchAttackPlans.SearchResult calmResult = SearchAttackPlans.SearchDepthOne(calm.Ctx, calmCombat,
             calm.Companion.Brain.Positioner, Allows(calm), calmWeights, calmCombat.NextPlanId++, ref calmBudget);
         Require(calmResult.Plan != null, "the calm search offers nothing: " + calmResult.Reason);
@@ -270,7 +271,7 @@ internal static class SelfTest
         Require(hotCombat.Planner.IsDeferred(hot.Ctx, 26, gen26, Main.npc[26].Center),
             "premise: the live deferral does not hold");
         CombatWeights hotWeights = WeighCombatObjectives.ForSenses(hot.Ctx);
-        var hotBudget = PlanningBudget.FromMilliseconds(1000f);
+        var hotBudget = new DecisionWorkBudget(1000d);
         SearchAttackPlans.SearchResult hotResult = SearchAttackPlans.SearchDepthOne(hot.Ctx, hotCombat,
             hot.Companion.Brain.Positioner, Allows(hot), hotWeights, hotCombat.NextPlanId++, ref hotBudget);
         Require(hotResult.Plan != null, "the hot search offers nothing: " + hotResult.Reason);
@@ -299,7 +300,7 @@ internal static class SelfTest
             stale.Ctx.Senses.Tick, TerrainChanges.Revision);
         TerrainChanges.Changed(50, 50);
         CombatWeights staleWeights = WeighCombatObjectives.ForSenses(stale.Ctx);
-        var staleBudget = PlanningBudget.FromMilliseconds(1000f);
+        var staleBudget = new DecisionWorkBudget(1000d);
         SearchAttackPlans.SearchResult staleResult = SearchAttackPlans.SearchDepthOne(stale.Ctx, staleCombat,
             stale.Companion.Brain.Positioner, Allows(stale), staleWeights, staleCombat.NextPlanId++, ref staleBudget);
         Require(staleResult.Plan != null, "the stale search offers nothing: " + staleResult.Reason);
@@ -334,7 +335,7 @@ internal static class SelfTest
         var cladCombat = clad.Companion.Combat;
         int livePerHit = cladCombat.Weapons[0].DamagePerHit(clad.Ctx);
         CombatWeights cladWeights = WeighCombatObjectives.ForSenses(clad.Ctx);
-        var cladBudget = PlanningBudget.FromMilliseconds(1000f);
+        var cladBudget = new DecisionWorkBudget(1000d);
         SearchAttackPlans.SearchResult cladResult = SearchAttackPlans.SearchDepthOne(clad.Ctx, cladCombat,
             clad.Companion.Brain.Positioner, Allows(clad), cladWeights, cladCombat.NextPlanId++, ref cladBudget);
         Require(cladResult.Plan != null, "the clad search offers nothing: " + cladResult.Reason);
@@ -388,7 +389,7 @@ internal static class SelfTest
         SearchAttackPlans.SearchResult pinned = Search(scene, weights, 1,
             new SearchAttackPlans.SearchOptions(new[] { here }));
         Require(pinned.Plan != null, "Here solves nothing: " + pinned.Reason);
-        var budget = PlanningBudget.FromMilliseconds(1000f);
+        var budget = new DecisionWorkBudget(1000d);
         string json = ExportCombatSnapshot.Build(scene.Ctx, combat, pinned.Plan, pinned, weights, budget, scene.Radius, true);
         RestoredDecision restored = RestoreSnapshot.Restore(json);
         // Restore SetDefaults a knife to one. The stack cap then prices a single throw from Here
@@ -450,7 +451,7 @@ internal static class SelfTest
             AttackLearning.ForceMeans = false;
         }
         Require(both.Plan != null, "neither pinned stand solves: " + both.Reason);
-        var budget = PlanningBudget.FromMilliseconds(1000f);
+        var budget = new DecisionWorkBudget(1000d);
         string json = ExportCombatSnapshot.Build(scene.Ctx, combat, both.Plan, both, weights, budget, scene.Radius, true);
         RestoredDecision restored = RestoreSnapshot.Restore(json);
         List<AuditWeights.SweepMove> moves = AuditWeights.Sweep(restored, new[] { 1.0f, 2.0f });
@@ -577,7 +578,7 @@ internal static class SelfTest
         Require(result.Plan != null, $"the {name} search offers nothing: " + result.Reason);
         combat.Planner.Commit(result.Plan);
         arrange?.Invoke(scene, result.Plan);
-        var budget = PlanningBudget.FromMilliseconds(1000f);
+        var budget = new DecisionWorkBudget(1000d);
         string json = ExportCombatSnapshot.Build(scene.Ctx, combat, result.Plan, result,
             weights, budget, scene.Radius, running);
         bool liveHolds = combat.Planner.Validate(scene.Ctx, scene.Companion.Brain.Positioner,
@@ -626,21 +627,28 @@ internal static class SelfTest
             (25, NPCID.Zombie, new Vector2(51, 59)));
         var combat = scene.Companion.Combat;
         CombatWeights weights = WeighCombatObjectives.ForSenses(scene.Ctx);
-        var firstBudget = PlanningBudget.FromMilliseconds(1000f, maxSimulations: 1);
+        // The cap is one *operation* of the shared allowance, not one simulation. Combat lost its
+        // private `PlanningBudget` and its private simulation counter when tactical work moved onto
+        // `DecisionWorkBudget`, so the deterministic cut this row exists to prove is now expressed in
+        // the unit the shared owner actually counts. What the row proves is unchanged: a search cut
+        // at a fixed allowance cuts at the same place twice and replays that same cut from its snapshot.
+        var firstBudget = new DecisionWorkBudget(1000d, operationAllowance: 1);
         SearchAttackPlans.SearchResult first = CappedSearch(scene, weights, combat.NextPlanId++, ref firstBudget);
-        var secondBudget = PlanningBudget.FromMilliseconds(1000f, maxSimulations: 1);
+        var secondBudget = new DecisionWorkBudget(1000d, operationAllowance: 1);
         SearchAttackPlans.SearchResult second = CappedSearch(scene, weights, combat.NextPlanId++, ref secondBudget);
         Require(first.Plan == null && first.Reason == "budget-cut"
             && first.Eligibility == OfferEligibility.Unresolved,
-            $"a one-sim search offers {first.Reason}, not an unresolved cut");
-        Require(firstBudget.Simulations == 1, $"a one-sim search simulates {firstBudget.Simulations}, not one");
-        Require(second.Reason == first.Reason && secondBudget.Simulations == firstBudget.Simulations,
+            $"a one-operation search offers {first.Reason}, not an unresolved cut");
+        Require(firstBudget.OperationsUsed == 1,
+            $"a one-operation search spends {firstBudget.OperationsUsed}, not one");
+        Require(second.Reason == first.Reason && secondBudget.OperationsUsed == firstBudget.OperationsUsed
+            && secondBudget.FirstCutSubsystem == firstBudget.FirstCutSubsystem,
             "the capped search cuts somewhere else the second time");
         SearchAttackPlans.SearchResult free = Search(scene, weights, combat.NextPlanId++);
         Require(free.Plan != null, "the scene offers nothing unbounded: " + free.Reason);
         string json = ExportCombatSnapshot.Build(scene.Ctx, combat, null, first, weights, firstBudget, scene.Radius, true);
         RestoredDecision restored = RestoreSnapshot.Restore(json);
-        var replayBudget = PlanningBudget.FromMilliseconds(restored.Snapshot.AllowanceMs,
+        var replayBudget = new DecisionWorkBudget(restored.Snapshot.AllowanceMs,
             restored.Snapshot.MaxSimulations);
         SearchAttackPlans.SearchResult replayed = SearchAttackPlans.SearchDepthOne(restored.Ctx,
             restored.Companion.Combat, restored.Companion.Brain.Positioner, Allows(new Scene
@@ -652,13 +660,13 @@ internal static class SelfTest
             restored.Weights, restored.Companion.Combat.NextPlanId++, ref replayBudget,
             new SearchAttackPlans.SearchOptions(restored.Proposals, restored.Verdicts));
         Require(replayed.Plan == null && replayed.Reason == "budget-cut"
-            && replayBudget.Simulations == firstBudget.Simulations,
-            $"the restored cut offers {replayed.Reason} at {replayBudget.Simulations} sims, not the live cut");
-        return $"cut at {firstBudget.Simulations} sim, twice identical, replay cuts the same";
+            && replayBudget.OperationsUsed == firstBudget.OperationsUsed,
+            $"the restored cut offers {replayed.Reason} at {replayBudget.OperationsUsed} operations, not the live cut");
+        return $"cut at {firstBudget.OperationsUsed} operation ({firstBudget.FirstCutSubsystem}), twice identical, replay cuts the same";
     }
 
     private static SearchAttackPlans.SearchResult CappedSearch(Scene scene, CombatWeights weights, int planId,
-        ref PlanningBudget budget)
+        ref DecisionWorkBudget budget)
     {
         var combat = scene.Companion.Combat;
         return SearchAttackPlans.SearchDepthOne(scene.Ctx, combat, scene.Companion.Brain.Positioner,
@@ -734,7 +742,7 @@ internal static class SelfTest
             scene.Companion.Brain.Senses.Update(scene.Companion.NPC, Main.player[Main.myPlayer]);
             // Audit replays invoke preparation without CoordinateBrainTick, so they own the same
             // deterministic decision scope that a live tick would have installed.
-            LimitPlanningWork.Begin(double.PositiveInfinity);
+            LimitPlanningWork.Restart(double.PositiveInfinity);
             try { fight.Prepare(scene.Ctx); }
             finally { LimitPlanningWork.End(); }
             Require(ReferenceEquals(combat.Planner.Committed, held),
