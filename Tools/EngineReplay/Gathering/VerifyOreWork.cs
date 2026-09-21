@@ -162,23 +162,36 @@ internal static class VerifyOreWork
                     Require(ctx.Companion.Miner.Swing(ore, pick), "paired completion fixture needs a native hit");
                     for (int tick = 0; tick < pick.useTime; tick++) ctx.Companion.Miner.Tick();
                 }
-            var selected = brain.Chooser.Choose(ctx);
-            float mineValue = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine").Final;
-            string scores = string.Join(",", brain.Chooser.LastScores.Select(s => s.Action.Name + "=" + s.Final));
+            string chosen = DecideThroughTheCourse(ctx);
+            string admitted = string.Join(" | ", brain.Course.Admitted.Select(a => $"{a.Domain}:u{a.Usable}/n{a.Unresolved}/x{a.Unusable}:{a.Reason}"));
+            string leaders = string.Join(" | ", brain.Course.LastLeaders.Select(kv => $"{kv.Key}={kv.Value.Total.Nominal:0.0000}(use {kv.Value.UsefulEffects:0.0000} harm {kv.Value.Harm:0.0000} comp {kv.Value.Companionship:0.0000})"));
+            string coverage = string.Join(" | ", brain.Course.Coverage.Select(c => $"{c.Source}:ex{c.Examined}/t{c.Total}/e{c.Evicted}/exh{c.Exhausted}/cut{c.BudgetCut}"));
+            var bound = brain.Course.Last.Binding;
+            string step = FormattableString.Invariant(
+                $"{bound?.Opportunity.Domain ?? "-"}/use{bound?.UseTicks ?? -1}/travel{bound?.TravelTicks ?? -1}");
+            Console.WriteLine(FormattableString.Invariant(
+                $"MEASURE course-departure separation={separation} nearlyDone={nearlyDone}: chose={chosen} reason={brain.Course.Last.Reason} bound={step}\n    admitted: {admitted}\n    leaders: {leaders}\n    coverage: {coverage}"));
+            var worth = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
+                .ReadCourseWorthPerActivity.Of(brain, brain.Chooser.Actions.Single(a => a.Name == "mine"));
+            float mineValue = worth.Raw;
+            string scores = $"mine={mineValue} priced={worth.Priced} offer={worth.Offer}:{worth.OfferReason}; {admitted}";
             if (separation == VetoSeparation)
             {
-                Require(mineValue == 0f && selected?.Name == "keep-company",
-                    $"past the work radius the same ore must be worth nothing and company must win: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={scores}");
+                // Past the radius the refusal is now the allowance rule saying so — `outside-allowance-or-protected`
+                // in the census — rather than an ore nobody looked for. Both halves are required: an
+                // unpriced domain alone would also pass against a census that never reached the ore.
+                Require(!worth.Priced && chosen == "keep-company"
+                        && brain.Course.Admitted.Any(a => a.Domain == "mine-target" && a.Unusable == 1),
+                    $"past the work radius the same ore must be refused by the allowance and company must win: separation={separation}; nearlyDone={nearlyDone}; chose={chosen}; scores={scores}");
                 continue;
             }
-            Require(selected?.Name == "mine",
-                $"inside the work radius a proven job must still be chosen over resting company: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={scores}");
+            Require(chosen == "mine",
+                $"inside the work radius a proven job must still be chosen over resting company: separation={separation}; nearlyDone={nearlyDone}; chose={chosen}; scores={scores}");
             if (nearlyDone) finishing[separation] = mineValue; else fresh[separation] = mineValue;
-            // The factors behind the value, so a flattened gradient says which one flattened it instead of leaving it to inference.
-            var mineScore = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
+            // The terms behind the worth, so a flattened gradient says which one flattened it instead of leaving it to inference.
             Console.WriteLine(FormattableString.Invariant(
-                $"MEASURE ore factors separation={separation} nearlyDone={nearlyDone}: raw={mineScore.Raw:0.0000} final={mineScore.Final:0.0000} reunion={mineScore.Reunion:0.0000} horizon={mineScore.Horizon:0.0000} commitment={mineScore.Commitment:0.0000} protection={mineScore.Protection:0.0000}"));
-            if (nearlyDone) finishingSeparation[separation] = mineScore.Reunion; else freshSeparation[separation] = mineScore.Reunion;
+                $"MEASURE ore factors separation={separation} nearlyDone={nearlyDone}: nominal={worth.Raw:0.0000} net={worth.Final:0.0000} companionship={worth.Companionship:0.0000}"));
+            if (nearlyDone) finishingSeparation[separation] = worth.Companionship; else freshSeparation[separation] = worth.Companionship;
         }
         // The gradient that survives: on identical geometry, with the player walking away from the same distance, a job with
         // one hit left is worth more than a fresh one, because the fresh job keeps the companion apart from a leaving player for
@@ -189,12 +202,28 @@ internal static class VerifyOreWork
         // against 0.42 at 400 px, raw worth 0.70 for both, the whole gap in the separation share (0.76 against 0.66), and
         // the same scene passes the twice-margin at 40478e5, before the charge went. So the row now asserts the mechanism
         // that produces the gradient rather than the size the removed charge gave it.
+        //
+        // The mechanism moved again when the course took the tick, and it moved because the unit did. The
+        // family chooser priced a whole multi-hit vein as one job, so a fresh vein genuinely kept the
+        // companion away longer and its separation share was the gradient. The course binds **one use** —
+        // measured here, `useTicks=1 travelTicks=0` in both arms at every separation, the body already
+        // standing at the ore — so the two orders have identical duration by construction and their
+        // companionship costs are equal to four decimal places (0.1490 at 400 px, 0.4136 at 800, the same
+        // number in both arms). A separation charge that differed would mean the forecast was reading
+        // something other than the bound order's own length.
+        //
+        // So the gradient is asserted where it now lives, in the reward: one use against a nearly-exhausted
+        // remaining claim earns most of the vein's worth (useful effects 0.9827) where the same use against
+        // a fresh one earns a share of it (0.3440). That is a restatement rather than a loosening — a reward
+        // that stopped reading the remaining claim makes the two arms equal and reddens the first line — and
+        // the second line is kept as the *equality* it now is, so a course that silently reverted to pricing
+        // whole jobs would redden it instead of passing quietly.
         foreach (int separation in fresh.Keys)
         {
             Require(finishing[separation] > fresh[separation], FormattableString.Invariant(
                 $"a job with one hit left must be worth more than a fresh one at the same separation: separation={separation}; fresh={fresh[separation]}; finishing={finishing[separation]}"));
-            Require(freshSeparation[separation] < finishingSeparation[separation], FormattableString.Invariant(
-                $"a fresh job keeps the companion apart from a leaving player for longer, so it must keep less of its worth after separation: separation={separation}; fresh keeps {freshSeparation[separation]}; finishing keeps {finishingSeparation[separation]}"));
+            Require(Math.Abs(freshSeparation[separation] - finishingSeparation[separation]) < 1e-4f, FormattableString.Invariant(
+                $"one bound use is one bound use, so both arms must pay the same separation and the gradient must be the reward: separation={separation}; fresh pays {freshSeparation[separation]}; finishing pays {finishingSeparation[separation]}"));
         }
         // The veto itself is asserted in the loop above, at VetoSeparation, so "the band is empty" is a row
         // rather than a sentence: mining is chosen at every separation inside the radius and worth exactly
@@ -1540,6 +1569,36 @@ internal static class VerifyOreWork
         }
         return (!Main.tile[ore.X, ore.Y].HasTile, strikes, poses, decisions);
     }
+
+    /// <summary>
+    /// One decision through the brain that is actually on the tick, without letting the body move: every
+    /// activity prepared, then the course asked, and the activity it named returned. It is the live tick's
+    /// decide phase and nothing after it, which is what a row comparing two scenes needs — letting the motor
+    /// run would make two terrains into two geometries.
+    ///
+    /// It exists as one helper rather than as a block copied into each row because the sequence is not
+    /// obvious and getting it wrong is quiet: without the `Prepare` sweep the activities publish no offer and
+    /// the course discovers against a stale board, and without the decision allowance every fixture entering
+    /// below `Brain.Tick` throws where production never can, because production always has one open.
+    /// </summary>
+    internal static string DecideThroughTheCourse(in ActionContext ctx)
+    {
+        var brain = ctx.Companion.Brain;
+        using (CombatFixture.BeginDecision())
+        {
+            foreach (var candidate in brain.Chooser.Actions) candidate.Prepare(ctx);
+            brain.Course.Decide(ctx, ctx.Companion.Combat, null,
+                live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Current);
+        }
+        return brain.Course.Last.Activity;
+    }
+
+    /// <summary>Every registered activity's worth as the course priced it, in the shape a failure message
+    /// wants: the reader's own numbers, so a row's diagnostic cannot drift from what the recorder prints.</summary>
+    internal static string CourseBoard(live::AICompanion.Companion.Brain.Brain brain)
+        => string.Join(", ", live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
+            .ReadCourseWorthPerActivity.Of(brain)
+            .Select(w => FormattableString.Invariant($"{w.Action.Name}={w.Raw:0.000} {w.Offer}:{w.OfferReason}")));
 
     internal static void AdvanceBrain(ActionContext ctx)
     {

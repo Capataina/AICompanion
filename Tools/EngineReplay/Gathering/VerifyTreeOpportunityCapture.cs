@@ -64,12 +64,23 @@ internal static class VerifyTreeOpportunityCapture
 
     private static IReadOnlyList<DecisionFact> Complete(CaptureTreeOpportunities capture, ActionContext context)
     {
-        for (int slice = 0; slice < 10000; slice++)
+        // One slice is one cell, so the bound is the census's own cell count with room for one reopening,
+        // derived rather than written down: it stood at a literal 10,000 against a box of 81 x 81, and the
+        // day the census window became the admission radius (127 x 127 = 16,129) the row failed as though
+        // the census had hung. A bound on a finite scan says "finite", and it is only saying that while it
+        // is the scan's own size.
+        // Read from the allowance the census window is derived from, not from the derived tile count, so
+        // this bound follows the radius through any later change of how the tiles are rounded.
+        int radius = (int)Math.Ceiling(
+            live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.NewActivityRadius / 16f);
+        long cells = (long)(2 * radius + 1) * (2 * radius + 1);
+        for (long slice = 0; slice < 2 * cells; slice++)
         {
             IReadOnlyList<DecisionFact> facts = capture.Capture(context, new(double.PositiveInfinity, 1));
             if (facts.Single(fact => fact.Key.Kind == "chop-coverage").Evidence == FactEvidence.Observed) return facts;
         }
-        throw new InvalidOperationException("finite native tree census did not finish under one-operation slices");
+        throw new InvalidOperationException(FormattableString.Invariant(
+            $"finite native tree census did not finish in {2 * cells} one-operation slices over its own {cells}-cell window"));
     }
 
     private static GatheringOpportunityFact[] Values(IReadOnlyList<DecisionFact> facts) => facts.Where(fact => fact.Key.Kind == "chop-target")

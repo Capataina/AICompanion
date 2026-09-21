@@ -38,6 +38,18 @@ public sealed class CompanionPreferences
     public float NewActivityRadius => Weights.FollowWorkRadius * (DistanceMode == CompanionDistanceMode.Close ? .5f : DistanceFactor);
     public float RecoveryRadius => Weights.FollowRecoveryDistance * DistanceFactor;
     public float ActiveActivityRadius => Weights.FollowWorkRadius * DistanceFactor * Weights.ActivityContinuationFactor;
+    /// <summary>
+    /// How far, in tiles, a work census must scan around the player's heading for its answer to mean
+    /// anything: exactly the radius <c>CompanionAction.AllowsTarget</c> admits a *new* target within,
+    /// rounded out. It is derived from <see cref="NewActivityRadius"/> rather than written as its own
+    /// number because the two must agree and, written separately, they did not — the ore census scanned
+    /// 45 tiles and the trunk census 40 against an allowance of 62, so a vein the allowance rule would
+    /// have admitted was invisible to the brain that had to admit it, and the smaller number won with
+    /// nothing anywhere saying it had. The family chooser hid that for as long as it was the brain,
+    /// because it ran a second search centred on the companion's own body; the course runs one, centred
+    /// here, so the census window is the whole of what the companion can see.
+    /// </summary>
+    public int WorkCensusRadiusTiles => (int)MathF.Ceiling(NewActivityRadius / 16f);
     public float FollowComfortScale => DistanceMode switch
     {
         CompanionDistanceMode.Close => .75f,
