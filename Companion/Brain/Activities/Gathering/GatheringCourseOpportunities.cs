@@ -61,13 +61,25 @@ public sealed class CaptureGatheringOpportunities
         CaptureOres(context, budget, facts, visibleThisCapture);
         facts.Add(new(GatheringOpportunityBinder.ReadyKey("mine-target"), 0,
             new(Amount: context.Companion.Miner.CooldownTicks > 0 ? (double)Main.GameUpdateCount + context.Companion.Miner.CooldownTicks : 0), FactEvidence.Observed));
+        // Gathering is two domains and this capture published one of them. CaptureTreeOpportunities
+        // was driven by nothing but its own fixture, so a wired brain would have seen no chop-target
+        // site and no chop-coverage at all — not an empty forest, an unanswered question, which under
+        // the rule that optional work does not start on an unanswered search means never chopping.
+        // The tree census owns its own slicing and cursor and shares the same borrowed allowance, so
+        // it composes here rather than needing a second caller.
+        facts.AddRange(trees.Capture(context, budget));
         return facts.OrderBy(fact => fact.Key).ToArray();
     }
+
+    /// <summary>The trunk census this capture composes. It owns its own cursor and slicing and is
+    /// reset with the rest, because a world reload must not leave it holding the old world's trunks.</summary>
+    private readonly CaptureTreeOpportunities trees = new();
 
     public void ResetWorld()
     {
         seen.Clear(); factCache.Clear(); visibleLastCapture.Clear(); visibleThisCapture.Clear(); observedOres.Clear(); oreVisited.Clear(); oreArea = null;
         oreOffset = 0; nextGeneration = 0; version = 0;
+        trees.ResetWorld();
     }
 
     private void CaptureOres(in ActionContext context, DecisionWorkBudget budget, List<DecisionFact> facts, HashSet<string> visible)

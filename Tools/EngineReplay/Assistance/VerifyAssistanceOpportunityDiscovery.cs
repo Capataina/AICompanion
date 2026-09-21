@@ -11,6 +11,7 @@ using live::AICompanion.Companion.Brain.Infrastructure.Observation;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
+using live::AICompanion.Companion.Brain.Activities.Gathering;
 
 /// <summary>Exercises the census-to-source seam without Terraria state. Native capture is represented
 /// by the exact immutable values sources receive, so a source that reads Main cannot make these rows pass.</summary>
@@ -67,6 +68,25 @@ internal static class VerifyAssistanceOpportunityDiscovery
                 $"the real capture published no observed {coverage}, so {domain} discovery can never report a finished census");
             var slice = new DiscoverAssistanceOpportunities(domain)
                 .Continue(facts, new DecisionWorkCursor(), new(double.PositiveInfinity));
+            Require(slice.Coverage.Exhausted,
+                $"{domain} discovery read the real capture and still could not call its census exhausted");
+        }
+
+        // The same question asked of the other half of the class. Gathering publishes its two coverage
+        // facts already, so these two arms are a guard rather than a repair — and they are here because
+        // a defect found in one member of a class is checked across the class, not fixed where it
+        // happened to surface. The gathering capture is a separate object with its own cursor, so it
+        // gets its own snapshot rather than sharing the assistance one.
+        var gathered = new CaptureGatheringOpportunities().Capture(ctx, new(double.PositiveInfinity));
+        var gatheringFacts = new DecisionFactSnapshot(92, 1, ctx.Senses.Tick, 1, 0, gathered);
+        foreach (string domain in new[] { "mine-target", "chop-target" })
+        {
+            string coverage = domain.Replace("-target", "-coverage", StringComparison.Ordinal);
+            Require(gatheringFacts.TryRead(new FactKey(coverage, "native-census"), out DecisionFact fact)
+                && fact.Evidence == FactEvidence.Observed,
+                $"the real gathering capture published no observed {coverage}, so {domain} discovery can never report a finished census");
+            var slice = new GatheringOpportunitySource(domain)
+                .Continue(gatheringFacts, new DecisionWorkCursor(), new(double.PositiveInfinity));
             Require(slice.Coverage.Exhausted,
                 $"{domain} discovery read the real capture and still could not call its census exhausted");
         }

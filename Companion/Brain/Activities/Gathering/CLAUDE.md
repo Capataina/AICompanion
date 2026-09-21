@@ -14,7 +14,8 @@ Gathering/
 ├─ MineOre.cs             retained ore-only vein work under the chosen policy
 ├─ ChopTree.cs            separate-tree preference and retained reachable trunk work
 ├─ GatheringCourseOpportunities.cs resumable native ore census and the pure frozen-fact mine/tree source
-├─ CaptureTreeOpportunities.cs sliced native trunk census with axe progress, access and policy evidence
+├─ CaptureTreeOpportunities.cs sliced native trunk census with axe progress, access and policy evidence,
+│                              composed into the gathering capture rather than driven on its own
 ├─ BindGatheringOpportunity.cs exact native swing bindings, readiness and conditional work successors
 └─ DescribeOreJobEnd.cs   original bounded vein state at job end, with separate removal attribution
 ```
@@ -62,5 +63,7 @@ Both activities key what they retain about access on `FindToolAccess.Reach`, the
 ## Current state — 2026-09-15
 
 Mining and chopping both read Reach from Observation.Senses rather than computing reachability privately, and both are mimic-capable — starting from the player's own tool hits — or opportunistic, discovering resources without waiting for one, under the policy readers in `../WorkPolicies.cs` that the player controls through the ProfileCard interface. A change in the player's reach re-opens discovery immediately rather than waiting out a cadence.
+
+**Gathering is two domains and its course capture published one of them until 21 September 2026.** `CaptureGatheringOpportunities.Capture` captured ores and returned; `CaptureTreeOpportunities` was a complete, sliced, budgeted trunk census that nothing in production ever called, so a course brain reading these facts would have seen no `chop-target` site and, worse, no `chop-coverage` at all. That is not an empty forest — it is an unanswered question, and under this tree's rule that optional work does not start on an unanswered search it means never chopping, ever, with every layer answering honestly. The tree census owns its own cursor and slicing and takes the same borrowed allowance, so it composes into the gathering capture rather than needing a second caller, and it is reset with it so a world reload cannot leave it holding the previous world's trunks. The standing guard is `G03 every assistance domain's real capture feeds its own discovery` in `Tools/EngineReplay/Assistance/VerifyAssistanceOpportunityDiscovery.cs`, which drives the real captures into the real sources for all five capture-backed domains and asserts each can call its census exhausted; it found this one immediately after being written for the lighting case, which is the argument for checking a defect across its class rather than fixing it where it surfaced.
 
 The body became an orb and both activities were re-requested rather than redesigned: each asks the shared tool-access query for a hover beside its tile and flies there, ceiling ore is ordinary work, and the hop with its deferrals is gone. The pick and axe power the tile gates are still read from the player's held tool here until the gear lane's slots are wired in at merge. Mining's near-player ore search centres on the player's intent region and chopping's still centres on his body; the paragraph above carries what that costs. The three-valued offer vocabulary these activities classify against is `../CLAUDE.md`'s and is unchanged for gathering.
