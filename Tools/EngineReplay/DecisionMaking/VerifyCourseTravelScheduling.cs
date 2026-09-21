@@ -72,8 +72,14 @@ internal static class VerifyCourseTravelScheduling
                     Array.Empty<Opportunity>(), Array.Empty<OpportunityKey>(), projector);
                 for (int i = 0; i < 30 && !search.Exhausted; i++)
                 {
+                    // The one-operation allowance has to *be* the standing one, not sit beside it:
+                    // captured travel refuses a budget passed in alongside a different active
+                    // allowance, which is the rule this row exists to keep rather than an obstacle
+                    // to it. Installing it also means the turn-taking is measured on the same object
+                    // every consumer inside the call borrows.
                     var budget = new DecisionWorkBudget(double.PositiveInfinity, 1);
-                    owner.ContinueSearch(search, budget);
+                    using (LimitPlanningWork.Own(budget))
+                        owner.ContinueSearch(search, budget);
                     Require(budget.OperationsUsed <= 1, "enemy model transport created a private allowance");
                 }
                 Require(search.Exhausted && search.RequiredEnemyMotion.Count == 0 && owner.CompletedCount == 1
@@ -256,7 +262,8 @@ internal static class VerifyCourseTravelScheduling
         for (int tick = 0; tick < 10000 && scheduler.PendingCount > 0; tick++)
         {
             var allowance = new DecisionWorkBudget(double.PositiveInfinity, 1);
-            results.AddRange(scheduler.Continue(allowance));
+            using (LimitPlanningWork.Own(allowance))
+                results.AddRange(scheduler.Continue(allowance));
             Require(allowance.OperationsUsed <= 1, "mixed native models spent independent allowances");
         }
         Require(results.Count == 2 && results[0].Key == enemy.Key && results[1].Key == route.Key,
@@ -311,7 +318,8 @@ internal static class VerifyCourseTravelScheduling
         for (int tick = 0; tick < 1000 && !search.Exhausted; tick++)
         {
             var budget = new DecisionWorkBudget(double.PositiveInfinity, 1);
-            owner.ContinueSearch(search, budget);
+            using (LimitPlanningWork.Own(budget))
+                owner.ContinueSearch(search, budget);
             Require(budget.OperationsUsed <= 1, "search and native model invented separate operation allowances");
         }
         Require(search.Exhausted && search.RejectedOrders == 1 && projector.Answered
@@ -403,7 +411,8 @@ internal static class VerifyCourseTravelScheduling
         for (int slice = 0; slice < 20000 && scheduler.PendingCount > 0; slice++)
         {
             var budget = new DecisionWorkBudget(double.PositiveInfinity, 1);
-            completed.AddRange(scheduler.Continue(budget));
+            using (LimitPlanningWork.Own(budget))
+                completed.AddRange(scheduler.Continue(budget));
             Require(budget.OperationsUsed <= 1, "a query invented an allowance outside the shared budget");
         }
         Require(completed.Count == 2 && completed[0].Key == near.Key && completed[1].Key == far.Key

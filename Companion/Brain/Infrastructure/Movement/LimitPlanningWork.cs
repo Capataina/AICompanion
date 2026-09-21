@@ -54,6 +54,20 @@ public static class LimitPlanningWork
         return new Ownership(previous, previousDeadline);
     }
 
+    /// <summary>The same ownership around an allowance the caller built. A fixture forcing a
+    /// deterministic cut needs its own operation count to *be* the standing allowance rather than
+    /// sit beside one, because the consumers that check they are borrowing the active budget —
+    /// captured travel is the first — are right to refuse a second allowance passed in alongside.</summary>
+    public static Ownership Own(DecisionWorkBudget budget)
+    {
+        DecisionWorkBudget? previous = current;
+        long previousDeadline = deadline;
+        current = null;
+        deadline = 0;
+        Begin(budget);
+        return new Ownership(previous, previousDeadline);
+    }
+
     public readonly struct Ownership : IDisposable
     {
         private readonly DecisionWorkBudget? previous;
