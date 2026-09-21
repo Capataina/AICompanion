@@ -1174,11 +1174,25 @@ internal static class VerifyAttackPlanning
         //
         // A cut is expected and is not the failure; a cut that yields nothing is. G04 requires a useful
         // opener to survive the broader search being cut, and `SearchAttackPlans` implements exactly
-        // that — it prices a single opener stand before stand discovery may spend the allowance. What
-        // it is not protected from is the prelude: `combat.EnsureForecast` forecasts every hostile
-        // before the opener is reached, so on a crowd the deadline can pass before the guarantee is
-        // established. Measured here as two searches in twelve returning nothing with the opener's own
-        // stand reading `Reachable`, so the opener was starved rather than refused on geometry.
+        // that — it prices a single opener stand before stand discovery may spend the allowance.
+        //
+        // **The prelude is not what starves it, and this row under-reports rather than over-reports.**
+        // That correction was measured on 21 September 2026 by timing each step of the search's opening
+        // on this very scene: forecasting all forty hostiles, choosing targets, assessing the opener's
+        // stand and building the eval targets cost 0.04 to 0.09 ms together. The whole 12 ms goes inside
+        // `PriceLevelOne` for the opener alone, and it costs 12 ms on a cold simulation cache against
+        // 0.4 ms on a warm one.
+        //
+        // The twelve searches below all share one `Senses.Tick`, and `CacheSimulatedUses.ClearAtTick`
+        // clears the cache only when the tick changes — so the first two fill it and the other ten read
+        // it. **Production never gets those ten.** The brain tick advances every frame, so every live
+        // search on a forty-hostile crowd starts from an empty cache, which is the regime the two
+        // failures measure. So the honest reading is not "ten of twelve is nearly right": it is that the
+        // only two runs in play's own regime both failed, and the ten that passed are an artefact of a
+        // fixture that holds its clock still. `AIC-441` carries the two candidate fixes — make the
+        // guarantee cheap by construction by pricing the opener against the most urgent target rather
+        // than all of them, or invalidate the sim cache by what actually changed instead of by the tick
+        // — and it is also the mechanism under `AIC-445`'s 22 ms mean, since every tick pays this.
         Require(planned == underAllowance.Length,
             $"a search cut by the tick's own allowance must still return a usable plan on a forty-hostile "
             + $"crowd; {planned} of {underAllowance.Length} did, with {cut} cut");
