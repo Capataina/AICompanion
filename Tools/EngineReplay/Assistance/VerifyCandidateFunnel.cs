@@ -9,6 +9,7 @@ using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext
 using BrainTelemetry = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry;
 using Scored = live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser.Scored;
 using CandidateFunnel = live::AICompanion.Companion.Brain.Activities.CandidateFunnel;
+using CourseValue = live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.CourseValue;
 using CollectNearbyItems = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems;
 using LightSense = live::AICompanion.Companion.Brain.Infrastructure.Observation.LightSense;
 using LightUsefulArea = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.LightUsefulArea;
@@ -66,7 +67,7 @@ internal static class VerifyCandidateFunnel
             HisCursorsTileIsTheReference);
         Each("funnel: collection names a drop with no contact pose as refused there",
             CollectionNamesADropWithNoContactPose);
-        Each("factors: the time-per-job factor is recorded for a task and the recorded factors multiply to its final",
+        Each("value: a priced course's published terms account for its published total",
             TheTimeFactorIsRecordedAndMultipliesToTheFinal);
         if (red == 0) Console.WriteLine("candidate funnel: lighting, collection and the player's reference name every refusal");
         return red;
@@ -269,54 +270,39 @@ internal static class VerifyCandidateFunnel
         VerifyTorchPlacementRule.ForceRefresh(ctx);
         var brain = ctx.Companion.Brain;
         brain.Chooser.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
-        Scored? found = null;
-        for (int tick = 0; tick < 120 && found == null; tick++)
+        // The course's own value for the lighting domain, taken from the leaders the search publishes.
+        // This row used to read `Chooser.LastScores` and multiply nine named factors into a final; the
+        // course has no factors, so the subject had to be translated rather than renamed. What survives
+        // is the property the old row existed for — **the numbers a reader is shown account for the
+        // decision that was made** — against the terms the course actually has.
+        string domain = "light-target";
+        CourseValue? priced = null;
+        for (int tick = 0; tick < 120 && priced == null; tick++)
         {
             VerifyOreWork.AdvanceBrain(ctx);
-            foreach (Scored s in brain.Chooser.LastScores)
-                if (s.Action.Name == "place-torches" && s.Final > 0f && s.Error.Length == 0) found = s;
+            if (brain.Course.LastLeaders.TryGetValue(domain, out var leader) && leader.Total.Nominal > 0)
+                priced = leader;
         }
-        // This premise reads `Chooser.LastScores`, which the course brain leaves empty on purpose — and
-        // `VerifyTheCourseOwnsTheTick` asserts it is empty, so the two rows now contradict each other by
-        // design rather than by accident. Whichever of them is satisfied, the other must fail.
-        //
-        // The subject does not survive the translation either. This row is about a *factor list*
-        // multiplying to a final, and the course has no factors: it has useful effects, predicted harm
-        // and a companionship gap, which combine differently. The course equivalent worth asserting is
-        // that a recorded value's terms account for its total, and that is new work rather than a
-        // rename — the funnel the course does publish (`LastLeaders`, `Admitted`, `LastRefusals`) is
-        // already written to telemetry at schema 0.42.0 and is what a reader should be pointed at.
-        //
-        // So this belongs with the eleven legacy selection paths the plan retires once the course has
-        // been played (AIC-419), and it is left failing on an honest premise rather than propped up by
-        // driving a chooser nothing calls.
-        Require(found is Scored,
-            "premise: lighting must be compared with a value in the dark room. NOTE: this reads the "
-            + "retired family chooser's score ledger, which the course brain leaves empty by design and "
-            + "which VerifyTheCourseOwnsTheTick asserts is empty; the row retires with the chooser "
-            + "(AIC-419) or is rewritten against the course's own value terms");
-        Scored score = found!.Value;
-        string factors = BrainTelemetry.FactorList(score);
-        Require(score.Time < 1f && score.Time > 0f,
-            $"a lighting job somewhere is a task, so its final carries the time-per-job factor; {factors}");
-        Require(factors.Contains(FormattableString.Invariant($"time:{score.Time:0.000},"), StringComparison.Ordinal),
-            $"the time factor is in the recorded factor list; {factors}");
-        float product = score.Raw * score.Protection * score.Commitment * score.Horizon * score.UsefulWork * score.Reunion
-            * score.Time * score.PlayerFit * score.Order;
-        Require(MathF.Abs(product - score.Final) <= 1e-4f * MathF.Max(1f, score.Final),
-            $"the recorded factors multiply to the recorded final; product={product:0.000000} final={score.Final:0.000000} {factors}");
-        float Read(string name)
-        {
-            int at = factors.IndexOf(name + ":", StringComparison.Ordinal);
-            Require(at >= 0, $"the factor list names {name}; {factors}");
-            at += name.Length + 1;
-            int end = factors.IndexOf(',', at);
-            return float.Parse(factors[at..end], System.Globalization.CultureInfo.InvariantCulture);
-        }
-        float recorded = Read("raw") * Read("protection") * Read("commitment") * Read("horizon") * Read("useful-work")
-            * Read("reunion") * Read("time") * Read("player-fit") * Read("order");
-        Require(MathF.Abs(recorded - Read("final")) <= 0.01f * Read("final") + 0.002f,
-            $"the factors as written multiply to the final as written, to the precision they are written at; recorded={recorded:0.0000} {factors}");
+        Require(priced != null,
+            $"premise: lighting must be priced with a positive value in the dark room, or there is no "
+            + $"composition to check; leaders {string.Join(" ", brain.Course.LastLeaders.Select(e => $"{e.Key}={e.Value.Total.Nominal:0.0000}"))}");
+        CourseValue value = priced!;
+        // `Evaluate` composes the total as useful − harm − gap + the nominal tail, and a non-zero tail
+        // announces itself as `tail-has-no-bounds`, so requiring that unknown's absence is what makes
+        // the three published terms the whole of the sum rather than most of it. Without it a tail could
+        // absorb any discrepancy and this row would pass on arithmetic nobody checked.
+        Require(!value.Unknowns.Contains("tail-has-no-bounds"),
+            $"premise: the priced course must carry no nominal tail, or the three published terms are not "
+            + $"the whole total; unknowns {string.Join(",", value.Unknowns)}");
+        double composed = value.UsefulEffects - value.Harm - value.Companionship;
+        Require(Math.Abs(composed - value.Total.Nominal) <= 1e-6 * Math.Max(1, Math.Abs(value.Total.Nominal)),
+            $"the published terms must account for the published total, or a reader of a decision is "
+            + $"shown numbers that are not the ones it was made on; useful {value.UsefulEffects:0.000000} "
+            + $"− harm {value.Harm:0.000000} − gap {value.Companionship:0.000000} = {composed:0.000000}, "
+            + $"against total {value.Total.Nominal:0.000000}");
+        // The recorder's own line is built from this same `LastLeaders` object, so parsing it back would
+        // assert one set of numbers against itself. What is genuinely unchecked is whether a reader can
+        // recover them from a capture, which is SessionReport's half and belongs with AIC-420.
     }
 
     private static void Require(bool condition, string message)
