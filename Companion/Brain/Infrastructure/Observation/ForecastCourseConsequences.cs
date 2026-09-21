@@ -263,7 +263,28 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
             var missing = new List<CourseEnemyMotionRequest>();
             foreach (CapturedContactEnemy enemy in census.Enemies)
             {
-                var request = new CourseEnemyMotionRequest(enemy.Slot, enemy.Generation, harmHorizon, MotionModelRevision);
+                // **Asked at the full horizon rather than at this candidate's own, so K candidate orders
+                // beside M hostiles cost M simulations instead of K×M.** The horizon is part of the fact
+                // key, and it has to be — a shorter answer cannot satisfy a longer question, and dropping
+                // it from the identity would let one silently do so. What was wrong was asking a question
+                // about the *hostile* whose identity carried a property of the *order*: `harmHorizon` is
+                // `ceil(company.EndTick)`, so two candidates differing only in length asked two different
+                // questions about the same enemy on the same captured track, and shared nothing.
+                //
+                // Truncation at read is free and needs no code: a longer simulation over the same captured
+                // track and terrain revision is a strict superset of a shorter one, and the victim's own
+                // trajectory is already bounded at `harmHorizon`, so pairing a full-horizon motion with it
+                // yields exactly the contact samples the shorter request would have. `ForecastContactHarm`
+                // is still handed `harmHorizon` as its own bound.
+                //
+                // The trade this makes, named because it is real rather than free: `CaptureEnemyCourseMotion`
+                // publishes a modelled fact only once it has covered the *whole* requested horizon with its
+                // terrain footprint unchanged, so one long query is likelier to be concluded unresolved by an
+                // edit than several short ones. That is the honest direction to fail in — unresolved leaves
+                // harm unpriced rather than zero — and it buys back the simulations that were making combat
+                // lose ticks to its own deadline.
+                var request = new CourseEnemyMotionRequest(enemy.Slot, enemy.Generation,
+                    PredictObservedMotion.MaximumForecastTicks, MotionModelRevision);
                 // The read happens before the retained-geometry skip, and the order is the whole point.
                 // `harmReads` is cleared on every re-entry while the forecast is still being built, so a
                 // motion fact whose geometry was constructed in an earlier slice — a budget cut, or a
