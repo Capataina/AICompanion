@@ -60,17 +60,20 @@ public sealed class AssembleCourseSnapshot
         facts.AddRange(CombatCourseFacts.Capture(context, combat, search));
         facts.Add(CaptureCompanionshipInputs.Capture(context, ordinal));
         facts.Add(CaptureCourseContactCensus.Capture(budget).ToFact(ordinal));
-        // The companion victim only, because the companion is the only body whose harm is priced.
-        // A victim that could not be captured under this tick's allowance is simply absent, which the
-        // harm forecast reads as work it cannot price rather than as a body that cannot be hurt.
+        // Both victims, because both bodies' harm is priced. A victim that could not be captured under
+        // this tick's allowance is simply absent, which the harm forecast reads as work it cannot price
+        // rather than as a body that cannot be hurt.
         //
-        // The player's capture was taken here for one commit and is deliberately gone. Nothing read it —
-        // `ForecastCourseConsequences` reads the companion key alone, because his future path is not a
-        // thing a course decides — and taking it was not free: the capture charges one operation per
-        // hurt-cooldown channel plus one per entry of `npcTypeNoAggro`, which is sized to the whole NPC
-        // type table, so it spent several hundred operations of the shared planning allowance every
-        // observation for a fact with no reader. It comes back the day the player's harm is modelled.
+        // The player's capture was taken here for one commit, removed as a fact with no reader, and is
+        // back now that `ForecastCourseConsequences` prices his harm. It costs what it cost then minus
+        // the part that made it expensive: the no-aggro table, sized to the whole NPC type table and
+        // read by nobody, is no longer captured, so the charge is one operation per hurt-cooldown
+        // channel rather than several hundred per observation.
         if (CaptureContactVictim.Capture(context.Npc, budget) is { } companion) facts.Add(companion.ToFact(ordinal));
+        if (CaptureContactVictim.Capture(context.Player, budget) is { } victim) facts.Add(victim.ToFact(ordinal));
+        // His motion, kept by the same law that forecasts a hostile's, so the contact forecast has a box
+        // per tick for him rather than a body frozen where he happened to stand.
+        if (CapturedPlayerMotion.Capture(context.Player, budget) is { } motion) facts.Add(motion.ToFact(ordinal));
 
         // The five identity fields are compared in full by IsModelExtensionOf, which is how a derived
         // query that finishes after the freeze is admitted without letting it change the world the

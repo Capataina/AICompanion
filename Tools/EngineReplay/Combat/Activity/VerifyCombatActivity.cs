@@ -114,7 +114,13 @@ internal static class VerifyCombatActivity
         WaitForJob(companion, "mine", 300);
         player.statLife = 40;
         using var hostile = ClearAfter.At(30);
-        Hostile(30, NPCID.Zombie, player.Bottom + new Vector2(48, 0), damage: 20, life: 400);
+        // A real zombie: the game's own life and contact damage for the type, where this used to override
+        // both with 400 life and 20 damage. The four hundred was chosen under the family chooser, where
+        // combat won by being eligible and nothing was priced, and it silently made the row unwinnable
+        // once consequences were priced — a hostile the companion cannot kill inside the forecast
+        // horizon takes its hit whatever the companion does, so defending the player is worth exactly
+        // nothing and preferring the vein is the comparison being right.
+        Hostile(30, NPCID.Zombie, player.Bottom + new Vector2(48, 0));
         // Whether the threat can reach the player in this world at all, which decides whether the row's
         // own premise is reachable before any brain change is judged against it. Enemy AI does not run
         // headless and `AdvanceNative` advances only the companion, so a hostile spawned clear of the

@@ -38,50 +38,53 @@ public sealed class CourseComparisonEpisode
     public double ProtectionUrgency { get; }
 
     /// <summary>
-    /// What a need is worth relative to its own census while the player is in danger, which is the one
-    /// place the player's danger reaches the comparison at all.
+    /// What a need is worth relative to its own census while the player is in danger.
     ///
-    /// Before this the course had no term for it: <see cref="NeedKind"/> runs Illumination, Loot,
-    /// NativeWork, HostileLife and Container, and nothing in any of them says the player is being hurt.
-    /// So killing a zombie standing on a wounded player was worth exactly what killing one across the
-    /// room was worth, and on a scene with a threat on a hurt player the companion mined for all 120
-    /// ticks. The family chooser had this and the course did not inherit it.
+    /// **This is still a stopgap, and what it stands in for changed on 21 September 2026.** It used to
+    /// stand in for predicted harm to the player, because no course priced that at all; the player is a
+    /// contact actor now, with his own forecast path, and a course's projected kills truncate the
+    /// threats they remove. Deleting it on that basis was tried the same day and measured wrong, which
+    /// is the finding worth keeping rather than the term itself.
+    ///
+    /// On `danger lifts combat over work`, a real zombie walking into a player at forty life, with the
+    /// harm term live and this multiplier removed:
+    ///
+    ///     mine-target  0.5353   useful 0.8853  harm 0.3500
+    ///     combat      -0.3323   useful 0.0177  harm 0.3500
+    ///     (idle)      -0.3500   useful 0.0000  harm 0.3500
+    ///
+    /// The harm is priced, correctly, at fourteen damage against forty life — and it is *identical on
+    /// every course*, combat included, so it cannot separate them. <see cref="ForecastContactHarm"/>
+    /// prices first contact and stops that actor's continuation there, by design, because immunity,
+    /// knockback and hit hooks need a successor model before a second overlap can be a second hit. The
+    /// zombie reaches the player about thirty ticks in and no course kills it first, so every course
+    /// predicts the same single hit and defending is worth nothing. In the game the player is hit again
+    /// every immunity window until something kills it, which is the quantity this term now approximates.
+    ///
+    /// So the two are not two terms for one quantity: the forecast owns *one predicted hit*, and this
+    /// owns *a threat that keeps hitting*. Where a course does kill the threat inside the horizon the
+    /// forecast carries it properly and this multiplier is not what decides — the truncation is.
+    ///
+    /// **Delete this when contact harm models repeated hits**, which needs the successor model the harm
+    /// forecast names: native immunity windows, knockback displacement and the hit hooks. Until then a
+    /// scene where urgency and sustained predicted harm disagree is a scene this term gets wrong, and
+    /// that is its failure case.
     ///
     /// The shape is the chooser's own rather than a new invention: danger suppresses *work* rather than
     /// inflating combat, so a non-combat need pays <c>1 − urgency</c> and a hostile's life pays in full.
     /// Written the other way round — a bonus on combat — the same ordering would need a magnitude nobody
     /// could derive, and every tuning of it would move work's value too.
     ///
-    /// **This is a stopgap standing in for a quantity the objective should compute, and it is written
-    /// down as one so nobody later mistakes it for the design.** The project's own rule is that a factor
-    /// standing in for a quantity the brain could compute is a defect waiting for the case where the two
-    /// disagree. The quantity here is predicted harm to the player, and `ForecastCourseConsequences`
-    /// hands `ForecastContactHarm` a companion actor and no player actor at all — the player's contact
-    /// geometry is an explicit unsupported empty, because nothing models his path — so every course in
-    /// existence prices the player's harm at exactly zero. Measured on `danger lifts combat over work`
-    /// with a zombie beside a player at 40 life: every candidate reported `harm 0.0000`, with no
-    /// `harm-uncertain` entry, because `course.Harm` was empty rather than unresolved.
-    ///
-    /// So danger cannot reach the comparison through the term that should carry it, and without this
-    /// multiplier it does not reach the comparison at all. That is the only reason it is here rather
-    /// than the reason it is right: on a live tick, a brain with no danger term is worse than one with a
-    /// proxy whose limits are stated.
-    ///
-    /// **Delete this the moment predicted harm to the player is priced**, which needs two things that do
-    /// not exist yet — a modelled player trajectory so he can be a contact actor, and projected enemy
-    /// kills removing the later harm they prevent, without which killing the zombie and ignoring it
-    /// price the same player harm and combat still loses. Until both land, a scene where urgency and
-    /// real predicted harm disagree is a scene this term gets wrong, and that is its failure case.
-    ///
-    /// Encounter intensity is deliberately *not* folded in here yet, though the chooser's rule was
+    /// Encounter intensity is deliberately *not* folded in here, though the chooser's rule was
     /// <c>1 − max(urgency, intensity)</c>. This episode carries the encounter as a boolean, and treating
     /// that as an intensity of one would zero every optional need for the whole of any recognised event —
     /// stronger than the rule it would be imitating, because inferred pressure ramps rather than
-    /// arriving at full strength. Carrying the intensity through is its own change and wants measuring on
-    /// a scene with a blood moon in it.
+    /// arriving at full strength. It is why a blood moon over the player still leaves mining valued
+    /// exactly as a quiet surface does.
     /// </summary>
     public double RelevanceFor(NeedKind kind)
         => kind == NeedKind.HostileLife ? 1 : Math.Max(0, 1 - ProtectionUrgency);
+
     public IEnumerable<UsefulNeed> Needs => needs.Values;
     public bool TryNeed(NeedKey key, out UsefulNeed need) => needs.TryGetValue(key, out need!);
 

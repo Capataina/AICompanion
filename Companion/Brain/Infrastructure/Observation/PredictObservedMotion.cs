@@ -12,6 +12,19 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 public static class PredictObservedMotion
 {
     public const int MaximumForecastTicks = 180;
+    /// <summary>
+    /// The key the player's own track lives under. Negative on purpose: <see cref="tracks"/> is keyed by
+    /// <c>NPC.whoAmI</c>, which is never negative, so the player cannot collide with a hostile however
+    /// many slots the world has, and nothing that iterates <see cref="TrackedSlots"/> for enemies can
+    /// pick him up by accident.
+    ///
+    /// He is tracked at all because a course that defends him has to be priced against where he is
+    /// going, not where he stands: the contact forecast takes a victim's box per tick, and until this
+    /// existed the player's boxes were an explicit unsupported empty and every course in existence
+    /// priced his harm at exactly zero.
+    /// </summary>
+    public const int PlayerSlot = -1;
+
     private sealed class Track
     {
         public NPC Subject = null!;
@@ -79,6 +92,67 @@ public static class PredictObservedMotion
         // Observation owns its next comparison. Relying on an aimer/reflex to request a
         // forecast made confidence depend on NPC iteration order and which behaviour ran.
         _ = Predict(npc, 1);
+    }
+
+    /// <summary>
+    /// The player's own motion history, kept exactly the way a hostile's is so his continuation is
+    /// forecast by the same law rather than by a second model that could disagree with it.
+    ///
+    /// Identity is the <see cref="Player.whoAmI"/> and the slot, not a reference, because this is
+    /// singleplayer and <c>Main.LocalPlayer</c> is one long-lived object; what has to be detected is a
+    /// gap in observation, which the consecutive-tick test already does. A non-consecutive tick resets
+    /// the error history, so a track picked up after a pause reports low confidence rather than a
+    /// confident extrapolation across the gap.
+    /// </summary>
+    public static void Observe(Player player)
+    {
+        ulong tick = Main.GameUpdateCount;
+        if (!tracks.TryGetValue(PlayerSlot, out Track? track))
+            tracks[PlayerSlot] = track = new Track();
+        if (track.Type == player.whoAmI && track.Tick == tick
+            && track.Position == player.position && track.Velocity == player.velocity) return;
+
+        bool consecutive = track.Type == player.whoAmI && tick == track.Tick + 1
+            && Vector2.DistanceSquared(player.position, track.Position + track.Velocity) < 64f * 64f;
+        if (!consecutive) { track.MeanError = 0f; track.ErrorSamples = 0; }
+        if (consecutive && track.Centres.Count > 1)
+        {
+            float error = Vector2.Distance(player.Center, track.Centres[1]);
+            track.MeanError = track.ErrorSamples == 0 ? error : track.MeanError * .8f + error * .2f;
+            track.ErrorSamples++;
+        }
+        Vector2 delta = consecutive ? player.velocity - track.Velocity : Vector2.Zero;
+        // A landing, a jump or a grapple is an impulse rather than acceleration to extrapolate for a
+        // whole flight, exactly as for a hostile.
+        if (MathF.Abs(delta.X) > 1f) delta.X = 0f;
+        if (MathF.Abs(delta.Y) > 1f) delta.Y = 0f;
+        track.Acceleration = delta;
+        // `Subject` stays null: it is the NPC identity, and a player is not one. Every read of it is
+        // guarded by a `Subject == npc` test that a null can only fail, which is the correct answer to
+        // "is this track the one for that NPC".
+        track.Type = player.whoAmI;
+        track.Tick = tick;
+        track.Position = track.ForecastPosition = player.position;
+        track.Velocity = track.ForecastVelocity = player.velocity;
+        track.Gravity = Player.defaultGravity;
+        track.MaxFallSpeed = player.maxFallSpeed;
+        track.WaterMovementSpeed = track.LavaMovementSpeed = track.HoneyMovementSpeed = track.ShimmerMovementSpeed = 1f;
+        track.NoGravity = false;
+        track.NoTileCollide = false;
+        track.Wet = player.wet;
+        track.LavaWet = player.lavaWet;
+        track.HoneyWet = player.honeyWet;
+        track.ShimmerWet = player.shimmerWet;
+        track.Centres.Clear();
+        track.Centres.Add(player.Center);
+        _ = PredictTrack(track, 1, player.width, player.height);
+    }
+
+    /// <summary>The player's state for a resumable motion query, in the shape a hostile's is captured in.</summary>
+    public static CapturedMotion Capture(Player player)
+    {
+        Observe(player);
+        return new CapturedMotion(ExportTrack(PlayerSlot)!, player.width, player.height);
     }
 
     public static Vector2 Predict(NPC npc, int ticks)

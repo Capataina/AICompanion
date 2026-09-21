@@ -6,13 +6,23 @@ Three shapes in it exist because their absence was measured. A decision is froze
 
 What it deliberately does not do: **opportunistic replacement mid-course**. `RetainCourse.Consider` requires the incumbent reprojected from the current observation before two futures can be compared, and that reprojection is unbuilt, so a valid course is kept and no rival is weighed against it. The companion finishes what it started and picks again at the end.
 
-## The objective cannot express "defend him", because no course prices harm to the player
+## The objective prices harm to the player, and still cannot express a threat that keeps hitting
 
-**Every course in existence prices the player's harm at exactly zero, so no comparison between two courses can ever prefer the one that defends him.** `ForecastCourseConsequences` hands `ForecastContactHarm` a companion actor and no player actor at all: the player's contact geometry is passed as an explicit unsupported empty, because nothing models his path. This is deliberate and correct as far as it goes — an empty *supported* geometry would read as "the player is never touched", which is the lie — but the consequence is that the one quantity that would make a threat on the player worth anything contributes nothing to any candidate.
+**Both holes that made defending the player unreachable closed on 21 September 2026, and the behaviour is still only half there.** The player is a contact actor now, with his own motion track captured by `CapturePlayerMotion` and extended by the same law a hostile's is, and each hostile is projected against him as well as against the companion — a separate projection rather than a copy, because native melee geometry is victim-dependent. And a course's own predicted kills truncate the threats they remove, for both bodies, read off the course's effects where a combat step names its target as a `HostileLife` need whose delta carries the life left. `censusComplete` is the census's own answer rather than a pin, and the projection's tail is the forecast's honest verdict.
 
-Behind it sits a second hole, and either alone is enough to keep the behaviour unreachable: `ForecastContactHarm` does not apply projected enemy kills, so a course that kills the zombie and a course that mines beside it price the *same* future player harm. Both must land before a threatened player can lift combat off a vein through the objective rather than through a multiplier.
+What it buys is real and narrower than it sounds: a course that kills a threat **before it reaches anybody** is now worth the harm it prevents, which is the interception behaviour, and it costs nothing measurable — decide mean moved 1.952 ms to 1.966 ms on the brain-cost scene, single-variable.
 
-The measurement, on `danger lifts combat over work` at 0.33.2, with a zombie beside a player at 40 life and ten real decisions inside the 120 ticks:
+What it still cannot express is a threat already on the player. `ForecastContactHarm` prices first contact and stops there, because immunity, knockback and hit hooks need a successor model before a second overlap can be a second hit. Measured on `danger lifts combat over work` with a real zombie walking into a forty-life player, harm term live and the multiplier below removed:
+
+```
+mine-target  0.5353   useful 0.8853  harm 0.3500
+combat      -0.3323   useful 0.0177  harm 0.3500
+(idle)      -0.3500   useful 0.0000  harm 0.3500
+```
+
+The harm is priced correctly and is identical on every course, because the zombie reaches him about thirty ticks in and nothing kills it first — so one hit lands whatever the companion does, and defending is worth nothing. In the game he is hit again every immunity window until something kills it. `CourseComparisonEpisode.RelevanceFor` is what stands in for that, and its body now carries this measurement and a deletion condition naming the successor model rather than the player-harm term it originally named.
+
+The measurement that opened this, on `danger lifts combat over work` at 0.33.2, with a zombie beside a player at 40 life and ten real decisions inside the 120 ticks:
 
 ```
 mine-target  0.1774   useful 0.1774  harm 0.0000  gap 0.0000   ← already × 0.243 for urgency
@@ -22,9 +32,11 @@ combat       0.0020   useful 0.0020  harm 0.0000  gap 0.0000
 
 `harm 0.0000` on every row with no `harm-uncertain` entry beside it means `course.Harm` was *empty* rather than unresolved — no hits predicted for anybody, not hits that could not be priced. That distinction is the whole finding and it is invisible without the unknowns printed beside the total.
 
+**That scene could not have witnessed the preference under any brain, and the reason is worth more than the numbers.** Its zombie stood exactly where it was placed — enemy AI does not run headless — forty-eight pixels from a player whose boxes close at nineteen, so no contact forecast however correct could predict a hit, and combat pricing near zero was the comparison being right. It walks at him by hand now, and carries the game's own life and damage rather than the 400 and 20 it overrode them with, because a hostile the companion cannot kill inside the horizon takes its hit whatever the companion does.
+
 **Three scoring hypotheses were tested against this row and all three were wrong, so they are recorded as eliminations rather than left to be retried.** Combat does not score below mining because of a missing bonus — a derived-from-nothing constant moved the outcome by nothing. Combat orders are not refused during projection — the refusals are twelve `native-target-unresolved` and eight `assistance-target-unresolved`, none of them combat's. Combat is not filtered out before enumeration by being admitted `Unresolved` — admission reads `combat:1ok/0?/0x`. A fourth reading, that no comparison happens at all because the course is retained, was contradicted by the per-tick decision tally: `course-retained` on 110 ticks and `course-published` on 10, so ten real searches ran at urgency 0.757 with combat admitted and mining won every one.
 
-The property that survives all four, and the one to check before anyone writes a fifth patch here: **a preference the objective has no term for cannot be recovered by tuning the terms it does have.** `CourseComparisonEpisode.RelevanceFor` is the multiplier currently standing in for the missing quantity, and its own body carries the condition under which it is deleted.
+The property that survives all four, and the one to check before anyone writes a fifth patch here: **a preference the objective has no term for cannot be recovered by tuning the terms it does have.** The term exists now, and the property held on the way in as well as on the way out — deleting `RelevanceFor` on the strength of it was tried on 21 September 2026 and measured wrong, because the term prices one hit and the thing it was standing in for is a threat that keeps hitting.
 
 **Everything below this line describes the family chooser, which is compiled and no longer on the tick's path.** It survives for the activity list it holds and for `OwnCurrentActivity`, and the plan's migration table retires the rest of it once the course brain has been played — kept until then so a defect found in play can still be attributed to one brain or the other. Thirteen behaviour rows that held under it do not hold under the course, and `AIC-437` adjudicates them one at a time; until that closes, the measurements in this file describe a decision procedure the game no longer runs.
 

@@ -15,7 +15,19 @@ public readonly record struct ContactBox(double X, double Y, double Width, doubl
 public sealed record ContactActor(HarmActor Actor, double Life, int ReadyTick, IReadOnlyList<ContactBox> Boxes);
 public readonly record struct ContactSample(ContactBox Box, double Damage, int ReadyTick);
 public sealed record ContactGeometry(IReadOnlyList<ContactSample> Samples, bool Supported);
-public sealed record ContactThreat(int Slot, long Generation, ContactGeometry ToPlayer, ContactGeometry ToCompanion);
+/// <summary>
+/// One hostile as a source of contact against either actor, and — when the course under evaluation is
+/// predicted to kill it — the tick that course's own effects say it dies on.
+///
+/// The kill is carried here rather than rewarded anywhere else, because the two are different claims and
+/// only one of them is true: a course that kills a zombie does not earn a prevention bonus, it simply
+/// has fewer contacts after that tick, for the player as well as for the companion. Expressed as a
+/// bonus it would be paid twice for a hostile that was never going to touch anybody; expressed as a
+/// truncation it is worth exactly the harm it removes, which is nothing when the hostile was harmless
+/// and a great deal when it was about to reach the player.
+/// </summary>
+public sealed record ContactThreat(int Slot, long Generation, ContactGeometry ToPlayer, ContactGeometry ToCompanion,
+    double? KilledAtTick = null);
 public sealed record ContactHarmResult(IReadOnlyList<PredictedHarm> Harm, bool TailUnresolved, int RequestedHorizon);
 
 /// <summary>First contact over captured per-tick geometry. A hit ends that actor's supported
@@ -65,7 +77,13 @@ public sealed class ForecastContactHarm
             if (tick >= body.Boxes.Count) { unresolved = true; NextActor(); continue; }
             var enemy = threats[threat];
             var geometry = body.Actor == HarmActor.Player ? enemy.ToPlayer : enemy.ToCompanion;
-            if (!geometry.Supported || tick >= geometry.Samples.Count) unresolved = true;
+            // A hostile this course kills makes no contact from the tick it dies on, and that is a
+            // resolved answer rather than a gap: the course's own effects say it is gone, so nothing is
+            // missing and the tail is not made unresolved by it. Reading it as unresolved instead would
+            // leave a course that clears the room permanently unable to be better than one that does
+            // not, which is the whole behaviour this exists for.
+            if (enemy.KilledAtTick is { } dead && tick >= dead) { }
+            else if (!geometry.Supported || tick >= geometry.Samples.Count) unresolved = true;
             else
             {
                 var contact = geometry.Samples[tick];
