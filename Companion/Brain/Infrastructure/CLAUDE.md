@@ -6,7 +6,7 @@ Nothing in this tree is a competing job. Observation, scoring, places, movement,
 Infrastructure/
 ├─ CLAUDE.md
 ├─ Observation/    one account of the world, rebuilt per tick — except reach, refreshed per rescore
-├─ Selection/      utility scoring, family nomination, tunables
+├─ Selection/      the course that decides the tick, its opportunities and allowance, and the tunables
 ├─ Position/       a kind of place into a hover point
 ├─ Movement/       one request surface and one motor
 ├─ Interactions/   pickaxe, axe, torch, doors, homes, firing

@@ -25,4 +25,12 @@ Three things that fixture had to learn, each of which is what a stand-in binder 
 
 **The projection clock is relative to the decision and always starts at zero**, which is worth knowing before writing another scene here. `DecideCourseEachTick` builds its initial state with no start tick, and `SampleContactTrajectory` refuses any contact trajectory whose first pose is not at tick zero. A scene starting elsewhere is not more realistic — it is a different clock, and it throws at that guard.
 
-Run from the repository root with `dotnet run --project Tools/EngineReplay -p:UseAppHost=false -- --retained-course-core`. Each row states the relevant plan gate, but a row covering a core seam does not complete that gate's native scene. Generated native event sequences, matched reactive/exact comparison, model fidelity and exact snapshot replay remain distinct obligations of the full plan.
+**These eight files are reached two different ways, and the flag does not cover them all.** Five run together under `--retained-course-core` — `VerifyCourseCore`, `VerifyProjectionContracts`, `VerifyCourseOrderProjection`, `VerifyCompanionshipForecast` and `VerifyCourseTravelScheduling`. The other three are named directly in `../Movement/VerifyEngineMotion.cs`'s default-case table, each as its own case with no flag of its own, and those names are what the scoreboard and `--case` match:
+
+```
+a course is priced for the harm it flies into and still cannot certify that it harms nobody   VerifyNativeConsequencePricing
+a non-empty course is priced end to end from the tick it starts at                            VerifyWholeCoursePricing
+a bound course step names the activity that performs it and the place it happens              VerifyCourseBindingExecution
+```
+
+So a change to one of those three is not exercised by the flag, and a reader looking for them under `--retained-course-core` will conclude they do not run. Run the five from the repository root with `dotnet run --project Tools/EngineReplay -p:UseAppHost=false -- --retained-course-core`, and the three through the default suite or `sh ../../verify.sh --case "<fragment>"`. Each row states the relevant plan gate, but a row covering a core seam does not complete that gate's native scene. Generated native event sequences, matched reactive/exact comparison, model fidelity and exact snapshot replay remain distinct obligations of the full plan.

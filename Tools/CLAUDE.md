@@ -7,11 +7,15 @@ Tools/
 ├─ CLAUDE.md                         this guide
 ├─ check-navigation-boundary.sh      verifies that portable movement code remains game-free
 ├─ verify.sh                         repository verification entry point
+├─ build.sh                          builds the mod or any tool project and prints only what failed
+├─ run-case.sh                       runs one named case standalone, outside any run file
+├─ measure-flake.sh                  one case many times at one commit, with the interval that bounds it
 ├─ backfill-capture.sh               turns a playtest recording into a ledger run under the revision that wrote it
 ├─ corpus.sh                         scenario corpus helper
 ├─ decompile.sh                      Terraria source lookup helper
 ├─ Ledger/                           one row per named case per run, committed, diffed against the nearest ancestor with a clean run
 ├─ EngineReplay/                     native collision and whole-brain fixtures, grouped by Combat, Gathering, Assistance, Movement, Observation and Lifecycle
+├─ CombatAudit/                      re-decides every recorded combat snapshot through five passes, the only instrument grading a decision rather than a behaviour
 ├─ NavReplay/                        the game-free movement core's own contract rows, and the extractor that cuts a scenario out of a recording
 ├─ SessionReport/                    telemetry reader, grouped by Read, Checks, Measures, Write and Tests
 ├─ WorldRun/                         the whole brain and the orb in a real saved world, behind a recorded player track or in a committed scenario window

@@ -54,6 +54,23 @@ Through the whole brain, a locked door with no detour must be refused without th
 
 **The scenes' walls run to row 0.** A wall that stopped at some row above the floor sealed a doorway for a body that walked through it; a flying body goes over the top, and every door scene silently became a scene about open sky. `WallTop` is a named constant for exactly that reason.
 
+## A door scene reports on doors only while the body is being routed, and that premise had to be written down
+
+`a closed door is opened rather than treated as a wall` reported a companion passing a **locked** Lihzahrd temple door for as long as anybody had been reading it, and it was never doing that — the door is not consulted at any point. The tell sat in the row's own output the whole time: the locked-door arm and the solid-stone control print byte-identical numbers, so whatever crossed the wall did not care which was in the doorway.
+
+```
+door  opened=-1 crossed=293 pushTicks=0 lowestFeetRow=79 finalFeetX=70.4
+wall  opened=-1 crossed=293 pushTicks=0 lowestFeetRow=79 finalFeetX=70.4
+```
+
+What happens instead (`5ddac5b`): the companion starts west of the player with the wall sealed from the world margin to the floor, **travels further west to the edge of the world**, the straight-line distance finally exceeds the recovery radius, `RecoverDistantCompanion` admits recovery flight, and recovery ignores terrain by design. The body flies through the sealed wall and arrives beside the player. Every part of that except the first move is specified behaviour — recovery is *meant* to ignore terrain, and is the one exception to ordinary contact. **Recovery is not routing, so a run that entered it has measured something else, and reporting its wall-crossing as a door verdict is how a session goes looking for a door defect that does not exist.** `RequireRoutedRatherThanRecovered` states that as a premise on both arms before the door assertion, and its message carries the recovery ticks, the tick recovery started and how far the body went the wrong way.
+
+**Splitting the run by phase then inverted the story, and the overall minimum could not have told the two apart** (`968e448`). Reported per phase, the body reaches its westmost point *before* recovery starts at all — under keeping company, asking WithPlayer, with the navigator seeking a destination. Recovery is the consequence of that distance and not its cause, which moves the defect from recovery to following. The split is worth keeping past this row as a general instrument: a body that travels and then trips the recovery radius, and a body that trips it first and travels during recovery, are opposite defects that a single minimum reports identically.
+
+The row stays red on an honest premise until `AIC-442` lands, and the scene's geometry is deliberately unchanged — the player sits far enough east that no part of his intent region reaches the companion's side of the wall, which the run asserts on its first tick, and moving him closer to keep recovery out of range would make the row about membership instead of crossing. What is established about the cause: the request is WithPlayer, so the positioner resolves it through `ClearestInsideCorner`, which scans corners inside the player's region — all east of the wall — and falls back to the most clear corner not yet proven out when none is reachable; the reach flood is rooted at the body on the west side, so those corners are unproven rather than absent. What is **not** established is the contradiction the next instrument has to resolve: the destination is east and the body goes west, and thirty tiles of travel the wrong way is not explained by a chosen point beyond a wall. Two readings to test in order — a route search flying as close as it can toward something its own exploration found rather than toward the goal, or a chosen spot re-resolved onto a different unproven corner each rescore so the body chases a destination that moves faster than it does.
+
+**The control arm caught this, not the assertion, and it is the second time this file has produced identical door-and-stone numbers from a cause unrelated to doors** — the first was the wall built only thirty rows above the floor, which a flying body went over. Two different causes, one signature, both found by the control rather than by the thing being asserted. Whatever replaces either arm keeps its control.
+
 **Two scenes are printed as `MEASURE` and not asserted, and the reason is a brain finding rather than a fixture problem.** The planner treats a closed door as a wall, so when the door is the *only* passage the flood proves the goal unreachable through it, the body never travels there, and the opener never sees it:
 
 ```

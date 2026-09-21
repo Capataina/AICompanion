@@ -8,6 +8,7 @@ Each question the record can answer is one class implementing `ICheck`. `Program
 
 ```
 Checks/
+├─ CheckCourseDecisions.cs            a course decision accounts for its own search: tallies within the refusals they summarise, a purpose only off a bound step, every decision naming a reason
 ├─ CheckDecisionContracts.cs          arrival must satisfy following, and must lie inside its purpose's success region
 ├─ CheckDecisionStability.cs          a chosen behaviour lasts long enough to accomplish something
 ├─ CheckFailedMethods.cs              a method tried more than once with no credited effect
@@ -19,6 +20,7 @@ Checks/
 ├─ CheckTheInstrument.cs              the body is never held in place by something the record does not name
 ├─ CheckThePlayersReference.cs        his own cursor's dark tile left unlit, and a usable hunt beside him idle, while keeping company won
 ├─ CheckTheRecord.cs                  identities parse correctly, columns hold what they claim, the capture closed
+├─ CheckTheWeaponKnowledge.cs         every companion shot paired with the flight its projectile flew, per projectile type, with the law named
 └─ CheckTravelEpisodes.cs             journeys take the time they were proven; stops have reasons
 ```
 

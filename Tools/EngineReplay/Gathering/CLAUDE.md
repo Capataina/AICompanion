@@ -1,6 +1,22 @@
 # Gathering fixtures — ore, trees, and who is credited for the work
 
-Four of these files drive the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention. The fifth, `VerifyRouteHomeFromEitherEnd`, drives no work at all: it builds the route-home scene and reads the chooser's detour from beside the ore and from beside the player, because the separation cost a job pays is decided from wherever the body happens to be when the job is chosen.
+Eight files. Most of them drive the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention. `VerifyRouteHomeFromEitherEnd` drives no work at all: it builds the route-home scene and reads `Chooser.RouteDetour` — a static geometry helper that survives the chooser's retirement — from beside the ore and from beside the player, because the separation cost a job pays is decided from wherever the body happens to be when the job is chosen.
+
+**Which brain a row drives is the first thing to establish before reading its verdict.** Since `0bb2c8a` the live tick asks a course, and this folder is mid-migration by design rather than by neglect:
+
+```
+drives the course                       VerifyOreWork's departure row, VerifyTreeOpportunityCapture,
+                                        VerifyGatheringOpportunityDiscovery, VerifyGatheringCourseBindings
+drives the retired Chooser, on purpose  VerifyOreWork's ReunionChargeReadsDepartureAndTheRouteHome;
+                                        VerifyGatheringCooperation's W04 (the chopping departure twin,
+                                        waiting on AIC-450) and its retained-vein-versus-tree row
+drives an activity or a tool directly   VerifyMiningList, VerifyWorkAccounting — neither calls a chooser,
+                                        a course or a whole tick; they drive mining's own job and the
+                                        native tool and read what the world lost
+neither — one geometry helper           VerifyRouteHomeFromEitherEnd, on Chooser.RouteDetour
+```
+
+A row left on `Chooser.Choose` is a row whose subject has not been adjudicated yet, not a row nobody updated; `AIC-419` cannot delete `Choose` while any of them drive it.
 
 ```
 Gathering/
@@ -9,7 +25,8 @@ Gathering/
 ├─ VerifyRouteHomeFromEitherEnd.cs the route home a job pays for, read from beside the ore and from beside the player
 ├─ VerifyMiningList.cs           the list's known ores, marks and mode, and mining refusing what it leaves
 ├─ VerifyGatheringOpportunityDiscovery.cs frozen source contracts and sliced native ore progress/removal capture
-├─ VerifyTreeOpportunityCapture.cs sliced trunk deduplication, native axe progress, policy changes and missing coverage
+├─ VerifyTreeOpportunityCapture.cs sliced trunk deduplication, native axe progress, policy changes, missing coverage,
+│                                  and the re-answer a moved body forces over sites already found
 ├─ VerifyGatheringCourseBindings.cs native-use credit, cooldown phases, conditional successors and exact tool validation
 ├─ VerifyGatheringCooperation.cs working beside the player without competing with him
 └─ VerifyWorkAccounting.cs       what a job reports against what the world shows
@@ -20,6 +37,12 @@ Gathering/
 `--retained-course-tools` binds frozen work through the production binder. A current-pose case requires delayed readiness, a one-tick hand phase, a causal successor and a changed-tool refusal. A travelling case allows a nominal useful prefix but refuses to certify its later enabling successor. The native pick case takes the actual captured tile/tool facts, invokes the existing pick mechanism and compares predicted work with realised damage or removal. A partial-credit case requires the whole physical hit in the successor while useful reward is capped by the remaining claim. The tests do not replace full accepted-grant execution or whole-course ordering checks.
 
 `--retained-course-trees` drives the new native tree capture through one-operation slices, using two separate multi-cell trunks. It requires one job per bottom, a shared native-work denominator, unchanged fact versions on an unchanged completed capture, reduced remaining work after an actual axe hit, and refusal after chopping is disabled. Its empty-snapshot control requires missing census coverage to remain unresolved. These checks prove the observation/source boundary, not course execution or preservation of original job units across every later tree replacement.
+
+**Its one-operation slice bound is the scan's own cell count and must never be a literal again.** It was a literal 10,000 against a box of 81 by 81, and the day the census window became the admission radius the row failed as though the census had hung — the fixture caught its own commit's lesson and then needed it applied to itself.
+
+**`G08 a moved body re-answers every held site and a one-operation sweep still advances` is the row that covers the re-answer, and it exists because nothing did.** When the geometry treadmill was retired for a re-answer over sites already found, a grep for the new budget keys outside the two production files returned nothing, no fixture moved the body between two captures, and the one row touching the path drove a census of a single site — where a cursor completes in one iteration and can neither mix nor stall. `G08` drives two veins, the whole census one operation at a time, then carries the body beyond the new-work allowance and requires every held vein to flip to `outside-allowance-or-protected`. It is proven by mutation: skipping every site after the first reddens it with `25,59 outside-allowance-or-protected; 45,59 observed-native-ore`, which is the stale-site signature exactly.
+
+**Two earlier drafts of `G08` are recorded at the row because both would have failed against correct code**, which is the kind that gets "fixed" by loosening it. One asserted on a site's stand — for a tree that is a free cell beside it, the same point wherever the companion is. One threw the reach flood away and required the verdict to flip to `approach-not-yet`; it did not, correctly, because the flood resettles and the trunks are genuinely still reachable. **Only `InNewActivityAllowance` reads the companion's own position, so only it can witness a re-answer at all**, and a draft that watches anything else is watching a quantity the body's movement does not touch.
 
 Native `WorldGen.GetTreeBottom` stops at `Main.maxTilesY - 50`. Multi-cell tree fixtures in the small replay world must place their trunk and supporting ground above that guard; otherwise the engine returns the queried segment rather than traversing to the bottom, and a census appears to duplicate a tree despite faithfully calling native identity. Single-tile tree fixtures do not expose this condition.
 
@@ -71,7 +94,21 @@ separation   fresh work     one hit left    keep-company
 
 Read the last column with the first. Reunion's own value is flat at its wander floor across the whole range where mining is worth anything, and mining does not decline towards a crossing — it is vetoed outright where the ore leaves the work radius. The table was measured at the old radius; the radius is now measured from where the player's region says he is going, so for a player walking away "past the radius" begins further out than the table shows, and the veto scene sits at the first measured separation past it, with the geometry written at the row. The two radii no longer overlap: by the time the player is far enough for reunion to outrank fresh work, the ore is already worth nothing. That is the same shape as the stroll band sitting outside the follow comfort, and which radius should move is a decision about how the companion feels.
 
-What is kept and asserted is what the scene can still witness: **the remaining-work gradient inside the radius**, where a job with one hit left is worth more than a fresh one on identical geometry with the player walking away from the same distance; and **the veto itself**, at the first separation outside the radius, so "the band is empty" is a row rather than a sentence in a comment. The gradient is asserted as its mechanism rather than its size: the fresh job keeps the companion apart from a leaving player for longer, so it keeps less of its worth after separation, and the row requires that share to be smaller as well as the value. It used to require more than twice the value, set against about 3.1× measured while a per-tick reunion delay charge docked long jobs; that charge went when every job began paying one separation cost, the gap shrank to the separation share alone, and a mutant that ignores the job's duration in the separation makes the two shares equal and reddens the row.
+What is kept and asserted is what the scene can still witness: **the remaining-work gradient inside the radius**, where a job with one hit left is worth more than a fresh one on identical geometry with the player walking away from the same distance; and **the veto itself**, at the first separation outside the radius, so "the band is empty" is a row rather than a sentence in a comment.
+
+**The gradient's mechanism flipped when the row moved onto the course, and the row asserts the opposite of what it used to.** Under the chooser a whole multi-hit vein was priced as one job, so a fresh vein kept the companion apart from a leaving player for longer and *paid more separation for it* — the gradient lived in the separation share, and the row required that share to be smaller as well as the value. The course binds **one use**, measured `useTicks=1 travelTicks=0` in both arms at every separation, so the two orders have identical duration and pay identical separation to four decimal places and the gradient lives entirely in the reward:
+
+```
+separation   fresh nominal   one-hit nominal   companionship, both arms
+ 400            0.1949           0.8337            0.1490
+ 480            0.1424           0.7812            0.2016
+ 576            0.0785           0.7173            0.2654
+ 800           -0.0697           0.5691            0.4136
+```
+
+So the row now requires the two separation charges to be **equal** within a millionth, beside the reward gap — a course that quietly went back to pricing whole jobs reddens it instead of passing, which the old assertion could not do. It is a restatement rather than a loosening, because the unit changed underneath it. Note the 800 px fresh job is worth a negative number and is still chosen: idling costs −0.4102, and doing something slightly unprofitable beats that. Whether the choice should still flip there is a product question rather than a fixture one, carried as `AIC-450`.
+
+The row's earlier history is worth keeping because it explains the deleted half above: it once required more than twice the value, set against about 3.1x measured while a per-tick reunion delay charge docked long jobs; that charge went when every job began paying one separation cost, and the gap shrank to the separation share alone before the course removed the share's role entirely.
 
 ## Cooperation, and the tile-map diff that makes it provable
 
@@ -82,6 +119,10 @@ Chopping from either side of a trunk with a block beside it must fell it with ev
 A bed placed after the approach — for both tools, while walking and after the first strike — must stop every further strike, release the tool hand and end the attempt partial or invalid; removing it must let the work finish. The work policy is switched off, or to Mimic with no player contact, while walking and in the cooldown between strikes, with the same requirements. A player axe hit observed under Mimic, followed by chopping disabled for longer than both the watcher's contact memory and the Mimic job window (the fixture advances the watcher's clock itself), must leave Mimic waiting for the player rather than reading the old contact as recent.
 
 An ore the pick cannot damage must never be struck while the brain fells the usable tree beside it. A retained mining job must leave a new tree prepared and valued on the same board, and must lose to it once the vein is worth nothing. Mining and chopping forecasts, less their native remaining work, must equal the walk in pixels over travel speed. **Trees within ten tiles of the world edge are never searched**, so tree scenes sit inside that margin.
+
+**Two of its rows are deliberately on the retired chooser and each is blocked on a different thing.** `W04` is the chopping twin of the departure question above and stays there until `AIC-450` answers whether a job worth a negative number should still beat idling. `G02` is a real and unexplained course finding filed as `AIC-449` with its measurements: a trunk created mid-session is published by the census as `usable / observed-native-tree`, is present in the live snapshot, is examined by its own source every slice — and never appears in `Course.Admitted` or `LastLeaders` across two hundred consecutive decisions. Porting `G02` by relaxing its premise to "the course priced something" would make it green on zeroes, which is the one outcome worse than the red. Both keep `AIC-419` blocked.
+
+**The player's own preferences were the one process-wide static the per-case reset did not restore, and it decided this file's verdicts.** `CompanionPreferences.Current` carries seven fields any case can write — both work policies, combat, pot breaking, torch placement, the distance mode and the mining list. `VerifyOreWork.SetUp` sets the mining policy and never the chopping one, so its sealed-tree row read whichever chopping policy the process happened to hold: alone it found the Opportunistic default and passed, and inside the suite it found a Disabled or Mimic policy left by a cooperation row here, took an early return above the reach block, and reported that unchanged retained work re-searches its reach every scoring tick — **false in both directions**, since the branch was never reached at all rather than reached too often, and the row could not say so because it asserted a bare equality with no number in its message. The reset installs a fresh instance now rather than an explicit list of assignments, because every default lives on the property initialisers and a list drifts from what the game starts with. Two lessons ride with it: setting the missing policy in that one row would have repaired one reader and left every other reader of those seven fields with the same order dependence, unannounced; and a row asserting a bare equality cannot distinguish a branch that ran wrongly from a branch that never ran, so it carries its number — 81 after 20 preparations, where anything below 20 would be the search genuinely re-running.
 
 ## Accounting
 
@@ -95,7 +136,13 @@ Work cancelled by range runs under the close distance mode, since an active job'
 
 That the brain can *create* access it does not have, that a chosen work position is comfortable in real terrain, or that any of this holds against a modded tile the game's own tables describe differently. Passing current access alone does not establish that the brain can create that access.
 
-## Current state — 15 September 2026
+## Current state — 21 September 2026
+
+**`VerifyOreWork` is the fixture this session spent most of itself on, and three of its rows moved for three different reasons.** The maximum-reach row cleared when execution stopped flying to a stand the capture had published from a body several ticks stale, and clearing it revealed sixteen rows behind it that had not run in this tree, because this file aborts on its first failure. `AColdFloodDoesNotLeaveTheBrainResting` was one of them and needed a brain fix rather than a translation — the ore capture was the one capture not keyed on the flood that answered it, so a refusal read under a young flood was frozen for ever; it is **last** in the file now, with the reason at the call site, so it can never blind the rows behind it again. And the departure row moved onto the course and gained the equality assertion above, after the census window was found to be smaller than the allowance it feeds: at 800 px separation the ore sits about 866 px from the player's heading, inside the allowance and outside the sweep, and the course chose keeping company beside a vein it could not see, with the census reporting `examined=0, exhausted=true`.
+
+**A row that stands early in an abort-on-first-failure file is a row that decides what the rest of the file is allowed to report.** That is why a red waiting on somebody's decision is moved to the end and a red clearing this afternoon is left where it is, and it is why a red count falling by one while a new name appears is the normal shape of progress here rather than a regression. Say which it is when reporting.
+
+**`ore work breaks ore without excavating ordinary terrain` is one of the two rows in the whole suite that flake on harness cost rather than on code**, failing 5 of 12 whole-suite runs of 21 September against 3 of 3 passing standalone. `../../CLAUDE.md`'s trap section carries the measurement and what it does and does not settle; the practical consequence here is that a lone red on this row is more likely the harness than your change, and a single green whole-suite run is weak evidence the other way.
 
 **`ReunionChargeReadsDepartureAndTheRouteHome` is green on its original assertion, because the one separation cost reads the route home.** From `920b2e0`, when every job began paying one separation cost measured from the player's region, it was red and left red on purpose: the delay it prints grew with the route (0.01760 near against 0.02053 far at 1.5 px a tick, 0.05356 against 0.06144 at 4) but mining's worth was identical on both routes (0.453 and 0.453, and 0.329 and 0.329), because the separation read the straight line and the charge that read the route had been removed as a second price for the same separation. Restating the row would have deleted the only witness of the property it names, so it waited for the owner, who ruled on 15 September 2026 that the one cost reads the route home. The separation's distance now adds the reach flood's detour from the stand to the player (`../../../Companion/Brain/Infrastructure/Selection/CLAUDE.md` owns how), and on 15 September 2026 mining read 0.255 near against 0.116 far at 1.5 px a tick, and 0.124 against 0.000 at 4, where the far route hands the choice to keeping company. With the detour multiplied by zero the row went red again at 1.5 px a tick with 0.453 on both routes. The name still describes the mechanism — departure scales the charge and the route home lengthens it — so it was not renamed.
 

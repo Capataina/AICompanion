@@ -7,14 +7,17 @@ Keeping the two apart is the point rather than tidiness, because folding them to
 ```
 Measures/
 ├─ CLAUDE.md
-├─ Measure.cs                     the contract, the row shapes, and the reading conventions all three share
+├─ Measure.cs                     the contract, the row shapes, and the reading conventions every measure here shares
 ├─ MeasureFollowingAndPlaces.cs   where the companion sat, what it knew it could reach, where its journeys ended
 ├─ MeasureCommitmentAndChoice.cs  where the body stopped for nothing the record names, why the chosen activity changed, what the hands did
+├─ MeasureCourseWork.cs           what a course decision cost and chose: decisions recorded, the settled, retained, bound-step and search-exhausted shares, orders priced and refused, committed depth, the refusal split, the activities chosen
 └─ MeasureStillnessAndMotion.cs   how often the orb sat still while the player moved and who held it, how far it trailed, how roughly it moved, how long safety owned it
 ```
 
 
 `../Program.cs` runs them in the ordinary report and alone under `--measures <capture>`, which is what `../../backfill-capture.sh` calls.
+
+**`MeasureCourseWork.cs` is the newest and it has never met a real capture**, because typed course evidence begins at schema 0.41.0 and the newest recording on disk is 0.40.0, so it skips by name on everything that exists as of 21 September 2026. One of its numbers carries the folder's rule in a form worth stating: **orders priced carries no good direction at all**, deliberately, because pricing more is not better on its own — a companion pricing two hundred orders a tick in an empty field is spending a frame on nothing — and it is read beside the cut share, which says whether a search stopped because it finished or because it ran out. A future reader wanting to give it a direction is the failure this folder exists to prevent.
 
 ## Why these exist at all, which is a defect rather than a design
 
