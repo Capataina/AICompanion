@@ -162,9 +162,28 @@ internal static class VerifyCombatActivity
         for (int tick = 0; tick < 120; tick++)
         {
             // Before the brain tick, so the observation this tick freezes sees the zombie where it now
-            // is and the motion model has a real velocity to extrapolate from.
+            // is — and **carrying the velocity it is moving at**, which is the half the first version of
+            // this walk left out. `PredictObservedMotion.Observe` derives its track from `npc.velocity`
+            // and never from a position delta, so a hand-walked hostile that writes only `position`
+            // exports a track with zero velocity and the motion model simulates it standing still for
+            // the whole horizon. The comment here used to claim the model had "a real velocity to
+            // extrapolate from" and that claim was false; a review of `e63375d` caught it. Contact was
+            // then predicted only once the boxes already overlapped, so whether any harm was priced at
+            // all depended on which ticks happened to publish a course — which is why this row's quoted
+            // harm figure was 0.3500 in one run and 0.0000 in another.
+            //
+            // The durable property, and it binds every fixture in this tree: **moving an entity by
+            // writing `position` teaches the forecast nothing, because every predictor here
+            // extrapolates from `velocity`.**
             if (MathF.Abs(player.Center.X - threat.Center.X) > contactWidth - overlapPixels)
+            {
                 threat.position.X += toPlayer * zombieWalkPixelsPerTick;
+                threat.velocity = new Vector2(toPlayer * zombieWalkPixelsPerTick, 0f);
+            }
+            else
+            {
+                threat.velocity = Vector2.Zero;
+            }
             Tick(companion);
             string reason = companion.Brain.Course.Last.Reason;
             reasons[reason] = reasons.GetValueOrDefault(reason) + 1;

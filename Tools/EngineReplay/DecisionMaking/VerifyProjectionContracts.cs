@@ -102,6 +102,41 @@ internal static class VerifyProjectionContracts
             && perVictim.Harm.Single(hit => hit.Actor == HarmActor.Player).Tick == 3
             && perVictim.Harm.Single(hit => hit.Actor == HarmActor.Companion).Tick == 2,
             "victim-dependent attack geometry or native cooldown readiness was shared between actors");
+
+        // A hostile the evaluating course kills makes no contact from the tick it dies on, for either
+        // body. The same scene is run twice against the same geometry, differing only in the kill tick,
+        // so the difference is the truncation and nothing else. Without the second arm the first proves
+        // only that a kill tick before contact suppresses it, which a forecast that ignored kills
+        // entirely would also satisfy on an empty harm list.
+        //
+        // This row exists because `KilledAtTick` shipped with no fixture anywhere in the tree — three
+        // occurrences, all in the mod, a field, one read and one write — so the mechanism could have
+        // been deleted without a test noticing. A review of `e63375d` measured exactly that.
+        var killedBefore = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
+            new[] { new ContactThreat(1, 1, Geometry(enemyBoxes, 50, 0), Geometry(enemyBoxes, 25, 0), KilledAtTick: 1) },
+            4, true).Continue(new(double.PositiveInfinity));
+        Require(killedBefore!.Harm.Count == 0,
+            $"a hostile the course kills before it lands must make no contact after it dies; "
+            + $"got {killedBefore.Harm.Count} hit(s) at {string.Join(",", killedBefore.Harm.Select(h => h.Tick))}");
+        var killedAfter = new ForecastContactHarm(new[] { new ContactActor(HarmActor.Companion, 100, 0, actorBoxes) },
+            new[] { new ContactThreat(1, 1, Geometry(enemyBoxes, 50, 0), Geometry(enemyBoxes, 25, 0), KilledAtTick: 3) },
+            4, true).Continue(new(double.PositiveInfinity));
+        Require(killedAfter!.Harm.Count == 1 && killedAfter.Harm[0].Tick == 2,
+            $"a kill after the contact cannot retract it, or the truncation is being applied to the whole "
+            + $"threat rather than from its own tick; got {killedAfter.Harm.Count} hit(s) at "
+            + $"{string.Join(",", killedAfter.Harm.Select(h => h.Tick))}");
+
+        // A body whose own readiness runs past the horizon is never examined at all, and the forecast
+        // must not report that as a clean sweep. It is true that immunity makes him un-hittable inside
+        // that window; what must not follow is a course banking the silence as proof it is the safer
+        // one. The caller's `harm-window-shorter-than-forecast` rule is the other half of this; here the
+        // property is that a hit list can be empty for a reason that is not safety.
+        var neverExamined = new ForecastContactHarm(
+            new[] { new ContactActor(HarmActor.Player, 100, ReadyTick: 9, actorBoxes) },
+            new[] { new ContactThreat(1, 1, Geometry(enemyBoxes, 50, 0), Geometry(enemyBoxes, 25, 0)) },
+            4, true).Continue(new(double.PositiveInfinity));
+        Require(neverExamined!.Harm.Count == 0,
+            "a body immune past the horizon cannot be hit inside it");
     }
 
     private static void ConsequenceReads()

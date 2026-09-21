@@ -121,6 +121,13 @@ if (args.Contains("--retained-course-budget")) return VerifyRetainedCombatBudget
 if (args.Contains("--travel-episodes")) return VerifyTravelEpisodes.Run();
 if (args.Any(a => a == "--evidence-scenes" || a.StartsWith("--evidence-scenes=", StringComparison.Ordinal))) return RecordEvidenceScenes.Run(args);
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);
+// The whole brain with a crowd in front of it, which is the measurement `--brain-cost` cannot take:
+// its seeded scene has no hostiles at all, so every per-hostile cost in the brain runs zero times in
+// it. `MeasureCombatCost.Execute` is that scene — a zombie, a dying zombie, a slime and a boss-flagged
+// Eye — and it was unreachable: `combatCostOnly` was declared, read in one place, and never passed
+// true, while this flag mapped to attack planning instead. Found by a review of `e63375d`, whose cost
+// claim was taken on the hostile-free scene without saying so.
+if (args.Contains("--crowd-cost")) return VerifyEngineMotion.Run(combatCostOnly: true);
 if (args.Contains("--combat-cost"))
     return AttackPlanning();
 if (args.Contains("--combat-purpose")) return VerifyEngineMotion.Run(combatPurposeOnly: true);

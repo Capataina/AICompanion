@@ -134,7 +134,13 @@ public static class PredictObservedMotion
         track.Tick = tick;
         track.Position = track.ForecastPosition = player.position;
         track.Velocity = track.ForecastVelocity = player.velocity;
-        track.Gravity = Player.defaultGravity;
+        // Signed by the player's own gravity direction rather than fixed downward. A Gravitation Potion
+        // or a Gravity Globe sets `gravDir` to -1 and he falls upward; a track that hard-codes the
+        // constant then predicts his path the wrong way for the whole horizon, and the harm forecast
+        // prices contact against it at nominal evidence with no discount. This codebase already knows
+        // the state is real — `SpoofOwnerInputForShots` branches on exactly this field — so reading it
+        // is not speculation about a case nobody hits. Raised by a review of `e63375d`.
+        track.Gravity = Player.defaultGravity * player.gravDir;
         track.MaxFallSpeed = player.maxFallSpeed;
         track.WaterMovementSpeed = track.LavaMovementSpeed = track.HoneyMovementSpeed = track.ShimmerMovementSpeed = 1f;
         track.NoGravity = false;
@@ -146,13 +152,6 @@ public static class PredictObservedMotion
         track.Centres.Clear();
         track.Centres.Add(player.Center);
         _ = PredictTrack(track, 1, player.width, player.height);
-    }
-
-    /// <summary>The player's state for a resumable motion query, in the shape a hostile's is captured in.</summary>
-    public static CapturedMotion Capture(Player player)
-    {
-        Observe(player);
-        return new CapturedMotion(ExportTrack(PlayerSlot)!, player.width, player.height);
     }
 
     public static Vector2 Predict(NPC npc, int ticks)

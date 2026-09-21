@@ -10,17 +10,21 @@ What it deliberately does not do: **opportunistic replacement mid-course**. `Ret
 
 **Both holes that made defending the player unreachable closed on 21 September 2026, and the behaviour is still only half there.** The player is a contact actor now, with his own motion track captured by `CapturePlayerMotion` and extended by the same law a hostile's is, and each hostile is projected against him as well as against the companion — a separate projection rather than a copy, because native melee geometry is victim-dependent. And a course's own predicted kills truncate the threats they remove, for both bodies, read off the course's effects where a combat step names its target as a `HostileLife` need whose delta carries the life left. `censusComplete` is the census's own answer rather than a pin, and the projection's tail is the forecast's honest verdict.
 
-What it buys is real and narrower than it sounds: a course that kills a threat **before it reaches anybody** is now worth the harm it prevents, which is the interception behaviour, and it costs nothing measurable — decide mean moved 1.952 ms to 1.966 ms on the brain-cost scene, single-variable.
+What it buys is real and narrower than it sounds: a course that kills a threat **before it reaches anybody** is now worth the harm it prevents, which is the interception behaviour.
 
-What it still cannot express is a threat already on the player. `ForecastContactHarm` prices first contact and stops there, because immunity, knockback and hit hooks need a successor model before a second overlap can be a second hit. Measured on `danger lifts combat over work` with a real zombie walking into a forty-life player, harm term live and the multiplier below removed:
+**Its cost was first quoted from the wrong scene, and the honest figure is on a crowd.** `--brain-cost`'s seeded scene has no hostiles at all, so the term the change added — a second contact geometry per hostile — runs zero times in it, and the 1.952 → 1.966 ms first published was the change measured where it does nothing. Single-variable on `--crowd-cost`, four hostiles including a boss, with the player actor forced off and on: decide mean 22.099 → 22.689 ms, p95 54.943 → 55.247, max 823.761 → 814.852. Six tenths of a millisecond of mean, nothing at the maximum. That scene also exposed a pre-existing cost that has nothing to do with this change and is far larger than it — `AIC-445`.
+
+**What it still cannot express is a threat already on the player**, and the numbers for that were misquoted too. `ForecastContactHarm` prices first contact and stops there, because immunity, knockback and hit hooks need a successor model before a second overlap can be a second hit. The figures once written here as `harm 0.3500` on all three candidates were not reproducible: the scene walked its zombie by writing `position` and never `velocity`, so the motion model simulated it standing still and predicted contact only once the boxes already overlapped — which made the harm depend on which ticks happened to publish a course. With the velocity written, on a real zombie walking into a forty-life player:
 
 ```
-mine-target  0.5353   useful 0.8853  harm 0.3500
-combat      -0.3323   useful 0.0177  harm 0.3500
-(idle)      -0.3500   useful 0.0000  harm 0.3500
+combat      -0.2137   useful 0.0421  harm 0.2558
+mine-target -0.2282   useful 0.0277  harm 0.2558
+(idle)      -0.2558   useful 0.0000  harm 0.2558
 ```
 
-The harm is priced correctly and is identical on every course, because the zombie reaches him about thirty ticks in and nothing kills it first — so one hit lands whatever the companion does, and defending is worth nothing. In the game he is hit again every immunity window until something kills it. `CourseComparisonEpisode.RelevanceFor` is what stands in for that, and its body now carries this measurement and a deletion condition naming the successor model rather than the player-harm term it originally named.
+The harm is priced ahead of the contact now, and it is identical on every course, because the zombie reaches him about thirty ticks in and nothing kills it first — so one hit lands whatever the companion does, and defending is worth nothing. In the game he is hit again every immunity window until something kills it. `CourseComparisonEpisode.RelevanceFor` stands in for that, with a deletion condition naming the successor model rather than the player-harm term it originally named.
+
+**Combat wins that row on `useful`, not on harm**, and the row's green belongs to the scene being repaired rather than to the mechanism: a `HostileLife` need's worth is damage over life, so replacing the 400-life override with a real zombie's own numbers raises combat's useful about ninefold. An independent review disabled kill truncation entirely and the row was unchanged at 109 of 120, which is the single-variable run that settles the attribution.
 
 The measurement that opened this, on `danger lifts combat over work` at 0.33.2, with a zombie beside a player at 40 life and ten real decisions inside the 120 ticks:
 

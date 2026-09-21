@@ -215,12 +215,41 @@ internal static class VerifyNativeConsequencePricing
             ?? throw new InvalidOperationException("the companion victim capture refused an unbounded allowance");
     }
 
-    /// <summary>The region snapshot every row prices against, plus a census and a victim so the harm half
-    /// has something to read. Ticks come from the live counter because the model scheduler refuses an
+    /// <summary>
+    /// The player as a contact victim and his own motion track, for a snapshot that exercises the live
+    /// pricing path rather than the degraded one.
+    ///
+    /// Every row in this file used to run without these, which meant every row ran the branch taken when
+    /// the player's facts are missing — companion priced alone, his geometry an unsupported empty, no
+    /// player actor. A review of `e63375d` measured that: the mechanism that commit added had no
+    /// reachable coverage anywhere, and the row guarding "a course cannot certify it harms nobody"
+    /// passed only because its fixture withheld the facts its own comment said did not exist yet.
+    ///
+    /// He stands still at the origin of the scene's own geometry, so a row that wants him hit places a
+    /// hostile on him rather than relying on his motion, and a row that does not is unaffected by him.
+    /// </summary>
+    private static (CapturedContactVictim Victim, CapturedPlayerMotion Motion) PlayerFacts()
+    {
+        Player player = Main.player[0];
+        player.active = true; player.dead = false;
+        player.width = 20; player.height = 42;
+        player.position = new Vector2(48 - 10, 80 - 21);
+        player.velocity = Vector2.Zero;
+        player.statLife = 100; player.immune = false; player.immuneTime = 0;
+        var victim = CaptureContactVictim.Capture(player, new(double.PositiveInfinity))
+            ?? throw new InvalidOperationException("the player victim capture refused an unbounded allowance");
+        var motion = CapturedPlayerMotion.Capture(player, new(double.PositiveInfinity))
+            ?? throw new InvalidOperationException("the player motion capture refused an unbounded allowance");
+        return (victim, motion);
+    }
+
+    /// <summary>The region snapshot every row prices against, plus a census and both victims so the harm
+    /// half has something to read. Ticks come from the live counter because the model scheduler refuses an
     /// enemy query whose capture tick is not its observation's.</summary>
     private static DecisionFactSnapshot HostileSnapshot(double y)
     {
         CapturedContactEnemy enemy = Hostile(y);
+        var player = PlayerFacts();
         var census = new CapturedContactCensus(Main.GameUpdateCount, Main.maxNPCs, Main.maxNPCs, new[] { enemy }, true);
         // The snapshot's own tick, the census tick and every enemy track tick are one value by contract —
         // `RetainCourseModelQueries` refuses the three disagreeing, because a census from one frame indexed
@@ -231,6 +260,8 @@ internal static class VerifyNativeConsequencePricing
                 new CapturedCompanionshipRegion(new(48, 80), new(20, 20), default, 100, 100, true))), FactEvidence.Observed),
             census.ToFact(1),
             CompanionVictim().ToFact(1),
+            player.Victim.ToFact(1),
+            player.Motion.ToFact(1),
         });
     }
 
@@ -318,13 +349,32 @@ internal static class VerifyNativeConsequencePricing
     /// body is modelled here, and nothing models the player's, so a resolved tail would certify that a
     /// course harms nobody on evidence that covers one of the two actors.
     /// </summary>
+    /// <summary>
+    /// A course must not be certified harm-free, and <b>the reason it is not has changed</b>, which is
+    /// why this row is worth reading before it is trusted.
+    ///
+    /// It used to pass because nothing modelled the player, so `ForecastContactHarm` was built with an
+    /// incomplete census on purpose. That stopped being true in `e63375d` — and this fixture kept
+    /// passing anyway, because it withheld the player's victim and motion facts and so ran the degraded
+    /// branch. A review caught exactly that: an instrument agreeing with its own stale premise.
+    ///
+    /// Both facts are in the snapshot now, so the tail is unresolved for the reason that actually holds:
+    /// the harm window is the course's own duration and these orders are empty, so the window is far
+    /// shorter than the forecast's reach and nothing beyond it was examined. A course genuinely covering
+    /// the whole window may resolve, which is the behaviour unpinning the tail exists for; one that ends
+    /// early says so rather than banking the silence as proof it is the safer course.
+    /// </summary>
     private static void ModelledHarmStillCannotCertifySafety()
     {
         foreach (double y in new[] { OnThePath, OffThePath })
         {
             CourseProjectionResult result = PriceAgainst(y);
             Require(result.Projection is { } priced && priced.TailUnresolved,
-                $"a fully modelled census resolved the tail at y={y}, so a course was certified harm-free while the player's own harm was never modelled");
+                $"a course whose harm window is shorter than the forecast's reach resolved its tail at "
+                + $"y={y}, so it was certified harm-free over ticks nobody examined; reason={result.Reason}");
+            Require(result.Reason.Contains("both-bodies-priced", StringComparison.Ordinal),
+                $"this row must exercise the live pricing path rather than the branch taken when the "
+                + $"player's facts are absent, or it agrees with its own premise; reason={result.Reason}");
         }
     }
 

@@ -369,8 +369,20 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
         string bodies = playerWasModelled ? "both-bodies-priced" : "companion-priced;player-unmodelled";
         // A hostile dropped for unresolved motion understates harm, so the tail cannot be resolved on a
         // pass that dropped one however complete the forecast's own bookkeeping says it was.
-        return Priced(result.Harm, $"companionship-priced;{bodies};{coverage}",
-            result.TailUnresolved || motionUnresolved);
+        //
+        // And a course whose harm window is shorter than the forecast's own reach has not been proven
+        // safe, it has been asked less. `harmHorizon` is the *course's own duration*, so a short course
+        // examines a few ticks and a long one examines up to the cap — and comparing their harm then
+        // rewards the one that looked at least. Before the tail was unpinned that could not bite,
+        // because every course carried `tail-unresolved`; unpinning it removed the universal blocker and
+        // this is what replaces it, narrowly. A course that genuinely covers the whole window with
+        // supported geometry throughout still resolves and can still be proven safer, which is the
+        // behaviour the unpinning exists for; one that ends early says so instead of banking the
+        // silence. Found by a review of `e63375d`, which had this reachable by construction.
+        bool shortWindow = harmHorizon < PredictObservedMotion.MaximumForecastTicks;
+        string window = shortWindow ? ";harm-window-shorter-than-forecast" : "";
+        return Priced(result.Harm, $"companionship-priced;{bodies};{coverage}{window}",
+            result.TailUnresolved || motionUnresolved || shortWindow);
     }
 
     /// <summary>
@@ -401,12 +413,20 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
                 // because that is the time the rest of the projection is expressed in — taking the
                 // latest would make a kill remove harm it is not yet entitled to remove, and taking the
                 // earliest would make it remove harm before the hit could have landed.
-                foreach (EffectDelta delta in effect.Delta)
-                {
-                    if (delta.Value.Amount > 0) continue;
-                    var key = (slot, effect.Need.Generation);
-                    if (!kills.TryGetValue(key, out double at) || effect.NominalTick < at) kills[key] = effect.NominalTick;
-                }
+                //
+                // Exactly one delta, and the single-delta test is the guard rather than a description.
+                // `FactValue.Amount` defaults to zero, so a delta carrying something that is not a life
+                // — a mana fact, an ammo fact, a position-only value — reads as a kill the moment it is
+                // added beside this one, and the truncation would then silence a live hostile against
+                // both bodies with no diagnostic. Today `CombatCourseOpportunity` emits one delta and
+                // this holds; the day a second arrives, the kill stops being claimed rather than being
+                // claimed wrongly, which over-states harm instead of under-stating it. Failing toward
+                // more predicted harm is the safe direction, and the reason is written here because the
+                // trigger is somebody else adding a field in another file. Raised by a review of
+                // `e63375d`, which looped every delta.
+                if (effect.Delta.Count != 1 || effect.Delta[0].Value.Amount > 0) continue;
+                var key = (slot, effect.Need.Generation);
+                if (!kills.TryGetValue(key, out double at) || effect.NominalTick < at) kills[key] = effect.NominalTick;
             }
         return kills;
     }
