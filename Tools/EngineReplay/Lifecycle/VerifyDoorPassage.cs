@@ -194,6 +194,10 @@ internal static class VerifyDoorPassage
         var run = Follow(locked: true, trench: false);
         var wall = Follow(locked: true, trench: false, stoneInTheDoorway: true);
         Console.WriteLine($"MEASURE doors locked door against a wall in the same doorway: door {run}; wall {wall}");
+        // The premise first, and for both arms, because the control is what proves the door was the
+        // variable. A wall the body also crossed says the scene measured something else entirely.
+        RequireRoutedRatherThanRecovered(run, "the door arm");
+        RequireRoutedRatherThanRecovered(wall, "the stone control");
         Require(run.Opened < 0 && run.Crossed < 0 && wall.Crossed < 0, $"a locked door must never open or be passed; door {run}; wall {wall}");
         // Twenty ticks of slack: the door interaction's own failed attempt costs nothing in collision, so a real difference
         // means the door was treated as something other than a wall.
@@ -223,11 +227,37 @@ internal static class VerifyDoorPassage
 
     // ── world and driver ─────────────────────────────────────────────────────────────────────
 
-    private readonly record struct FollowRun(int Opened, int Crossed, int PushTicks, int LowestFeetRow, float FinalFeetX)
+    private readonly record struct FollowRun(int Opened, int Crossed, int PushTicks, int LowestFeetRow,
+        float FinalFeetX, int RecoveryTicks, int RecoveryStart, float Westmost)
     {
         public override string ToString()
-            => $"opened={Opened} crossed={Crossed} pushTicks={PushTicks} lowestFeetRow={LowestFeetRow} finalFeetX={FinalFeetX:0.0}";
+            => $"opened={Opened} crossed={Crossed} pushTicks={PushTicks} lowestFeetRow={LowestFeetRow} finalFeetX={FinalFeetX:0.0} recoveryTicks={RecoveryTicks} recoveryStart={RecoveryStart} westmost={Westmost:0.0}";
     }
+
+    /// <summary>
+    /// A door scene can only report on doors while the body is being routed, and recovery flight is not
+    /// routing — it ignores terrain by design, being the one exception to ordinary contact. So every run
+    /// states as a premise that recovery never took the body, and says what actually happened when it
+    /// did, rather than reporting the resulting wall-crossing as a door verdict.
+    ///
+    /// This is not hypothetical. On 21 September 2026 all three locked-door rows read
+    /// <c>opened=-1 crossed=293</c> for the door and byte-identically for the solid-stone control, which
+    /// looked exactly like a companion walking through a locked temple door. It was not: the body flew
+    /// from column 38 to column 8 — thirty tiles *away* from the player at column 80 — until the
+    /// straight-line distance finally admitted recovery at tick 192, and recovery then carried it
+    /// through the sealed wall. The door was never consulted.
+    ///
+    /// Reporting that as a door failure sent one session looking for a door defect that does not exist,
+    /// and it is the second time this file has produced identical door-and-stone numbers from a cause
+    /// that had nothing to do with doors; the first was a wall that a flying body simply went over.
+    /// </summary>
+    private static void RequireRoutedRatherThanRecovered(FollowRun run, string arm)
+        => Require(run.RecoveryTicks == 0,
+            $"the premise: a door scene reports on doors only while the body is routed, and recovery ignores "
+            + $"terrain — {arm} spent {run.RecoveryTicks} ticks in recovery flight from tick {run.RecoveryStart}, "
+            + $"after travelling west to column {run.Westmost:0.0} away from the player at column 80. The "
+            + $"wall-crossing this produced is recovery doing what it is specified to do, not a door verdict; "
+            + $"the defect to chase is a companion that cannot reach the player travelling away from him. {run}");
 
     private static FollowRun Follow(bool locked, bool trench, bool stoneInTheDoorway = false)
     {
@@ -264,7 +294,8 @@ internal static class VerifyDoorPassage
         player.velocity = Vector2.Zero;
         companion.NPC.position = new Vector2(WestX * 16, FloorRow * 16 - companion.NPC.height);
         companion.NPC.velocity = Vector2.Zero;
-        int opened = -1, crossed = -1, pushTicks = 0, lowest = 0;
+        int opened = -1, crossed = -1, pushTicks = 0, lowest = 0, recoveryTicks = 0, recoveryStart = -1;
+        float westmost = float.PositiveInfinity;
         for (int tick = 0; tick < 900; tick++)
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
@@ -281,8 +312,25 @@ internal static class VerifyDoorPassage
             if (crossed < 0 && companion.NPC.Center.X > (DoorX + 2) * 16) crossed = tick;
             if (companion.NPC.collideX) pushTicks++;
             lowest = Math.Max(lowest, (int)(companion.NPC.Center.Y / 16));
+            // Recovery flight ignores terrain by design — it is the one exception to ordinary contact —
+            // so a scene that triggers it is measuring recovery rather than routing, and a wall, a door
+            // and a locked door all read the same because none of them is what decided the outcome.
+            // Counted rather than assumed, because door and stone producing byte-identical numbers is a
+            // signature this file has already seen once from a different cause.
+            if (companion.Motor.ControlSource == "follow-recovery-flight")
+            {
+                if (recoveryTicks == 0) recoveryStart = tick;
+                recoveryTicks++;
+            }
+            // How far west it got, because recovery starts on straight-line distance and the separation
+            // this scene builds (42 tiles, 672 px) is inside the smallest recovery radius there is
+            // (1200 px on Close). Recovery therefore cannot have started from the opening geometry, so
+            // either the body travelled away from the player until it could, or the admission is
+            // reading something other than this distance — and the westmost column separates those.
+            westmost = Math.Min(westmost, companion.NPC.Center.X / 16);
         }
-        return new FollowRun(opened, crossed, pushTicks, lowest, companion.NPC.Center.X / 16);
+        return new FollowRun(opened, crossed, pushTicks, lowest, companion.NPC.Center.X / 16,
+            recoveryTicks, recoveryStart, westmost);
     }
 
     private static void BuildWorld()
