@@ -1,4 +1,12 @@
-# Behaviour selection — utility scoring
+# Behaviour selection — a course decides, and the utility scorer beside it is retired but compiled
+
+**`DecideCourseEachTick.cs` is what the brain tick calls**, since `0bb2c8a` on 21 September 2026. It owns the whole decision: freeze one observation through `AssembleCourseSnapshot`, discover across all six domains through `DiscoverOpportunities`, search bounded orders through `SearchCourseOrders` priced by `ForecastCourseConsequences`, and publish through `RetainCourse` a course whose next step the tick carries out via `ExecuteCourseBinding`. A retained course whose next use still validates is carried with no search at all — that is the retention the design is named for, and it is checked against a freshly frozen observation every tick because the question is whether the next native call would succeed *now*.
+
+Three shapes in it exist because their absence was measured. A decision is frozen for its own life rather than for one tick, since a travel query can cost more than a tick's leftover allowance and re-observing every tick discarded and restarted one for ever. Publication reads the model-extended snapshot, because answers are appended as they complete and `ReadyToPublish` refuses a proposal naming a fact its snapshot lacks. And a course with no steps is released as finished, because an empty order is a legal winning course that a next-step check never sees.
+
+What it deliberately does not do: **opportunistic replacement mid-course**. `RetainCourse.Consider` requires the incumbent reprojected from the current observation before two futures can be compared, and that reprojection is unbuilt, so a valid course is kept and no rival is weighed against it. The companion finishes what it started and picks again at the end.
+
+**Everything below this line describes the family chooser, which is compiled and no longer on the tick's path.** It survives for the activity list it holds and for `OwnCurrentActivity`, and the plan's migration table retires the rest of it once the course brain has been played — kept until then so a defect found in play can still be attributed to one brain or the other. Thirteen behaviour rows that held under it do not hold under the course, and `AIC-437` adjudicates them one at a time; until that closes, the measurements in this file describe a decision procedure the game no longer runs.
 
 `ChooseBehaviour.cs` prepares every activity and evaluates its captured value through the shared factor machinery. Gathering, Combat and NearbyAssistance each nominate their highest positive-value child; the parent compares those concrete nominations without another weight or commitment bonus. `LastScores` and `LastNominations` retain the child ledger and family results for diagnostics. Selection returns the chosen executor; that executor supplies a PositionRequest to position selection. The chooser neither selects a tile nor controls the body.
 
@@ -13,7 +21,8 @@ A boss fight or world event reaches optional work through the same protection fa
 ```
 Selection/
 ├─ CLAUDE.md
-├─ ChooseBehaviour.cs          the scorer and the sole list of behaviour instances
+├─ DecideCourseEachTick.cs     what the brain tick calls: observe, discover, search, publish, carry
+├─ ChooseBehaviour.cs          the retired scorer, still holding the sole list of behaviour instances
 ├─ ScheduleOpportunityQueries.cs per-family preparation shares, deferral and rotation
 ├─ EvaluatePreparedActivities.cs captured candidate values and side-effect-free shared utility comparison
 ├─ AssessReunionCost.cs        separation history and the marginal cost of delaying reunion
