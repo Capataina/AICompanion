@@ -68,6 +68,10 @@ public static class Program
         // because the time goes into the gaps, and the stops are where those gaps are.
         new JourneysTakeTheTimeTheyWereProven(),
         new TheBodyStopsOnItsOwnRoute(),
+        // The course's own record, checked against what its producer guarantees rather than against a
+        // threshold. The recording side ran ahead of the reading side for the whole migration, so until
+        // this landed the companion could write a typed course trace that nothing read back.
+        new EveryCourseDecisionAccountsForItsOwnSearch(),
         new BeingUnableToReachHimGetsNoticed(),
         new FollowingMakesRouteProgress(),
         new ArrivalDoesNotStrandFollowing(),
@@ -117,6 +121,7 @@ public static class Program
         // writing when a spot became a corner node the flood reached. Neither quantity exists for
         // this body, and a measure left reading a name nobody writes reports zero for ever.
         new MeasureStopsByReason(),
+        new MeasureCourseWork(),
         new MeasureValidityFlips(),
         new MeasureHuntKnownUnusableShare(),
         new MeasureReachCompleteShare(),
@@ -231,6 +236,10 @@ public static class Program
         Console.Write(DescribeSession.Of(session));
         Console.Write(DescribeGodsEyeEvents.Of(path, fullTimeline));
         Console.Write(ReadCourseChronicle.Describe(session, path));
+        // The chronicle line above says whether the course evidence can be trusted; this one says what
+        // the companion decided with it. They are printed together and in that order deliberately, so a
+        // story is never read without the coverage statement that says how much of it is there.
+        Console.Write(DescribeCourseDecisions.Of(session, fullTimeline));
         Console.Write(JoinAttemptEvidence.Describe(path, session, fullTimeline));
         Console.Write(Chronicle.Of(session, fullTimeline));
         if (session.Count == 0)

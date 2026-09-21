@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -66,9 +67,10 @@ public static class ChronicleTests
             CombatFlickerFiresOnANewPlanEveryTick();
             CourseSnapshotRequiresActualValuesAndMatchingDigests();
             CourseReaderRejectsMixedAndDigestOnlySnapshots();
+            CourseDecisionsAreReadCheckedAndNarrated();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
-            Console.WriteLine("Chronicle self-tests passed (44 assertion groups).");
+            Console.WriteLine($"Chronicle self-tests passed ({Ran.Count} assertion groups).{DeclaredButSilent()}");
             return 0;
         }
         catch (Exception error)
@@ -89,6 +91,137 @@ public static class ChronicleTests
         var digestOnly = CourseDecisionSnapshot.Create(context, "model", "scheduler", "random", expected,
             new[] { new CourseManifestEntry("fact", 2, CourseDecisionSnapshotCoverage.Digest(value), "captured") });
         Require(!CourseDecisionSnapshotCoverage.Assess(digestOnly).ExactInputComplete, "a digest-only fact certified exact replay");
+    }
+
+    /// <summary>
+    /// The three readers of a course decision, driven end to end on a synthetic sidecar: the payload
+    /// parser, the contracts check and the narration.
+    ///
+    /// <para>Each contract is proven by mutation rather than by a clean pass, because a rule that has
+    /// never been made to fire and a rule that cannot fire report identically. The clean arm is
+    /// asserted too, since a check that fires on everything is no more use than one that fires on
+    /// nothing — and the measure is read for its own arithmetic, so a share whose denominator was the
+    /// wrong set would show up here rather than in a report about a real play.</para>
+    /// </summary>
+    private static void CourseDecisionsAreReadCheckedAndNarrated()
+    {
+        // The producer's own shape, from `CourseTracePayload`: a kind, a version and a field map whose
+        // values are a kind and a text. Written out by hand rather than by serialising the producer's
+        // type, so a change to that type fails this test instead of travelling silently through it.
+        object Field(string kind, string text) => new { Kind = kind, Text = text };
+        string Decision(int seq, long tick, string reason, string activity, string purpose, long steps,
+            long priced, long refused, bool exhausted, params (string Reason, long Count)[] refusals)
+        {
+            var fields = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["reason"] = Field("text", reason),
+                ["activity"] = Field("text", activity),
+                ["settled"] = Field("flag", "true"),
+                ["purpose"] = Field("text", purpose),
+                ["steps"] = Field("integer", steps.ToString(CultureInfo.InvariantCulture)),
+                ["orders-priced"] = Field("integer", priced.ToString(CultureInfo.InvariantCulture)),
+                ["orders-refused"] = Field("integer", refused.ToString(CultureInfo.InvariantCulture)),
+                ["search-exhausted"] = Field("flag", exhausted ? "true" : "false"),
+                ["release-reason"] = Field("text", ""),
+                ["facts"] = Field("integer", "7"),
+            };
+            foreach ((string name, long count) in refusals)
+                fields[ReadCourseDecisions.RefusalPrefix + name] = Field("integer", count.ToString(CultureInfo.InvariantCulture));
+            return JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "course-course-decision",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+                payload_kind = ReadCourseDecisions.Kind, payload_version = 1, phase = "brain",
+                observation_ordinal = 1L, receipt_watermark = 0L,
+                payload = new { Kind = ReadCourseDecisions.Kind, Version = 1, Fields = fields } });
+        }
+        string Marker(int seq, string kind) => JsonSerializer.Serialize(new { v = 1, seq, tick = 0, wall_elapsed_ms = 0d,
+            kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+            expected_x = 0f, expected_y = 0f, amount = 0, detail = "" });
+
+        void Drive(string name, string[] decisions, Action<Session, string> assert)
+        {
+            string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+            try
+            {
+                File.WriteAllText(tsv, "# schema=0.41.0\ntick\n1\n# end=fixture;rows=1;diagnostics-incomplete=False\n");
+                var lines = new List<string> { Marker(0, "session") };
+                lines.AddRange(decisions);
+                lines.Add(Marker(decisions.Length + 1, "session-end"));
+                File.WriteAllLines(events, lines);
+                assert(Session.Load(tsv), tsv);
+            }
+            finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+        }
+
+        // Clean: three decisions. The first two are the same course kept on consecutive ticks and must
+        // coalesce; the third is a different decision and must not. A publish tick and a retained tick
+        // are deliberately *not* one run even on one course, because "it decided this" and "it kept
+        // deciding this" are the two things a reader of a capture is trying to tell apart.
+        string[] clean =
+        {
+            Decision(1, 100, ReadCourseDecisions.RetainedReason, "mine", "mine", 2, 40, 12, true, ("no-route", 8), ("outvalued", 4)),
+            Decision(2, 101, ReadCourseDecisions.RetainedReason, "mine", "mine", 2, 0, 0, true),
+            Decision(3, 160, "course-complete", "keep-company", "", 0, 5, 3, false, ("budget-cut", 3)),
+        };
+        Drive("clean", clean, (session, path) =>
+        {
+            CourseDecisionLog log = ReadCourseDecisions.From(ReadGodsEyeEvents.Read(path));
+            Require(log.Decisions.Count == 3 && log.Unreadable == 0,
+                $"the payload parser read {log.Decisions.Count} decision(s) and {log.Unreadable} unreadable, expected 3 and 0");
+            CourseDecision first = log.Decisions[0];
+            Require(first.Reason == ReadCourseDecisions.RetainedReason && first.Activity == "mine" && first.Purpose == "mine"
+                && first.Settled && first.Steps == 2 && first.OrdersPriced == 40 && first.OrdersRefused == 12
+                && first.SearchExhausted && first.Facts == 7 && first.Refusals.Count == 2,
+                "a well-formed decision did not round-trip through the payload parser");
+            Require(log.Decisions[2].What == "keep-company",
+                "an empty order must read as its activity rather than as a blank, because an empty course is companionship");
+            Require(!new EveryCourseDecisionAccountsForItsOwnSearch().Run(session)
+                    .Any(f => f.Severity == Severity.Definitive),
+                "the contracts check fired on a record that breaks none of them");
+            string narration = DescribeCourseDecisions.Of(session, fullTimeline: true);
+            // Two consecutive decisions on one course coalesce; the third is its own run.
+            Require(narration.Contains("3 decision(s) in 2 run(s)", StringComparison.Ordinal),
+                "the narration did not coalesce two ticks of one decision into a single run: " + narration);
+            Require(narration.Contains("100–101", StringComparison.Ordinal) && narration.Contains("cut", StringComparison.Ordinal),
+                "the narration lost either the coalesced tick range or the cut marker: " + narration);
+            var rows = new MeasureCourseWork().Rows(session).ToList();
+            double Value(string stem) => rows.First(r => r.Case == "course/" + stem).Value ?? double.NaN;
+            Require(Math.Abs(Value("retained") - 200.0 / 3) < 1e-9, $"retained share read {Value("retained")}, expected two in three");
+            Require(Math.Abs(Value("bound-step") - 200.0 / 3) < 1e-9, $"bound-step share read {Value("bound-step")}, expected two in three");
+            Require(Math.Abs(Value("search-exhausted") - 200.0 / 3) < 1e-9, $"exhausted share read {Value("search-exhausted")}");
+            // The refusal split is a share of what was tallied, not of what was refused, and the two
+            // differ whenever the producer publishes only its largest reasons.
+            Require(Math.Abs(Value("refusal/no-route") - 100.0 * 8 / 15) < 1e-9, $"no-route share read {Value("refusal/no-route")}");
+        });
+
+        // Mutation one: a tally accounting for more orders than the same record says it refused.
+        Drive("over-counted tally", new[] { Decision(1, 100, "course-published", "mine", "mine", 2, 40, 5, true, ("no-route", 9)) },
+            (session, _) => Require(new EveryCourseDecisionAccountsForItsOwnSearch().Run(session)
+                    .Any(f => f.Severity == Severity.Definitive && f.Title.Contains("more orders than", StringComparison.Ordinal)),
+                "a refusal tally exceeding its own refused total was accepted"));
+
+        // Mutation two: a bound purpose on a course the same record says is empty.
+        Drive("bound step, no steps", new[] { Decision(1, 100, "course-published", "mine", "mine", 0, 40, 5, true) },
+            (session, _) => Require(new EveryCourseDecisionAccountsForItsOwnSearch().Run(session)
+                    .Any(f => f.Severity == Severity.Definitive && f.Title.Contains("no steps", StringComparison.Ordinal)),
+                "a purpose bound against a course with no steps was accepted"));
+
+        // Mutation three: a decision with no reason, which is a record that can be attributed to nothing.
+        Drive("unnamed reason", new[] { Decision(1, 100, "", "mine", "mine", 2, 40, 5, true) },
+            (session, _) => Require(new EveryCourseDecisionAccountsForItsOwnSearch().Run(session)
+                    .Any(f => f.Severity == Severity.Definitive && f.Title.Contains("without a reason", StringComparison.Ordinal)),
+                "a decision carrying no reason was accepted"));
+
+        // A capture new enough to hold decisions and holding none is a statement, and the check must
+        // say so rather than reporting the clean run it never measured.
+        Drive("no decisions", Array.Empty<string>(), (session, _) =>
+        {
+            Require(new EveryCourseDecisionAccountsForItsOwnSearch().Run(session)
+                    .Any(f => f.Severity == Severity.Potential && f.Title.Contains("no course decision", StringComparison.Ordinal)),
+                "an empty course record read as a clean run");
+            Require(new MeasureCourseWork().Rows(session).Any(r => r.Verdict == "skipped"),
+                "the measure reported numbers over a capture holding no decision");
+        });
     }
 
     private static void CourseReaderRejectsMixedAndDigestOnlySnapshots()
@@ -2417,9 +2550,41 @@ public static class ChronicleTests
         }
     }
 
-    private static void Require(bool condition, string message)
+    /// <summary>
+    /// The assertion every group makes, which is also how the run knows which groups ran.
+    ///
+    /// <para>The caller name is recorded because the count this file printed was a literal, and on
+    /// 21 September 2026 it read 44 against 46 groups: it had gone stale twice without anybody
+    /// noticing, which is what a number maintained by hand beside the thing it counts does. Worse
+    /// than the wrong number is what a literal cannot catch at all — a group written and never added
+    /// to <see cref="Run"/>, which reports as coverage in the file and executes never. Counting the
+    /// groups that actually asserted something, and comparing that against the groups declared,
+    /// catches both and cannot itself go stale.</para>
+    /// </summary>
+    private static void Require(bool condition, string message,
+        [System.Runtime.CompilerServices.CallerMemberName] string group = "")
     {
+        Ran.Add(group);
         if (!condition)
             throw new InvalidOperationException(message);
+    }
+
+    /// <summary>Every group that reached at least one assertion this run.</summary>
+    private static readonly HashSet<string> Ran = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The groups this file declares: every private, static, parameterless void method except the
+    /// helpers those groups call. A declared group that never asserted is either unwired or a helper,
+    /// and the run says which names they are rather than only that the counts differ.
+    /// </summary>
+    private static string DeclaredButSilent()
+    {
+        var declared = typeof(ChronicleTests)
+            .GetMethods(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+            .Where(m => m.ReturnType == typeof(void) && m.GetParameters().Length == 0)
+            .Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
+        declared.ExceptWith(Ran);
+        return declared.Count == 0 ? "" : " " + declared.Count + " declared group(s) asserted nothing: "
+            + string.Join(", ", declared.OrderBy(n => n, StringComparer.Ordinal));
     }
 }
