@@ -653,6 +653,9 @@ internal static class VerifyLightAndReachSenses
         // funnel is the only thing that separates them. Printed before the first Require, because these
         // rows throw and a diagnosis after the throw is a diagnosis nobody sees.
         AICompanion.Tools.EngineReplay.Observation.DescribeCourseFunnel.Print("two-sites", brain.Course, courseReasons);
+        // Where the body actually got to, against where the course is asking it to be. A step nothing
+        // executes and a step the body is still flying towards look the same in the course's own state.
+        Console.WriteLine($"  two-sites body: centre={ctx.Npc.Center} lastAction={brain.LastAction?.Name ?? "none"} request={brain.LastRequest.Kind}");
         Require(first >= 0, $"the lighting job must place a first torch on a dark floor; {trace}placed={placed.Count}");
         Require(second >= 0,
             $"lighting must keep the job after placing and place a second torch in the same region; {trace}placed={placed.Count}");
@@ -669,9 +672,21 @@ internal static class VerifyLightAndReachSenses
         // and after the site bound, because that bound only bites once a deadline exists to expire. It is here
         // so a future change that makes the scan quadratic again fails a run instead of printing a larger number
         // nobody reads. Cold and warm differ twelvefold on this line, so the ceiling is set for the cold case.
-        Require(decideMax < 120d,
-            $"deciding over a wholly dark floor with the planning allowances lifted must stay within an order of "
-            + $"magnitude of what it has historically cost; measured {decideMax:0.000} ms against a ceiling of 120 ms");
+        // This was a 120 ms ceiling and is a measure now, and the reason is that it stopped measuring what
+        // it claimed. It exists to catch the region scan going quadratic again, but it times the whole
+        // decision with the allowances lifted — which under the course brain is an unbounded search over
+        // every usable site. While the census published sites the placer would refuse, that search priced
+        // three orders and the figure sat at 37-39 ms; with the census fixed it prices about 205 and the
+        // figure is around 1830 ms. Nothing got slower per unit of work: the search found work to do.
+        //
+        // Demoting it is only honest because the property it was standing in for is asserted elsewhere and
+        // more strictly than before. `MeasureTheRegionScanUnderProductionAllowances` runs this same scene
+        // under the allowances the game applies and now asserts on the decision itself, where it measures
+        // 14.7 ms max and 4.8 ms mean over 600 ticks against a frame of 16.67 ms. That is the number a
+        // player feels; this one describes a regime production never enters.
+        Console.WriteLine($"        MEASURE deciding over a wholly dark floor with the planning allowances lifted: "
+            + $"max {decideMax:0.000} ms, mean {decideTotal / Math.Max(1, ticks):0.000} ms over {ticks} ticks "
+            + $"(unbounded search; the production-allowance row is the cost guard)");
     }
 
     /// <summary>
@@ -710,9 +725,18 @@ internal static class VerifyLightAndReachSenses
             // slack rather than tight, because the same code measures 7.8 ms inside the warmed default suite
             // and 13.0 ms run alone, and a ceiling between those two numbers tests the harness.
             double ceiling = Weights.TotalPlanningMilliseconds * 2d;
-            Require(prepareMax < ceiling,
-                $"NearbyAssistance preparation on a wholly dark floor must stay inside twice the tick's planning "
-                + $"allowance; measured {prepareMax:0.000} ms against a ceiling of {ceiling:0.000} ms");
+            // The assertion moved from preparation to the decision on 21 September 2026, because under the
+            // course brain the preparation it named no longer runs: the tick asks a course rather than the
+            // family chooser, so `NearbyAssistance preparation max` now reads 0.000 ms and a ceiling above
+            // zero cannot fail. A criterion nothing can violate is a rubber stamp rather than a pass, and
+            // it would have gone on reading green through any cost the course itself grew.
+            //
+            // `DecideMs` is where that cost now lives, and the property is unchanged: the tick's planning
+            // allowance must bound this scene at all. The preparation figure is still printed, because a
+            // number returning to nonzero would mean the legacy path is back on the tick.
+            Require(decideMax < ceiling,
+                $"deciding on a wholly dark floor must stay inside twice the tick's planning "
+                + $"allowance; measured {decideMax:0.000} ms against a ceiling of {ceiling:0.000} ms");
         }
         finally { LimitPlanningWork.Unbounded = lifted; }
     }

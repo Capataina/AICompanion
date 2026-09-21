@@ -84,6 +84,20 @@ public sealed class CaptureAssistanceOpportunities
     private readonly Dictionary<FactKey, (string Text, long Version)> factVersions = new();
     private DecisionWorkCursor drops = new();
     private sealed record FrozenDrop(Item Value, long Generation, bool ReplacementObserved);
+    /// <summary>
+    /// What the placement step answered about each tile, kept between sweeps.
+    ///
+    /// The step is the expensive question in this capture — it scans an eight-tile neighbourhood per
+    /// call — and the light sweep re-asks the same window every tick, so asking it afresh each time cost
+    /// about 36 ms of every tick on a floor that is dark throughout, against a 16.67 ms frame. Its
+    /// answer only changes when the terrain it reads changes, and this tree already records edits
+    /// spatially, so the cache is cleared by an edit inside the swept window rather than by a clock or
+    /// by any edit anywhere. A torch the companion places announces its own edit, which is what makes a
+    /// newly-occupied spacing neighbourhood re-ask on the next sweep.
+    /// </summary>
+    private readonly Dictionary<Point, bool> placementStep = new();
+    private int placementStepRevision;
+
     private FrozenDrop[]? frozenDrops;
     private readonly List<AssistanceOpportunityFact> capturedDrops = new();
     private long dropCensusRevision;
@@ -223,6 +237,19 @@ public sealed class CaptureAssistanceOpportunities
         Rectangle area = new(heading.X - work, heading.Y - work, 2 * work + 1, 2 * work + 1);
         LightSense.Coverage coverage = LightSense.Coverage.Current();
         if (!coverage.Legacy) area = Rectangle.Intersect(area, coverage.Area);
+        // Chosen once for the sweep rather than per tile: which torch goes in does not vary by site, and
+        // the step reads the item only for its tile and style. It is the same choice the placer makes,
+        // through the same function, so the census cannot admit a site against a torch the placer would
+        // not be holding.
+        Item torchToPlace = PlaceTorches.TorchToPlace(context.Companion.Bag.Items, context.Player.inventory);
+        // The step reads a neighbourhood around each tile, so an edit just outside the swept window can
+        // still change an answer inside it; the sensitive region is the window grown by that reach.
+        Rectangle sensitive = area;
+        sensitive.Inflate(CompanionTorches.SpacingTiles, CompanionTorches.SpacingTiles);
+        if (TerrainChanges.Edits.ChangedSince(placementStepRevision, (x, y) => sensitive.Contains(x, y))
+            != TerrainEditVerdict.Unchanged)
+            placementStep.Clear();
+        placementStepRevision = TerrainChanges.Revision;
         // The whole area is swept, so the census is complete for the area it names — but only if that
         // area is a place. In colour mode the window is intersected with the engine's own processed
         // area, which is empty before the engine has ever scanned near the companion, and an empty
@@ -255,8 +282,16 @@ public sealed class CaptureAssistanceOpportunities
             {
                 if (!WorldGen.InWorld(x, y, 10)) continue;
                 Point point = new(x, y);
-                bool candidate = PlaceTorches.Candidate(point) && RecommendTorchPlacement.MayAccept(point);
-                if (!candidate) continue;
+                // `MayAccept` is a filter and never a decision — its own guide says so, and says it
+                // deliberately passes tiles the step refuses, a torch within the game's spacing among
+                // them. The census stopped at the filter and published those tiles as usable sites; the
+                // placer then asked the real step and refused them, so the course would fly to a site
+                // and place nothing. Measured on the two-site lighting scene: the course chained to the
+                // tile directly above the torch it had just placed, arrived, and held that step for 1798
+                // ticks. The census asks what the placer asks, in the placer's own order — the cheap
+                // filter first so the step is skipped on the empty tiles it exists to skip, then the
+                // step itself, which is the only thing that can say yes.
+                if (!PlaceTorches.Candidate(point) || !RecommendTorchPlacement.MayAccept(point)) continue;
                 var reading = senses.Light.ReadForPlacement(point, coverage);
                 ReachVerdict reach = senses.Reach.Reachable(point);
                 // Only a placeable tile reaches here, so the admission turns on light and reach alone.
@@ -267,12 +302,37 @@ public sealed class CaptureAssistanceOpportunities
                 // refused by travel, because travel's refusal is per order and this one is per site: the
                 // same unusable site was otherwise re-bound inside every order that contained it.
                 var contact = WorkingPose(point);
+                // The placer's own step is asked last, and only of a site every cheaper test has already
+                // admitted, because it is by far the most expensive question here — it scans an
+                // eight-tile neighbourhood per call — and it can only ever downgrade an answer, never
+                // rescue one. Asking it before the light reading spent that scan on tiles refused for
+                // being bright, which on a lit screen is nearly all of them.
+                //
+                // It has to be asked at all because `MayAccept` above is a filter and never a decision:
+                // its own guide says it deliberately passes tiles the step refuses, a torch within the
+                // game's spacing among them. Stopping at the filter published those tiles as usable
+                // sites that the placer then refused, so the course flew to a site and placed nothing —
+                // measured as a chain onto the tile directly above the torch just placed, held for 1798
+                // ticks. The census asks what the placer asks, through the same function.
+                bool cheapUsable = reading.IsDark && contact != null && reach == ReachVerdict.Reachable;
+                // A site nobody could afford to ask the step about is unknown, never usable — the same
+                // three-valued rule the reach and light senses keep, applied to the one question left.
+                // Reading an unaffordable question as a yes is how a companion flies to a site the placer
+                // then refuses; reading it as a no would write the site off on evidence nobody gathered.
+                bool? stepAnswer = !cheapUsable ? false
+                    : placementStep.TryGetValue(point, out bool remembered) ? remembered
+                    : !LimitPlanningWork.IsActive || LimitPlanningWork.Current.TrySpend("torch-placement-step")
+                        ? placementStep[point] = RecommendTorchPlacement.Accepts(point, torchToPlace, context.Companion.StandIn.Player)
+                        : null;
                 string admission = !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "unknown" : "unusable"
                     : contact == null ? "unusable"
-                    : reach == ReachVerdict.NotYet ? "unknown" : reach == ReachVerdict.Unreachable ? "unusable" : "usable";
+                    : reach == ReachVerdict.NotYet ? "unknown" : reach == ReachVerdict.Unreachable ? "unusable"
+                    : stepAnswer == null ? "unknown" : stepAnswer == false ? "unusable" : "usable";
                 string reason = !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "light-unread" : "not-persistently-dark"
                     : contact == null ? "no-pose-holds-the-body-within-reach"
-                    : reach == ReachVerdict.NotYet ? "reach-not-yet" : reach == ReachVerdict.Unreachable ? "reach-unreachable" : "observed-persistent-darkness";
+                    : reach == ReachVerdict.NotYet ? "reach-not-yet" : reach == ReachVerdict.Unreachable ? "reach-unreachable"
+                    : stepAnswer == null ? "placement-step-not-yet-asked"
+                    : stepAnswer == false ? "the-placement-step-refuses-this-tile" : "observed-persistent-darkness";
                 var value = new AssistanceOpportunityFact("light-target", $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8,
                     reading.IsDark ? 1 : 0, reading.IsDark ? 1 : 0, admission, reason, $"light={reading.Light};brightness={reading.Brightness:R};coverage={coverage.Area}", contact);
                 facts.Add(Fact("light-target", value.Target, 0, value));

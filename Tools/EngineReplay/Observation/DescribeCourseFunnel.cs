@@ -85,6 +85,13 @@ public static class DescribeCourseFunnel
     public static void Print(string label, DecideCourseEachTick owner, IReadOnlyDictionary<string, int> reasons)
     {
         Console.WriteLine($"  {label} decisions: {Decisions(reasons)}");
+        // The next step's identity and pose, because "the course has three steps" and "the course is
+        // trying to reach this point" are different facts and only the second one can be checked against
+        // where the body actually is. A course held for hundreds of ticks with an unchanging prefix is
+        // the signature of a step nothing is executing, which reads identically to healthy retention
+        // until the prefix is printed.
+        var prefix = owner.Course.Current?.Projection.Prefix;
+        Console.WriteLine($"  {label} next step: {(prefix == null ? "none" : $"{prefix.Opportunity.Domain}/{prefix.Opportunity.Purpose} target={prefix.Opportunity.Target} pose=({prefix.Pose.X:0},{prefix.Pose.Y:0}) method={prefix.Method} proven={prefix.UseProven}")}");
         Console.WriteLine($"  {label} course: decision={owner.Last.Reason} activity={owner.Last.Activity}"
             + $" steps={owner.Course.Current?.Projection.Steps.Count.ToString(CultureInfo.InvariantCulture) ?? "no-course"}"
             + $" release={owner.Course.ReleaseReason}"
