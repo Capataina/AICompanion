@@ -40,7 +40,62 @@ internal static class VerifyTheCourseOwnsTheTick
         Row("G01 an empty world is companionship, not a hold", NothingToDoKeepsCompany);
         Row("G01 a published course is retained across the next tick", APublishedCourseIsRetained);
         Row("G01 the legacy family chooser no longer decides the tick", TheLegacyChooserIsOffThePath);
+        Row("G01 companionship is still observed on a tick the course owns", CompanionshipIsStillObserved);
         return red;
+    }
+
+    /// <summary>
+    /// The other half of "the chooser is off the path", and the half that was missing. Proving the old
+    /// decision procedure no longer runs says nothing about what it used to *write* on its way through,
+    /// and `Choose` wrote four companionship observations nobody else did: the estimated return time, the
+    /// reunion delay cost, the departure reading and the regroup urgency. Since `0bb2c8a` every one of
+    /// them had been frozen at its default for entire sessions — the recorder's three reunion columns
+    /// recorded two constants beside one live number, and `KeepCompany.CalculateReunionValue` read a
+    /// regroup urgency that was always zero. Nothing went red, because a frozen float is a legal float.
+    ///
+    /// So this row asks the question the negative row cannot: with the body carried far outside the
+    /// player's region for long enough that a return genuinely costs something, do these numbers move?
+    /// It asserts responsiveness rather than a value — a threshold here would be a tuning nobody agreed —
+    /// and it is deliberately driven through `Brain.Tick` rather than by calling the observation directly,
+    /// because what failed was the wiring and a direct call cannot see wiring.
+    /// </summary>
+    private static void CompanionshipIsStillObserved()
+    {
+        ActionContext ctx = Scene();
+        Tick(ctx, 2);
+        Chooser chooser = ctx.Companion.Brain.Chooser;
+        Require(chooser.EstimatedReturnTicks >= 0f,
+            $"the return estimate was never computed on a tick the course owns; ticks={chooser.EstimatedReturnTicks}");
+
+        // The player walks away while the body is held where it is, which is the only arrangement that
+        // makes all three numbers non-zero and is why the first draft of this row failed against its own
+        // fix. `DelayCostPerTick` is `Departure × (…) + ApartTicks / (…)`: beside a standing player both
+        // terms are honestly zero, and a body merely teleported away flies home inside a few ticks and
+        // resets `ApartTicks`. So the separation has to be sustained *and* the player has to be the one
+        // opening it — which is also the case the number exists to price.
+        var held = new Vector2(40 * 16 + 8, 60 * 16);
+        for (int i = 0; i < 40; i++)
+        {
+            ctx.Player.velocity = new Vector2(6f, 0f);
+            ctx.Player.controlRight = true;
+            ctx.Player.position += ctx.Player.velocity;
+            ctx.Npc.Bottom = held;
+            ctx.Npc.velocity = Vector2.Zero;
+            // `Reunion.Observe` counts apart-ticks only across *consecutive* engine ticks, deliberately —
+            // a missing observation does not prove continued separation. This fixture drives `Brain.Tick`
+            // without the engine behind it, so nothing advances the frame counter and every Observe would
+            // early-return on an unchanged tick, leaving ApartTicks at zero however far apart the two are.
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            Tick(ctx, 1);
+        }
+        Require(chooser.EstimatedReturnTicks > 0f,
+            $"a body far from the player still estimates no time to return; ticks={chooser.EstimatedReturnTicks}");
+        Require(chooser.RegroupUrgency > 0f,
+            $"a body far outside the player's region feels no regroup urgency, so the observation is not running; "
+            + $"urgency={chooser.RegroupUrgency}, return={chooser.EstimatedReturnTicks}");
+        Require(chooser.Reunion.DelayCostPerTick > 0f,
+            $"the reunion delay cost stayed at its default while the body was away, so Reunion.Evaluate never ran; "
+            + $"cost={chooser.Reunion.DelayCostPerTick}, apart={chooser.Reunion.ApartTicks}");
     }
 
     /// <summary>Drives the real `Brain.Tick` the way the game does: the engine's own AI entry point on a

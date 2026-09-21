@@ -52,6 +52,11 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
     /// resolution the contact pose was chosen at.</summary>
     private const float MovedDropPixels = 16f;
 
+    /// <summary>The two course domains this activity performs, named where they are read so the mapping
+    /// from a bound opportunity to a method lives beside the method rather than in a table elsewhere.</summary>
+    private const string CollectDomain = "collect-target";
+    private const string PotDomain = "pot-target";
+
     public override void Prepare(in ActionContext ctx)
     {
         collectDrop = false;
@@ -61,20 +66,33 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
         float potValue = base.Score();
         float potTrip = base.ActivityTarget is { } position
             ? Vector2.Distance(ctx.Npc.Center, position) / OrbPace.MaxSpeed + Weights.PotContentsHandlingTicks : 0f;
-        bool incumbent = ctx.Companion.Brain.Chooser.Current == this;
-        var options = new PreparedActivity[]
+        // **Which method this activity performs is the course's answer, not a second ranking here.**
+        // Until 21 September 2026 this ran `EvaluatePreparedActivities.Evaluate` over a drop and a pot as
+        // two prepared options and took the winner, which was the retired family chooser's arithmetic
+        // used privately — the last consumer of it anywhere in the tree. Under the course a drop and a
+        // pot are separately discovered and separately priced opportunities in two domains, so the search
+        // has already weighed exactly these two against each other, against everything else, and against
+        // the cost of going; re-deciding here could bind a pot and then break for a drop.
+        //
+        // `CourseOpportunityDomain` is read from the live binding rather than from a table in this file,
+        // so an activity that gains a third method gains it by the course discovering a third domain.
+        // The fallback is target existence rather than a value comparison — a fact, not a policy — and it
+        // applies only where the course bound some other activity entirely, in which case this one is not
+        // acting and its method describes the record rather than driving anything.
+        collectDrop = ctx.Companion.Brain.Course.Last.Binding?.Opportunity.Domain switch
         {
-            new(0, "known-drop", dropValue, candidate?.TripTicks ?? 0f, true, candidate != null, false, incumbent,
-                candidate != null ? OfferEligibility.Usable : OfferEligibility.NoOpportunity),
-            new(1, "potential-pot-contents", potValue, potTrip, true, base.ActivityTarget != null, false, incumbent,
-                base.ActivityTarget != null ? OfferEligibility.Usable : OfferEligibility.NoOpportunity),
+            CollectDomain => true,
+            PotDomain => false,
+            _ => candidate != null,
         };
-        var values = EvaluatePreparedActivities.Evaluate(options, ctx.Companion.Brain.Chooser.ComparisonContext(ctx));
-        // Compare methods with the same costs used by the parent, then publish the chosen
-        // raw offer. Publishing its already-discounted score would charge those costs twice.
-        collectDrop = values[0].Final > 0 && values[0].Final >= values[1].Final;
         preparedValue = collectDrop ? dropValue : potValue;
-        preparedTrip = collectDrop ? candidate!.Value.TripTicks : potTrip;
+        // Guarded rather than `candidate!`, because the method is the course's answer now and the two can
+        // legitimately disagree for a tick: the course binds a drop it discovered from its own frozen
+        // census, and this activity's own scan can find none — a drop picked up, despawned, or refused by
+        // cargo since the freeze. Under the old private ranking `collectDrop` implied a candidate by
+        // construction, so the bang was safe and is not any more. `Execute` already answers that tick with
+        // a hold, and the next preparation proves the drop where it now lies.
+        preparedTrip = collectDrop ? candidate?.TripTicks ?? 0f : potTrip;
         // The two methods share one purpose, so the published classification describes the method
         // whose raw value is published. Pot contents stay unknown; the pot itself is a usable target.
         if (collectDrop) Classify(OfferEligibility.Usable, "known-drop-fits-cargo");

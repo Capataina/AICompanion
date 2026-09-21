@@ -51,31 +51,30 @@ public sealed class Chooser
     public float EstimatedReturnTicks { get; private set; }
     public AssessReunionCost Reunion { get; } = new();
 
+    /// <summary>
+    /// Everything companionship observes each tick: how long the body has been apart, how long it would
+    /// take to get back, what that delay costs, and how hard it is being pulled home. It is observation
+    /// rather than choice, which is why it sits here and not inside a comparison.
+    ///
+    /// **All of it but the first line used to live inside `Choose`, and had been dead in play since
+    /// `0bb2c8a` put the course on the tick.** `CoordinateBrainTick` calls this method directly, so the
+    /// apart-tick count kept running; `Reunion.Evaluate` was reached only through `Choose`, so
+    /// `DelayCostPerTick` and `Departure` stayed at their defaults for entire sessions and the recorder's
+    /// three reunion columns recorded two constants beside one live number. `RegroupUrgency` went the
+    /// same way, which matters beyond the record because `KeepCompany.CalculateReunionValue` reads it.
+    ///
+    /// The general shape, which is the part worth keeping: **a decision procedure that also observes
+    /// leaves its observations stranded when something replaces the decision.** Nothing failed and no row
+    /// went red, because a frozen number is a legal number; the only visible symptom was in a capture
+    /// nobody had read yet. Anything else moved off the chooser is checked the same way — by asking what
+    /// it wrote, not only what it returned.
+    /// </summary>
     public void ObserveCompanionship(in ActionContext ctx)
     {
         var objective = ctx.Senses.Intent.Objective;
         Reunion.Observe(Terraria.Main.GameUpdateCount,
             objective.IsSatisfied(ctx.Npc.Center), ctx.Senses.Player.IsDead);
-    }
-    private Microsoft.Xna.Framework.Vector2? workSite;
-    private ulong workSiteTick;
-    public bool IsCollectingWork(Microsoft.Xna.Framework.Vector2 target)
-        => workSite is { } site && Terraria.Main.GameUpdateCount - workSiteTick <= Weights.WorkCollectionTicks
-            && Microsoft.Xna.Framework.Vector2.DistanceSquared(site, target) <= Weights.WorkSiteRadius * Weights.WorkSiteRadius;
 
-    public void RecordWork(Microsoft.Xna.Framework.Vector2 site)
-    {
-        workSite = site;
-        workSiteTick = Terraria.Main.GameUpdateCount;
-        // Callers record work only for an observed productive native effect, so this is the one
-        // place an attempt's effect count grows; an effect outside an executing attempt is uncredited.
-        Activity.RecordProductiveEffect();
-    }
-
-    public CompanionAction? Choose(in ActionContext ctx)
-    {
-        ObserveCompanionship(ctx);
-        LastScores.Clear();
         // Reunion, excursion and return cost are all "how far from the player", and they measure to
         // the intent region's centre: a companion pricing its way back to where the player was
         // standing prices a trip that is already out of date on a player who is walking.
@@ -111,6 +110,29 @@ public sealed class Chooser
                 / Math.Max(1f, Weights.RegroupFullReturnTicks - Weights.RegroupFreeReturnTicks), 0f, 1f);
             RegroupUrgency = Math.Max(RegroupUrgency, travelPressure);
         }
+    }
+    private Microsoft.Xna.Framework.Vector2? workSite;
+    private ulong workSiteTick;
+    public bool IsCollectingWork(Microsoft.Xna.Framework.Vector2 target)
+        => workSite is { } site && Terraria.Main.GameUpdateCount - workSiteTick <= Weights.WorkCollectionTicks
+            && Microsoft.Xna.Framework.Vector2.DistanceSquared(site, target) <= Weights.WorkSiteRadius * Weights.WorkSiteRadius;
+
+    public void RecordWork(Microsoft.Xna.Framework.Vector2 site)
+    {
+        workSite = site;
+        workSiteTick = Terraria.Main.GameUpdateCount;
+        // Callers record work only for an observed productive native effect, so this is the one
+        // place an attempt's effect count grows; an effect outside an executing attempt is uncredited.
+        Activity.RecordProductiveEffect();
+    }
+
+    public CompanionAction? Choose(in ActionContext ctx)
+    {
+        // The companionship observation this used to do inline now lives in `ObserveCompanionship`, which
+        // the tick calls directly — see that method for why it had to move. Called here too, so a fixture
+        // driving `Choose` alone still observes before it compares.
+        ObserveCompanionship(ctx);
+        LastScores.Clear();
         // Discovery runs once per behaviour. Score and forecast read the captured candidate;
         // neither receives live context or advances the job during comparison.
         var prepared = new PreparedActivity[Actions.Count];
