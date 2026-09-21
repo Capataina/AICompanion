@@ -795,6 +795,15 @@ internal static class VerifyWeaponLearning
         // movement here is the forecast being non-linear in ticks, which no amount of re-pricing can fix.
         if (Environment.GetEnvironmentVariable("AIC_TRACE_HOLD") != null)
         {
+            // Where the enemy is predicted to be at the horizons the plan actually uses, beside the forty
+            // the invariance is measured at: the aim point a use carries must correspond to one of them,
+            // and a use that fires at +102 aiming where the enemy will be at +44 can never intercept.
+            foreach (int k in new[] { 20, 40, 60, 80, 102, 120, 140, 180 })
+            {
+                Vector2 p = live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion
+                    .Predict(scene.Enemy, k);
+                Console.WriteLine($"HOLDH k={k} predict={p.X:0.00},{p.Y:0.00}");
+            }
             const int horizon = 40;
             for (int i = 0; i < 4; i++)
             {

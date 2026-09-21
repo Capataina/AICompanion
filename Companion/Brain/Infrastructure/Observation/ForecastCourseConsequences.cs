@@ -14,23 +14,35 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 /// The native consequence provider: what a course costs, priced from captured facts.
 ///
 /// It prices two terms. Companionship and the return leg run for real through
-/// <see cref="ForecastCourseCompanionship"/>. Predicted contact harm to the <em>companion</em> runs for
-/// real too, over the body trajectory that forecast produces: every hostile in the frozen census is
-/// asked for modelled motion through <see cref="CourseEnemyMotionRequest"/>, that motion becomes timed
-/// melee geometry through <see cref="ProjectMeleeContactGeometry"/>, and first contact against the body's
-/// own per-tick boxes becomes a <see cref="PredictedHarm"/> event through <see cref="ForecastContactHarm"/>.
-/// That is what makes a course comparable on safety at all: until it existed every candidate carried the
-/// same unknown harm, so a route through a pack and a route around it priced identically.
+/// <see cref="ForecastCourseCompanionship"/>. Predicted contact harm runs for real too, and since
+/// 21 September 2026 it runs for <em>both</em> bodies: every hostile in the frozen census is asked for
+/// modelled motion through <see cref="CourseEnemyMotionRequest"/>, that motion becomes timed melee
+/// geometry through <see cref="ProjectMeleeContactGeometry"/> once per victim — not once per hostile,
+/// because native melee geometry is victim-dependent and one victim's attack rectangle, multiplier and
+/// hit channel are not another's — and first contact against each body's per-tick boxes becomes a
+/// <see cref="PredictedHarm"/> event through <see cref="ForecastContactHarm"/>. That is what makes a
+/// course comparable on safety at all: until it existed every candidate carried the same unknown harm,
+/// so a route through a pack and a route around it priced identically.
 ///
-/// <b>The tail stays unresolved on every course regardless, and that is deliberate rather than
-/// left over.</b> Harm to the <em>player</em> is not priced here — the companion's own body trajectory is
-/// the only one this forecast models, and the player's future path is not a thing the course decides — so
-/// <see cref="ForecastContactHarm"/> is constructed with an incomplete census on purpose and can never
-/// certify that a course is harm-free. An unresolved tail cannot certify strict superiority, so a course
-/// may be chosen as a legal first action and can never be <em>proven</em> better than a safer rival.
-/// Resolving it would mean claiming an empty harm list is the truth, which is the zero-cost completed
-/// candidate the Courses contract forbids by name: every comparison would read "no predicted harm" and
-/// the search would actively prefer the most dangerous course on the board.
+/// <b>The player's path comes from his own motion track</b>, captured by <see cref="CapturedPlayerMotion"/>
+/// and extended by the same law that forecasts a hostile's, so the two cannot disagree about physics. It
+/// is the same for every candidate — he goes where he is going whatever the companion does — which is
+/// why pricing it alone changes no ranking, and why the other half had to land with it: <b>a course's own
+/// predicted kills truncate the threats they remove</b>, read off the course's effects rather than from a
+/// second source that could disagree with the projection describing it.
+///
+/// <b>The tail is the forecast's own verdict now, where it was pinned unresolved.</b> Every route to an
+/// unresolved answer the pin protected against still exists and still reports itself — a census the
+/// allowance could not finish, a victim capture it could not produce, a hostile whose motion answers
+/// unresolved, a trajectory that runs out before the horizon, an unsupported hit channel — so the
+/// zero-cost completed candidate the Courses contract forbids stays unreachable. A snapshot without the
+/// player's facts degrades rather than refusing: the companion is priced exactly as before, his geometry
+/// is an unsupported empty, no player actor is added and the census reads incomplete. Refusing outright
+/// was the first version and is strictly worse than the state before he was priced at all, because it
+/// leaves <em>nobody's</em> harm priced.
+///
+/// What it still cannot express is a threat that keeps hitting: first contact ends that actor's
+/// continuation, because immunity, knockback and hit hooks need a successor model.
 ///
 /// So this is a two-kind pending-request state machine. Travel suspends through
 /// <see cref="CourseProjectionResult.RequiredTravel"/>; enemy motion suspends through
