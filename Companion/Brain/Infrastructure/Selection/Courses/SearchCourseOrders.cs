@@ -72,6 +72,24 @@ public sealed class SearchCourseOrders
         refusals[key] = refusals.GetValueOrDefault(key) + 1;
     }
 
+    /// <summary>
+    /// The best value any order led by each domain reached, so a losing domain can say what it lost by.
+    ///
+    /// A search reports one winner, and a winner alone cannot answer the question every adjudication of
+    /// a behaviour row actually asks: not "what won" but "why did combat lose". Without this the only
+    /// way to find out is to reason about the objective from the outside and then guess which of its
+    /// terms dominated — which on the danger-over-work row produced three wrong causes in a row before
+    /// the fourth measurement contradicted all of them.
+    ///
+    /// Keyed by the first step's domain because that is what a reader means by "the combat option": an
+    /// order beginning with a shot, whatever it chains afterwards. An empty order is its own key, since
+    /// doing nothing is a real candidate and its value is the floor every job has to clear. The map is
+    /// bounded by the number of domains that exist, so it needs no truncation rule.
+    /// </summary>
+    public IReadOnlyDictionary<string, CourseValue> Leaders => leaders;
+    private readonly Dictionary<string, CourseValue> leaders = new(StringComparer.Ordinal);
+    public const string IdleOrderKey = "(idle)";
+
     public IReadOnlyList<CourseTravelRequest> RequiredTravel { get; private set; } = Array.Empty<CourseTravelRequest>();
     public IReadOnlyList<CourseEnemyMotionRequest> RequiredEnemyMotion { get; private set; } = Array.Empty<CourseEnemyMotionRequest>();
 
@@ -95,6 +113,7 @@ public sealed class SearchCourseOrders
         pendingOrder = null; Best = null; BestValue = null; Exhausted = false;
         EvaluatedOrders = RejectedOrders = 0;
         refusals.Clear();
+        leaders.Clear();
         RequiredTravel = Array.Empty<CourseTravelRequest>();
         RequiredEnemyMotion = Array.Empty<CourseEnemyMotionRequest>();
         generation++;
@@ -129,6 +148,10 @@ public sealed class SearchCourseOrders
             {
                 EvaluatedOrders++;
                 var value = CompareCourseOutcomes.Evaluate(result.Projection, episode);
+                string lead = pendingOrder.Length == 0 ? IdleOrderKey : pendingOrder[0].Domain;
+                if (!leaders.TryGetValue(lead, out var best)
+                    || CompareCourseOutcomes.NominalOrder(value, best, episode.Encounter) > 0)
+                    leaders[lead] = value;
                 if (BestValue == null || CompareCourseOutcomes.NominalOrder(value, BestValue, episode.Encounter) > 0)
                 { Best = result.Projection; BestValue = value; }
             }

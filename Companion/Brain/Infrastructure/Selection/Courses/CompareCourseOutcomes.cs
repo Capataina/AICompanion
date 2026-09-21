@@ -52,6 +52,27 @@ public sealed class CourseComparisonEpisode
     /// Written the other way round — a bonus on combat — the same ordering would need a magnitude nobody
     /// could derive, and every tuning of it would move work's value too.
     ///
+    /// **This is a stopgap standing in for a quantity the objective should compute, and it is written
+    /// down as one so nobody later mistakes it for the design.** The project's own rule is that a factor
+    /// standing in for a quantity the brain could compute is a defect waiting for the case where the two
+    /// disagree. The quantity here is predicted harm to the player, and `ForecastCourseConsequences`
+    /// hands `ForecastContactHarm` a companion actor and no player actor at all — the player's contact
+    /// geometry is an explicit unsupported empty, because nothing models his path — so every course in
+    /// existence prices the player's harm at exactly zero. Measured on `danger lifts combat over work`
+    /// with a zombie beside a player at 40 life: every candidate reported `harm 0.0000`, with no
+    /// `harm-uncertain` entry, because `course.Harm` was empty rather than unresolved.
+    ///
+    /// So danger cannot reach the comparison through the term that should carry it, and without this
+    /// multiplier it does not reach the comparison at all. That is the only reason it is here rather
+    /// than the reason it is right: on a live tick, a brain with no danger term is worse than one with a
+    /// proxy whose limits are stated.
+    ///
+    /// **Delete this the moment predicted harm to the player is priced**, which needs two things that do
+    /// not exist yet — a modelled player trajectory so he can be a contact actor, and projected enemy
+    /// kills removing the later harm they prevent, without which killing the zombie and ignoring it
+    /// price the same player harm and combat still loses. Until both land, a scene where urgency and
+    /// real predicted harm disagree is a scene this term gets wrong, and that is its failure case.
+    ///
     /// Encounter intensity is deliberately *not* folded in here yet, though the chooser's rule was
     /// <c>1 − max(urgency, intensity)</c>. This episode carries the encounter as a boolean, and treating
     /// that as an intensity of one would zero every optional need for the whole of any recognised event —

@@ -161,6 +161,11 @@ public sealed class DecideCourseEachTick
     public IReadOnlyDictionary<string, int> LastRefusals { get; private set; }
         = new Dictionary<string, int>(StringComparer.Ordinal);
 
+    /// <summary>What the best order led by each domain scored in the last search, so a losing kind of
+    /// work says what it lost by rather than leaving the reader to reconstruct the objective by hand.</summary>
+    public IReadOnlyDictionary<string, CourseValue> LastLeaders { get; private set; }
+        = new Dictionary<string, CourseValue>(StringComparer.Ordinal);
+
     public void ResetWorld()
     {
         observation.ResetWorld();
@@ -211,6 +216,7 @@ public sealed class DecideCourseEachTick
             Advance(deciding, models, budget);
             LastSearch = (deciding.EvaluatedOrders, deciding.RejectedOrders, deciding.Exhausted);
             LastRefusals = deciding.Refusals;
+            LastLeaders = deciding.Leaders;
             // Still working. The body keeps the player company while the brain thinks, which is what it
             // would be doing anyway and is strictly better than holding still for the answer.
             if (!deciding.Exhausted) return Companionship("deciding", settled: false);
@@ -311,6 +317,7 @@ public sealed class DecideCourseEachTick
         Advance(search, models, budget);
         LastSearch = (search.EvaluatedOrders, search.RejectedOrders, search.Exhausted);
         LastRefusals = search.Refusals;
+        LastLeaders = search.Leaders;
         deciding = search;
         decidingFacts = facts;
         decidingEpisode = episode;

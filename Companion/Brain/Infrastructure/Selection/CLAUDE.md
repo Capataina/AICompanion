@@ -6,6 +6,26 @@ Three shapes in it exist because their absence was measured. A decision is froze
 
 What it deliberately does not do: **opportunistic replacement mid-course**. `RetainCourse.Consider` requires the incumbent reprojected from the current observation before two futures can be compared, and that reprojection is unbuilt, so a valid course is kept and no rival is weighed against it. The companion finishes what it started and picks again at the end.
 
+## The objective cannot express "defend him", because no course prices harm to the player
+
+**Every course in existence prices the player's harm at exactly zero, so no comparison between two courses can ever prefer the one that defends him.** `ForecastCourseConsequences` hands `ForecastContactHarm` a companion actor and no player actor at all: the player's contact geometry is passed as an explicit unsupported empty, because nothing models his path. This is deliberate and correct as far as it goes — an empty *supported* geometry would read as "the player is never touched", which is the lie — but the consequence is that the one quantity that would make a threat on the player worth anything contributes nothing to any candidate.
+
+Behind it sits a second hole, and either alone is enough to keep the behaviour unreachable: `ForecastContactHarm` does not apply projected enemy kills, so a course that kills the zombie and a course that mines beside it price the *same* future player harm. Both must land before a threatened player can lift combat off a vein through the objective rather than through a multiplier.
+
+The measurement, on `danger lifts combat over work` at 0.33.2, with a zombie beside a player at 40 life and ten real decisions inside the 120 ticks:
+
+```
+mine-target  0.1774   useful 0.1774  harm 0.0000  gap 0.0000   ← already × 0.243 for urgency
+combat       0.0020   useful 0.0020  harm 0.0000  gap 0.0000
+(idle)       0.0000
+```
+
+`harm 0.0000` on every row with no `harm-uncertain` entry beside it means `course.Harm` was *empty* rather than unresolved — no hits predicted for anybody, not hits that could not be priced. That distinction is the whole finding and it is invisible without the unknowns printed beside the total.
+
+**Three scoring hypotheses were tested against this row and all three were wrong, so they are recorded as eliminations rather than left to be retried.** Combat does not score below mining because of a missing bonus — a derived-from-nothing constant moved the outcome by nothing. Combat orders are not refused during projection — the refusals are twelve `native-target-unresolved` and eight `assistance-target-unresolved`, none of them combat's. Combat is not filtered out before enumeration by being admitted `Unresolved` — admission reads `combat:1ok/0?/0x`. A fourth reading, that no comparison happens at all because the course is retained, was contradicted by the per-tick decision tally: `course-retained` on 110 ticks and `course-published` on 10, so ten real searches ran at urgency 0.757 with combat admitted and mining won every one.
+
+The property that survives all four, and the one to check before anyone writes a fifth patch here: **a preference the objective has no term for cannot be recovered by tuning the terms it does have.** `CourseComparisonEpisode.RelevanceFor` is the multiplier currently standing in for the missing quantity, and its own body carries the condition under which it is deleted.
+
 **Everything below this line describes the family chooser, which is compiled and no longer on the tick's path.** It survives for the activity list it holds and for `OwnCurrentActivity`, and the plan's migration table retires the rest of it once the course brain has been played — kept until then so a defect found in play can still be attributed to one brain or the other. Thirteen behaviour rows that held under it do not hold under the course, and `AIC-437` adjudicates them one at a time; until that closes, the measurements in this file describe a decision procedure the game no longer runs.
 
 `ChooseBehaviour.cs` prepares every activity and evaluates its captured value through the shared factor machinery. Gathering, Combat and NearbyAssistance each nominate their highest positive-value child; the parent compares those concrete nominations without another weight or commitment bonus. `LastScores` and `LastNominations` retain the child ledger and family results for diagnostics. Selection returns the chosen executor; that executor supplies a PositionRequest to position selection. The chooser neither selects a tile nor controls the body.

@@ -116,12 +116,21 @@ internal static class VerifyCombatActivity
         using var hostile = ClearAfter.At(30);
         Hostile(30, NPCID.Zombie, player.Bottom + new Vector2(48, 0), damage: 20, life: 400);
         int combatTicks = 0;
+        // Every tick's decision reason, not just the last one. `Last` is a single sticky readout, and a
+        // scene where the course was retained for 119 ticks and freshly decided for one looks identical
+        // through it to a scene where nothing was ever decided — while the two want opposite fixes, a
+        // replacement mechanism against a scoring term. The per-tick tally is the only thing that tells
+        // them apart, and reading the sticky field instead is what cost this row three wrong diagnoses.
+        var reasons = new Dictionary<string, int>(StringComparer.Ordinal);
         for (int tick = 0; tick < 120; tick++)
         {
             Tick(companion);
+            string reason = companion.Brain.Course.Last.Reason;
+            reasons[reason] = reasons.GetValueOrDefault(reason) + 1;
             if (companion.Brain.Chooser.Current?.Name == "combat") combatTicks++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
+        Console.WriteLine($"  danger-over-work decisions: {string.Join(" ", reasons.OrderByDescending(r => r.Value).Select(r => $"{r.Key}x{r.Value}"))}");
         // The three numbers that separate the ways this row can fail: whether the player reads as in
         // danger at all, whether the course found a shot to weigh, and what it decided. A bare tick
         // count cannot tell "the threat is invisible" from "the shot was never discovered" from "the
@@ -139,6 +148,13 @@ internal static class VerifyCombatActivity
         string dangerAdmitted = string.Join(" ", dangerOwner.Admitted.Select(domain =>
             $"{domain.Domain}:{domain.Usable}ok/{domain.Unresolved}?/{domain.Unusable}x{(domain.Reason.Length == 0 ? "" : "(" + domain.Reason + ")")}"));
         Console.WriteLine($"  danger-over-work admitted: {(dangerAdmitted.Length == 0 ? "nothing discovered" : dangerAdmitted)}");
+        // What each kind of work scored, which is the number that says why combat lost rather than that
+        // it lost. The terms are printed beside the total because they fail in different directions: a
+        // small useful sum is a discounted or uncredited effect, while a large harm is a course the
+        // forecast thinks gets the body hurt.
+        string dangerLeaders = string.Join(" ", dangerOwner.LastLeaders.OrderByDescending(entry => entry.Value.Total.Nominal)
+            .Select(entry => $"{entry.Key}={entry.Value.Total.Nominal:0.0000}(useful {entry.Value.UsefulEffects:0.0000} harm {entry.Value.Harm:0.0000} gap {entry.Value.Companionship:0.0000} unknown[{string.Join(",", entry.Value.Unknowns.Take(3))}])"));
+        Console.WriteLine($"  danger-over-work values: {(dangerLeaders.Length == 0 ? "nothing priced" : dangerLeaders)}");
         Require(combatTicks > 60, $"a threat on a hurt player must lift combat off the vein; combat ticks={combatTicks}");
         return 0;
     }
