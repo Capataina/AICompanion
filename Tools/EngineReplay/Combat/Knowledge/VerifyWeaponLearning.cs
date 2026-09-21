@@ -789,6 +789,24 @@ internal static class VerifyWeaponLearning
         // true, so the velocity it comes true at has to be the one the plan was searched against.
         scene.Enemy.velocity = new Vector2(2f, .3f);
         int held = Establish();
+        // The invariance the card's arithmetic demands, measured directly. If the aim was solved for an
+        // impact at absolute tick K, then re-predicting at tick i — from a body that has itself advanced
+        // by i ticks of motion, asking K − i ticks ahead — must land on the same point for every i. Any
+        // movement here is the forecast being non-linear in ticks, which no amount of re-pricing can fix.
+        if (Environment.GetEnvironmentVariable("AIC_TRACE_HOLD") != null)
+        {
+            const int horizon = 40;
+            for (int i = 0; i < 4; i++)
+            {
+                Vector2 at = live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion
+                    .Predict(scene.Enemy, horizon - i);
+                Console.WriteLine($"HOLD i={i} enemy={scene.Enemy.Center.X:0.00},{scene.Enemy.Center.Y:0.00} "
+                    + $"predict({horizon - i})={at.X:0.00},{at.Y:0.00}");
+                scene.Enemy.position.X += 2f;
+                scene.Enemy.velocity = new Vector2(2f, .3f);
+                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            }
+        }
         int keptTicks = 0;
         for (int i = 0; i < 3; i++)
             if (!Reranked(() =>

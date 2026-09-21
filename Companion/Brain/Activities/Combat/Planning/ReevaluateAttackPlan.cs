@@ -120,6 +120,13 @@ public static Repricing Reevaluate(in ActionContext ctx, CompanionCombat combat,
             muzzle, sim, aim, aim, fireTick, out _, out _);
         if (attack == null)
         {
+            // Env-gated because the answer needed here is not "the attack was empty" but *why*: a shot
+            // that intercepts nothing at all and a shot that intercepts the wrong body are different
+            // defects, and the refusal string cannot tell them apart. AIC-422 is the open case.
+            if (System.Environment.GetEnvironmentVariable("AIC_TRACE_REPRICE") != null)
+                System.Console.WriteLine($"REPRICE tick={tick} fireTick={fireTick} muzzle={muzzle.X:0.0},{muzzle.Y:0.0} "
+                    + $"aim={use.AimPoint.X:0.0},{use.AimPoint.Y:0.0} target={target.whoAmI} "
+                    + $"simHits={sim.Hits.Count} hitSlots={string.Join("/", System.Linq.Enumerable.Select(sim.Hits, h => h.Slot))}");
             gate = "the re-flown use produced no attack at all";
             continue;
         }
