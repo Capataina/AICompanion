@@ -91,6 +91,7 @@ internal static class VerifyEngineMotion
         ("native course receipts preserve observation order and intent regions", VerifyRetainedCourseObservation.Run),
         ("one observation per tick carries every domain the course brain can act on", VerifyCourseSnapshotAssembly.Run),
         ("an unpriced consequence is unresolved rather than free", VerifyNativeConsequencePricing.Run),
+        ("a bound course step names the activity that performs it and the place it happens", VerifyCourseBindingExecution.Run),
         ("native lighting projections preserve captured light and shared deficits", VerifyLightingOpportunityCapture.Run),
         ("native tree census retains work across cuts and observes axe effects", VerifyTreeOpportunityCapture.Run),
         ("native tool bindings preserve readiness and conditional work", VerifyGatheringCourseBindings.Run),

@@ -22,7 +22,8 @@ Selection/
 ├─ ValidatePreparedActivity.cs captured target binding and activation-time availability checks
 ├─ OwnCurrentActivity.cs one primary activity's identity, entry, suspension and replacement
 ├─ EvaluateConsiderations.cs   named scoring curves
-└─ BehaviourWeights.cs         behaviour utility factors, delays and per-family share
+├─ BehaviourWeights.cs         behaviour utility factors, delays and per-family share
+└─ ExecuteCourseBinding.cs     a published course step's activity and position request
 ```
 
 ## A job is worth what it delivers per time, and close jobs are compared as orders
@@ -104,6 +105,16 @@ An ordinary action scores a product of considerations in 0..1, and the chooser m
 `Tools/EngineReplay/Movement/VerifyFollowRecoveryAndProtection.cs` exercises immediate guard entry against committed following and continued protection through a small retreat. `VerifyLiquidsAreAir.cs` beside it holds that no liquid starts any response. Those checks establish their inputs rather than every combination of threat and action factors.
 
 Combat, gathering and nearby-assistance activities live in their respective PurposeFamilies folders. Each explicitly declares its purpose family. A new activity must supply that declaration and a preparation implementation; folder names alone do not determine selection. The data flow is observation → preparation → shared evaluation → family nominations → parent choice → activity execution → position selection → shared movement → motor. Movement outcomes return as observed facts rather than a lower stage changing the parent's selected purpose.
+## A bound course step is translated, never executed a second time
+
+`ExecuteCourseBinding` maps one published `StepBinding` onto the two things this tick already carries out: the activity that performs the purpose, and the `PositionRequest` that says where the body is asked to be. It is a pure translation on purpose. The course owner decides *what* to do; the activities below still perform it, the positioner still resolves the point, and the motor is still the only writer to the live NPC — a parallel execution path for course work would give the companion two ways to mine and no single answer about what it is doing, which is the post-grant second chooser the plan names for deletion arriving by the back door.
+
+The purpose-to-activity mapping is written out rather than derived from the domain string, because the two vocabularies genuinely differ and each difference is a decision: combat mints opportunities per *use* with the purpose `fire` while its activity is `combat`, and lighting's domain is `light-target` while its activity is `place-torches`. An unmapped purpose throws instead of falling back, since a silent default would route new work to whichever activity sorted first. A pot names no activity at all and returns empty — it is broken in passing by whatever activity is already travelling, through the shared nearby-work adapter — and a caller reads that as "no activity change" rather than a refusal.
+
+A firing stand keeps `RequestKind.FireFrom` rather than becoming an Exact hover at the same point, because the combat stance's own admission and its rock fallback live behind that kind. Tile work carries its work tile so the positioner applies the tool-reach proof that admitted the pose; a drop does not, because pickup is by contact and naming a tile would demand a proof nothing needs. An empty course asks `WithPlayer`, never Hold, so "the course found nothing worth doing" cannot look identical to "the course told the body to freeze".
+
+`Tools/EngineReplay/DecisionMaking/VerifyCourseBindingExecution.cs` holds it, and its load-bearing row checks every purpose the five sources mint against the activity names the chooser actually registers — because a purpose with no executor is not an error anyone would see: the course would bind the work, publish it, and nothing would happen, which reads in play as a companion that decided to do something and then stood there.
+
 # Planned course ownership
 
 The [selected implementation plan](<../../../../research/proposal/Implement the Retained Course Brain.md>) owns the future replacement of family nomination, discarded local ordering and private commitment rules. Selection will contain Opportunities, Courses and Computation with one owner of the current course; `OwnCurrentActivity` keeps the sole live attempt lifecycle. The central outcome policy and its contrasting fixtures decide relative work; producers report facts, and no domain installs a private exchange rate. This is planned work, not a description of the current implementation below.
