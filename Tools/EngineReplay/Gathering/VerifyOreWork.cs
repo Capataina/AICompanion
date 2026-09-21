@@ -49,7 +49,6 @@ internal static class VerifyOreWork
             PreparedToolsRejectReplacementMaterial();
             AxeEligibilityAloneDoesNotMakeATree();
             AnUnprovenApproachIsNotAPlan();
-            AColdFloodDoesNotLeaveTheBrainResting();
             AnUnknownApproachDoesNotSubstituteASealedNeighbour();
             AReachableOreProducesANativeBreak();
             AUsefulCurrentPoseNeedsNoApproach();
@@ -59,6 +58,14 @@ internal static class VerifyOreWork
             RemainingToolWorkMatchesNativeCompletion();
             DepartingPlayerChangesWhetherWorkIsWorthFinishing();
             ReunionChargeReadsDepartureAndTheRouteHome();
+            // Last on purpose, and not because it is unimportant. It is red on a brain finding that waits
+            // on a decision — a companion beside its player, with the flood complete, reading
+            // `approach-unknown` about ore thirty-two tiles away and never starting — and this fixture
+            // aborts on its first failure. Standing eleventh it kept sixteen rows behind it unrun, which
+            // is how the maximum-reach pose defect sat unseen: that row is twelfth. Proven to be the
+            // same red either way by hoisting it to the front against the pose fix with and without the
+            // fix wired in, on 2026-09-21: identical message both times.
+            AColdFloodDoesNotLeaveTheBrainResting();
             Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach is not a plan, blocked nearest ore, reach edge, arrival offsets, ceiling hops, tool power changes, player terrain edits and native productive break pass");
             return 0;
         }
@@ -1294,7 +1301,13 @@ internal static class VerifyOreWork
         var run = RunBrainUntilBroken(ctx, ore, 600);
         Require(run.Broken && run.StrikeFeet.Count > 0, $"a maximum-reach pose must produce a native break; feet={ctx.Npc.Center}");
         float drift = run.StrikeFeet.Max(feet => MathF.Abs(feet.X - start.X));
-        Require(drift < 4f, $"every strike must come from the edge pose itself rather than from walking in; the largest drift was {drift:0.0} px");
+        // Signed, because the row's name is about *walking in* and the absolute value cannot tell that
+        // from a hover drifting the other way. The ore is to the right of the pose, so a positive
+        // excursion is the body closing on work it could already reach and a negative one is not.
+        float toward = run.StrikeFeet.Max(feet => feet.X - start.X);
+        float away = run.StrikeFeet.Min(feet => feet.X - start.X);
+        float asked = run.StrikePoses.Count == 0 ? 0f : run.StrikePoses.Max(pose => pose.X - start.X);
+        Require(drift < 4f, $"every strike must come from the edge pose itself rather than from walking in; the largest drift was {drift:0.0} px, {toward:+0.0;-0.0} toward the ore and {away:+0.0;-0.0} away over {run.StrikeFeet.Count} strikes, while the pose the brain bound sat {asked:+0.0;-0.0} from the start");
     }
 
     /// <summary>
@@ -1480,9 +1493,13 @@ internal static class VerifyOreWork
 
     /// <summary>Runs the whole brain against native collision until the ore breaks or the tick limit passes,
     /// returning the feet at every productive strike so a fixture can check the pose each strike came from.</summary>
-    internal static (bool Broken, List<Vector2> StrikeFeet) RunBrainUntilBroken(ActionContext ctx, Point ore, int ticks)
+    internal static (bool Broken, List<Vector2> StrikeFeet, List<Vector2> StrikePoses) RunBrainUntilBroken(ActionContext ctx, Point ore, int ticks)
     {
         var strikes = new List<Vector2>();
+        // Where the body was *asked* to be on each striking tick, beside where it was. Without both, a row
+        // can say the body moved and cannot say whether the brain told it to, which is the difference
+        // between a positioner defect and a course binding a pose the body did not need.
+        var poses = new List<Vector2>();
         long last = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
         for (int tick = 0; tick < ticks && Main.tile[ore.X, ore.Y].HasTile; tick++)
         {
@@ -1493,11 +1510,15 @@ internal static class VerifyOreWork
             if (ctx.Companion.Miner.LastOutcome is { Productive: true } outcome && outcome.Attempt != last)
             {
                 strikes.Add(ctx.Npc.Center);
+                var bound = ctx.Companion.Brain.Course.Last.Binding;
+                if (Environment.GetEnvironmentVariable("AIC_TRACE_STRIKES") != null)
+                    Console.WriteLine($"STRIKE tick={Main.GameUpdateCount} centre={ctx.Npc.Center.X:0.0} purpose={bound?.Opportunity.Purpose ?? "none"} target={bound?.Opportunity.Target ?? "none"} pose={(bound == null ? double.NaN : bound.Pose.X):0.0}");
+                poses.Add(bound == null ? ctx.Npc.Center : new Vector2((float)bound.Pose.X, (float)bound.Pose.Y));
                 last = outcome.Attempt;
             }
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
         }
-        return (!Main.tile[ore.X, ore.Y].HasTile, strikes);
+        return (!Main.tile[ore.X, ore.Y].HasTile, strikes, poses);
     }
 
     internal static void AdvanceBrain(ActionContext ctx)

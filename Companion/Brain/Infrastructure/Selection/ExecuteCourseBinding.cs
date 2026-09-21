@@ -4,6 +4,7 @@ using System;
 using System.Globalization;
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Activities;
+using AICompanion.Companion.Brain.Infrastructure.Interactions;
 using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
@@ -59,14 +60,36 @@ public static class ExecuteCourseBinding
     /// with tile work naming its work tile so the tool-reach proof the positioner applies is the one
     /// that admitted the pose in the first place.
     /// </summary>
-    public static PositionRequest RequestFor(StepBinding binding)
+    public static PositionRequest RequestFor(StepBinding binding, Vector2? bodyCentre = null)
     {
         var pose = new Vector2((float)binding.Pose.X, (float)binding.Pose.Y);
         if (binding.Opportunity.Purpose == "fire")
             return new PositionRequest(RequestKind.FireFrom, pose);
-        return binding.Opportunity.Purpose is "mine" or "chop" or "light" or "break-pot"
-            ? PositionRequest.ExactAt(pose, WorkTileOf(binding.Opportunity))
-            : PositionRequest.ExactAt(pose);
+        if (binding.Opportunity.Purpose is not ("mine" or "chop" or "light" or "break-pot"))
+            return PositionRequest.ExactAt(pose);
+        Point work = WorkTileOf(binding.Opportunity);
+        // A stand the body has already satisfied is not a journey. The stand in the binding came from a
+        // capture that scans its area in budgeted slices and restarts on every strike, so the tile the
+        // body is about to hit is usually re-read several ticks after the strike that restarted the
+        // scan — by which time the body has moved and `FindToolAccess.Approach` no longer short-circuits
+        // on the body's own centre, ranking a cell beside the work instead. The stand is therefore a
+        // body-relative answer published as a durable fact, and by the time it is bound it describes
+        // where the body *was*.
+        //
+        // Measured on the maximum-reach mining scene: the first strike bound the body's own pose at 320,
+        // the strike restarted the scan, and the next binding asked for 384 — four tiles in, toward ore
+        // the body was already swinging at. The same shape appears on the neighbouring row's ore, 416
+        // then 356.9, so it is the capture's cadence rather than one scene's arithmetic.
+        //
+        // Re-deriving here rather than in the binder is deliberate: the search prices orders against a
+        // frozen observation and must not read the live world, while this is execution, which is exactly
+        // the seam where a decided course becomes what the body is asked to do this tick and where the
+        // live body is the thing being asked. It uses the same `InReach` the capture short-circuits on,
+        // so the two can never disagree about what "already reaches it" means, and it can only ever
+        // remove travel the course priced — never add any — so no forecast is made optimistic by it.
+        if (bodyCentre is { } centre && FindToolAccess.InReach(centre, work))
+            return PositionRequest.ExactAt(centre, work);
+        return PositionRequest.ExactAt(pose, work);
     }
 
     /// <summary>

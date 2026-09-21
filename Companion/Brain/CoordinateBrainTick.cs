@@ -247,7 +247,7 @@ public sealed class Brain
         Chooser.Activity.Select(action, ctx);
         ChoiceEvaluated = true;
         Chooser.Activity.BeginExecution();
-        LastRequest = decision.Binding is { } step ? ExecuteCourseBinding.RequestFor(step)
+        LastRequest = decision.Binding is { } step ? ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center)
             // No step is companionship rather than a hold, because a course that found nothing worth
             // doing must not look identical to a course that told the body to freeze.
             : ExecuteCourseBinding.Companionship;
