@@ -276,7 +276,25 @@ internal static class VerifyCandidateFunnel
             foreach (Scored s in brain.Chooser.LastScores)
                 if (s.Action.Name == "place-torches" && s.Final > 0f && s.Error.Length == 0) found = s;
         }
-        Require(found is Scored, "premise: lighting must be compared with a value in the dark room");
+        // This premise reads `Chooser.LastScores`, which the course brain leaves empty on purpose — and
+        // `VerifyTheCourseOwnsTheTick` asserts it is empty, so the two rows now contradict each other by
+        // design rather than by accident. Whichever of them is satisfied, the other must fail.
+        //
+        // The subject does not survive the translation either. This row is about a *factor list*
+        // multiplying to a final, and the course has no factors: it has useful effects, predicted harm
+        // and a companionship gap, which combine differently. The course equivalent worth asserting is
+        // that a recorded value's terms account for its total, and that is new work rather than a
+        // rename — the funnel the course does publish (`LastLeaders`, `Admitted`, `LastRefusals`) is
+        // already written to telemetry at schema 0.42.0 and is what a reader should be pointed at.
+        //
+        // So this belongs with the eleven legacy selection paths the plan retires once the course has
+        // been played (AIC-419), and it is left failing on an honest premise rather than propped up by
+        // driving a chooser nothing calls.
+        Require(found is Scored,
+            "premise: lighting must be compared with a value in the dark room. NOTE: this reads the "
+            + "retired family chooser's score ledger, which the course brain leaves empty by design and "
+            + "which VerifyTheCourseOwnsTheTick asserts is empty; the row retires with the chooser "
+            + "(AIC-419) or is rewritten against the course's own value terms");
         Scored score = found!.Value;
         string factors = BrainTelemetry.FactorList(score);
         Require(score.Time < 1f && score.Time > 0f,
