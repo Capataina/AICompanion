@@ -1126,8 +1126,25 @@ internal static class VerifyAttackPlanning
         // whether something else refused it, and those want different fixes.
         var emptyReasons = new Dictionary<string, int>(StringComparer.Ordinal);
         int planned = 0, cut = 0;
+        // Two untimed searches first, so what is measured below is the deadline and not the compiler.
+        // The rest of this suite JITs most of the planning path, but the first search of a *cold-cache*
+        // process still pays for whatever it did not reach, and that cost belongs to neither production
+        // nor the allowance this row is about.
+        for (int warm = 0; warm < 2; warm++)
+        {
+            CacheSims.ClearAtTick(-warm - 1);
+            var warming = new Budget(double.PositiveInfinity);
+            SearchPlans.Search(ctx, combat, companion.Brain.Positioner, _ => true, weights, combat.NextPlanId++, ref warming);
+        }
         for (int i = 0; i < underAllowance.Length; i++)
         {
+            // **Every measured search starts from an empty simulation cache, because every live one does.**
+            // `CacheSimulatedUses.ClearAtTick` clears whenever the tick changes and the brain tick advances
+            // every frame, so a production search never reads an entry another search left. This loop holds
+            // one `Senses.Tick`, so without this line the first search fills the cache and the other eleven
+            // read it — and those eleven are a regime the game never enters. Measured 21 September 2026: the
+            // opener alone costs about 12 ms cold against 0.4 ms warm, so the difference is the whole row.
+            CacheSims.ClearAtTick(i + 1);
             // The real allowance, with the real clock: `DecisionWorkBudget`'s defaults are
             // `Stopwatch.GetTimestamp` and its own frequency, so this is the budget the tick opens.
             var budget = new Budget(Weights.TotalPlanningMilliseconds);
@@ -1176,23 +1193,32 @@ internal static class VerifyAttackPlanning
         // opener to survive the broader search being cut, and `SearchAttackPlans` implements exactly
         // that — it prices a single opener stand before stand discovery may spend the allowance.
         //
-        // **The prelude is not what starves it, and this row under-reports rather than over-reports.**
-        // That correction was measured on 21 September 2026 by timing each step of the search's opening
-        // on this very scene: forecasting all forty hostiles, choosing targets, assessing the opener's
-        // stand and building the eval targets cost 0.04 to 0.09 ms together. The whole 12 ms goes inside
-        // `PriceLevelOne` for the opener alone, and it costs 12 ms on a cold simulation cache against
-        // 0.4 ms on a warm one.
+        // **Both of this row's historical diagnoses were wrong, and the instrument was the defect.**
+        // Worth reading before anything here is changed again, because each looked convincing.
         //
-        // The twelve searches below all share one `Senses.Tick`, and `CacheSimulatedUses.ClearAtTick`
-        // clears the cache only when the tick changes — so the first two fill it and the other ten read
-        // it. **Production never gets those ten.** The brain tick advances every frame, so every live
-        // search on a forty-hostile crowd starts from an empty cache, which is the regime the two
-        // failures measure. So the honest reading is not "ten of twelve is nearly right": it is that the
-        // only two runs in play's own regime both failed, and the ten that passed are an artefact of a
-        // fixture that holds its clock still. `AIC-441` carries the two candidate fixes — make the
-        // guarantee cheap by construction by pricing the opener against the most urgent target rather
-        // than all of them, or invalidate the sim cache by what actually changed instead of by the tick
-        // — and it is also the mechanism under `AIC-445`'s 22 ms mean, since every tick pays this.
+        // It was first filed against the prelude — `EnsureForecast` forecasting forty hostiles before
+        // the opener is reached. Timing every step of the search's opening on this scene refuted it on
+        // 21 September 2026: forecasting all forty, choosing targets, assessing the opener's stand and
+        // building the eval targets cost 0.04 to 0.09 ms together, while the whole twelve milliseconds
+        // goes inside `PriceLevelOne` for the opener alone — about 12 ms on a cold simulation cache
+        // against 0.4 ms on a warm one.
+        //
+        // That led to the second diagnosis, that the guarantee is starved on a cold cache, which is
+        // every live tick because `CacheSimulatedUses.ClearAtTick` clears on every tick change while
+        // this loop holds one `Senses.Tick`. Correct about the regime and wrong about the conclusion.
+        // Clearing the cache before every measured search *and* warming with two untimed ones returns
+        // twelve of twelve with the brain untouched: the guarantee does survive a cold-cache cut on a
+        // forty-hostile crowd. The two failures were the first searches of the loop paying one-time
+        // costs that belong to neither production nor the deadline this row is about.
+        //
+        // A narrowing was built and reverted on that evidence — pricing the opener against the most
+        // urgent target alone, which cut its cost about threefold and moved this row from ten of twelve
+        // to eleven. It looked like the fix and was measuring the unwarmed searches; with the warm-ups
+        // in, the unnarrowed opener also reaches twelve. `SearchAttackPlans` carries why it is not there.
+        //
+        // What survives all of it is the cost itself, which is real and is `AIC-445`: the opener costs
+        // about 12 ms cold, every live tick is cold, and that is what a 22 ms mean on a four-hostile
+        // scene with a boss is made of. This row is about the guarantee and not about the cost.
         Require(planned == underAllowance.Length,
             $"a search cut by the tick's own allowance must still return a usable plan on a forty-hostile "
             + $"crowd; {planned} of {underAllowance.Length} did, with {cut} cut");

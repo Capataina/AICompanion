@@ -91,6 +91,20 @@ public static class SearchAttackPlans
         // G04: establish the legal current-use prefix before broad stand discovery can spend the
         // remaining allowance. This is an ordinary candidate, not a firing fallback: the caller
         // still admits and commits it before the hand may act.
+        // Pricing the opener against every proposal target was suspected of starving the guarantee on a
+        // crowd and was measured innocent on 21 September 2026, which is why the obvious narrowing —
+        // price it against the most urgent target alone — is *not* here.
+        //
+        // The evidence: with the crowd fixture clearing the simulation cache before every measured
+        // search, which is production's regime because `CacheSimulatedUses.ClearAtTick` clears on every
+        // tick change, all twelve searches return a usable plan with the opener priced against all of
+        // them. Narrowing to one target cut the opener's cost about threefold and moved the failing row
+        // from ten of twelve to eleven of twelve — an improvement that turned out to be measuring the
+        // fixture's unwarmed first searches rather than the deadline. Two untimed searches ahead of the
+        // measured twelve clear it completely, with this code unchanged.
+        //
+        // So the narrowing would have given up the opener being the best from-here shot in exchange for
+        // nothing, and the reason it looked like it worked is worth more than the change would have been.
         var openerSlots = new int[targets.Count];
         for (int i = 0; i < targets.Count; i++)
             openerSlots[i] = targets[i].Npc.whoAmI;
