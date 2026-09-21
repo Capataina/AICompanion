@@ -499,8 +499,22 @@ internal static class RestoreSnapshot
             plan.Weighted,
             new PlanValidity(validity.Terrain, validity.Knowledge, targets, validity.MaxUrgency,
                 V(validity.RegionCentre) + shift, V(validity.RegionHalf), validity.Gap, validity.ProgressTick + tickDelta,
-                HostilesFrom(validity.Hostiles)),
+                HostilesFrom(validity.Hostiles), MotionFrom(validity.Motion, shift)),
             plan.BudgetCut, kills);
+    }
+
+    /// <summary>
+    /// The admitted bodies' places, moved by the same window shift every other restored coordinate takes,
+    /// because the hold compares them against live centres that were shifted with the world.
+    /// </summary>
+    private static (int Slot, Vector2 Centre, float Speed)[]? MotionFrom(List<float[]>? motion, Vector2 shift)
+    {
+        if (motion == null || motion.Count == 0)
+            return null;
+        var listed = new (int Slot, Vector2 Centre, float Speed)[motion.Count];
+        for (int i = 0; i < listed.Length; i++)
+            listed[i] = ((int)motion[i][0], new Vector2(motion[i][1], motion[i][2]) + shift, motion[i][3]);
+        return listed;
     }
 
     private static (int Slot, int Generation)[]? HostilesFrom(List<int[]>? hostiles)

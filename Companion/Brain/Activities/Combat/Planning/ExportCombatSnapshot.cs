@@ -79,7 +79,11 @@ public static class ExportCombatSnapshot
     public sealed record SegmentDto(Vec Stand, int Reason, int WeaponSlot, int[] Targets, VerdictDto Verdict,
         int Arrive, int Start, int End, List<UseDto> Uses, int EndsWhen);
     public sealed record ValidityDto(int Terrain, int Knowledge, List<int[]> Targets, float MaxUrgency,
-        Vec RegionCentre, Vec RegionHalf, float Gap, int ProgressTick, List<int[]>? Hostiles = null);
+        Vec RegionCentre, Vec RegionHalf, float Gap, int ProgressTick, List<int[]>? Hostiles = null,
+        // Slot, centre x, centre y, speed — floats, because a slot list cannot carry where the body was.
+        // Absent on a snapshot written before the spatial hold existed; restoring reads that as no record
+        // rather than as a body at the origin.
+        List<float[]>? Motion = null);
     public sealed record PlanDto(int Id, List<SegmentDto> Segments, float[] Outcome, float Weighted,
         ValidityDto Validity, bool BudgetCut, List<int[]> Kills);
     public sealed record RejectedDto(Vec Stand, float Weighted, string Reason, string LostOn);
@@ -250,6 +254,13 @@ public static class ExportCombatSnapshot
             foreach ((int slot, int generation) in plan.Validity.Hostiles)
                 hostiles.Add(new[] { slot, generation });
         }
+        List<float[]>? motion = null;
+        if (plan.Validity.AdmittedMotion != null)
+        {
+            motion = new List<float[]>();
+            foreach ((int slot, Vector2 centre, float speed) in plan.Validity.AdmittedMotion)
+                motion.Add(new[] { slot, centre.X, centre.Y, speed });
+        }
         var kills = new List<int[]>();
         if (plan.TargetKillTicks != null)
             foreach ((int slot, int tick) in plan.TargetKillTicks)
@@ -262,7 +273,7 @@ public static class ExportCombatSnapshot
             plan.Weighted,
             new ValidityDto(plan.Validity.TerrainRevision, plan.Validity.KnowledgeRevision, targets,
                 plan.Validity.AdmittedMaxUrgency, V(plan.Validity.RegionCentre), V(plan.Validity.RegionHalfSize),
-                plan.Validity.AdmittedCompanyGap, plan.Validity.LastProgressTick, hostiles),
+                plan.Validity.AdmittedCompanyGap, plan.Validity.LastProgressTick, hostiles, motion),
             plan.BudgetCut, kills);
     }
 

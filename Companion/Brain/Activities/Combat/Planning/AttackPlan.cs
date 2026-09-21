@@ -71,10 +71,23 @@ public readonly record struct StandProposal(Vector2 Stand, StandReason Reason, i
 /// destination is kept by membership, never by a bonus. The learner's revision is admitted because a plan
 /// that outlives what a shot just taught visibly ignores its own evidence: three seconds of firing a weapon
 /// the last volley proved wrong.
+///
+/// <paramref name="AdmittedMotion"/> is where each admitted body was and how fast it was going when the plan
+/// was priced, which is what makes the commitment's invalidation spatial rather than only urgency-shaped.
+/// Every other membership test here answers a question about identity — is this body still alive, is this the
+/// same generation, has a louder one arrived — and none of them notices a body that stays itself and moves
+/// somewhere else. A Chaos Elemental or a Dark Caster teleports; a knockback throws a body six tiles; and the
+/// plan's stand, weapon and aim were all priced against where it was. See
+/// <see cref="CommitAttackPlan"/> for the allowance, which is the body's own admitted speed over the elapsed
+/// ticks plus <see cref="Infrastructure.Observation.PredictObservedMotion.ContinuityPixels"/>, so a body
+/// travelling or reversing at the pace the plan saw is always inside it and only a discontinuity is outside.
+/// Null on a plan restored from a snapshot written before the field existed, which skips the check rather
+/// than failing it.
 /// </summary>
 public sealed record PlanValidity(int TerrainRevision, int KnowledgeRevision, (int Slot, int Generation)[] Targets,
     float AdmittedMaxUrgency, Vector2 RegionCentre, Vector2 RegionHalfSize, float AdmittedCompanyGap,
-    int LastProgressTick, (int Slot, int Generation)[]? Hostiles = null);
+    int LastProgressTick, (int Slot, int Generation)[]? Hostiles = null,
+    (int Slot, Vector2 Centre, float Speed)[]? AdmittedMotion = null);
 
 /// <summary>
 /// One segment of a plan: the stand held while its uses fire, the verdict that admitted it, when the body

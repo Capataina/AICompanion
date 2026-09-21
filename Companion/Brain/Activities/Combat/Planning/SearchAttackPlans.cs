@@ -708,15 +708,20 @@ public static class SearchAttackPlans
             validityTargets[validityIndex++] = (slot, HostileAttackSources.Generation(Main.npc[slot]));
         float admittedMax = 0f;
         var hostiles = new (int Slot, int Generation)[ctx.Senses.Threats.Threats.Count];
+        // Where every admitted body was and how fast, so the commitment can notice one that leaves the place
+        // it was priced at. Speed is the observed magnitude rather than the vector: the allowance has to
+        // survive a walker turning round, which is ordinary motion and not a new fight.
+        var motion = new (int Slot, Vector2 Centre, float Speed)[ctx.Senses.Threats.Threats.Count];
         int hostileIndex = 0;
         foreach (ThreatRecord threat in ctx.Senses.Threats.Threats)
         {
             admittedMax = MathF.Max(admittedMax, MathF.Max(threat.Urgency, threat.UrgencyToCompanion));
-            hostiles[hostileIndex++] = (threat.Npc.whoAmI, HostileAttackSources.Generation(threat.Npc));
+            hostiles[hostileIndex] = (threat.Npc.whoAmI, HostileAttackSources.Generation(threat.Npc));
+            motion[hostileIndex++] = (threat.Npc.whoAmI, threat.Npc.Center, threat.Npc.velocity.Length());
         }
         PlayerIntentRegion region = ctx.Senses.Intent.Region;
         var validity = new PlanValidity(TerrainChanges.Revision, AttackLearning.Revision, validityTargets, admittedMax,
-            region.Centre, region.HalfSize, region.GapBeyond(proposal.Stand), tick, hostiles);
+            region.Centre, region.HalfSize, region.GapBeyond(proposal.Stand), tick, hostiles, motion);
         var killArray = new (int Slot, int Tick)[piece.Kills.Count];
         for (int i = 0; i < piece.Kills.Count; i++)
             killArray[i] = piece.Kills[i];

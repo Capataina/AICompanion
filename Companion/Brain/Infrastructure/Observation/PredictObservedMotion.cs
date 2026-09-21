@@ -13,6 +13,19 @@ public static class PredictObservedMotion
 {
     public const int MaximumForecastTicks = 180;
     /// <summary>
+    /// How far a body's new position may sit from where its own last velocity put it and still count as the
+    /// same continuous motion. Past this the observation is not a continuation of the track at all — a
+    /// teleport, a recycled slot, or a gap in observation — and the track's error history is thrown away
+    /// rather than averaged across the discontinuity.
+    ///
+    /// It is public because it is the project's one definition of "this body is still the body we were
+    /// watching", and a second consumer needs the same line rather than its own. <see
+    /// cref="Activities.Combat.Planning.CommitAttackPlan"/> holds a committed plan only while every body it
+    /// was admitted against is still within what this continuity allows, so the two must move together: a
+    /// wider ball here silently widens what a stale plan may aim at.
+    /// </summary>
+    public const float ContinuityPixels = 64f;
+    /// <summary>
     /// The key the player's own track lives under. Negative on purpose: <see cref="tracks"/> is keyed by
     /// <c>NPC.whoAmI</c>, which is never negative, so the player cannot collide with a hostile however
     /// many slots the world has, and nothing that iterates <see cref="TrackedSlots"/> for enemies can
@@ -57,7 +70,7 @@ public static class PredictObservedMotion
             && track.Position == npc.position && track.Velocity == npc.velocity) return;
 
         bool consecutive = track.Subject == npc && track.Type == npc.type && tick == track.Tick + 1
-            && Vector2.DistanceSquared(npc.position, track.Position + track.Velocity) < 64f * 64f;
+            && Vector2.DistanceSquared(npc.position, track.Position + track.Velocity) < ContinuityPixels * ContinuityPixels;
         if (!consecutive) { track.MeanError = 0f; track.ErrorSamples = 0; }
         if (consecutive && track.Centres.Count > 1)
         {
@@ -113,7 +126,7 @@ public static class PredictObservedMotion
             && track.Position == player.position && track.Velocity == player.velocity) return;
 
         bool consecutive = track.Type == player.whoAmI && tick == track.Tick + 1
-            && Vector2.DistanceSquared(player.position, track.Position + track.Velocity) < 64f * 64f;
+            && Vector2.DistanceSquared(player.position, track.Position + track.Velocity) < ContinuityPixels * ContinuityPixels;
         if (!consecutive) { track.MeanError = 0f; track.ErrorSamples = 0; }
         if (consecutive && track.Centres.Count > 1)
         {

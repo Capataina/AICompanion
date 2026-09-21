@@ -262,6 +262,40 @@ public sealed class CommitAttackPlan
             }
         }
 
+        // A known hostile that is still itself may still have left the place the plan was priced at, and
+        // nothing above notices: the target checks ask whether a body is alive and the same generation, the
+        // urgency checks ask how loud it is, and a teleport changes neither. The stand, the weapon and the
+        // aim were all chosen against where these bodies were, so this is the commitment's spatial
+        // invalidation — the same law the retained searches keep, applied to the bodies rather than to the
+        // terrain.
+        //
+        // The allowance is the body's own admitted speed over the ticks since, plus the observer's
+        // continuity ball. A body travelling at the pace the plan saw is inside it by construction, and so
+        // is one that reverses, because the allowance is a radius rather than a predicted point — which is
+        // deliberate, since a walker turning round is ordinary motion and the churn this check must not
+        // cause. What falls outside is displacement the body's own motion cannot explain: a teleport, a
+        // knockback that throws it tiles, an observation gap across which nothing was watched. Sharing
+        // ContinuityPixels with the observer is the point rather than a convenience: past that line the
+        // observer has already thrown the body's forecast history away, so the plan is holding geometry
+        // priced against a track that no longer exists.
+        var admittedMotion = plan.Validity.AdmittedMotion;
+        if (admittedMotion != null)
+        {
+            int elapsed = Math.Max(0, tick - plan.Validity.LastProgressTick);
+            foreach ((int slot, Vector2 centre, float speed) in admittedMotion)
+            {
+                NPC body = Main.npc[slot];
+                if (body == null || !body.active || body.life <= 0)
+                    continue;
+                float allowance = PredictObservedMotion.ContinuityPixels + speed * elapsed;
+                if (Vector2.DistanceSquared(body.Center, centre) > allowance * allowance)
+                {
+                    reason = "hostile-moved-off-its-track";
+                    return false;
+                }
+            }
+        }
+
         // The intent region has not moved so far that the plan's company gap doubled.
         PlayerIntentRegion region = ctx.Senses.Intent.Region;
         float gapNow = region.GapBeyond(segment.Stand.Stand);
