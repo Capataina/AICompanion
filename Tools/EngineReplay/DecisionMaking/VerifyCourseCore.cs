@@ -48,6 +48,7 @@ internal static class VerifyCourseCore
         + RunOneRow.Case("G11 native route search borrows the same operation allowance", SharedRouteBudget)
         + RunOneRow.Case("G02 travel capture models terrain and preserves arrival momentum", CapturedTravel)
         + RunOneRow.Case("G11 cursor survives ticks and cache eviction stays visible", CursorAndStorage)
+        + RunOneRow.Case("G03 a prolific discovery source cannot starve a quiet one out of the store", AProlificSourceCannotStarveAQuietOne)
         + RunOneRow.Case("G11 finite source discovery survives tiny slices", FairDiscovery)
         + RunOneRow.Case("G14 missing captured facts remain missing", FactManifests)
         + RunOneRow.Case("G02 ordering search reaches sites beyond five", ConcreteOrders)
@@ -460,6 +461,39 @@ internal static class VerifyCourseCore
         cache.Pin(3, true);
         Require(!cache.Put(4, "refused") && cache.Refused == 1, "A full pinned cache must expose lost coverage.");
     }
+    /// <summary>
+    /// A prolific source must not be able to empty a quiet one out of the shared candidate store.
+    ///
+    /// Measured on 21 September 2026 in a real scene before this held: six opportunity domains shared one
+    /// store of sixty-four, lighting minted a hundred and thirty-eight sites in a dark area, and mining,
+    /// chopping and collection each minted exactly one candidate and each had it evicted. The companion
+    /// could not discover a vein with the ore in front of it, a pickaxe in its slot and the policy
+    /// permitting; it lit instead, and nothing anywhere went red, because a domain left with no surviving
+    /// candidate reports no admission group at all rather than a refusal.
+    ///
+    /// The row is written at the store rather than at that scene on purpose. The scene proves it happened
+    /// once with one set of numbers; this proves the property for any producer that outproduces another,
+    /// which is what a future domain — a fishing spot, an NPC to escort — inherits without anyone
+    /// remembering this afternoon. `FairDiscovery` beside it covers the neighbouring half, that a tiny
+    /// slice still *examines* every source; being examined and surviving are different guarantees, and
+    /// the defect lived precisely in the gap between them.
+    /// </summary>
+    private static void AProlificSourceCannotStarveAQuietOne()
+    {
+        var loud = new FixtureSource("loud", 200); var quiet = new FixtureSource("quiet", 2);
+        var discovery = new DiscoverOpportunities(new[] { loud, quiet }, 64);
+        for (int i = 0; i < 400; i++) discovery.Continue(Facts(), new(double.PositiveInfinity, 8), Array.Empty<OpportunityKey>());
+        int loudHeld = discovery.Candidates.Count(c => c.Key.Domain == "loud");
+        int quietHeld = discovery.Candidates.Count(c => c.Key.Domain == "quiet");
+        Require(loudHeld > 0, $"premise: the prolific source must actually fill the store; loud={loudHeld}");
+        Require(quietHeld == 2,
+            $"a source that minted two candidates against two hundred must keep both, or the store is a "
+            + $"preference for the loudest producer rather than a capacity; loud={loudHeld} quiet={quietHeld}");
+        Require(discovery.Coverage.Single(c => c.Source == "quiet").Evicted == 0,
+            $"the quiet source's candidates must never be evicted while it is under its floor; "
+            + $"evicted={discovery.Coverage.Single(c => c.Source == "quiet").Evicted}");
+    }
+
     private static void FairDiscovery()
     {
         var left = new FixtureSource("left", 7); var right = new FixtureSource("right", 7);

@@ -25,7 +25,14 @@ public sealed class DiscoverOpportunities
         if (this.sources.Select(s => s.Name).Distinct(StringComparer.Ordinal).Count() != this.sources.Length)
             throw new ArgumentException("Opportunity sources need unique stable names.", nameof(sources));
         cursors = this.sources.Select(_ => new DecisionWorkCursor()).ToArray();
-        storage = new(capacity);
+        // Grouped by domain, with every source guaranteed its share of the capacity. Ungrouped, this store
+        // was a preference for whichever domain mints the most candidates: measured on 21 September 2026,
+        // lighting minted 138 sites in a dark area against one each from mining, chopping and collection,
+        // and all three of those were evicted while lighting kept all sixty-four slots — a companion that
+        // lights and cannot discover a vein, a trunk or a drop at all. The chooser this replaced had the
+        // same property under a different name, as `ScheduleOpportunityQueries`' per-family preparation
+        // share, and the course lost it in the migration rather than deciding against it.
+        storage = new(capacity, key => key.Domain, this.sources.Length);
         storage.Evicted += key =>
         {
             candidates.Remove(key);
