@@ -31,6 +31,7 @@ using Striker = live::AICompanion.Companion.Progression.Striker;
 using Generations = live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources;
 using OrbPace = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace;
 using ItemWeapon = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ItemWeapon;
+using Reprice = live::AICompanion.Companion.Brain.Activities.Combat.Planning.ReevaluateAttackPlan;
 
 /// <summary>
 /// Weapon choice, target choice, firing position and aim are one decision valued by what the companion's own shots
@@ -818,7 +819,10 @@ internal static class VerifyWeaponLearning
         // The reason the commitment ended, not only that it did: a row that says "kept 0 of 3" and
         // stops names a symptom, and the reader then has to rebuild the scene to find out which of
         // seven checks released it.
-        string motionReason = combat.Planner.LastInvalidation;
+        // Two reasons, not one: the planner says the commitment ended, and the re-pricing says which
+        // of its eight checks emptied the attack list. "uses-stopped-solving" alone sent a reader
+        // back to rebuild the scene to find out which.
+        string motionReason = combat.Planner.LastInvalidation + " / " + Reprice.LastRefusal;
         EmitLedgerRows.Detail($"target hold: ordinary motion kept it {keptTicks} of 3 ticks (last release: {motionReason}); re-ranked on a hostile appearing {appearing}, leaving {leaving}, the learner revising {revising}, a hundred-pixel jump {jumping}");
         Require(motionHeld, $"ordinary motion of the target and the orb keeps the hold; kept {keptTicks} of 3 ticks, last release {motionReason}");
         Require(appearing, "a hostile appearing re-ranks at once");

@@ -18,6 +18,11 @@ namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 
 public static class ReevaluateAttackPlan
 {
+/// <summary>Which gate emptied the attack list on the last refusal, for a reader who has a released
+/// plan and no way to tell which of eight checks dropped its final use. A release reason of
+/// "uses-stopped-solving" names the symptom; this names the check. It is only ever read after a
+/// <see cref="Repricing.Refused"/>, is overwritten by the next call, and nothing decides on it.</summary>
+public static string LastRefusal { get; private set; } = "never-repriced";
 /// <summary>
 /// What a re-pricing can say, in three answers rather than two. A priced outcome is the plan's worth
 /// now. A priced absence — no remaining use solves — invalidates the plan. A cut is neither: the
@@ -63,22 +68,39 @@ public static Repricing Reevaluate(in ActionContext ctx, CompanionCombat combat,
     ModifierState modifiers = ApplyCompanionModifiers.Current();
     int knowledge = KnowledgeRevision.Current;
     bool overdueCovered = false;
+    // The gate that refused the use examined most recently, published as LastRefusal only if the
+    // whole segment ends up refusing. A segment usually carries one or two uses, so "the last one
+    // refused" and "why this plan died" are the same sentence; on a longer segment it is the last
+    // word rather than the whole story, which is why nothing decides on it.
+    string gate = "the segment carried no uses at all";
     for (int i = segment.Uses.Length - 1; i >= 0; i--)
     {
         PlannedUse use = segment.Uses[i];
         bool overdue = use.FireTick <= tick;
         if (overdue && overdueCovered)
+        {
+            gate = "an earlier overdue use already covered this one";
             continue;
+        }
         if (attacks.Count >= 8)
             break;
         if ((uint)use.WeaponSlot >= (uint)weapons.Count || use.TargetSlot < 0 || use.TargetSlot >= Main.maxNPCs)
+        {
+            gate = "the planned weapon or target slot is out of range";
             continue;
+        }
         NPC target = Main.npc[use.TargetSlot];
         if (target == null || !target.active || target.life <= 0 || !target.CanBeChasedBy())
+        {
+            gate = "the planned target is dead, gone or no longer chaseable";
             continue;
+        }
         CompanionWeapon weapon = weapons[use.WeaponSlot];
         if (!weapon.InReach(muzzle, target))
+        {
+            gate = "the planned target is outside the planned weapon's reach from the stand";
             continue;
+        }
         WeaponId id = SimulateUse.Identify(weapon, ctx, use.WeaponSlot);
         int fireTick = Math.Max(0, use.FireTick - tick);
         SimulatedUse sim;
@@ -97,7 +119,10 @@ public static Repricing Reevaluate(in ActionContext ctx, CompanionCombat combat,
         EvaluateAttackOutcomes.Attack? attack = ForecastUses.AttackFromUse(ctx, weapon, use.WeaponSlot, target,
             muzzle, sim, aim, aim, fireTick, out _, out _);
         if (attack == null)
+        {
+            gate = "the re-flown use produced no attack at all";
             continue;
+        }
         // A re-flown use validates the plan only through its planned target: a trajectory that still hits,
         // but only bodies the plan never targeted, is not the planned fight solving — it is a bystander in
         // the way. Without this a plan whose target left the senses holds on a wrong-body hit, running to
@@ -107,13 +132,19 @@ public static Repricing Reevaluate(in ActionContext ctx, CompanionCombat combat,
         foreach (EvaluateAttackOutcomes.Hit hit in attack.Hits)
             if (hit.Target == use.TargetSlot) { touchesTarget = true; break; }
         if (!touchesTarget)
+        {
+            gate = "the re-flown use still flies, but hits no body the plan targeted";
             continue;
+        }
         attacks.Add(attack);
         if (overdue)
             overdueCovered = true;
     }
     if (attacks.Count == 0)
+    {
+        LastRefusal = gate;
         return new Repricing(null, Cut: false);
+    }
     attacks.Reverse();
     float travel = Vector2.Distance(ctx.Npc.Center, segment.Stand.Stand) <= Weights.CombatStandArrivalPx ? 0f
         : Vector2.Distance(ctx.Npc.Center, segment.Stand.Stand) / OrbPace.MaxSpeed;
