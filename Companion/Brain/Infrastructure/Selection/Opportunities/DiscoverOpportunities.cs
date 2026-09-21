@@ -61,7 +61,13 @@ public sealed class DiscoverOpportunities
             int index = next;
             next = (next + 1) % sources.Length;
             var result = sources[index].Continue(facts, cursors[index], budget);
-            coverage[sources[index].Name] = result.Coverage;
+            // The slice's own coverage, carrying forward the evictions this domain has suffered. A source
+            // reports what it examined and cannot know what the store then threw away, so overwriting the
+            // row wholesale reset the eviction count to zero on every slice — which made the one number
+            // that says "this domain's candidates are being discarded" unreadable by construction, and it
+            // is the number AIC-448 was diagnosed by. The count is per world epoch, like the store.
+            long evicted = coverage.TryGetValue(sources[index].Name, out var previous) ? previous.Evicted : 0;
+            coverage[sources[index].Name] = result.Coverage with { Evicted = result.Coverage.Evicted + evicted };
             foreach (var candidate in result.Examined)
             {
                 if (candidate.Key.Domain != sources[index].Name)
