@@ -64,43 +64,59 @@ internal static class VerifyFollowRecoveryAndProtection
         return 0;
     }
 
+    /// <summary>
+    /// Recovery flight may be started by an explicit reunion and by nothing else — not by an executor's
+    /// class, not by a work destination that happens to sit near the player, not by a tick that is still
+    /// deciding.
+    ///
+    /// This used to sweep the four request kinds by installing a stub activity in the chooser's list and
+    /// reading back what the brain asked for. The course brain took that lever away: the request comes
+    /// from the published course now, and an empty course asks for companionship, so every arm of that
+    /// sweep read as reunion whatever it installed and the row failed on `request=Exact, active=True` —
+    /// the fixture speaking for a mechanism that no longer decides anything.
+    ///
+    /// So the rule is driven where it lives, as `RecoverDistantCompanion.ReunionRequested`, across every
+    /// combination of its three inputs rather than the four kinds alone; and one whole-brain arm still
+    /// crosses the seam, because a pure predicate nobody calls would pass while the tick read something
+    /// else. The whole-brain arm is the reunion case because that is the one an empty course produces,
+    /// and the negative cases are the predicate's — which is the honest split, since a scene that cannot
+    /// produce a non-reunion request cannot witness one being refused.
+    /// </summary>
     private static void VerifyRecoveryAdmissionUsesReunionPurpose()
     {
+        var kinds = new[] { live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer,
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Exact,
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.FireFrom,
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold };
+        foreach (var kind in kinds)
+            foreach (bool handsBusy in new[] { false, true })
+                foreach (bool settled in new[] { false, true })
+                {
+                    bool reunion = kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer
+                        && !handsBusy && settled;
+                    bool admitted = live::AICompanion.Companion.Brain.SharedBehaviours.Recovery.RecoverDistantCompanion
+                        .ReunionRequested(kind, handsBusy, settled);
+                    Require(admitted == reunion,
+                        $"recovery admission must follow explicit reunion rather than executor class or shared "
+                        + $"destination; request={kind} handsBusy={handsBusy} settled={settled} admitted={admitted}");
+                }
+
         Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), System.Reflection.BindingFlags.Instance
             | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
             null, new object[] { (ushort)200, (ushort)100 }, null)!;
         TerrainChanges.Reset();
-        foreach (var kind in new[] { live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer,
-            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Exact,
-            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.FireFrom,
-            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold })
-        {
-            var companion = VerifyCompanionLifecycle.Create();
-            Main.LocalPlayer.dead = false;
-            Main.LocalPlayer.Bottom = new Vector2(2200, 1200);
-            companion.NPC.Bottom = new Vector2(100, 1200);
-            companion.Brain.Chooser.Actions.Clear();
-            companion.Brain.Chooser.Actions.Add(new RequestedPurpose(kind));
-            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
-            bool reunion = kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer;
-            Require(companion.Brain.FollowRecovery.Active == reunion,
-                $"recovery admission must follow explicit reunion rather than executor class or shared destination; request={kind}, active={companion.Brain.FollowRecovery.Active}");
-        }
-    }
-
-    private sealed class RequestedPurpose(live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind kind)
-        : live::AICompanion.Companion.Brain.Activities.CompanionAction
-    {
-        public override string Name => "recovery-purpose-probe";
-        public override live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily Family
-            => live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.NearbyAssistance;
-        public override bool IsExcursion => false;
-        // A positive score needs a classified offer, exactly as for a production activity.
-        public override void Prepare(in Context ctx) => Classify(live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable, "probe");
-        public override float Score() => 1f;
-        public override live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest Execute(in Context ctx)
-            => new(kind, ctx.Player.Bottom);
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.LocalPlayer.dead = false;
+        Main.LocalPlayer.Bottom = new Vector2(2200, 1200);
+        companion.NPC.Bottom = new Vector2(100, 1200);
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
+        Require(companion.Brain.LastRequest.Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer,
+            $"a companion two thousand pixels from its player with nothing else to do must ask for companionship, "
+            + $"or this arm proves nothing about what admits flight; asked for {companion.Brain.LastRequest.Kind}");
+        Require(companion.Brain.FollowRecovery.Active,
+            "an explicit reunion request far beyond the recovery radius must start recovery flight, "
+            + "so the predicate above is the one the tick actually reads");
     }
 
     /// <summary>
