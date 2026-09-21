@@ -1,6 +1,7 @@
 extern alias live;
 
 using FindToolAccess = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
+using DescribeCourseFunnel = AICompanion.Tools.EngineReplay.Observation.DescribeCourseFunnel;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -1133,11 +1134,23 @@ internal static class VerifyOreWork
             $"the row must begin with mining unable to answer, or the run proves nothing about a cold flood; "
             + $"score={cold} status={mine.Status}");
         var run = RunBrainUntilBroken(ctx, ore, 900);
+        if (!run.Broken)
+        {
+            DescribeCourseFunnel.Print("cold flood", ctx.Companion.Brain.Course, run.Decisions);
+            var sense = ctx.Senses.Reach;
+            Console.WriteLine($"COLD body={ctx.Npc.Center} complete={sense.Complete} corners={sense.CornerCount} tiles={sense.AnyCount} "
+                + $"ore={sense.Reachable(ore)} withinRadius={sense.WithinKnownRadius(ore)} "
+                + $"left={sense.Reachable(new Point(ore.X - 1, ore.Y))} above={sense.Reachable(new Point(ore.X, ore.Y - 1))} "
+                + $"bodyTile={sense.Reachable(new Point((int)(ctx.Npc.Center.X / 16), (int)(ctx.Npc.Center.Y / 16)))} "
+                + $"approach={FindToolAccess.Approach(ore, ctx.Npc.Center, sense, out _)}");
+        }
+        var owner = ctx.Companion.Brain.Course;
         Require(run.Broken,
             $"a companion that spawns beside its player with a cold reach flood must still start the ore thirty-two "
-            + $"tiles away; feet={ctx.Npc.Center} offer={mine.Eligibility}/{mine.EligibilityReason} "
-            + $"status={mine.Status} action={ctx.Companion.Brain.LastAction?.Name} "
-            + $"reach-complete={ctx.Companion.Brain.Positioner.ReachComplete} strikes={run.StrikeFeet.Count}");
+            + $"tiles away; feet={ctx.Npc.Center} action={ctx.Companion.Brain.LastAction?.Name} "
+            + $"reach-complete={ctx.Companion.Brain.Positioner.ReachComplete} strikes={run.StrikeFeet.Count}; "
+            + $"decisions {DescribeCourseFunnel.Decisions(run.Decisions)}; admitted {DescribeCourseFunnel.Admitted(owner)}; "
+            + $"coverage {DescribeCourseFunnel.Coverage(owner)}");
     }
 
     /// <summary>
@@ -1493,8 +1506,14 @@ internal static class VerifyOreWork
 
     /// <summary>Runs the whole brain against native collision until the ore breaks or the tick limit passes,
     /// returning the feet at every productive strike so a fixture can check the pose each strike came from.</summary>
-    internal static (bool Broken, List<Vector2> StrikeFeet, List<Vector2> StrikePoses) RunBrainUntilBroken(ActionContext ctx, Point ore, int ticks)
+    internal static (bool Broken, List<Vector2> StrikeFeet, List<Vector2> StrikePoses, Dictionary<string, int> Decisions)
+        RunBrainUntilBroken(ActionContext ctx, Point ore, int ticks)
     {
+        // Every tick's decision reason, tallied. Under the course brain the activity's own eligibility is
+        // no longer what decides anything, so a whole-brain row that reports it is reporting a bystander;
+        // this is the thing that actually refused, counted over the whole run rather than read at the end
+        // off a sticky field that shows only the last one.
+        var decisions = new Dictionary<string, int>(StringComparer.Ordinal);
         var strikes = new List<Vector2>();
         // Where the body was *asked* to be on each striking tick, beside where it was. Without both, a row
         // can say the body moved and cannot say whether the brain told it to, which is the difference
@@ -1505,6 +1524,7 @@ internal static class VerifyOreWork
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+            DescribeCourseFunnel.Count(decisions, ctx.Companion.Brain.Course);
             // The swing happens inside the brain tick, before the engine moves the body, so these are the
             // feet the strike was actually taken from.
             if (ctx.Companion.Miner.LastOutcome is { Productive: true } outcome && outcome.Attempt != last)
@@ -1518,7 +1538,7 @@ internal static class VerifyOreWork
             }
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
         }
-        return (!Main.tile[ore.X, ore.Y].HasTile, strikes, poses);
+        return (!Main.tile[ore.X, ore.Y].HasTile, strikes, poses, decisions);
     }
 
     internal static void AdvanceBrain(ActionContext ctx)

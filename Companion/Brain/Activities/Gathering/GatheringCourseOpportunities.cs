@@ -52,6 +52,16 @@ public sealed class CaptureGatheringOpportunities
     private (int Type, int Prefix, int Power) pickSignature;
     private (WorkPolicy Policy, object List, int Revision) policySignature;
     private long minerAttempt = -1;
+    /// <summary>
+    /// The reach the ore admissions were proved under. An admission of "no approach" is a claim about the
+    /// flood that answered it, and the sense says so itself: a refusal proved from one finished flood
+    /// stays true only while that flood is the one answering, which is what <c>FloodGeneration</c> exists
+    /// to key on. Without it, an ore read during a young flood keeps its refusal for as long as nothing
+    /// else in the signature moves — and nothing else does, because the rest of the signature is the pick,
+    /// the policy, the area, a terrain edit and the miner's last attempt, none of which a companion that
+    /// is not mining ever changes. The tree capture beside this one has keyed on it since it was written.
+    /// </summary>
+    private (int Generation, bool Complete, Point Body) oreGeometry;
     private long nextGeneration;
     private long version;
 
@@ -91,7 +101,16 @@ public sealed class CaptureGatheringOpportunities
             (x, y) => x >= area.Left && x < area.Right && y >= area.Top && y < area.Bottom) != TerrainEditVerdict.Unchanged;
         bool changedInputs = pickSignature != (pick.type, pick.prefix, pick.pick) || policySignature != policy
             || minerAttempt != (context.Companion.Miner.LastOutcome?.Attempt ?? -1);
-        if (oreOffset > 0 && (spatialEdit || changedInputs)) oreArea = null;
+        long cells = (long)area.Width * area.Height;
+        var geometry = (context.Senses.Reach.FloodGeneration, context.Senses.Reach.Complete,
+            context.Npc.Center.ToTileCoordinates());
+        // Reopen a completed scan when the body has moved or a different flood is answering, because every
+        // admission in it was proved against the flood and the body of the moment it was read. Only when
+        // the scan has finished: a change mid-scan would erase the cursor every tick and the capture would
+        // never publish anything at all, and the binder revalidates each site anyway. This is the tree
+        // capture's rule, applied to ore, which had it missing.
+        bool changedGeometry = oreOffset == cells && oreGeometry != geometry;
+        if (oreOffset > 0 && (spatialEdit || changedInputs || changedGeometry)) oreArea = null;
         if (oreArea != area)
         {
             oreArea = area; oreOffset = 0; observedOres.Clear(); oreVisited.Clear(); visibleThisCapture.Clear();
@@ -99,8 +118,8 @@ public sealed class CaptureGatheringOpportunities
             pickSignature = (pick.type, pick.prefix, pick.pick);
             policySignature = policy;
             minerAttempt = context.Companion.Miner.LastOutcome?.Attempt ?? -1;
+            oreGeometry = geometry;
         }
-        long cells = (long)area.Width * area.Height;
         while (oreOffset < cells && budget.TrySpend("gathering-native-capture"))
         {
             int x = area.Left + (int)(oreOffset % area.Width);
