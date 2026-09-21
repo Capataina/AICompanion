@@ -129,8 +129,21 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     private AttackPlan? preparedPlan;
     private SearchAttackPlans.SearchResult? preparedSearch;
     private SearchAttackPlans.SearchResult? lastSearch;
+    /// <summary>The freshest worth a re-pricing ever established for this exact plan, and the plan it
+    /// belongs to. A plan's own <c>Outcome</c> is written once, when the search commits it, and never
+    /// refreshed — so a held plan offered on an allowance cut used to fall all the way back to what its
+    /// original search paid for it, discarding every better-informed number priced since. The key is
+    /// reference identity rather than the plan id, because identity cannot leak one plan's price into
+    /// another's even if ids are ever reused.</summary>
+    private AttackPlan? lastPricedPlan;
+    private CombatOutcome lastPricedOutcome;
     private int lastSnapshotTick = -120;
     private int snapshotForPlan = -1;
+
+    /// <summary>What this plan is worth on a tick that could not re-price it: the last re-price that
+    /// succeeded for this same plan, or the search's own number when none has. Never another plan's.</summary>
+    private CombatOutcome WorthOf(AttackPlan plan)
+        => ReferenceEquals(lastPricedPlan, plan) ? lastPricedOutcome : plan.Outcome;
 
     private const string StageDeferred = "engagement-deferred";
     private const string StageAllowance = "activity-allowance";
@@ -231,6 +244,8 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             ReevaluateAttackPlan.Repricing fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, plan, weights, ref heldBudget);
             if (fresh.Priced)
             {
+                lastPricedPlan = plan;
+                lastPricedOutcome = fresh.Outcome!.Value;
                 OfferFromPlan(ctx, plan, fresh.Outcome!.Value, weights, frontSize: 1, cut: false);
                 return;
             }
@@ -239,8 +254,10 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
                 // The allowance ran out before the held plan could be re-flown. Validate has already
                 // checked its stand, its targets and its admission this tick, so nothing about the
                 // world says this fight is over — only that there was no time to re-price it. It keeps
-                // the body at the worth its own search paid for it and is re-priced next tick.
-                OfferFromPlan(ctx, plan, plan.Outcome, weights, frontSize: 1, cut: true);
+                // the body at the freshest worth anything ever established for this plan, which is the
+                // last successful re-price and only falls back to the search's own number on a plan no
+                // re-price has yet survived.
+                OfferFromPlan(ctx, plan, WorthOf(plan), weights, frontSize: 1, cut: true);
                 return;
             }
             combat.Planner.Release("uses-stopped-solving");
@@ -253,13 +270,15 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             if (fresh.Unresolved)
             {
                 // Same rule one step down: a prepared plan the allowance could not re-price is not a
-                // prepared plan that stopped solving, so it is offered at its searched worth rather
-                // than discarded and re-searched from nothing on the next tick.
-                OfferFromPlan(ctx, preparedPlan, preparedPlan.Outcome, weights, frontSize: 1, cut: true);
+                // prepared plan that stopped solving, so it is offered at the freshest worth it has
+                // rather than discarded and re-searched from nothing on the next tick.
+                OfferFromPlan(ctx, preparedPlan, WorthOf(preparedPlan), weights, frontSize: 1, cut: true);
                 return;
             }
             if (fresh.Priced)
             {
+                lastPricedPlan = preparedPlan;
+                lastPricedOutcome = fresh.Outcome!.Value;
                 OfferFromPlan(ctx, preparedPlan, fresh.Outcome!.Value, weights, frontSize: 1, cut: false);
                 if (running)
                 {
