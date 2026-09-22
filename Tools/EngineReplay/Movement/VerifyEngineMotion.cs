@@ -227,6 +227,11 @@ internal static class VerifyEngineMotion
         // case wide enough to expose it. Naming that static is the reset's job and the main thread owns
         // it; running last means nothing inherits the residue in the meantime.
         ("combat's published front describes the hostiles that are there now", VerifyTheCensusFrontIsCurrent.Run),
+        // After that one for the same reason it is late: this case attaches the live recorder, drives six
+        // scenes of two hundred whole-brain ticks each with hostiles, drops, mined tiles and work-policy
+        // flips, and is the widest process footprint in the table. It puts its own world back and
+        // restores every static it writes, and running last means nothing inherits whatever it misses.
+        ("seeded event sequences nobody wrote break no decision contract", FuzzTheDecisionContracts.Run),
     };
 
     /// <summary>
