@@ -265,6 +265,23 @@ public static class ChronicleTests
         Require(quoted.Groups["v"].Value == constant.Groups["v"].Value,
             $"the guide says the capture schema is {quoted.Groups["v"].Value} and the recorder's constant is"
                 + $" {constant.Groups["v"].Value}; the constant is the authority and the sentence is wrong");
+
+        // **A guide may not quote this tool's coverage line, because both of its numbers move under it
+        // and neither moves for a reason that guide is about.** The denominator changes with every
+        // check the tool gains and the numerator with every schema a capture predates, so the sentence
+        // is stale by the next lane and reads as authority while it lies. Two were, and neither was
+        // caught by reading: `Tools/SessionReport/CLAUDE.md` said a capture printed "40 of 45 checks
+        // ran" where the same change's own reader printed 41 of 46, and said another printed "32 of 32"
+        // where it prints 35 of 46 — the second wrong for long enough that nobody knows when. The
+        // figure is printed at the top of every run, so the guide points at the run.
+        foreach (string file in Directory.EnumerateFiles(Path.Combine("Tools", "SessionReport"), "CLAUDE.md", SearchOption.AllDirectories))
+        {
+            var coverage = Regex.Match(File.ReadAllText(file), @"\d+ of \d+ checks? ran");
+            Require(!coverage.Success,
+                $"{file} quotes this tool's own coverage line as '{coverage.Value}'. Both of its numbers move — the denominator with "
+                + "every check added, the numerator with every schema a capture predates — so a quoted figure is a claim that goes stale "
+                + "silently. Describe which checks skip and why, and let the reader print the count.");
+        }
     }
 
     private static void TheAuditsOwnWiringIsWitnessedByTheCapture()
