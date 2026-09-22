@@ -28,7 +28,10 @@ public sealed class DiscoverAssistanceOpportunities : IOpportunitySource
         DecisionFact[] sites = facts.Facts.Where(f => f.Key.Kind == domain).OrderBy(f => f.Key).ToArray();
         bool prefixUnchanged = cursor.Offset <= sites.Length && cursor.Offset <= snapshot.Sites.Length;
         for (int i = 0; prefixUnchanged && i < cursor.Offset; i++)
-            prefixUnchanged = sites[i].Key == snapshot.Sites[i].Key && sites[i].Digest == snapshot.Sites[i].Digest;
+            // Field-for-field rather than by digest: this runs over the already-examined prefix on every
+            // slice, so asking each site for its hash would compute one per site per tick and defeat the
+            // point of a fact not computing its digest until something needs it.
+            prefixUnchanged = sites[i].Key == snapshot.Sites[i].Key && sites[i].SameObservationAs(snapshot.Sites[i]);
         if (snapshot.Epoch != facts.WorldEpoch || !prefixUnchanged || cursor.Exhausted && sites.Length > cursor.Offset) cursor.Rescan();
         snapshot.Epoch = facts.WorldEpoch;
         snapshot.Sites = sites;
@@ -63,7 +66,7 @@ public sealed class DiscoverAssistanceOpportunities : IOpportunitySource
                 site.Target, site.Generation);
             examined.Add(new Opportunity(key, observed.Version, new(site.ContactX ?? site.X, site.ContactY ?? site.Y), admission, site.Reason,
                 new[] { new UsefulNeed(new(need, site.Target, site.Generation), Math.Max(0, site.Amount), Math.Max(1, site.CensusAmount), admission == OpportunityAdmission.KnownUsable ? 1 : 0) },
-                new[] { key.Purpose }, reader.Manifest()));
+                new[] { key.Purpose }, reader.Manifest(), raw.Key));
         }
         if (cursor.Offset == sites.Length) cursor.Complete();
         return new(examined, new(Name, facts.WorldEpoch, cursor.Offset, sites.Length, cursor.Exhausted && complete,

@@ -291,7 +291,7 @@ internal static class VerifyWholeCoursePricing
 
     private static Opportunity Site() => new(new("fixture", "use", "whole-course", 1), 1, default,
         OpportunityAdmission.KnownUsable, "fixture", new[] { new UsefulNeed(new(NeedKind.Loot, "whole-course"), 1, 1, 1) },
-        new[] { "use" }, DependencyManifest.Empty);
+        new[] { "use" }, DependencyManifest.Empty, default);
 
     private static CourseComparisonEpisode Episode(IEnumerable<Opportunity> sites)
         => new(1, 1, 10, sites.SelectMany(site => site.Needs), true, 0, "whole-course-fixture");

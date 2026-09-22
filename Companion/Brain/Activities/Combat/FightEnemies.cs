@@ -102,6 +102,42 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// <summary>The offered plan's current segment index, or -1 with no offered plan.</summary>
     public int OfferedSegment { get; private set; } = -1;
 
+    /// <summary>
+    /// The cheap legal continuation from the pose the body is actually in, which is the plan's tick-order
+    /// step 5 and the one step of it the tree never built.
+    ///
+    /// A decision spans ticks by design — one travel query can cost more than a tick's leftover
+    /// allowance — and until this existed every tick inside one asked the body to keep the player
+    /// company. That is not a neutral fallback while a fight is running: selecting a different activity
+    /// exits this one, and this one's <see cref="Exit"/> releases the committed plan with
+    /// <c>activity-exited</c>, which makes the course's accepted use absent, which releases the course,
+    /// which starts the decision again. Measured in the play of 0.38.13: 212 combat attempts at a median
+    /// of one tick, 181 of them <c>replaced-before-attacking</c>, 211 plans invalidated
+    /// <c>activity-exited</c>, 483 course releases <c>next-use-invalid:accepted-use-not-present</c>, and
+    /// twenty shots in a minute.
+    ///
+    /// **Only a committed plan continues, never a prepared offer**, and that narrowing is the rule rather
+    /// than a conservative reading of it: a decision in flight may continue a fight the body is already
+    /// committed to and may never start one. An offer is a shot nobody took, so continuing it would
+    /// select combat on tick N for a fight no course ever chose; <see cref="Prepare"/> computes
+    /// <c>running</c> before selection, so tick N+1's preparation would then <c>CommitAndRecord</c> that
+    /// plan, and the moment the decision settled on anything else the commitment would be released
+    /// <c>activity-exited</c> — the same loop this property exists to close, re-entered from the other
+    /// end. The offered branch was written first and removed by review on 22 September 2026; it was also
+    /// unreachable, with no scene in the suite able to enter it (instrumented over the whole default
+    /// table: unsettled ticks 0, opener fired 0). Null when nothing is committed, and the caller then
+    /// keeps the player company, which is the honest answer when there is nothing to continue.
+    /// </summary>
+    public PositionRequest? Continuation
+    {
+        get
+        {
+            AttackPlan? plan = combat?.Planner.Committed;
+            if (plan == null || plan.Segments.Length == 0) return null;
+            return new PositionRequest(RequestKind.FireFrom, plan.Current(PlanTick).Stand.Stand, PlanTarget(plan));
+        }
+    }
+
     /// <summary>The plan the body is performing, for the hands.</summary>
     public AttackPlan? CommittedPlan => combat?.Planner.Committed;
 
@@ -130,9 +166,38 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     private AttackPlan? preparedPlan;
     private SearchAttackPlans.SearchResult? preparedSearch;
     private SearchAttackPlans.SearchResult? lastSearch;
-    /// <summary>The priced attack front this activity last produced, which is combat's contribution to
-    /// the course observation. Combat is the one domain whose opportunities are not a world scan but a
-    /// tactical search, so the course cannot discover a shot without this having run first.</summary>
+
+    /// <summary>The admissible hostiles the standing prepared offer was searched against, sorted, so a
+    /// re-price can tell whether the world still holds the same fight. Written only where a prepared plan
+    /// is born; see the comment there for why it is never cleared.</summary>
+    private (int Slot, int Generation)[] preparedTargets = Array.Empty<(int, int)>();
+
+    private bool SameAdmissibleTargets(List<(int Slot, int Generation)> admissible)
+    {
+        if (preparedTargets.Length != admissible.Count) return false;
+        for (int i = 0; i < preparedTargets.Length; i++)
+            if (preparedTargets[i] != admissible[i]) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// The priced attack front, which is combat's whole contribution to the course observation: combat is
+    /// the one domain whose opportunities are a tactical search rather than a world scan, so a shot that
+    /// is not in here is a shot the course cannot discover, weigh or order.
+    ///
+    /// **It is the last search's front, not the last tick's, and knowing when it refreshes is the whole
+    /// of reading this field.** It is assigned on one line, where a fresh `SearchAttackPlans.Search`
+    /// returns; every re-pricing path — a validated commitment, a checked prepared offer — returns above
+    /// that line and leaves it standing. So while either short-circuit holds, the course is being offered
+    /// the world as the last search found it.
+    ///
+    /// For a *prepared* offer that is now bounded: the offer may only be re-priced while the admissible
+    /// hostiles are unchanged, so an arrival or a departure forces a search and the front cannot fall
+    /// behind what combat can see. For a *commitment* it is deliberately unbounded, because re-searching
+    /// under a commitment is opportunistic replacement and this tree does not build it — the consequence
+    /// is that a hostile arriving mid-fight has no priced use until that fight ends, and that is a
+    /// property rather than an oversight.
+    /// </summary>
     public SearchAttackPlans.SearchResult? LastSearch => lastSearch;
     /// <summary>The freshest worth a re-pricing ever established for this exact plan, and the plan it
     /// belongs to. A plan's own <c>Outcome</c> is written once, when the search commits it, and never
@@ -203,6 +268,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             return;
         }
         var eligible = new List<ThreatRecord>();
+        var admissible = new List<(int Slot, int Generation)>();
         foreach (ThreatRecord threat in ctx.Senses.Threats.Threats)
         {
             NPC npc = threat.Npc;
@@ -227,7 +293,9 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
                 continue;
             }
             eligible.Add(threat);
+            admissible.Add((npc.whoAmI, generation));
         }
+        admissible.Sort();
         if (eligible.Count == 0)
         {
             ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "no-eligible-target");
@@ -268,7 +336,27 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             combat.Planner.Release("uses-stopped-solving");
             plan = null;
         }
-        if (plan == null && preparedPlan != null && combat.Planner.CheckPrepared(ctx, positioner, allows, preparedPlan))
+        // A prepared plan is an offer nobody has taken, and it may only be re-priced while the world it
+        // was searched against still has the same admissible hostiles in it. That is the whole of this
+        // condition and it is the difference between a stale front and a current one.
+        //
+        // Without it, a hostile that arrives and happens not to disturb the held offer is never priced
+        // at all: `CheckPrepared` keeps passing, the re-price returns before the line that refreshes what
+        // the census publishes, and the course is offered the same targets for ever. Reproduced on an
+        // ordinary floor — two hostiles in reach, collecting winning the body, a third hostile placed
+        // away from the line of fire — where the front stayed at plan 1 for sixty ticks and published
+        // uses for two of three hostiles present, the third absent. That is the shape the play of
+        // 0.38.13 recorded as `offered plan=237` unchanged for five hundred ticks while five hostiles
+        // spawned and `combat=usable:3` never moved. It only bites on an arrival the offer survives: a
+        // hostile that walks into the shot invalidates the re-price on its own, which is why the first
+        // two geometries this was reproduced in came back green.
+        //
+        // The *committed* path deliberately keeps its short-circuit. A commitment is a commitment, and
+        // re-searching under one is opportunistic replacement, which this tree does not build — the
+        // consequence, named rather than discovered, is that a hostile arriving during a committed fight
+        // still gets no priced use until that fight ends.
+        if (plan == null && preparedPlan != null && SameAdmissibleTargets(admissible)
+            && combat.Planner.CheckPrepared(ctx, positioner, allows, preparedPlan))
         {
             DecisionWorkBudget preparedBudget = LimitPlanningWork.Current;
             ReevaluateAttackPlan.Repricing fresh = ReevaluateAttackPlan.Reevaluate(ctx, combat, enemies, preparedPlan, weights, ref preparedBudget);
@@ -304,6 +392,11 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         {
             preparedPlan = result.Plan;
             preparedSearch = result;
+            // The admissible set this offer was searched against, recorded with the offer itself. It is
+            // written only here, where a prepared plan is born, and never cleared: the gate above reads
+            // it only when `preparedPlan` is non-null, and `preparedPlan` is never non-null without
+            // having passed through this line — so a leftover set cannot be consulted.
+            preparedTargets = admissible.ToArray();
             OfferFromPlan(ctx, result.Plan, result.Plan.Outcome, weights, result.FrontSize, cut: result.Cut);
             if (running)
             {

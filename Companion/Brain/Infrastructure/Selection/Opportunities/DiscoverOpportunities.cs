@@ -52,6 +52,7 @@ public sealed class DiscoverOpportunities
         }
         var pins = pinned.ToHashSet();
         foreach (var key in candidates.Keys) storage.Pin(key, pins.Contains(key));
+        RetireAdmissionsThisObservationCannotSupport(facts, pins);
         if (sources.Length == 0 || budget.Exhausted) return;
         for (int visited = 0; visited < sources.Length; visited++)
         {
@@ -79,6 +80,66 @@ public sealed class DiscoverOpportunities
             // Finished sources rotate back through their real finite set on a later call.
             // Eviction therefore loses cache coverage, not the ability ever to see that site again.
             if (cursors[index].Exhausted) cursors[index].Rescan();
+        }
+    }
+
+    /// <summary>
+    /// A stored admission is only as good as the observation it was decided against, and this store
+    /// outlives observations by design.
+    ///
+    /// Every candidate names the one fact its own domain's binder reads first
+    /// (<see cref="Opportunity.AdmissionEvidence"/>), so the census and the binder can be made to agree
+    /// by construction rather than by both being careful. A candidate whose evidence has left the world
+    /// leaves the store — the drop was taken, the hostile died, the tile was mined — because a rescan
+    /// re-finds it the moment it comes back and an entry nobody can bind is a seat taken from a domain
+    /// that could. A candidate whose evidence is present but not observed is served
+    /// <see cref="OpportunityAdmission.Unresolved"/> instead: that is the three-valued answer this tree
+    /// keeps everywhere, and the difference between "gone" and "not answered yet" is the whole of it.
+    ///
+    /// Measured on the tail scene of 22 September 2026: without this, a drop removed at tick 150 was
+    /// still served usable at tick 499, and every decision in between refused nine orders
+    /// <c>assistance-target-unresolved</c> while its own funnel reported three usable drops. The
+    /// companion's play of 0.38.13 ended in that state on combat and collection at once, and an empty
+    /// course is companionship, so it read as a companion that had stopped doing anything.
+    ///
+    /// A pinned candidate is downgraded rather than removed, whatever its evidence says: it is a step
+    /// the published course still holds, and whether that course survives is
+    /// <c>BindOpportunity.ValidateNextUse</c>'s answer rather than discovery's.
+    ///
+    /// The sweep is not charged to the allowance, deliberately. It is bounded by the store's own
+    /// capacity — sixty-four dictionary reads at the very worst — and cutting it half way is the one
+    /// outcome that would put the defect back, because the candidates it had not reached yet would go
+    /// on claiming an evidence the decision does not hold.
+    /// </summary>
+    private void RetireAdmissionsThisObservationCannotSupport(DecisionFactSnapshot facts, HashSet<OpportunityKey> pins)
+    {
+        List<OpportunityKey>? retired = null;
+        foreach (var pair in candidates.ToArray())
+        {
+            Opportunity candidate = pair.Value;
+            // A candidate that names no evidence is a harness stand-in rather than a domain's site, and
+            // there is nothing to re-read for it. Production's three sources all name one.
+            if (string.IsNullOrEmpty(candidate.AdmissionEvidence.Kind)) continue;
+            bool present = facts.TryRead(candidate.AdmissionEvidence, out DecisionFact evidence);
+            if (present && evidence.Evidence == FactEvidence.Observed) continue;
+            if (!present && !pins.Contains(pair.Key))
+            {
+                (retired ??= new()).Add(pair.Key);
+                continue;
+            }
+            if (candidate.Admission == OpportunityAdmission.Unresolved) continue;
+            var downgraded = new Opportunity(candidate.Key, candidate.Revision, candidate.Target,
+                OpportunityAdmission.Unresolved, "admission-evidence-" + (present ? evidence.Evidence.ToString().ToLowerInvariant() : "absent"),
+                candidate.Needs, candidate.Methods, candidate.Dependencies, candidate.AdmissionEvidence);
+            candidates[pair.Key] = downgraded;
+            storage.Put(pair.Key, downgraded, pins.Contains(pair.Key));
+        }
+        if (retired == null) return;
+        foreach (OpportunityKey key in retired)
+        {
+            candidates.Remove(key);
+            storage.Remove(key);
+            if (coverage.TryGetValue(key.Domain, out var row)) coverage[key.Domain] = row with { Evicted = row.Evicted + 1 };
         }
     }
 }

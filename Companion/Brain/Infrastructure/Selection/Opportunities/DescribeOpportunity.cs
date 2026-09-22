@@ -43,10 +43,12 @@ public sealed record UsefulNeed(NeedKey Key, double RemainingAmount, double Cens
 public sealed record Opportunity
 {
     public Opportunity(OpportunityKey key, long revision, CoursePoint target, OpportunityAdmission admission,
-        string reason, IEnumerable<UsefulNeed> needs, IEnumerable<string> methods, DependencyManifest dependencies)
+        string reason, IEnumerable<UsefulNeed> needs, IEnumerable<string> methods, DependencyManifest dependencies,
+        FactKey admissionEvidence)
     {
         Key = key; Revision = revision; Target = target; Admission = admission; Reason = reason;
         Needs = Array.AsReadOnly(needs.ToArray()); Methods = Array.AsReadOnly(methods.ToArray()); Dependencies = dependencies;
+        AdmissionEvidence = admissionEvidence;
     }
     public OpportunityKey Key { get; }
     public long Revision { get; }
@@ -56,6 +58,30 @@ public sealed record Opportunity
     public IReadOnlyList<UsefulNeed> Needs { get; }
     public IReadOnlyList<string> Methods { get; }
     public DependencyManifest Dependencies { get; }
+
+    /// <summary>
+    /// The one fact this admission rests on, which is the same fact this domain's binder reads first.
+    ///
+    /// It is required rather than optional because it is what stops the census and the binder
+    /// disagreeing about one target inside one observation. Discovery keeps candidates in a bounded
+    /// store across decisions, so an admission decided against an earlier snapshot outlives the world
+    /// it was true in: measured 22 September 2026 on the tail scene, a drop taken out of the world at
+    /// tick 150 was still served as <c>KnownUsable:observed-drop</c> at tick 499 while its
+    /// <c>collect-target/item:10</c> fact had been absent from every snapshot in between, and every
+    /// order built from it was refused <c>assistance-target-unresolved</c> — nine refusals a decision,
+    /// for ever, with the funnel reporting three usable drops. The owner's play of 0.38.13 ended in
+    /// exactly that state on both domains at once.
+    ///
+    /// <see cref="DiscoverOpportunities"/> re-reads this key against the current observation before it
+    /// serves anything, so a candidate cannot claim an evidence the decision does not hold.
+    ///
+    /// The parameter is required rather than defaulted so that a source added later has to say what its
+    /// admission rests on rather than inherit an exemption. A stand-in source with no facts behind it at
+    /// all — the harness has several, driving fairness and eviction rather than any domain — passes
+    /// <c>default</c>, which names no kind and is skipped by the sweep. That is the one exemption and it
+    /// is visible at the call site, which a nullable parameter would not have been.
+    /// </summary>
+    public FactKey AdmissionEvidence { get; }
 }
 
 public readonly record struct OpportunityCoverage(string Source, long Epoch, long Examined, long Total,

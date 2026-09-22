@@ -7,7 +7,8 @@ Planning/
 ├─ CLAUDE.md
 ├─ VerifyAttackPlanning.cs       the P-rows and C1: generators, beam, segments, stands, front, cost
 ├─ VerifyRetainedCombatBudget.cs G11 — one allowance shared by tactical work and course repair
-└─ VerifyCombatCourseBinding.cs  G04/G11 — a captured use binding and validating exactly
+├─ VerifyCombatCourseBinding.cs  G04/G11 — a captured use binding and validating exactly
+└─ VerifyTheCensusFrontIsCurrent.cs the whole tick: the front combat publishes describes the hostiles that are there now
 ```
 
 ## The P-rows are scenes, and each one names a plan shape rather than a number
@@ -62,6 +63,12 @@ The uncached arm is a control rather than a distribution and takes two samples, 
 **A row that supplies its own allowance is asserting something about that allowance, so it takes over rather than borrows.** `CombatFixture.BeginDecision` once borrowed an ambient allowance when one was active, which silently discarded the explicit budget its caller passed and made the cut that the opener row exists to observe stop happening. A supplied budget wins now; only a row with no budget of its own borrows, which is what still keeps a nested call from minting a second deadline.
 
 ## The course binding is exact, never a lookalike
+
+**`VerifyTheCensusFrontIsCurrent` is the only file here that drives `Brain.Tick`**, because its subject is what the *census* receives rather than what the search computes, and that is only observable at the far end of a whole tick. It asks one thing: a hostile that arrives after the last search is still minted a use. The scene is two hostiles in reach with two drops beside a standing player, so collecting wins the body and combat holds a *prepared* plan it never commits — which is the state the play of 0.38.13 sat in from tick 1,816, with `offered plan=237` unchanged for five hundred ticks while `combat-plan` events, the commitment stream, had stopped.
+
+**Where the new hostile is placed is the whole of whether the row proves anything, and two geometries came back green before the third worked.** A hostile that arrives into the line of fire invalidates the held offer by itself — the re-price finds its uses no longer hit the plan's target, the offer is dropped and a fresh search runs — so the defect is invisible there. It only bites on an arrival the offer *survives*, which the row arranges by placing the newcomer twenty-six tiles off, away from everything. On the parent tree the front then stays at plan 1 for sixty ticks, publishing uses for two of three hostiles present with the third absent.
+
+Two assertions are deliberately *not* made, and the reason is the same for both. The row does not require uses published to equal hostiles present: combat publishes priced shots, and a hostile no plan solves against — out of range, no line, the budget spent — legitimately has none, so an equality would be a row about the search rather than about the census. And it does not require the front to be rebuilt every tick: it bounds the searches after the change at two over sixty ticks, because a gate that re-searched on every tick would satisfy freshness by paying for it continuously. Measured after the fix: one search on the arrival, one on the departure.
 
 `VerifyCombatCourseBinding` holds that a captured combat use binds and validates without reading live Terraria, and `FightEnemies.ActivateCourseBinding` finds the accepted use again by its id inside the exact plan it belongs to. It never recovers a committed plan by target similarity. The identity a course binds is the shot — target slot and generation, weapon slot, stand rounded to whole pixels, and the index within that stand's sequence — and the reason it is not the search's plan number is `68f07bd`, recorded in `../../../../Companion/Brain/Activities/Combat/CLAUDE.md`.
 

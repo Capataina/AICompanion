@@ -275,7 +275,7 @@ internal static class VerifyProjectionContracts
     private static void EffectFactDependencies()
     {
         var fact = new FactKey("effect-result", "target");
-        var manifest = new DependencyManifest(new[] { new FactRead(fact, 1, "observed", FactEvidence.Observed) });
+        var manifest = new DependencyManifest(new[] { new FactRead(fact, 1, default, FactEvidence.Observed) });
         var first = Binding(106, new[] { Effect(107, 1, dependencies: manifest) }, travel: 1);
         var later = Binding(108, parents: new[] { 107L });
         var index = CourseDependencyIndex.Build(new CourseProjection(new[] { first, later }, Array.Empty<PredictedHarm>(), Array.Empty<CompanionshipInterval>(), 0, true));
@@ -312,7 +312,7 @@ internal static class VerifyProjectionContracts
     private static void LateBoundParentOrdering()
     {
         var changed = new FactKey("effect-result", "late-parent");
-        var manifest = new DependencyManifest(new[] { new FactRead(changed, 1, "observed", FactEvidence.Observed) });
+        var manifest = new DependencyManifest(new[] { new FactRead(changed, 1, default, FactEvidence.Observed) });
         var parent = Effect(121, 10, parents: new[] { 120L }, dependencies: manifest,
             delta: new[] { new EffectDelta(changed, new FactValue(X: 1)) }, earliestTick: 5, latestTick: 20,
             evidence: EstimateStatus.NativeBound);
@@ -421,7 +421,7 @@ internal static class VerifyProjectionContracts
     }
 
     private static Opportunity Opportunity()
-        => new(Key, 1, default, OpportunityAdmission.KnownUsable, "fixture", Array.Empty<UsefulNeed>(), new[] { "fixture" }, DependencyManifest.Empty);
+        => new(Key, 1, default, OpportunityAdmission.KnownUsable, "fixture", Array.Empty<UsefulNeed>(), new[] { "fixture" }, DependencyManifest.Empty, default);
 
     private sealed class ReadingBinder(FactKey key) : IOpportunityBinder
     {
@@ -455,7 +455,7 @@ internal static class VerifyProjectionContracts
             {
                 long position = cursor.Offset; cursor.Advance(); Examined++;
                 found.Add(new(new(Name, "fixture", position.ToString(), 1), 1, new(position, 0), OpportunityAdmission.KnownUsable,
-                    "fixture", Array.Empty<UsefulNeed>(), new[] { "fixture" }, DependencyManifest.Empty));
+                    "fixture", Array.Empty<UsefulNeed>(), new[] { "fixture" }, DependencyManifest.Empty, default));
             }
             if (cursor.Offset == count) cursor.Complete();
             return new(found, new(Name, facts.WorldEpoch, cursor.Offset, count, cursor.Exhausted, budget.Cut, "fixture"));

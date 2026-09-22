@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Activities.Combat;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
@@ -99,6 +100,20 @@ public sealed class Brain
     public int StrandedTicks { get; private set; }
 
     /// <summary>
+    /// An operation cap on the tick's own allowance. <c>long.MaxValue</c> in play, which is exactly what
+    /// the tick has always had: the wall clock is production's only bound.
+    ///
+    /// It exists because the suite lifts every millisecond allowance, deliberately, so a fixture cannot
+    /// end up timing the machine — and a decision that spans ticks is then unreachable, because the only
+    /// thing that ends a tick's share of the work is the allowance running out. A row whose subject *is*
+    /// a decision spanning ticks therefore needs an operation count, which is the reproducible half of
+    /// <see cref="DecisionWorkBudget"/> and the half <c>G11</c>'s rows already cut on. Offline
+    /// determinism only, in the same sense as <see cref="LimitPlanningWork.Unbounded"/> beside it, and a
+    /// fixture that sets it puts it back.
+    /// </summary>
+    public static long PlanningOperationAllowance { get; set; } = long.MaxValue;
+
+    /// <summary>
     /// This tick is one for walking the pocket: stranded long enough, and inside the roam part of
     /// the roam-then-retry cycle, whose retry part hands the body back to the follow for a few
     /// ticks so a plan to the player runs again and the count can clear.
@@ -123,7 +138,9 @@ public sealed class Brain
         // nothing is, so this is the Begin/End pair it always was; under a harness that installs an
         // ambient allowance per case, a fixture driving a whole tick no longer leaves the rows after
         // it with nothing to borrow.
-        LimitPlanningWork.Ownership allowance = LimitPlanningWork.Own(Weights.TotalPlanningMilliseconds);
+        LimitPlanningWork.Ownership allowance = LimitPlanningWork.Own(new DecisionWorkBudget(
+            LimitPlanningWork.Unbounded ? double.PositiveInfinity : Weights.TotalPlanningMilliseconds,
+            PlanningOperationAllowance));
         ReflexMs = DecideMs = PositionMs = NavigateMs = FinaliseMs = 0;
         try
         {
@@ -229,16 +246,30 @@ public sealed class Brain
         // the snapshot captures for it. Preparing combat unconditionally is the cost of letting the
         // course *choose* to fight rather than letting combat choose for itself: a shot the course never
         // saw is a shot it cannot weigh against mining the vein beside it.
-        // Every activity prepares, exactly as the family chooser prepared them, and the reason is that
-        // preparation is not part of choosing — it is how an activity works out what it would do, which
-        // its own `Execute` then needs to have a target at all. Wiring the course to prepare only combat
-        // left the other five unprepared, and the symptom was a lighting trip reporting
+        // Preparation is not part of choosing — it is how an activity works out what it would do, which
+        // its own `Execute` then needs in order to have a target at all. Wiring the course to prepare only
+        // combat left the other five unprepared, and the symptom was a lighting trip reporting
         // `offer=NoOpportunity/not-prepared` while keeping company executed instead: the course had named
         // lighting, and lighting had nothing to light because nobody had asked it to look.
         //
         // Combat is the one that must prepare before the decision rather than after it, because its
         // opportunities are a tactical search rather than a world scan and the course cannot weigh a shot
         // it never saw. The rest are prepared here too so that a chosen activity is always ready to act.
+        //
+        // **Narrowing this list was built, measured and taken out again on 22 September 2026, and what it
+        // cost is a property rather than a number.** The plan's section 6 names the blanket as the family
+        // chooser's cost model surviving inside the course brain's tick, and narrowing it to combat, the
+        // activity holding the body and whatever the course still names took a retained tick from six
+        // preparations to 2.05 on the ore-seam scene. It also turned `D4 Mimic after Disabled reads no
+        // stale player hit` red with `NoOpportunity/no-admissible-tree`, because **an activity's offer is
+        // refreshed by nothing but its own preparation**: chopping had answered under a disabled policy,
+        // the policy was switched on, and nothing asked chopping to look again, so its offer described a
+        // world that no longer existed. A rotation re-preparing every skipped activity once per turn of
+        // the list did not save it either — the switch is read on the tick after it happens, so any
+        // staleness bound above zero is too old. The honest form of section 6 is the one it actually
+        // writes: the narrowing *moves into discovery*, where the censuses are already sliced and
+        // budgeted against the frozen observation, rather than being skipped on the tick. That is a
+        // design change rather than a condition on this loop, and it stays with the plan.
         foreach (CompanionAction candidate in Chooser.Actions) candidate.Prepare(ctx);
         CourseDecision decision = Course.Decide(ctx, companion.Combat, Fighting?.LastSearch,
             LimitPlanningWork.Current);
@@ -248,9 +279,13 @@ public sealed class Brain
         ChoiceEvaluated = true;
         Chooser.Activity.BeginExecution();
         LastRequest = decision.Binding is { } step ? ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center)
-            // No step is companionship rather than a hold, because a course that found nothing worth
-            // doing must not look identical to a course that told the body to freeze.
-            : ExecuteCourseBinding.Companionship(Senses.Intent.Region.Centre);
+            // An unsettled decision may carry a continuation instead of a step — the fight the body is
+            // already in, kept while the brain thinks rather than abandoned to keeping company, which is
+            // the plan's tick-order step 5 and is what `DecideCourseEachTick.Deciding` owns.
+            : decision.Request ?? // No step and nothing to continue is companionship rather than a hold,
+                                  // because a course that found nothing worth doing must not look
+                                  // identical to a course that told the body to freeze.
+                ExecuteCourseBinding.Companionship(Senses.Intent.Region.Centre);
         // The activity still runs its own tick, for the hand it reserves and the state it keeps; its
         // returned request is discarded, because the course already said where the body goes.
         _ = action?.Execute(ctx);

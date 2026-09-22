@@ -41,6 +41,41 @@ public sealed class SearchCourseOrders
     public int MaxDepth { get; }
     public CourseProjection? Best { get; private set; }
     public CourseValue? BestValue { get; private set; }
+
+    /// <summary>
+    /// The best order the search priced whose *first step* is not the one the winner takes, and what it
+    /// was worth.
+    ///
+    /// The winner alone cannot answer the only question anybody asks of a losing decision, which is what
+    /// it beat. A recording that carries the chosen order and nothing else leaves a reader unable to tell
+    /// a fight that lost narrowly from one that was never on the board, and the recorder writes this
+    /// column as `task_order_runner_up` for exactly that comparison. The first step rather than the whole
+    /// order is the discriminator because the first step is the only part the tick performs: two orders
+    /// that start the same way are one answer to that question however they differ afterwards.
+    ///
+    /// The best-per-first-step table is kept through the search, because the search discards every order
+    /// it does not keep as it goes; **the runner-up itself is picked from that table on first read and
+    /// cached until the next priced order**, so the cost of the column is one table entry per distinct
+    /// first step and one scan per *decision* rather than one per order. It used to scan on every priced
+    /// order, which was the same answer computed k times for k orders and thrown away k−1 times.
+    ///
+    /// Null when the search priced fewer than two distinct first steps, which is a real answer and not a
+    /// missing one: a decision with one order on the board has no alternative and should not be recorded
+    /// as though its alternative was unreadable.
+    /// </summary>
+    public CourseProjection? RunnerUp { get { SettleRunnerUp(); return runnerUp; } }
+    public CourseValue? RunnerUpValue { get { SettleRunnerUp(); return runnerUpValue; } }
+    private CourseProjection? runnerUp;
+    private CourseValue? runnerUpValue;
+    private bool runnerUpSettled = true;
+
+    /// <summary>The best priced order for each distinct first step, which is what the runner-up is chosen
+    /// from. The empty order sits beside the dictionary rather than in it — a dictionary refuses a null
+    /// key, and the empty order has no first step and is a legitimate rival, so it needs a slot of its
+    /// own rather than a sentinel key some real opportunity could one day collide with.</summary>
+    private readonly Dictionary<OpportunityKey, (CourseProjection Projection, CourseValue Value)> byFirstStep = new();
+    private (CourseProjection Projection, CourseValue Value)? idleOrder;
+    private OpportunityKey? bestFirstStep;
     public long EvaluatedOrders { get; private set; }
     public long RejectedOrders { get; private set; }
     public bool Exhausted { get; private set; }
@@ -111,6 +146,8 @@ public sealed class SearchCourseOrders
         DepthTruncated = usable.Length > MaxDepth;
         orders = Enumerate(usable, retained, MaxDepth).GetEnumerator();
         pendingOrder = null; Best = null; BestValue = null; Exhausted = false;
+        runnerUp = null; runnerUpValue = null; runnerUpSettled = true;
+        bestFirstStep = null; byFirstStep.Clear(); idleOrder = null;
         EvaluatedOrders = RejectedOrders = 0;
         refusals.Clear();
         leaders.Clear();
@@ -152,11 +189,50 @@ public sealed class SearchCourseOrders
                 if (!leaders.TryGetValue(lead, out var best)
                     || CompareCourseOutcomes.NominalOrder(value, best, episode.Encounter) > 0)
                     leaders[lead] = value;
+                OpportunityKey? first = pendingOrder.Length == 0 ? null : pendingOrder[0];
+                if (first is { } key)
+                {
+                    if (!byFirstStep.TryGetValue(key, out var heldForFirst)
+                        || CompareCourseOutcomes.NominalOrder(value, heldForFirst.Value, episode.Encounter) > 0)
+                        byFirstStep[key] = (result.Projection, value);
+                }
+                else if (idleOrder == null
+                    || CompareCourseOutcomes.NominalOrder(value, idleOrder.Value.Value, episode.Encounter) > 0)
+                    idleOrder = (result.Projection, value);
                 if (BestValue == null || CompareCourseOutcomes.NominalOrder(value, BestValue, episode.Encounter) > 0)
-                { Best = result.Projection; BestValue = value; }
+                { Best = result.Projection; BestValue = value; bestFirstStep = first; }
+                runnerUpSettled = false;
             }
             pendingOrder = null;
         }
+    }
+
+    /// <summary>Pick the runner-up afresh from the best-per-first-step table, once per read rather than
+    /// once per priced order. Recomputed from the table rather than carried forward because the winner
+    /// can change under the search, and a runner-up maintained incrementally against a moving winner is
+    /// the order that used to be second rather than the one that is second now — which is the wrong
+    /// answer in exactly the case a reader opens the column for. Pricing an order therefore only marks
+    /// this unsettled; the scan happens when somebody asks, and every answer between two priced orders
+    /// is the same answer.</summary>
+    private void SettleRunnerUp()
+    {
+        if (runnerUpSettled) return;
+        runnerUp = null; runnerUpValue = null;
+        foreach (var entry in byFirstStep)
+        {
+            if (bestFirstStep is { } winner && entry.Key.Equals(winner)) continue;
+            Offer(entry.Value.Projection, entry.Value.Value);
+        }
+        if (bestFirstStep != null && idleOrder is { } idle) Offer(idle.Projection, idle.Value);
+        runnerUpSettled = true;
+    }
+
+    private void Offer(CourseProjection projection, CourseValue value)
+    {
+        if (runnerUpValue != null
+            && CompareCourseOutcomes.NominalOrder(value, runnerUpValue, episode!.Encounter) <= 0) return;
+        runnerUp = projection;
+        runnerUpValue = value;
     }
 
     private static IEnumerable<OpportunityKey[]> Enumerate(Opportunity[] opportunities,

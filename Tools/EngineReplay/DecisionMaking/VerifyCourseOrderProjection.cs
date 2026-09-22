@@ -112,7 +112,7 @@ internal static class VerifyCourseOrderProjection
 
     private static Opportunity Site(string target) => new(new("fixture", "use", target, 1), 1, default,
         OpportunityAdmission.KnownUsable, "fixture", new[] { new UsefulNeed(new(NeedKind.Loot, target), 1, 1, 1) },
-        new[] { "use" }, DependencyManifest.Empty);
+        new[] { "use" }, DependencyManifest.Empty, default);
     private static DecisionFactSnapshot Facts() => new(1, 1, 100, 1, 0, Array.Empty<DecisionFact>());
     private static CourseComparisonEpisode Episode(IEnumerable<Opportunity> sites)
         => new(1, 1, 10, sites.SelectMany(site => site.Needs), true, 0, "fixture");

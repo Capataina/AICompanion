@@ -312,9 +312,11 @@ internal static class VerifyCourseCore
         var local = new FactKey("terrain", "chunk:1");
         var remote = new FactKey("terrain", "chunk:2");
         var index = new CourseDependencyIndex();
-        index.Register(1, new(new[] { new FactRead(local, 1, "a", FactEvidence.Observed) }), Array.Empty<long>());
+        // The two reads differ by key rather than by value, which is what this row varies, so both
+        // carry a default value; a read records the fields it saw since 22 September 2026, not a hash.
+        index.Register(1, new(new[] { new FactRead(local, 1, default, FactEvidence.Observed) }), Array.Empty<long>());
         index.Register(2, DependencyManifest.Empty, new long[] { 1 });
-        index.Register(3, new(new[] { new FactRead(remote, 1, "b", FactEvidence.Observed) }), Array.Empty<long>());
+        index.Register(3, new(new[] { new FactRead(remote, 1, default, FactEvidence.Observed) }), Array.Empty<long>());
         var repair = new RepairCourse(); repair.Invalidate(index, local, "local-edit");
         repair.Continue(index, new(double.PositiveInfinity, 1));
         Require(repair.Pending == 1 && repair.IsDirty(1) && repair.IsDirty(2) && !repair.IsDirty(3),
@@ -338,7 +340,7 @@ internal static class VerifyCourseCore
         var fact = new FactKey("tile", "1,2");
         index.Register(1, DependencyManifest.Empty, Array.Empty<long>());
         index.Register(2, DependencyManifest.Empty, new long[] { 1 });
-        index.Register(1, new(new[] { new FactRead(fact, 2, "changed", FactEvidence.Observed) }), Array.Empty<long>());
+        index.Register(1, new(new[] { new FactRead(fact, 2, new FactValue(Amount: 1), FactEvidence.Observed) }), Array.Empty<long>());
         Require(index.Children(1).SequenceEqual(new long[] { 2 }), "Replacing reads erased effect descendants.");
         bool refused = false;
         try { index.Register(1, DependencyManifest.Empty, new long[] { 2 }); }
@@ -574,7 +576,7 @@ internal static class VerifyCourseCore
             && ReferenceEquals(before, owner.Current) && owner.Repair.Pending > 0,
             "A pending traversal was erased by publication.");
         owner.Repair.Continue(owner.Dependencies, new(double.PositiveInfinity));
-        var absent = new DependencyManifest(new[] { new FactRead(new("tile", "uncaptured"), 1, "missing", FactEvidence.Missing) });
+        var absent = new DependencyManifest(new[] { new FactRead(new("tile", "uncaptured"), 1, default, FactEvidence.Missing) });
         var unresolved = Binding(2, new[] { Effect(12, 10, 30) }, absent);
         Require(!owner.PublishTail(Projection(first, unresolved), Episode(), Facts(), _ => usable)
             && ReferenceEquals(before, owner.Current) && owner.Repair.Dirty.Count > 0,
@@ -614,7 +616,7 @@ internal static class VerifyCourseCore
             {
                 long index = cursor.Offset; cursor.Advance(); Examined++;
                 result.Add(new(new(name, "group", index.ToString(), 1), 1, new(index, 0), OpportunityAdmission.KnownUsable,
-                    "observed", new[] { new UsefulNeed(Loot, 20, 20, 1) }, new[] { "pickup" }, DependencyManifest.Empty));
+                    "observed", new[] { new UsefulNeed(Loot, 20, 20, 1) }, new[] { "pickup" }, DependencyManifest.Empty, default));
             }
             if (cursor.Offset == count) cursor.Complete();
             return new(result, new(name, facts.WorldEpoch, cursor.Offset, count, cursor.Exhausted, budget.Cut, "fixture-line"));
