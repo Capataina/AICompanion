@@ -14,7 +14,11 @@ using live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 internal static class VerifyProjectionContracts
 {
     private static readonly NeedKey Loot = new(NeedKind.Loot, "projection-contract");
-    private static readonly OpportunityKey Key = new("projection", "contract", "target", 1);
+    // The purpose is a declared one, because `Opportunity`'s constructor refuses any purpose
+    // `OpportunityPurposes` does not declare (a purpose no activity performs used to become a course
+    // step the tick could not execute). Nothing below asserts on the purpose string; the domain stays
+    // synthetic, which nothing refuses. The same edit landed on three sibling fixtures in f111e62.
+    private static readonly OpportunityKey Key = new("projection", "collect", "target", 1);
 
     public static int Run()
         => RunOneRow.Case("G08 effect-only reads dirty their dependent binding", EffectFactDependencies)
@@ -454,7 +458,9 @@ internal static class VerifyProjectionContracts
             if (cursor.Offset < count && budget.TrySpend("fixture-source"))
             {
                 long position = cursor.Offset; cursor.Advance(); Examined++;
-                found.Add(new(new(Name, "fixture", position.ToString(), 1), 1, new(position, 0), OpportunityAdmission.KnownUsable,
+                // A declared purpose, for the reason on `Key` above; the row counts examinations per
+                // source and never reads the purpose.
+                found.Add(new(new(Name, "collect", position.ToString(), 1), 1, new(position, 0), OpportunityAdmission.KnownUsable,
                     "fixture", Array.Empty<UsefulNeed>(), new[] { "fixture" }, DependencyManifest.Empty, default));
             }
             if (cursor.Offset == count) cursor.Complete();
