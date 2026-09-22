@@ -92,7 +92,14 @@ public sealed class MeasureTheFrame : IMeasure
         // denominator taken over different row sets is the arithmetic this folder's conventions already
         // ban. The interval statistics above keep every measured row, because none of them reads a
         // neighbour.
-        var attributable = measured.Where(i => i > 0).ToList();
+        //
+        // **The predecessor has to be the previous *update*, not merely the previous line of the file.**
+        // The file is one row per companion AI tick, so the two are the same until a row is dropped or
+        // a tick is skipped, and then the shift silently attributes one update's interval to another
+        // update's brain cost with arithmetic that still looks fine. The tick column is the only thing
+        // that can tell them apart, so the guard is the contiguity test rather than the index test, and
+        // the row count in each share's own sentence is how a reader sees how many pairs it cost.
+        var attributable = measured.Where(i => i > 0 && session.Tick(i) == session.Tick(i - 1) + 1).ToList();
         double attributableTotal = attributable.Sum(i => (double)frame.Number[i]);
         foreach ((string part, Column column, int back, string what) in new[]
         {
@@ -104,7 +111,8 @@ public sealed class MeasureTheFrame : IMeasure
         })
             yield return PlayRow.Share(Name + "/" + part + "-share",
                 attributable.Sum(i => Math.Max(0d, (double)column.Number[i - back])), attributableTotal, null,
-                $"of the measured interval on the {attributable.Count:n0} row(s) that have a predecessor to attribute it to, spent in {what}");
+                $"of the measured interval on the {attributable.Count:n0} of {measured.Count:n0} measured row(s) whose own predecessor "
+                    + $"update is in the file to attribute it to, spent in {what}");
     }
 
     /// <summary>One frame at sixty a second, the engine's own fixed timestep. A fact of the world

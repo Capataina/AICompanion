@@ -57,7 +57,10 @@ public sealed class TheFrameFitsTheEnginesTimestep : ICheck
         // the phase reason `MeasureTheFrame` states: `frame_ms` is anchored at PostUpdateEverything, so
         // a row's interval closed at the end of the *previous* update and the brain cost inside it is
         // the previous row's — which is what `FrameCost.RemainderMilliseconds` is handed for `engine_ms`.
-        var attributable = measured.Where(i => i > 0).ToList();
+        // The predecessor must be the previous *update* rather than the previous line: a dropped row
+        // makes the two differ and the shift then reads another update's brain cost with arithmetic
+        // that still looks right. `MeasureTheFrame` states the phase and carries the same guard.
+        var attributable = measured.Where(i => i > 0 && session.Tick(i) == session.Tick(i - 1) + 1).ToList();
         double total = attributable.Sum(i => (double)frame.Number[i]);
         string split = attributable.Count == 0 ? "no row has a predecessor to attribute its interval to"
             : string.Join(", ", new[] { ("brain_ms", 1), ("record_ms", 0), ("overlay_ms", 0), ("inspector_ms", 0), ("engine_ms", 0) }

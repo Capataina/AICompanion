@@ -220,6 +220,27 @@ public static class ChronicleTests
             Require(phasedFinding.Length == 1 && phasedFinding[0].Detail.Contains("brain 11.00 ms a frame (44.0%)", StringComparison.Ordinal),
                 $"the check's split must read the same phase as the measure: {(phasedFinding.Length == 0 ? "no finding" : phasedFinding[0].Detail)}");
 
+            // **The predecessor is the previous update, not the previous line of the file.** The two
+            // are the same until a row is dropped, and then the shift reads a brain cost belonging to
+            // an update two or more ticks back while the arithmetic still looks fine. The fixture above
+            // with its middle row removed is the whole test: ticks 0 and 2 survive, row 2's interval
+            // covers update 1 whose cost is not in the file, and attributing row 0's brain of 20 to it
+            // would read 80% of 25 ms. With the gap excluded there is no attributable pair at all, so
+            // the share is 0 over an empty set rather than a confident wrong number.
+            File.WriteAllText(file, "# schema=0.45.0\n"
+                + "tick\twall_elapsed_ms\tframe_ms\tdraws\toverlay_ms\tinspector_ms\tengine_ms\tbrain_ms\trecord_ms\n"
+                + "0\t0.00\t-1.00\t1\t0.00\t0.00\t0.00\t20.00\t0.00\n"
+                + "2\t25.00\t25.00\t1\t0.00\t0.00\t5.00\t2.00\t0.00\n");
+            var gapped = new MeasureTheFrame().Rows(Session.Load(file)).ToList();
+            double Gapped(string name) => gapped.Single(r => r.Case == "frame/" + name).Value ?? -1;
+            Require(Gapped("brain-share") == 0,
+                "a row whose own predecessor update is missing from the file was still attributed a brain cost — the shift reads the "
+                + $"previous *line*, which across a dropped tick belongs to another update entirely. brain-share={Gapped("brain-share"):0.00}");
+            string gappedNote = gapped.Single(r => r.Case == "frame/brain-share").Message;
+            Require(gappedNote.Contains("0 of 1 measured row(s)", StringComparison.Ordinal),
+                "the share's own sentence must say how many pairs the gap cost, or a zero share reads as a brain that cost nothing: "
+                + gappedNote);
+
             // The producer pin. The five columns are written by a file this project does not compile,
             // so a rename there leaves every row above passing against a capture nobody writes.
             string recorder = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
