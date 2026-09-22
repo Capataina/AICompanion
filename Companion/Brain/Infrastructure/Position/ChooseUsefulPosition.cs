@@ -335,12 +335,42 @@ public sealed class Positioner
     }
 
     /// <summary>
+    /// The band the park prefers, in tiles above the top of the player's head. README's words are
+    /// "it lives in the band of air a few tiles above your head and comes down to work", and this is
+    /// the "few". It is a positioning rule rather than a behaviour weight, so it lives beside the rule
+    /// it governs; the tunables the owner turns are <c>Selection/BehaviourWeights.cs</c>, and if this
+    /// ever becomes one of those it moves there.
+    /// </summary>
+    private const float ParkBandAboveHeadTiles = 3f;
+
+    /// <summary>
     /// The park inside the player's region: the usable corner with the most combined wall-and-enemy
     /// clearance the flood holds, failing that the same among corners not yet proven out. Closer to
     /// a wall or a body costs more, the way a route costs more; a two-tile crack is still taken when
-    /// it is the only air that is with him. Equal clearance keeps the nearer corner so open sky does
-    /// not twitch across a tied cap. Courtesy, bans and cut-off corners still refuse. Sight of the
-    /// player is not asked, because losing it is not distance.
+    /// it is the only air that is with him. Courtesy, bans and cut-off corners still refuse. Sight of
+    /// the player is not asked, because losing it is not distance.
+    ///
+    /// <para><b>Clearance saturates, so whatever breaks the tie is what actually picks the park.</b>
+    /// <see cref="ClearanceField.MaxTiles"/> is a cap and open air is on it, so in a room with any room
+    /// in it every admissible corner ties on clearance and the tiebreak is the whole decision. Until
+    /// 22 September 2026 the tiebreak was distance to the body, which has two consequences nobody
+    /// wanted and both of them were in the 10:05 capture. The park is wherever the body already is, so
+    /// a body that arrived low stays low for ever — there is nothing in the comparison that knows which
+    /// way is up. And the park *follows the body*: the nearest tied corner changes as the body drifts,
+    /// so the destination is re-picked toward the body at every rescore and the journey to it is
+    /// cancelled and re-asked; the census read `WithPlayer: asked 27, reached 1, abandoned 26`.</para>
+    ///
+    /// <para>The tiebreak is nearness to one point now — where he is heading, a few tiles above the top
+    /// of his head, which is where README says the companion lives. It is a fact about the player and
+    /// the region rather than about the body, so it holds still while the body moves, which is the half
+    /// that fixes the abandoned journeys; and it points upward, which is the half that lifts a low
+    /// arrival. The head is derived from the sense's own centre and feet rather than from a constant, so
+    /// a player whose height changes carries the band with him. Clearance still outranks it: a corner
+    /// genuinely clearer than another wins however low it is, because a two-tile crack that is the only
+    /// air with him is still the park. **Both axes are named, and that is not decoration**: a tiebreak
+    /// on height alone leaves the horizontal to the scan order, which put the park on the region's
+    /// leftmost admissible column — measured at x 592 against the player at x 800 — so a player walking
+    /// right had his park behind him.</para>
     /// </summary>
     private Vector2? ClearestInsideCorner(Senses.Senses senses)
     {
@@ -350,12 +380,20 @@ public sealed class Positioner
         CandidateCount = ReachableCandidateCount = RejectedCandidateCount = 0;
         var region = senses.Intent.Region;
         float inset = Movement.Navigator.SettleRadius;
-        Vector2 body = senses.Companion.Center;
+        // The band, in world y, where up is negative: the top of the player's head, lifted by the band.
+        // His head is his own centre less his half-height, and the half-height is the sense's own two
+        // points rather than a number, so nothing here has to be told how tall a player is.
+        float head = senses.Player.Position.Y - (senses.Player.Bottom.Y - senses.Player.Position.Y);
+        // The place in the region we would most like to be: horizontally where he is heading, vertically
+        // the band. Both axes are named rather than left to the scan, because a tiebreak that names only
+        // one axis hands the other to the loop's own order — which put the park on the region's leftmost
+        // admissible column, behind a player walking right.
+        Vector2 home = new(region.Heading.X, head - ParkBandAboveHeadTiles * 16f);
         Point low = CornerGraph.NearestCorner(region.Centre - region.HalfSize + new Vector2(inset));
         Point high = CornerGraph.NearestCorner(region.Centre + region.HalfSize - new Vector2(inset));
         Vector2? reached = null, unproven = null;
         float reachedClearance = float.MinValue, unprovenClearance = float.MinValue;
-        float reachedDistance = float.MaxValue, unprovenDistance = float.MaxValue;
+        float reachedOffHome = float.MaxValue, unprovenOffHome = float.MaxValue;
         for (int x = low.X; x <= high.X; x++)
         {
             for (int y = low.Y; y <= high.Y; y++)
@@ -370,21 +408,21 @@ public sealed class Positioner
                     continue;
                 }
                 float clearance = MovementQueries.CombinedClearance(spot);
-                float distance = Vector2.DistanceSquared(spot, body);
+                float offHome = Vector2.DistanceSquared(spot, home);
                 if (ReachesCorner(corner))
                 {
                     ReachableCandidateCount++;
-                    if (BetterPark(clearance, distance, reachedClearance, reachedDistance))
+                    if (BetterPark(clearance, offHome, reachedClearance, reachedOffHome))
                     {
                         reachedClearance = clearance;
-                        reachedDistance = distance;
+                        reachedOffHome = offHome;
                         reached = spot;
                     }
                 }
-                else if (BetterPark(clearance, distance, unprovenClearance, unprovenDistance))
+                else if (BetterPark(clearance, offHome, unprovenClearance, unprovenOffHome))
                 {
                     unprovenClearance = clearance;
-                    unprovenDistance = distance;
+                    unprovenOffHome = offHome;
                     unproven = spot;
                 }
             }
@@ -396,9 +434,13 @@ public sealed class Positioner
         return reached ?? unproven;
     }
 
-    private static bool BetterPark(float clearance, float distance, float bestClearance, float bestDistance)
+    /// <summary>Clearer air wins outright; a tie on clearance — which is every pair of corners once both
+    /// are on the field's cap — goes to whichever sits nearer the place we would most like to be, which
+    /// is where he is heading, a few tiles over his head. Neither term reads the body, so the answer
+    /// holds still between rescores while the body drifts.</summary>
+    private static bool BetterPark(float clearance, float offHome, float bestClearance, float bestOffHome)
         => clearance > bestClearance + 0.05f
-            || (clearance >= bestClearance - 0.05f && distance < bestDistance);
+            || (clearance >= bestClearance - 0.05f && offHome < bestOffHome);
 
     /// <summary>Whether the flood holds any corner of this tile; the tile-shaped question the exact and roam kinds and the brain ask.</summary>
     private bool InReach(Point tile) => reachSense != null && reachSense.InScoredRegion(tile);

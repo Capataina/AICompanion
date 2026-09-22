@@ -191,6 +191,7 @@ internal static class VerifyEngineMotion
         ("torches go where his smart cursor would put one in the dark, and the record says why not", VerifyTorchPlacementRule.Run),
         ("every candidate a preparation refused is named with the stage and what it read", VerifyCandidateFunnel.Run),
         ("keeping company over pools stays returnable, never stands still, and meets a walking player", VerifyCompanyLocalMotion.Run),
+        ("the park is chosen about the player rather than about the body, and sits in the band above his head", VerifyTheParkIsAboutThePlayer.Run),
         ("keeping company is the fallback: a slime worth hunting is hunted, a far one is not, rejoining is capped and sight is not distance", VerifyCompanyIsTheFallback.Run),
         ("keeping the player company is moving about his whole region: never still, never trailing, and moving from the first tick", VerifyAccompanyingThePlayer.Run),
         ("being with the player needs a way to him: a body inside his region on the far side of a sealed wall comes round", VerifyWithThePlayerNeedsAWayToHim.Run),
