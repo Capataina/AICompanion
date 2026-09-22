@@ -23,6 +23,8 @@ WorldRun/
 ├─ RunTheScenario.cs            a committed scenario window played in its world: the grid checked against the tiles, the orb flown to a standing player
 ├─ ScoreTheRun.cs               determinism, the recorded comparison, the checkpoint matrix
 ├─ GradeThePlayMeasures.cs      two verdicts, their five refusals to grade, and fourteen measures over one production-clock pass
+├─ DriveASeededScene.cs         a player nobody recorded: a seeded bot walking, stopping and mining, and the cast built from its own track
+├─ RunTheSoak.cs                the long run's own tick loop, sampled once per decision, and the three verdicts it grades
 └─ ExploreWithoutTheTrack.cs    Go-Explore over body poses, with the reach sense as the progress score
 ```
 
@@ -218,6 +220,67 @@ second-generation collections              12 · 13 · 38 · 44
 The verdicts and the first refusal tick are stable; the shares move three to four points and the collection count runs threefold. **A determinism row has no meaning here and none is emitted**, and every measure carries the tag `sampled-under-the-production-clock` so a reader knows what it is looking at. The tag is a label and not a tolerance: `CompareRunsAndScore.Drift` calls any difference above 1e-9 a drift, and the only softening the ledger has is a noise band built from three or more *repeat runs at the baseline commit*, so until somebody either teaches the ledger a per-row tolerance or runs this suite three times per commit, **every measure here will appear under "measures that moved" on every run, for ever, and that is expected rather than a finding.** The scene string is on the two verdicts only for the same reason: the scoreboard prints a changed row's whole message untruncated, and a 2,200-character paragraph on fifteen rows put 33 KB of the same text — one firefly's stack trace fifteen times over — into every verify.
 
 **Neither verdict has been seen green for a good reason yet, and the two-sided evidence is thin.** Both have been observed red and skipped on this tree, and both were once observed *passing* on a 300-tick window from tick 1,700 — which is the vacuous pass the floor now skips. **Two things caused that window's emptiness and the first guess named only one of them.** Its actors were never placed, because placement happened on the spawn tick alone and fifteen of eighteen had spawned before the window opened; and with all twelve live ones now placed the same window still admits usable work on only 7 of 300 ticks, because discovery is resumable and accumulates over a session, so a brain started cold at tick 1,700 has none of the census the play had by then. The floor catches both without having to tell them apart. A mutation proving the refusal row goes green when the defect is *fixed* still needs the brain change itself, which lives outside this folder.
+
+## The soak is the fourth command, and it is the only one whose length is the measurement
+
+Every run above replays something: a capture's player track, a committed window, a recorded scene. The soak replays nothing. Its player is generated from a seed, and the reason is that the thing it looks for cannot fit inside a recording — the play of 22 September grew its frozen observation from 150 facts to 1,603 over thirty-three seconds and never fell back, with fifty second-generation collections in a minute, and **no instrument in this repository runs the brain long enough to see a slow climb at all**. Every fixture is seconds; the longest capture this machine holds is 22,473 ticks, about six minutes.
+
+```
+dotnet run --project Tools/WorldRun -- --soak --world=<path>.wld
+                                       [--seed=N] [--ticks=N] [--suite=<name>]
+                                       [--record-to=<dir>] [--no-light]
+```
+
+`DriveASeededScene` is the player. A state machine walks the surface near the world's spawn, stops, turns round at a cliff or at a hundred and ten tiles, and in its mining phase breaks a tile ahead of itself through the game's own `WorldGen.KillTile` — through the engine rather than into `Main.tile`, because the mod's `TrackTerrainChanges` is a `GlobalTile` and that announcement is the only route by which an edit reaches every retained search that read there. Hostiles and drops arrive on a schedule from the same seed, staged by `StageRecordedActors` with native NPC AI and per-actor retirement, exactly as a recorded cast is. **The cast is built by walking a second generator at the same seed rather than by remembering the first**, because everything it places is placed beside where the bot will actually be standing on the tick it appears, and an hour of materialised track is ten megabytes that would sit inside the memory number this instrument reports.
+
+**It is a second tick loop and not `RunTheWorld.Play`, and that is the measurement's own requirement rather than a preference.** `Play` retains six lists with one entry per tick — centres, a trace line, a planner claim, two region flags and a `PlayTick` struct — which is right for every row that compares two passes or scores a track and is hundreds of megabytes of deliberate retention over an hour. A memory verdict taken through it would be measuring the harness. So `RunTheSoak` does the same five things in the same order, holds nothing per tick, and aggregates per decision. That is a third copy of the tick order in this repository, beside `EngineReplay`'s; the folder has carried that cost knowingly since the play measures landed, and an allocation verdict measuring its own instrument is the worse trade.
+
+It keeps the production clock, for the play measures' reason, so every timing it reports is tagged `sampled-under-the-production-clock` and is a measure rather than a pass line.
+
+**Three verdicts, and the split between them is a judgement about what a soak can hold the brain to.**
+
+```
+verdict   the frozen observation's floor does not climb over a long run
+          the minimum of the last window of 50 decisions against the minimum of the first, after 25
+          warm-up decisions, with a slack of 128 facts. The floor rather than the mean, because the
+          play's signature was a quietest decision that never came back down; the warm-up out of the
+          windows because discovery is resumable and a brain's first decisions carry almost nothing —
+          measured, the opening window's floor is 12 against 149 twenty-five decisions later, so
+          reading it as the baseline reddens the row on a clean tree by 138 facts
+
+verdict   managed memory comes back to its warmed baseline after the run
+          both figures after a forced blocking gen-2 collection, the baseline taken after the same 25
+          warm-up decisions, against a declared 64 MB. `GetTotalMemory(false)` moves by tens of
+          megabytes between adjacent ticks and is not a figure two points in a run can be compared on
+
+verdict   the soak's own capture holds no decision-contract violation
+          the recording this run writes, read back for the six kinds `AuditDecisionContracts` names —
+          and asserted on three of them. `decide-overran-allowance` is a wall clock under a clock this
+          command keeps, so a verdict on it is a verdict on how busy the machine was;
+          `accepted-use-absent-next-tick` and `activity-exited-during-decision` fire legitimately when
+          the world removes what a course was holding, which is what this run's own staging does when
+          it retires a hostile. All six counts are in the message
+
+measure   the share of ticks whose whole brain overran a frame, the decision count, the peak and median
+          facts, the median opportunities carried, decide cost at p50 and its worst tick, wall clock per
+          tick, and the tiles the bot mined
+```
+
+**The audit's source is installed by this run rather than by the recorder, and until that line existed every capture this folder writes was audited against nothing.** `ReadLiveCourseForAudit.Install` is called in play from `BrainTelemetry.Load`, a ModSystem override the loader calls and `AttachTheRecorder` does not; and `PrepareTheHeadlessEngine.AttachCompanion` builds a body with both halves of the ModNPC attachment and no slot, so `CompanionNPC.Instance` — which scans `Main.ActiveNPCs` for the registered type — finds nothing even once the source is installed. Measured on the first soak run before either was fixed: **600 decisions audited and 0 frozen observations read**, which is the broken-installer signature the audit's own comments describe and which silently reduces six contracts to the two that read the payload alone. `RunTheSoak` installs the source and puts the body in `Main.npc[0]`; **the play-measures command still does neither**, so its quarantined capture carries the same two zeroes, and the fix for it belongs beside `AttachTheRecorder.Open`.
+
+**What the short form measured on a clean tree, 22 September 2026 at `9dd7b27` plus this lane, seed 1, 7,200 ticks, other seats building.** 54.2 s at 7.52 ms a tick, 2,609 decisions, 33 tiles mined, gc 949/335/8. The observation's window floors run 149 150 150 150 140 119 92 … 128 129 — **thirteen of the fifty-one windows fell back on the one before**, with a peak of 170 facts against the play's 1,603, and memory ends 7.3 MB above its warmed baseline. So **the play's growth does not reproduce in two minutes of a seeded surface soak**, which is a fact about this scene rather than about the brain: the bot walks a surface, and the play was underground with a crowd.
+
+**The planted leak the growth row is proved against**, and it is proved rather than asserted: one fact of every observation carried into every later one, appended in `AssembleCourseSnapshot.Capture` under a key of its own. Under it the same run reports the floor rising by 4,221 facts over forty windows, 169 to 4,390 with *no* window falling back, a peak of 4,485, and second-generation collections at 36 against 8. The capture verdict catches it too, at `fact-count-above-bound=129`, first at observation ordinal 350 — 513 facts against the declared 512. **The memory verdict does not**: its delta is 9.6 MB against 7.3 on the clean run, well inside the line, which is the honest limit of that row at this scale and the reason the growth row is the one the mutation is aimed at. A naive leak that re-adds the same fact object is refused by the snapshot's own duplicate-key guard with `An item with the same key has already been added`, which is worth knowing before planting one.
+
+**The hour-long form is a command somebody runs on purpose, and this is it.** An hour of play is 216,000 ticks and about half an hour of wall clock at the rate above; run it before a package, on an idle machine, with the capture kept:
+
+```
+dotnet run -p:UseAppHost=false --project Tools/WorldRun -- --soak \
+  --world="$HOME/Library/Application Support/Terraria/tModLoader/Worlds/Lilalio.wld" \
+  --seed=1 --ticks=216000 --suite="soak hour seed 1" --record-to=/tmp/aic-soak-hour
+```
+
+`sh Tools/verify.sh` runs the two-minute form at seed 1 and files its rows into the run like any other. Two things the soak deliberately does not cover: the bot does not fight, build, use an item or go underground, so a behaviour it cannot perform is a behaviour the soak says nothing about; and there is no determinism row, because the command keeps the production clock and two passes under a wall clock are two afternoons.
 
 ## Running it
 
