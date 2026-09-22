@@ -191,7 +191,14 @@ internal static class GradeThePlayMeasures
         }
         return RunTheSoak.GradeTheFactFloor(suite,
             "the frozen observation's floor does not climb across the replayed capture",
-            facts, play.Count, scene, new[] { SampleTag }, mode: "production-clock");
+            facts, play.Count, scene, new[] { SampleTag }, mode: "production-clock")
+            // The floor and the window are the two halves of one question and they fail apart: a census
+            // that re-sweeps correctly can still climb if its window fills, which is what this capture
+            // does, and one that never climbs can still be accumulating inside a window nobody checked.
+            // Graded together here because they read the same run and a reader chasing "is the
+            // observation honest" wants both answers from one place.
+            + CountTheFrozenObservationByKind.GradeTheWindow(suite, scene, new[] { SampleTag },
+                mode: "production-clock");
     }
 
     /// <summary>

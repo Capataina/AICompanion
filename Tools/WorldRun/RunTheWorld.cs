@@ -411,8 +411,11 @@ internal static class RunTheWorld
             centres.Add(companion.NPC.Center);
             var brain = companion.Brain;
             var course = brain.Course;
-            if (CountTheFrozenObservationByKind.Wanted && course.Facts is { } observed)
-                CountTheFrozenObservationByKind.Write(step.Tick, observed,
+            // Unconditional now rather than gated on the probe's file, because the window property it
+            // accumulates is graded as a row and a row that only runs when an environment variable is
+            // set is a row nobody runs. The per-tick file is still the gated half.
+            if (course.Facts is { } observed)
+                CountTheFrozenObservationByKind.Observe(step.Tick, observed,
                     brain.Senses.Intent.Region.Heading.ToTileCoordinates());
             int usable = 0, unresolved = 0;
             foreach ((string _, int domainUsable, int domainUnresolved, int _, string _) in course.Admitted)
