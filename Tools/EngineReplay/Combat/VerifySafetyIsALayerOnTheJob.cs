@@ -78,7 +78,7 @@ internal static class VerifySafetyIsALayerOnTheJob
             VerifyOreWork.AdvanceBrain(ctx);
             string owner = brain.ControlGrants.Last?.AppliedOwner ?? "-";
             owners[owner] = owners.TryGetValue(owner, out int seen) ? seen + 1 : 1;
-            if (brain.Chooser.Activity.Phase == ActivityPhase.Suspended && !brain.FollowRecovery.Active && !ctx.Companion.IsDowned) suspended++;
+            if (brain.Activity.Phase == ActivityPhase.Suspended && !brain.FollowRecovery.Active && !ctx.Companion.IsDowned) suspended++;
             stillRun = walking && ctx.Companion.Motor.State.Velocity.Length() < 0.3f ? stillRun + 1 : 0;
             Vector2 v = ctx.Companion.Motor.State.Velocity, d = ctx.Companion.Motor.DesiredVelocity;
             recent.Enqueue($"t{tick} {owner} {brain.LastRequest.Kind} request-anchor {brain.LastRequest.Anchor.X:0},{brain.LastRequest.Anchor.Y:0} nav {brain.Navigator.Status}/{brain.Navigator.ProgressReason} plan-failed {brain.Navigator.LastPlanFailed} stop {brain.Navigator.LastSearchStop} goal {brain.Navigator.Goal} vel {v.X:0.00},{v.Y:0.00} desired {d.X:0.00},{d.Y:0.00} centre {ctx.Npc.Center.X:0},{ctx.Npc.Center.Y:0} player {player.Bottom.X:0},{player.Bottom.Y:0}");
@@ -164,8 +164,8 @@ internal static class VerifySafetyIsALayerOnTheJob
             bool shot = companion.Combat.LastFireOutcome == "fired";
             fired += shot ? 1 : 0;
             if (shot && brain.EngageTarget?.whoAmI == 30 && brain.ControlGrants.Last?.Hand == HandGrant.Available) firedAtZombie++;
-            if (brain.Chooser.Current?.Name == "combat") combatTicks++;
-            if (brain.Chooser.Current != null && brain.Chooser.Activity.Phase == ActivityPhase.Suspended) suspendedTicks++;
+            if (brain.Activity.Current?.Name == "combat") combatTicks++;
+            if (brain.Activity.Current != null && brain.Activity.Phase == ActivityPhase.Suspended) suspendedTicks++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
         Console.WriteLine($"  keep-the-job rows: combat ticks {combatTicks}, fired ticks {fired}, fired at the zombie {firedAtZombie}, suspended ticks {suspendedTicks}");
@@ -190,15 +190,15 @@ internal static class VerifySafetyIsALayerOnTheJob
         player.Bottom = new Vector2(22 * 16, 90 * 16);
         Hostile(30, NPCID.Zombie, player.Bottom + new Vector2(40, 0));
         VerifyResponsiveFollowing.AdvanceNative(companion);
-        var chooser = companion.Brain.Chooser;
-        for (int tick = 0; tick < 60 && !(chooser.Current?.Name == "combat" && chooser.Activity.Phase == ActivityPhase.Executing); tick++)
+        var chooser = companion.Brain;
+        for (int tick = 0; tick < 60 && !(chooser.Activity.Current?.Name == "combat" && chooser.Activity.Phase == ActivityPhase.Executing); tick++)
         {
             Tick(companion);
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
-        Require(chooser.Current?.Name == "combat" && chooser.Activity.Phase == ActivityPhase.Executing,
-            $"the shot scene must first be guarding, or keeping the job proves nothing; current={chooser.Current?.Name} phase={chooser.Activity.Phase}");
-        var guard = chooser.Current;
+        Require(chooser.Activity.Current?.Name == "combat" && chooser.Activity.Phase == ActivityPhase.Executing,
+            $"the shot scene must first be guarding, or keeping the job proves nothing; current={chooser.Activity.Current?.Name} phase={chooser.Activity.Phase}");
+        var guard = chooser.Activity.Current;
         long id = chooser.Activity.Id;
 
         Projectile shot = HostileShot(companion.NPC.Center - new Vector2(80, 0), new Vector2(8, 0));
@@ -211,7 +211,7 @@ internal static class VerifySafetyIsALayerOnTheJob
             var grant = companion.Brain.ControlGrants.Last!.Value;
             if (grant.AppliedOwner == "evade") { evadeTicks++; evadeHand ??= grant.Hand; }
             if (chooser.Activity.Phase == ActivityPhase.Suspended) suspended++;
-            sameGuard &= ReferenceEquals(chooser.Current, guard) && chooser.Activity.Id == id;
+            sameGuard &= ReferenceEquals(chooser.Activity.Current, guard) && chooser.Activity.Id == id;
             VerifyResponsiveFollowing.AdvanceNative(companion);
             shot.position += shot.velocity;
             if (shot.Hitbox.Intersects(companion.NPC.Hitbox)) hits++;
@@ -221,7 +221,7 @@ internal static class VerifySafetyIsALayerOnTheJob
         Require(evadeTicks > 0 && evadeHand == HandGrant.Available,
             $"a shot on a collision course must bend some tick's motion through the evade step with the hands still granted; evade ticks={evadeTicks} hand={evadeHand}");
         Require(suspended == 0 && sameGuard,
-            $"the shot must neither suspend guarding nor replace it; suspended ticks={suspended} same guard={sameGuard} current={chooser.Current?.Name}#{chooser.Activity.Id} (was guard#{id})");
+            $"the shot must neither suspend guarding nor replace it; suspended ticks={suspended} same guard={sameGuard} current={chooser.Activity.Current?.Name}#{chooser.Activity.Id} (was guard#{id})");
         Require(hits == 0, $"the bent motion must get the body clear of the shot; hits={hits} over {ticks} ticks");
     }
 
@@ -262,7 +262,7 @@ internal static class VerifySafetyIsALayerOnTheJob
             Tick(companion);
             travelled += Vector2.Distance(companion.NPC.Center, previous);
             previous = companion.NPC.Center;
-            guarding += companion.Brain.Chooser.Current?.Name == "combat" ? 1 : 0;
+            guarding += companion.Brain.Activity.Current?.Name == "combat" ? 1 : 0;
             VerifyResponsiveFollowing.AdvanceNative(companion);
             between.velocity = Vector2.Zero;
             if (companion.NPC.Hitbox.Intersects(between.Hitbox)) contact++;
@@ -315,7 +315,7 @@ internal static class VerifySafetyIsALayerOnTheJob
     {
         var (companion, player) = OpenFloor();
         player.Bottom = new Vector2(60 * 16, 90 * 16);
-        companion.Brain.Chooser.Actions.Clear();
+        companion.Brain.Actions.Clear();
         VerifyResponsiveFollowing.AdvanceNative(companion);
         Projectile arrow = HostileShot(companion.NPC.Center - new Vector2(160, 0), new Vector2(8, 0));
         int hitAt = -1;

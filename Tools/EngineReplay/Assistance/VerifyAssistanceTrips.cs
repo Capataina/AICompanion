@@ -137,7 +137,7 @@ internal static class VerifyAssistanceTrips
         Vector2 start = ctx.Npc.Bottom;
         Require(footprint.All(t => !FindToolAccess.InReach(start, t)), "the pot must be out of reach where the walk starts, or nothing is passed");
         var brain = ctx.Companion.Brain;
-        brain.Chooser.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
+        brain.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
         Point? torch = null;
         int brokenAt = -1, torchAt = -1;
         string before = "", atBreak = "", actionAtBreak = "";
@@ -167,11 +167,11 @@ internal static class VerifyAssistanceTrips
                     for (int y = 45; y <= 59 && torch == null; y++)
                         if (Main.tile[x, y].HasTile && TileID.Sets.Torch[Main.tile[x, y].TileType]) { torch = new Point(x, y); torchAt = tick; }
         }
-        string attempts = string.Join("; ", brain.Chooser.Activity.RecentAttempts.Select(a => $"{a.Activity}:{a.Status}:{a.Cause}:effects={a.ProductiveEffects}"));
+        string attempts = string.Join("; ", brain.Activity.RecentAttempts.Select(a => $"{a.Activity}:{a.Status}:{a.Cause}:effects={a.ProductiveEffects}"));
         // Lighting's own last word and the torch it is carrying, because every way this row fails runs through
         // one of them: a refusal names why no site was taken, and a shown torch means the field is discounting
         // the companion's own light in exactly the neighbourhood the sites are in.
-        var lighting = brain.Chooser.Actions.OfType<LightUsefulArea>().FirstOrDefault();
+        var lighting = brain.Actions.OfType<LightUsefulArea>().FirstOrDefault();
         string lightState = lighting == null ? "lighting not registered"
             : $"lighting offer={lighting.Eligibility}/{lighting.EligibilityReason} value={lighting.Score():0.000} target={lighting.ActivityTarget}"
             + $"; torch lit={ctx.Companion.Torch.Lit} shown={ctx.Companion.Torch.Shown} reason={ctx.Companion.Torch.Reason}"
@@ -194,7 +194,7 @@ internal static class VerifyAssistanceTrips
         Require(brokenAt >= 0 && actionAtBreak == "place-torches" && feetAtBreak > start.X + 32f,
             $"a permitted pot in reach must be broken in passing, during the lighting trip and after the walk began; {ledger}");
         Require(before == atBreak, $"breaking the pot must change neither the request nor the movement owner; {ledger}");
-        Require(brain.Chooser.Activity.RecentAttempts.Any(a => a.Activity == "place-torches" && a.Status.ToString() == "Complete" && a.ProductiveEffects == 1),
+        Require(brain.Activity.RecentAttempts.Any(a => a.Activity == "place-torches" && a.Status.ToString() == "Complete" && a.ProductiveEffects == 1),
             $"the lighting attempt must complete with its torch as its only productive effect; the pot is credited to no activity; {ledger}");
         if (incidental != null)
             Require(incidentalAtBreak != null && incidentalAtBreak.ToString()!.Contains("Method = collect") && incidentalAtBreak.ToString()!.Contains("DuringActivity = place-torches"),
@@ -255,8 +255,8 @@ internal static class VerifyAssistanceTrips
             $"the approach must name a hover above the floor, not a pose on it; hover={hover} floor centre={floorCentre}");
 
         string methodName = lighting ? "place-torches" : "collect";
-        brain.Chooser.Actions.RemoveAll(a => a.Name != methodName && a.Name != "keep-company");
-        var method = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.PerformNearbyWorldWork>().Single();
+        brain.Actions.RemoveAll(a => a.Name != methodName && a.Name != "keep-company");
+        var method = brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.PerformNearbyWorldWork>().Single();
         float score = VerifyPreparedActivities.PrepareAndScore(method, ctx);
         string offer = $"shelf row {shelfRow}: score={score:0.000} offer={method.Eligibility}/{method.EligibilityReason} target={method.ActivityIdentity}";
         Require(score > 0 && method.ActivityIdentity is Point, $"a site reachable from a hover beside it must be offered; {offer}");
@@ -282,7 +282,7 @@ internal static class VerifyAssistanceTrips
             if (now != last && trace.Length < 1600) trace.Append($" t{tick}:{now}@{ctx.Npc.Center.X:0},{ctx.Npc.Center.Y:0}");
             last = now;
         }
-        string attempts = string.Join("; ", brain.Chooser.Activity.RecentAttempts.Select(a => $"{a.Activity}:{a.Status}:{a.Cause}"));
+        string attempts = string.Join("; ", brain.Activity.RecentAttempts.Select(a => $"{a.Activity}:{a.Status}:{a.Cause}"));
         Require(Done(), $"the whole brain must {(lighting ? "place the torch" : "break the pot")} from a hover; ticks={tick} centre={ctx.Npc.Center} action={brain.LastAction?.Name} "
             + $"status={method.Eligibility}/{method.EligibilityReason} highest centre={highest} attempts=[{attempts}] trace:{trace}");
         // The tick it finished on, not the highest point it ever reached: a run that drifted upward once and then
@@ -291,7 +291,7 @@ internal static class VerifyAssistanceTrips
             $"the interaction must be performed from a hover above the floor; centre at completion={atDone} floor centre={floorCentre}");
         // One trip, performed: an approach that gave up and was retried would still finish the job eventually, so the
         // attempts are read for a failed method as well as the tile being read for the effect.
-        Require(!brain.Chooser.Activity.RecentAttempts.Any(a => a.Activity == methodName && a.Status.ToString() == "Failed"),
+        Require(!brain.Activity.RecentAttempts.Any(a => a.Activity == methodName && a.Status.ToString() == "Failed"),
             $"the trip must reach its hover and work from it, never fail a method on the way; attempts=[{attempts}] trace:{trace}");
         Console.WriteLine($"hover {(lighting ? "torch" : "pot")}: performed at tick {tick} from centre y {atDone:0}, highest {highest:0}, hover offered {hover}");
     }

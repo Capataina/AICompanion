@@ -127,7 +127,7 @@ internal static class MeasureBrainCost
             var brain = companion.Brain;
             var grant = brain.ControlGrants.Last!.Value;
             run.Trace.Add(string.Create(CultureInfo.InvariantCulture,
-                $"{brain.Chooser.Current?.Name ?? "-"}|{brain.LastRequest.Kind}|{companion.Motor.AppliedControls}|{grant.AppliedOwner}|{grant.Hand}|{companion.NPC.position.X:R},{companion.NPC.position.Y:R}"));
+                $"{brain.Activity.Current?.Name ?? "-"}|{brain.LastRequest.Kind}|{companion.Motor.AppliedControls}|{grant.AppliedOwner}|{grant.Hand}|{companion.NPC.position.X:R},{companion.NPC.position.Y:R}"));
             Sample("senses", brain.SensesMs);
             Sample("reflex+safety", brain.ReflexMs);
             Sample("decide", brain.DecideMs);
@@ -138,12 +138,6 @@ internal static class MeasureBrainCost
             Sample("AI outside brain (incl. recording)", Math.Max(0, ai - brain.TotalMs));
             // The recorder's own measurement of the same call, so the outside-brain figure can be split into recording and the rest.
             if (recording && !double.IsNaN(BrainTelemetry.LastRecordMilliseconds)) Sample("recording (BrainTelemetry.Record)", BrainTelemetry.LastRecordMilliseconds);
-            if (brain.ChoiceEvaluated)
-                foreach (var family in brain.Chooser.Queries.LastFamilies)
-                {
-                    Sample($"prepare {family.Family}", family.Milliseconds);
-                    Sample($"deferred {family.Family} (count)", family.Deferred);
-                }
             Sample("AI total", ai);
         }
         if (recording) recorder.OnWorldUnload();

@@ -29,9 +29,18 @@ internal static class VerifyCompanionActivities
             DangerIsChargedOnceToTheActorItThreatens();
             ConsecutiveJobsEarnTheirOwnAllowance();
             ActivityOwnershipSurvivesInterruption();
-            InvalidCandidatesCannotBecomeTheFallback();
-            InvalidatedCandidatesAreReconsideredWithoutDiscovery();
-            ReplacedMiningMaterialYieldsToAPreparedSibling();
+            // Four rows went with the family chooser on 22 September 2026 (`AIC-419`), each driving
+            // `Chooser.Choose` on a stage the course does not have. `AFamilyAllowanceDefersSiblingsFairly`
+            // was the per-family preparation share, its rotation and its deferral reporting; discovery is
+            // sliced per domain against the frozen observation now and `--retained-course-budget` owns
+            // what a cut allowance may and may not do. `InvalidCandidatesCannotBecomeTheFallback` asserted
+            // that an all-zero board activates nobody; an empty course is legal, winning and *is*
+            // companionship, which `VerifyCourseBindingExecution` holds. The two invalidation rows —
+            // a candidate whose target changed identity, generation, slot, type or material between
+            // preparation and activation — are the admission-evidence class, and the course answers it
+            // one layer earlier by re-reading each candidate's own `AdmissionEvidence` against the current
+            // observation before serving it, which `VerifyAdmittedOpportunitiesBind` holds on the scene
+            // the 22 September play ended in.
             StallsSurviveBehaviourChanges();
             ComfortableFollowingHasNoRegroupPressure();
             RemoteJobReleasesAndDiscoversNearbyOre();
@@ -41,7 +50,6 @@ internal static class VerifyCompanionActivities
             DoorsKeepTheWholeBedroomProtected();
             TorchPlacementNeverUsesUpATorch();
             AmbientFallbackDoesNotInventSamples();
-            AFamilyAllowanceDefersSiblingsFairly();
             TorchRecommendationsPreserveThePlayersCursor();
             Console.WriteLine("companion activities: resource/follow competition, actor-specific danger charged once, remote job release, actual swing reach, bed protection and native torch inventory contracts pass");
             return 0;
@@ -61,7 +69,7 @@ internal static class VerifyCompanionActivities
         // first frames a companion lives are spent flooding reach and optional work refuses an
         // unanswered search rather than walking at it.
         for (int i = 0; i < 3; i++) VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
-        string? chosen = ctx.Companion.Brain.Chooser.Current?.Name;
+        string? chosen = ctx.Companion.Brain.Activity.Current?.Name;
         Require(chosen == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen ?? "none"}");
     }
 
@@ -107,60 +115,10 @@ internal static class VerifyCompanionActivities
     /// The combat probe wins the first two comparisons so the incumbent is outside the gathering
     /// family whose rotation is under test.
     /// </summary>
-    private static void AFamilyAllowanceDefersSiblingsFairly()
-    {
-        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-        var chooser = ctx.Companion.Brain.Chooser;
-        var gathering = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Gathering;
-        var deferredOffer = live::AICompanion.Companion.Brain.Activities.OfferEligibility.Deferred;
-        var first = new ActivityProbe { Target = ctx.Player.Bottom, Value = .4f, Purpose = gathering };
-        var second = new ActivityProbe { Target = ctx.Player.Bottom, Value = .9f, Purpose = gathering };
-        var combat = new ActivityProbe { Target = ctx.Player.Bottom, Value = .95f, Purpose = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Combat };
-        var company = new ActivityProbe { Target = ctx.Player.Bottom, Value = .1f, Excursion = false };
-        chooser.Actions.Clear();
-        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Activities.CompanionAction[] { first, second, combat, company });
-        chooser.FamilyPreparationMilliseconds = 0;
-
-        var chosen = chooser.Choose(ctx);
-        Require(first.Preparations == 1 && second.Preparations == 0 && combat.Preparations == 1 && company.Preparations == 1,
-            $"a spent share must defer the second optional sibling only; first={first.Preparations} second={second.Preparations} combat={combat.Preparations} company={company.Preparations}");
-        Require(chooser.LastScores.Single(s => ReferenceEquals(s.Action, second)) is { Final: 0, Raw: 0 } row && row.Eligibility == deferredOffer,
-            "a deferred child must be reported as deferred with no value, not as an absent opportunity");
-        Require(chooser.Queries.LastFamilies.Single(f => f.Family == gathering) is { Prepared: 1, Deferred: 1 },
-            "the family summary must count what was prepared and what was deferred");
-        Require(ReferenceEquals(chosen, combat), "the fixture's incumbent must sit outside the rotating family");
-
-        chooser.Choose(ctx);
-        Require(first.Preparations == 1 && second.Preparations == 1 && company.Preparations == 2 && combat.Preparations == 2,
-            $"the next comparison must start from the deferred sibling while non-excursion and incumbent children still prepare; first={first.Preparations} second={second.Preparations}");
-
-        combat.Value = 0;
-        chosen = chooser.Choose(ctx);
-        Require(first.Preparations == 2 && second.Preparations == 1 && ReferenceEquals(chosen, first),
-            $"a deferred sibling's retained higher value must not win; chosen={chosen?.Name} first={first.Preparations} second={second.Preparations}");
-
-        // Two fresh optional siblings with no incumbent among them: a zero share defers one, and
-        // lifting wall-clock allowances must prepare both, so offline determinism never starves a family.
-        var left = new ActivityProbe { Target = ctx.Player.Bottom, Value = .3f, Purpose = gathering };
-        var right = new ActivityProbe { Target = ctx.Player.Bottom, Value = .2f, Purpose = gathering };
-        chooser.Actions.Clear();
-        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Activities.CompanionAction[] { left, right, company });
-        chooser.Choose(ctx);
-        Require(left.Preparations + right.Preparations == 1, "the counter-case must defer one sibling under a zero share");
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
-        try
-        {
-            chooser.Choose(ctx);
-            Require(left.Preparations + right.Preparations == 3 && chooser.Queries.LastFamilies.All(f => f.Deferred == 0),
-                "with wall-clock allowances lifted no sibling may be deferred");
-        }
-        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
-    }
-
     private static void ActivityOwnershipSurvivesInterruption()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-        var owner = ctx.Companion.Brain.Chooser.Activity;
+        var owner = ctx.Companion.Brain.Activity;
         var activity = new ActivityProbe { Target = ctx.Player.Bottom };
         owner.Select(activity, ctx);
         long first = owner.Id;
@@ -186,89 +144,6 @@ internal static class VerifyCompanionActivities
             "abandoning a suspended activity must clear ownership without releasing its method twice");
     }
 
-    private static void InvalidCandidatesCannotBecomeTheFallback()
-    {
-        var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
-        var chooser = ctx.Companion.Brain.Chooser;
-        var invalid = new ActivityProbe { Target = ctx.Player.Bottom, Value = float.NaN };
-        chooser.Actions.Clear(); chooser.Actions.Add(invalid);
-        Require(chooser.Choose(ctx) == null && invalid.Entries == 0,
-            "an invalid last candidate must not be activated through the all-zero fallback");
-        Require(chooser.LastScores.Single().Error == "invalid-raw-value", "the rejected input must retain its diagnostic reason");
-        invalid.Value = 0;
-        Require(chooser.Choose(ctx) == null && invalid.Entries == 0
-            && chooser.LastNominations.All(n => n.Activity == null),
-            "zero-value children must leave all families empty rather than activate the last registered behaviour");
-        chooser.Actions.Clear();
-        Require(chooser.Choose(ctx) == null, "an empty board must produce no activity rather than indexing a missing fallback");
-    }
-
-    private static void InvalidatedCandidatesAreReconsideredWithoutDiscovery()
-    {
-        foreach (string invalidation in new[] { "identity", "enemy", "generation", "item", "item-type", "item-slot", "all" })
-        {
-            var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-            var first = new ActivityProbe { Target = ctx.Player.Bottom, Value = 2 };
-            if (invalidation is "enemy" or "generation") first.Identity = new NPC { active = true, life = 10, whoAmI = 12 };
-            Item previous = Main.item[5];
-            if (invalidation is "item" or "item-type" or "item-slot")
-                first.Identity = Main.item[5] = new Item { active = true, stack = 1, type = ItemID.CopperOre, whoAmI = 5 };
-            var second = new ActivityProbe { Target = ctx.Player.Bottom, Value = 1 };
-            // Families prepare in enum order, so the invalidated candidate sits in the family that
-            // prepares first and the invalidating sibling in a later one; within one family the
-            // registration order is the rotation's starting order.
-            if (invalidation != "identity") first.Purpose = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Combat;
-            if (invalidation == "all") second.Identity = new Item { active = false, stack = 0 };
-            second.DuringPreparation = () =>
-            {
-                if (first.Identity is NPC npc)
-                {
-                    if (invalidation == "generation") live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Spawn(npc);
-                    else npc.active = false;
-                }
-                else if (first.Identity is Item item)
-                {
-                    if (invalidation == "item-slot") Main.item[5] = new Item { active = true, stack = 1, type = item.type, whoAmI = 5 };
-                    else if (invalidation == "item-type") item.type = ItemID.IronOre;
-                    else item.stack = 0;
-                }
-                else first.Identity = new object();
-            };
-            var chooser = ctx.Companion.Brain.Chooser;
-            chooser.Actions.Clear(); chooser.Actions.Add(first); chooser.Actions.Add(second);
-            Require(ReferenceEquals(chooser.Choose(ctx), invalidation == "all" ? null : second)
-                && first.Entries == 0 && second.Entries == (invalidation == "all" ? 0 : 1),
-                "an invalidated nomination must yield to its prepared sibling: " + invalidation);
-            Require(first.Preparations == 1 && second.Preparations == 1,
-                "activation reconsideration must not repeat discovery: " + invalidation);
-            Require(chooser.LastScores[0].Raw == 2 && chooser.LastScores[0].Final == 0
-                && chooser.LastScores[0].Error.StartsWith("prepared-"),
-                "the rejected nomination must retain its original value and explicit cause: " + invalidation);
-            if (invalidation == "item-slot") Require(chooser.LastScores[0].Error == "prepared-item-slot-replaced",
-                "replacement must name its availability failure rather than devalue the activity's usefulness");
-            Main.item[5] = previous;
-        }
-    }
-
-    private static void ReplacedMiningMaterialYieldsToAPreparedSibling()
-    {
-        Point point = new(25, 89);
-        var (mine, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, point);
-        var sibling = new ActivityProbe { Target = ctx.Player.Bottom, Value = .01f };
-        sibling.DuringPreparation = () =>
-        {
-            Tile tile = Main.tile[point.X, point.Y];
-            tile.TileType = TileID.Tin;
-        };
-        var chooser = ctx.Companion.Brain.Chooser;
-        chooser.Actions.Clear(); chooser.Actions.Add(mine); chooser.Actions.Add(sibling);
-        Require(ReferenceEquals(chooser.Choose(ctx), sibling) && sibling.Preparations == 1 && sibling.Entries == 1,
-            "changed mining material must yield to an already prepared sibling without another discovery pass");
-        Require(chooser.LastScores[0].Raw > 0 && chooser.LastScores[0].Final == 0
-            && chooser.LastScores[0].Error == "prepared-tile-material-changed",
-            "the invalid mining offer must retain its usefulness and name material replacement as the rejection");
-    }
-
     private static void ContinuingTargetsKeepTheirIdentity()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
@@ -292,7 +167,7 @@ internal static class VerifyCompanionActivities
         ctx.Player.Bottom = new Vector2(80, 960);
         SeeThePlayer();
         activity.Target = ctx.Player.Bottom + new Vector2(Preferences.Current.NewActivityRadius + 100, 0);
-        ctx.Companion.Brain.Chooser.RecordWork(activity.Target);
+        ctx.Companion.Brain.Activity.RecordWork(activity.Target);
         var loot = new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems();
         var item = new Item(); item.SetDefaults(ItemID.CopperOre); item.active = true; item.Bottom = activity.Target;
         Item previous = Main.item[5];
@@ -369,8 +244,8 @@ internal static class VerifyCompanionActivities
             foreach (Item slot in ctx.Companion.Bag.Items) { slot.SetDefaults(ItemID.StoneBlock); slot.stack = slot.maxStack; }
             collect.Prepare(ctx);
             Require(collect.Score() == 0, "unknown contents cannot promise collection capacity from a full bag");
-            Require(ctx.Companion.Brain.Chooser.Actions.Count(a => a.Name == "collect") == 1
-                && !ctx.Companion.Brain.Chooser.Actions.Any(a => a.Name is "loot" or "break-pots"),
+            Require(ctx.Companion.Brain.Actions.Count(a => a.Name == "collect") == 1
+                && !ctx.Companion.Brain.Actions.Any(a => a.Name is "loot" or "break-pots"),
                 "collection must have one registered behaviour for drops and pots");
         }
         finally { Preferences.Current.PotBreaking = oldPolicy; Main.item[5] = previous; }
@@ -428,7 +303,7 @@ internal static class VerifyCompanionActivities
             enemy.velocity = Vector2.Zero;
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
             var activity = new ActivityProbe { Target = ctx.Npc.Bottom };
-            var chooser = ctx.Companion.Brain.Chooser;
+            var chooser = ctx.Companion.Brain;
             chooser.Actions.Clear();
             if (!emptyOffers) { chooser.Actions.Add(activity); chooser.Activity.Select(activity, ctx); chooser.Activity.BeginExecution(); }
             int suspendedTicks = 0, handsWithheld = 0;
@@ -442,8 +317,8 @@ internal static class VerifyCompanionActivities
             }
             Require(suspendedTicks == 0 && handsWithheld == 0,
                 $"an enemy beside the body must neither suspend the job nor withhold the hands; emptyOffers={emptyOffers}, suspended ticks={suspendedTicks}, hands withheld={handsWithheld}");
-            Require(!new live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser().Actions.Any(a => a.Name == "kite"),
-                "kiting must not remain an ordinary family candidate");
+            Require(!live::AICompanion.Companion.Brain.Infrastructure.Selection.RegisterActivities.All().Any(a => a.Name == "kite"),
+                "kiting must not remain a registered activity");
         }
 
         var (_, playerOnly) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
@@ -452,7 +327,7 @@ internal static class VerifyCompanionActivities
         playerThreat.SetDefaults(NPCID.Zombie);
         playerThreat.active = true; playerThreat.damage = 100; playerThreat.dontTakeDamage = true;
         playerThreat.Bottom = playerOnly.Player.Bottom - new Vector2(64, 0);
-        playerOnly.Companion.Brain.Chooser.Actions.Clear();
+        playerOnly.Companion.Brain.Actions.Clear();
         VerifyCompanionLifecycle.TickWithOneControlGrant(playerOnly.Companion);
         Require(playerOnly.Senses.Threats.PlayerDanger > 0 && playerOnly.Senses.Threats.CompanionDanger == 0,
             "player-only danger must read as the player's alone, not the companion's own");
@@ -584,7 +459,7 @@ internal static class VerifyCompanionActivities
                     brain.Positioner.Resolve(primeHome, brain.Senses);
                 Require(brain.Positioner.ReachComplete,
                     $"the reach region must settle before the comparison, or a refusal reads as an absence: {scene.Name}");
-                var combatPreview = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
+                var combatPreview = brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
                 int ticks = 0;
                 // The plan search decides once its stands do, and the wall means the stands on the
                 // companion's side never solve: the scene is ticked in production order — observe,
@@ -618,7 +493,7 @@ internal static class VerifyCompanionActivities
                     // added hostile threatens, and letting the body move would make them four geometries.
                     using (CombatFixture.BeginDecision())
                     {
-                        foreach (var candidate in brain.Chooser.Actions) candidate.Prepare(ctx);
+                        foreach (var candidate in brain.Actions) candidate.Prepare(ctx);
                         brain.Course.Decide(ctx, ctx.Companion.Combat, null,
                             live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Current);
                     }
@@ -633,8 +508,8 @@ internal static class VerifyCompanionActivities
                 // invariance that holds vacuously, which is worse than a red.
                 var worths = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
                     .ReadCourseWorthPerActivity.Of(brain).ToDictionary(w => w.Action.Name);
-                var combat = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
-                seen[scene.Name] = (worths["mine"].Raw, brain.Chooser.Reunion.DelayCostPerTick, combat.Score(),
+                var combat = brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
+                seen[scene.Name] = (worths["mine"].Raw, brain.Companionship.Reunion.DelayCostPerTick, combat.Score(),
                     brain.Senses.Threats.PlayerDanger, brain.Senses.Threats.CompanionDanger);
                 // Combat's offer legitimately reads the player's danger through its danger lift, so it is
                 // not one of the excursion raws the invariance loop below holds fixed; it is read directly
@@ -740,8 +615,8 @@ internal static class VerifyCompanionActivities
             // tick and regroup urgency was computed inside it; the observation moved to
             // `ObserveCompanionship`, which the live tick calls directly, so the row drives the thing it
             // is actually about rather than a decision procedure that no longer runs.
-            ctx.Companion.Brain.Chooser.ObserveCompanionship(ctx);
-            Require(ctx.Companion.Brain.Chooser.RegroupUrgency == 0,
+            ctx.Companion.Brain.Companionship.Observe(ctx);
+            Require(ctx.Companion.Brain.Companionship.RegroupUrgency == 0,
                 $"{mode} comfortable following must not request regrouping; inside={ctx.Companion.Brain.Senses.Intent.Inside} gap={ctx.Companion.Brain.Senses.Intent.Region.GapBeyond(ctx.Npc.Center)}");
         }
         Preferences.Current.DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode.Standard;
@@ -750,7 +625,7 @@ internal static class VerifyCompanionActivities
     private static void ConsecutiveJobsEarnTheirOwnAllowance()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-        var chooser = ctx.Companion.Brain.Chooser;
+        var chooser = ctx.Companion.Brain;
         chooser.Actions.Clear();
         var activity = new ActivityProbe { Target = ctx.Player.Bottom };
         chooser.Actions.Add(activity);
@@ -761,11 +636,11 @@ internal static class VerifyCompanionActivities
         // hands the course's chosen activity to and is deliberately not part of the retired scorer.
         activity.Prepare(ctx);
         chooser.Activity.Select(activity, ctx);
-        Require(ReferenceEquals(chooser.Current, activity), "premise: the probe is the incumbent");
+        Require(ReferenceEquals(chooser.Activity.Current, activity), "premise: the probe is the incumbent");
         activity.Identity = new object();
         activity.Prepare(ctx);
         chooser.Activity.Select(activity, ctx);
-        Require(ReferenceEquals(chooser.Current, activity), "next job must remain in the same behaviour");
+        Require(ReferenceEquals(chooser.Activity.Current, activity), "next job must remain in the same behaviour");
         activity.Target = ctx.Player.Bottom + new Vector2(Preferences.Current.NewActivityRadius + 100, 0);
         Require(activity.Allows(ctx), "a new job selected by the incumbent must earn its own continuation allowance");
     }
@@ -792,7 +667,7 @@ internal static class VerifyCompanionActivities
         Require(!brain.MovementStalled, "an intentional settled hold must not be labelled stuck");
         for (int i = 0; i < window; i++)
         {
-            brain.Chooser.Activity.Select(i % 2 == 0
+            brain.Activity.Select(i % 2 == 0
                 ? new live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies()
                 : new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany(), ctx);
             Tick(i % 2 == 0 ? RequestKind.WithPlayer : RequestKind.Exact, i % 8 - 4);

@@ -39,7 +39,7 @@ internal static class VerifyTheCourseOwnsTheTick
         Row("G01 a whole tick runs through the course and asks for a place", ATickRunsThroughTheCourse);
         Row("G01 an empty world is companionship, not a hold", NothingToDoKeepsCompany);
         Row("G01 a published course is retained across the next tick", APublishedCourseIsRetained);
-        Row("G01 the legacy family chooser no longer decides the tick", TheLegacyChooserIsOffThePath);
+        Row("G01 every tick has an owner: an activity holds the body or the body is asked to keep company", TheTickAlwaysHasAnOwner);
         Row("G01 companionship is still observed on a tick the course owns", CompanionshipIsStillObserved);
         return red;
     }
@@ -63,7 +63,7 @@ internal static class VerifyTheCourseOwnsTheTick
     {
         ActionContext ctx = Scene();
         Tick(ctx, 2);
-        Chooser chooser = ctx.Companion.Brain.Chooser;
+        var chooser = ctx.Companion.Brain.Companionship;
         Require(chooser.EstimatedReturnTicks >= 0f,
             $"the return estimate was never computed on a tick the course owns; ticks={chooser.EstimatedReturnTicks}");
 
@@ -146,8 +146,8 @@ internal static class VerifyTheCourseOwnsTheTick
         Brain brain = ctx.Companion.Brain;
         Require(brain.LastRequest.Kind == RequestKind.WithPlayer,
             $"an empty world produced {brain.LastRequest.Kind} rather than keeping the player company");
-        Require(brain.Chooser.Activity.Current?.Name == "keep-company",
-            $"the activity carrying an empty course is not keeping company; activity={brain.Chooser.Activity.Current?.Name ?? "none"}");
+        Require(brain.Activity.Current?.Name == "keep-company",
+            $"the activity carrying an empty course is not keeping company; activity={brain.Activity.Current?.Name ?? "none"}");
     }
 
     /// <summary>
@@ -188,21 +188,24 @@ internal static class VerifyTheCourseOwnsTheTick
     }
 
     /// <summary>
-    /// The negative half of the switch, and the reason it is a row rather than a reading of the diff: a
-    /// wiring that calls the course *and* leaves the family chooser deciding would pass every row above.
-    /// `Chooser.LastScores` and `LastNominations` are filled only by `ChooseBehaviour.Choose`, so both
-    /// being empty after a real tick is the evidence that path did not run.
+    /// **The negative half of this row is gone, because there is no longer a second decision system to be
+    /// off the path.** It used to require `Chooser.LastScores` and `LastNominations` to be empty after a
+    /// real tick, since only `ChooseBehaviour.Choose` filled them — the one check that could catch a wiring
+    /// calling the course *and* leaving the family chooser deciding. `AIC-419` deleted the chooser on
+    /// 22 September 2026, so that wiring cannot be written and the assertion is one no change could falsify,
+    /// which is worse than no assertion at all.
+    ///
+    /// What is left is the positive half, and it is not a leftover: **a tick must have an owner.** Either an
+    /// activity holds the body or the body was asked to keep the player company, because an empty course is
+    /// companionship and never a freeze — `ExecuteCourseBinding` owns that contract and this is the row that
+    /// witnesses it after two real ticks of the whole brain.
     /// </summary>
-    private static void TheLegacyChooserIsOffThePath()
+    private static void TheTickAlwaysHasAnOwner()
     {
         ActionContext ctx = Scene();
         Tick(ctx, 2);
         Brain brain = ctx.Companion.Brain;
-        Require(brain.Chooser.LastScores.Count == 0,
-            $"the family chooser scored activities on a tick the course owns, so two decision systems ran; scored={brain.Chooser.LastScores.Count}");
-        Require(brain.Chooser.LastNominations.Length == 0,
-            $"the family chooser nominated activities on a tick the course owns; nominations={brain.Chooser.LastNominations.Length}");
-        Require(brain.Chooser.Activity.Current != null || brain.LastRequest.Kind == RequestKind.WithPlayer,
+        Require(brain.Activity.Current != null || brain.LastRequest.Kind == RequestKind.WithPlayer,
             "no activity owns the tick and the body was not asked to keep company either, so the tick has no owner at all");
     }
 

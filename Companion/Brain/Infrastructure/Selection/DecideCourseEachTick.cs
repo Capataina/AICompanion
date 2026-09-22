@@ -59,11 +59,11 @@ public readonly record struct CourseDecision(string Activity, StepBinding? Bindi
 /// dependency manifests, the repair frontier, the comparison policy — is present and exercised by the
 /// publish path; what is missing is the caller that reprojects an incumbent.
 ///
-/// The three legacy things it replaces are named for removal in the plan's migration table:
-/// `ChooseBehaviour`'s family nomination, `EvaluatePreparedActivities`' prepared-score ranking, and
-/// `OrderNearbyTasks`' factorial permutation scoring. None is deleted here, because deleting the live
-/// chooser in the same change that first runs its replacement would leave no way to tell which of the
-/// two broke anything; they go once this has been played.
+/// The three legacy things it replaced — the family nomination, the prepared-score ranking and the
+/// factorial permutation scoring of close jobs — were deleted on 22 September 2026 (`AIC-419`), a day
+/// after they stopped being reachable. They stayed that day so a defect met in play could be attributed
+/// to one brain or the other, and what closed that condition is the world run's play-measures instrument
+/// grading this brain on the capture that motivated it.
 /// </summary>
 public sealed class DecideCourseEachTick
 {

@@ -112,7 +112,7 @@ public sealed class KeepCompany : CompanionAction
             return 0f;
         float hardLeash = Consideration.Step(ctx.Senses.DistanceToPlayer > Weights.LeashHard, 1f, 0f);
         float stranded = ctx.Stranded ? Weights.StrandedFollowDiscount : 1f;
-        float regroup = ctx.Companion.Brain.Chooser.RegroupUrgency;
+        float regroup = ctx.Companion.Brain.Companionship.RegroupUrgency;
         // The body's centre, because the orb is its centre; the walker's feet point sat a radius under it.
         float pull = RejoinPull(ctx.Senses.Intent.Region, ctx.Npc.Center);
         float demand = MathF.Min(Weights.KeepCompanyFarCap, MathF.Max(pull, regroup));

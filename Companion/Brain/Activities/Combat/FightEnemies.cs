@@ -273,7 +273,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         Funnel.Begin();
 
         var positioner = ctx.Companion.Brain.Positioner;
-        bool running = ReferenceEquals(ctx.Companion.Brain.Chooser.Current, this);
+        bool running = ReferenceEquals(ctx.Companion.Brain.Activity.Current, this);
         ActionContext captured = ctx;
         Func<Vector2, bool> allows = point => AllowsTarget(captured, point);
         IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);

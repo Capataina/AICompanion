@@ -125,14 +125,43 @@ public sealed class BrainTelemetry : ModSystem
     // columns as their evidence, so all three were grading constants. `<activity>_time` stays at 1.000 and
     // is documented at its site as constant by design, because the course has no per-activity time factor
     // to report and inventing one would be the very substitution this bump exists to declare.
-    private const string Schema = "0.45.0";
+    // 0.46.0 removes every column and every board entry this folder wrote from the family chooser, which
+    // `AIC-419` deleted on 22 September 2026. A removal is the one change the append convention cannot
+    // carry, which is the whole reason the version moves; nothing else in the row changed, and every
+    // reader here and in SessionReport addresses columns by name, so a 0.46.0 capture reads as absent
+    // columns rather than as shifted ones. What went, and why each was safe to take:
+    //
+    //   <family>_prepared / _deferred / _prepare_ms   the per-family preparation scheduler's counts and
+    //                                                 milliseconds, three columns per family. Filled only
+    //                                                 by `Chooser.Queries`, so -1/-1/-1 in every row of
+    //                                                 every capture since `0bb2c8a`.
+    //   <activity>_time                               the chooser's per-activity time discount. Pinned at
+    //                                                 1.000 by decision in 0.44.0, because the course has
+    //                                                 no per-activity time factor and inventing one would
+    //                                                 put a different quantity under a known name. A
+    //                                                 column that is a constant by design is a column with
+    //                                                 nothing to say, and it goes with the procedure it
+    //                                                 described rather than staying as a placeholder.
+    //   <activity>_funnel, the `candidate-funnel`     every candidate an activity's *preparation* refused,
+    //   occurrence                                    named with the stage that refused it. Its subject is
+    //                                                 a preparation-time shortlist the course does not
+    //                                                 keep; the course's own equivalent is
+    //                                                 `course-admitted:<domain>` beside
+    //                                                 `course-refused:<reason>`, which is per domain and
+    //                                                 already in the decision occurrence since 0.42.0.
+    //   the decision board's score list, its          `Chooser.LastScores` and `LastNominations`, both
+    //   `factors:` breakdown and `family:` entries    empty since the tick switch. 0.42.0 already replaced
+    //                                                 them with the course's three questions.
+    //   the board's `queries:<Family>=` entries       the same scheduler as the three columns above.
+    //
+    // What is deliberately *not* removed with them: `reunion_apart_ticks`, `reunion_departure` and
+    // `reunion_delay_cost_per_tick`, and the board's `regroup=` and `return-ticks=`. Those were never the
+    // chooser's — `ObserveCompanionship` runs them on every brain tick and `KeepCompany` reads the regroup
+    // urgency — and the day they *looked* like the chooser's is the reason this folder's first trap exists.
+    private const string Schema = "0.46.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
-    /// carries, in the order <see cref="Selection.EvaluatePreparedActivities"/> and <see cref="Selection.OrderNearbyTasks"/>
-    /// apply them, then the raw value and the final, then the error, the offer and the method evidence. The method evidence
-    /// is last because its text is free and may itself hold commas; readers take a factor by its name, never by position.
-    /// </summary>
     /// <summary>
     /// What the course thought this activity's work was worth, under the activity's own column names.
     ///
@@ -160,11 +189,6 @@ public sealed class BrainTelemetry : ModSystem
         var worth = ReadCourseWorthPerActivity.Of(brain, action);
         return (worth.Raw, worth.Final);
     }
-
-    public static string FactorList(in Selection.Chooser.Scored score)
-        => FormattableString.Invariant(
-            $"protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},time:{score.Time:0.000},player-fit:{score.PlayerFit:0.000},order:{score.Order:0.000},raw:{score.Raw:0.000},final:{score.Final:0.000},")
-            + $"error:{score.Error},offer:{score.Eligibility}/{score.EligibilityReason},method:{score.MethodEvidence}";
 
     // The garbage collector's per-generation counts at the last row, so each row carries its own tick's collections; -1 until
     // a session's first row has read them.
@@ -790,7 +814,7 @@ public sealed class BrainTelemetry : ModSystem
         string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
         bool brainExecuted = brain.LastTick == Main.GameUpdateCount;
         bool choiceEvaluated = brainExecuted && brain.ChoiceEvaluated;
-        var activity = brain.Chooser.Activity;
+        var activity = brain.Activity;
         GodsEyeEvents.RecordActivity(npc, activity.Id, activity.Current?.Name ?? "none", activity.Phase.ToString(), activity.Reason,
             activity.LastEndedId, activity.LastEndReason, activity.ChangedAt);
         foreach (var outcome in activity.RecentAttempts)
@@ -811,7 +835,7 @@ public sealed class BrainTelemetry : ModSystem
         var mine = default(Activities.Gathering.MineOre);
         var chop = default(Activities.Gathering.ChopTree);
         var light = default(Activities.NearbyAssistance.LightUsefulArea);
-        foreach (var candidate in brain.Chooser.Actions)
+        foreach (var candidate in brain.Actions)
         {
             if (candidate is Activities.NearbyAssistance.LightUsefulArea lightAction) light = lightAction;
             if (candidate is Activities.Combat.FightEnemies combatAction) combat = combatAction;
@@ -827,15 +851,15 @@ public sealed class BrainTelemetry : ModSystem
         if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
         {
             var board = new StringBuilder();
-            foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
-            board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
-            foreach (var score in brain.Chooser.LastScores)
-                board.Append(";factors:").Append(score.Action.Name).Append('=').Append(FactorList(score));
-            foreach (var nomination in brain.Chooser.LastNominations)
-                board.Append(CultureInfo.InvariantCulture, $";family:{nomination.Family}=child:{nomination.Activity?.Name ?? "none"},value:{nomination.Activity?.Final ?? 0:0.000}");
-            // The course's own alternatives, which replaced the family nominations above rather than
-            // joining them: the tick asks a course, so `LastNominations` is empty in a played session and
-            // the decision occurrence named nothing that lost. A record that says only what happened
+            // The board opened with the family chooser's per-activity score list, its nine-factor
+            // breakdown per activity and its three family nominations. All three went with the chooser
+            // in schema 0.46.0, and all three had been empty since `0bb2c8a`: what replaced them is the
+            // course's own three questions below, which `0.42.0` added because the occurrence had stopped
+            // naming anything that lost.
+            board.Append(CultureInfo.InvariantCulture, $"regroup={brain.Companionship.RegroupUrgency:0.000};return-ticks={brain.Companionship.EstimatedReturnTicks:0.0}");
+            // The course's own alternatives, which replaced the family nominations rather than
+            // joining them: the tick asks a course, so the chooser named nothing that lost.
+            // A record that says only what happened
             // answers "what happened"; this folder's standing rule is to record the rejected option and
             // the reason for the negative, which for a course means three different questions.
             //
@@ -878,8 +902,6 @@ public sealed class BrainTelemetry : ModSystem
                     $";course-admitted:{domain.Domain}=usable:{domain.Usable},unknown:{domain.Unresolved},unusable:{domain.Unusable},reason:{(domain.Reason.Length == 0 ? "-" : domain.Reason)}");
             foreach (var refusal in course.LastRefusals.OrderByDescending(entry => entry.Value))
                 board.Append(CultureInfo.InvariantCulture, $";course-refused:{refusal.Key}={refusal.Value}");
-            foreach (var family in brain.Chooser.Queries.LastFamilies)
-                board.Append(CultureInfo.InvariantCulture, $";queries:{family.Family}=prepared:{family.Prepared},deferred:{family.Deferred},ms:{family.Milliseconds:0.000}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;
             board.Append(CultureInfo.InvariantCulture, $";movement-stalled={brain.MovementStalled};activity-status={brain.ActivityStatus};activity-target={brain.LastAction?.ActivityTarget};activity-radius={preferences.NewActivityRadius};continuation-radius={preferences.ActiveActivityRadius};recovery-radius={preferences.RecoveryRadius}");
             GodsEyeEvents.RecordDecision(npc, brain.LastAction?.Name ?? "-", board.ToString(), brain.LastRequest.Kind.ToString(),
@@ -911,13 +933,10 @@ public sealed class BrainTelemetry : ModSystem
             var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,plan_stand,mine_policy,mine_status,mine_target,plan_invalid,nav_status,position_reason,plan_reason,hand_grant,control_request_owner,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,plan_targets,plan_uses,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up,evade_reason,evade_choice,plan_vector,knowledge_residual");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
-            foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
+            foreach (var a in brain.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
             textColumns.Append(",meeting_reason,meeting_anchor,meeting_flood");
             textColumns.Append(",nav_failure,nav_failure_reason,nav_attempt_ending");
             textColumns.Append(",region_kind,region_anchor_px,region_player_px,region_comfort,region_work_tile,region_reach,region_arrival");
-            // Lane A's textual columns, declared from the same activity list the header appends them from.
-            foreach (var a in brain.Chooser.Actions)
-                if (a is Activities.ICandidateFunnelSource) textColumns.Append(',').Append(a.Name).Append("_funnel");
             textColumns.Append(",torch_reference,torch_reference_dark,torch_reference_stage");
             // 0.45.0's two textual columns. The declaration is a hand-maintained string beside the
             // header builder and is the half that gets forgotten, which is how `torch_reason` spent a
@@ -928,7 +947,7 @@ public sealed class BrainTelemetry : ModSystem
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
             // every row; deriving wall time from game ticks would conceal pauses and lag.
             h.Append("tick\tstate\taction\treflex");
-            foreach (var a in brain.Chooser.Actions)
+            foreach (var a in brain.Actions)
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
             h.Append("\tdanger\tself_threat\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
             // The route as the navigator holds it: how many points it has, which segment the body is on,
@@ -962,13 +981,8 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tcollection_method");
             h.Append("\tmine_end_job\tmine_end_tick\tmine_end_reason\tmine_end_tracked\tmine_end_present\tmine_end_changed\tmine_end_missing\tmine_end_unobserved\tmine_end_companion_removed_sites\tmine_end_observed_clear");
             h.Append("\tactivity_attempt_id\tattempt_end_id\tattempt_end_activity_id\tattempt_end_activity\tattempt_end_family\tattempt_end_status\tattempt_end_cause\tattempt_end_attribution\tattempt_end_effects\tattempt_end_start_tick\tattempt_end_tick");
-            foreach (var a in brain.Chooser.Actions)
+            foreach (var a in brain.Actions)
                 h.Append('\t').Append(a.Name).Append("_offer");
-            foreach (var family in Enum.GetValues<Infrastructure.Selection.PurposeFamily>())
-            {
-                string name = family.ToString().ToLowerInvariant();
-                h.Append('\t').Append(name).Append("_prepared\t").Append(name).Append("_deferred\t").Append(name).Append("_prepare_ms");
-            }
             h.Append("\tmeeting_reason\tmeeting_anchor\tmeeting_player_ticks\tmeeting_companion_ticks\tmeeting_candidates\tmeeting_priced\tmeeting_flood");
             h.Append("\tnav_failure\tnav_failure_reason\tnav_failure_search_id\tnav_failure_attempt_id\tnav_attempt_ending\tnav_attempts_completed\tnav_attempts_failed\tnav_attempts_preempted\tnav_attempts_cancelled");
             h.Append("\tplan_targets\tplan_dps\tplan_travel\tplan_uses\taim_target\tlanded_hit_target\tlanded_hit_aimed\tlanded_hit_damage\tlanded_hit_tick\tlanded_hits\tplan_kill_tick\tplan_threat_removed\ttop_threat_effective_player\ttop_threat_effective_companion\tencounter_intensity\tencounter_source\tencounter_recognised\tencounter_pressure_ticks\tplan_first_damage");
@@ -1012,12 +1026,9 @@ public sealed class BrainTelemetry : ModSystem
             // as names joined by '>' with the order's score, or '-' when fewer than two jobs were close. Appended with
             // the schema left where it is: nothing before it moved and every reader addresses columns by name.
             h.Append("\ttask_order\ttask_order_runner_up");
-            // Lane A, schema 0.35.0, appended at the end so every column before it keeps its index. The time factor per
-            // activity; the stage that refused each funnel's furthest candidate; the player's own smart-cursor torch tile,
-            // its light, its placement reading and the stage lighting refuses it at; and this tick's collections.
-            foreach (var a in brain.Chooser.Actions) h.Append('\t').Append(a.Name).Append("_time");
-            foreach (var a in brain.Chooser.Actions)
-                if (a is Activities.ICandidateFunnelSource) h.Append('\t').Append(a.Name).Append("_funnel");
+            // Lane A, schema 0.35.0, appended at the end so every column before it keeps its index: the player's own
+            // smart-cursor torch tile, its light, its placement reading and the stage lighting refuses it at, and this
+            // tick's collections. `<activity>_time` and `<activity>_funnel` opened this block and went in 0.46.0.
             h.Append("\ttorch_reference\ttorch_reference_light\ttorch_reference_dark\ttorch_reference_stage\tgc0\tgc1\tgc2");
             lastGc0 = lastGc1 = lastGc2 = -1;
             // Lane C (the evade layer), appended after lane A's block: why the layer kept or bent this tick's controls, the
@@ -1057,7 +1068,7 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.IsDowned ? "downed" : Main.LocalPlayer.dead ? "player-dead" : "up");
         sb.Append('\t').Append(brain.LastAction?.Name ?? "-");
         sb.Append('\t').Append(brain.Reflexes.Active ?? "-");
-        foreach (var a in brain.Chooser.Actions)
+        foreach (var a in brain.Actions)
         {
             (float raw, float fin) = CourseWorthOf(brain, a);
             sb.Append('\t').Append(raw.ToString("0.00")).Append('\t').Append(fin.ToString("0.00"));
@@ -1256,9 +1267,9 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(mine?.RemainingWork?.Hits ?? -1)
             .Append('\t').Append((chop?.RemainingWork?.Ticks ?? -1f).ToString("0.000", CultureInfo.InvariantCulture))
             .Append('\t').Append(chop?.RemainingWork?.Hits ?? -1);
-        sb.Append('\t').Append(brain.Chooser.Reunion.ApartTicks)
-            .Append('\t').Append(brain.Chooser.Reunion.Departure.ToString("0.000", CultureInfo.InvariantCulture))
-            .Append('\t').Append(brain.Chooser.Reunion.DelayCostPerTick.ToString("0.000000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(brain.Companionship.Reunion.ApartTicks)
+            .Append('\t').Append(brain.Companionship.Reunion.Departure.ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(brain.Companionship.Reunion.DelayCostPerTick.ToString("0.000000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(brain.LastAction is Activities.NearbyAssistance.CollectNearbyItems collection
             ? collection.Method : "none");
         var end = mine?.LastConclusion;
@@ -1272,7 +1283,7 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(end?.Unobserved ?? -1)
             .Append('\t').Append(end?.CompanionRemovals ?? -1)
             .Append('\t').Append(end?.ObservedClear == true ? 1 : 0);
-        var owner = brain.Chooser.Activity;
+        var owner = brain.Activity;
         var attempt = owner.LastAttempt;
         sb.Append('\t').Append(owner.AttemptOpen ? owner.AttemptId : 0)
             .Append('\t').Append(attempt?.AttemptId ?? 0)
@@ -1296,22 +1307,13 @@ public sealed class BrainTelemetry : ModSystem
         // census corresponds to, and the distinction the course actually draws is the one the offer
         // vocabulary was reaching for anyway: usable, not yet known, proven unusable. `not-compared`
         // survives for an activity the course mints no domain for, which is its original meaning.
-        foreach (var a in brain.Chooser.Actions)
+        foreach (var a in brain.Actions)
         {
             var worth = ReadCourseWorthPerActivity.Of(brain, a);
             string offer = worth.Offer == ReadCourseWorthPerActivity.NotCompared
                 ? ReadCourseWorthPerActivity.NotCompared
                 : worth.Offer + ":" + worth.OfferReason;
             sb.Append('\t').Append(offer);
-        }
-        // Retained from the last completed comparison, like the score board; -1 before any.
-        foreach (var family in Enum.GetValues<Infrastructure.Selection.PurposeFamily>())
-        {
-            int index = Array.FindIndex(brain.Chooser.Queries.LastFamilies, f => f.Family == family);
-            if (index < 0) { sb.Append("\t-1\t-1\t-1"); continue; }
-            var queries = brain.Chooser.Queries.LastFamilies[index];
-            sb.Append('\t').Append(queries.Prepared).Append('\t').Append(queries.Deferred)
-                .Append('\t').Append(queries.Milliseconds.ToString("0.000", CultureInfo.InvariantCulture));
         }
         // The meeting place keeps company's reunion reason and prices; -1 is an unpriced time, and a
         // reason of not-reuniting means the columns describe no current destination.
@@ -1391,7 +1393,7 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(RecordTerrainChunks.Evictions);
         sb.Append('\t').Append(TravelEpisodes.StopsPerMinute.ToString("0.00", CultureInfo.InvariantCulture))
             .Append('\t').Append(TravelEpisodes.RouteSpeedMean.ToString("0.00", CultureInfo.InvariantCulture));
-        var lighting = brain.Chooser.Actions.OfType<Activities.NearbyAssistance.LightUsefulArea>().FirstOrDefault();
+        var lighting = brain.Actions.OfType<Activities.NearbyAssistance.LightUsefulArea>().FirstOrDefault();
         sb.Append('\t').Append(string.IsNullOrEmpty(lighting?.LastSearchSites) ? "-" : lighting!.LastSearchSites)
             .Append('\t').Append(lighting?.LastSearchAsked ?? 0);
         sb.Append('\t').Append(Movement.TerrainChanges.Revision);
@@ -1426,30 +1428,6 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(runnerUp is not { } second || second.Purposes.Count == 0
                 ? "-"
                 : string.Join(">", second.Purposes) + "@" + second.Value.ToString("0.000", CultureInfo.InvariantCulture));
-        // Lane A, schema 0.35.0: the time factor each activity's final carried.
-        //
-        // **This one is constant at 1.000 under the course, by design rather than by the accident that
-        // froze its neighbours, and it is kept rather than repointed or deleted.** It was the family
-        // chooser's per-activity time discount — `window / (window + ticks until done)` — and the course
-        // has no such multiplier to offer: its time cost is inside an order's own projection, charged as
-        // the harm and companionship a longer order accumulates, so there is no per-activity number to
-        // read. Filling it with the nearest-looking course term would put a different quantity under a
-        // name readers already know, which is the failure the raw/fin pair's schema bump exists to avoid.
-        // `CheckThePlayersReference` reads it among four columns and a constant one is honest there.
-        // It is not deleted because that would take the column's index with it, and the two checks that
-        // read this block address columns by name only because the names have never moved.
-        foreach (var _ in brain.Chooser.Actions)
-            sb.Append('\t').Append(1f.ToString("0.000", CultureInfo.InvariantCulture));
-        // Each funnel's furthest candidate's refusing stage, and the funnel as an occurrence when its outcome changed.
-        foreach (var a in brain.Chooser.Actions)
-            if (a is Activities.ICandidateFunnelSource source)
-            {
-                var funnel = source.Funnel;
-                string stage = funnel.BestStage, summary = funnel.Summary();
-                sb.Append('\t').Append(stage);
-                if (GodsEyeEvents.CandidateFunnelChanged(npc, a.Name, stage, summary))
-                    GodsEyeEvents.RecordCandidateFunnel(npc, a.Name, stage, summary, funnel.Total, funnel.Describe());
-            }
         // The player's own smart cursor as the reference lighting is judged against: the tile it would offer him, that
         // tile's own light, what that light says to placing a torch, and the stage at which lighting refuses the tile.
         var referenceReading = lighting?.PlayerReferenceReading;

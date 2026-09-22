@@ -215,7 +215,7 @@ internal static class VerifyCombatActorMatrix
         brain.Senses.Update(companion.NPC, player);
         var ctx = new ActionContext(companion, brain.Senses);
         brain.Senses.SetInterventionEstimate(companion.Combat.EstimateInterventionTicks(ctx));
-        var combat = brain.Chooser.Actions.OfType<Combat>().Single();
+        var combat = brain.Actions.OfType<Combat>().Single();
         // Settled before preparing: the resolves pump the reach flood to completion, so the offer is the
         // search's finished answer rather than what the first flood slice happened to reach. Preparing on a
         // growing flood reads whatever is reachable so far — usually the shot from here — and rows comparing

@@ -6,8 +6,8 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
 /// <summary>
 /// The world model. Rebuilt every tick from the game, read by every part of the brain,
-/// and never a decision maker: it says what is, and derives the numbers the chooser
-/// scores against (danger, horizon). Anything the brain wants to know about the world
+/// and never a decision maker: it says what is, and derives the numbers the course
+/// prices against (danger, horizon). Anything the brain wants to know about the world
 /// is added here, once, so five actions never compute it five ways.
 /// </summary>
 public sealed class Senses

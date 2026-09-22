@@ -176,7 +176,7 @@ internal static class VerifyLiquidsAreAir
             failures += Detail($"{name}: the route search must find the player through the flooded passage within 1.25 times the straight line: stop {search.Stop}, {corners?.Count ?? 0} corners, {length:0} px against {straight:0} px, through the passage {throughPassage}");
 
         var brain = companion.Brain;
-        brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
+        brain.Actions.RemoveAll(a => a.Name != "keep-company");
         Point playerTile = Main.player[0].Center.ToTileCoordinates();
         int reachableAt = -1, unreachableTicks = 0, wetTicks = 0, arrivedAt = -1, lowestLife = companion.NPC.life, startLife = companion.NPC.life;
         var owners = new SortedSet<string>(StringComparer.Ordinal);

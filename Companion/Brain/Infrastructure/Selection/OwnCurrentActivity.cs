@@ -104,6 +104,31 @@ public sealed class OwnCurrentActivity
         if (AttemptOpen) AttemptEffects++;
     }
 
+    private Microsoft.Xna.Framework.Vector2? workSite;
+    private ulong workSiteTick;
+
+    /// <summary>
+    /// The last place work actually happened, so the drops it produced can be collected under the same
+    /// ongoing allowance rather than read as a fresh errand. `CompanionAction` asks this about a collect
+    /// target; a drop near a site the companion has just mined or chopped is its own mess.
+    ///
+    /// It sits on the attempt owner because the two are the same event seen twice: every caller records a
+    /// site only for an *observed productive native effect*, which is exactly the thing that credits the
+    /// open attempt, so this is the one place an attempt's effect count grows and an effect outside an
+    /// executing attempt is uncredited. It lived on the family chooser until 22 September 2026 for no
+    /// better reason than that the chooser was the object every activity already had a reference to.
+    /// </summary>
+    public bool IsCollectingWork(Microsoft.Xna.Framework.Vector2 target)
+        => workSite is { } site && Terraria.Main.GameUpdateCount - workSiteTick <= Weights.WorkCollectionTicks
+            && Microsoft.Xna.Framework.Vector2.DistanceSquared(site, target) <= Weights.WorkSiteRadius * Weights.WorkSiteRadius;
+
+    public void RecordWork(Microsoft.Xna.Framework.Vector2 site)
+    {
+        workSite = site;
+        workSiteTick = Terraria.Main.GameUpdateCount;
+        RecordProductiveEffect();
+    }
+
     public void ObserveOutcome(in ActionContext context)
     {
         // A safety controller may still request body-progress observation. Its movement

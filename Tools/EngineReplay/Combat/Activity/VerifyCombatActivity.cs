@@ -33,7 +33,7 @@ internal static class VerifyCombatActivity
         for (int tick = 0; tick < 120; tick++)
         {
             Tick(companion);
-            if (companion.Brain.Chooser.Current?.Name == "mine") mineTicks++;
+            if (companion.Brain.Activity.Current?.Name == "mine") mineTicks++;
             if (companion.Combat.LastFireOutcome == "fired") fired++;
             if (companion.Combat.LastFireOutcome == "not-fighting") notFighting++;
             if (companion.Combat.ShotSolves(ctx, live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.Muzzle(companion.NPC), zombie)) shootable++;
@@ -70,7 +70,7 @@ internal static class VerifyCombatActivity
         var muzzle = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.Muzzle(companion.NPC);
         Require(companion.Combat.ShotSolves(reachCtx, muzzle, zombie),
             "the eagerness scene needs the zombie shotable from where the companion stands, or it is not in reach");
-        var combatAction = companion.Brain.Chooser.Actions.OfType<Combat>().Single();
+        var combatAction = companion.Brain.Actions.OfType<Combat>().Single();
         int combatWins = 0, planId = -1, planFront = 0;
         float combatFinal = 0f, companyFinal = 0f, companyRaw = 0f, planValue = 0f;
         string companyEligibility = "";
@@ -81,11 +81,15 @@ internal static class VerifyCombatActivity
             companion.NPC.Bottom = heldBottom;
             companion.NPC.velocity = Vector2.Zero;
             if (tick < 30) continue;
-            if (companion.Brain.Chooser.Current?.Name == "combat") combatWins++;
-            foreach (var score in companion.Brain.Chooser.LastScores)
+            if (companion.Brain.Activity.Current?.Name == "combat") combatWins++;
+            // The course's worth per activity, through the one reader every surface shares. This read
+            // `Chooser.LastScores` until the chooser was deleted on 22 September 2026, and that list has
+            // been empty on every tick since `0bb2c8a`, so the four numbers in this line were the literal
+            // zero the whole time. They are diagnostic either way — the row's verdict is `combatWins`.
+            foreach (var worth in live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReadCourseWorthPerActivity.Of(companion.Brain))
             {
-                if (score.Action.Name == "combat") combatFinal = score.Final;
-                if (score.Action.Name == "keep-company") { companyFinal = score.Final; companyRaw = score.Raw; companyEligibility = $"{score.Eligibility}/{score.EligibilityReason}"; }
+                if (worth.Action.Name == "combat") combatFinal = worth.Final;
+                if (worth.Action.Name == "keep-company") { companyFinal = worth.Final; companyRaw = worth.Raw; companyEligibility = $"{worth.Offer}/{worth.OfferReason}"; }
             }
             if (combatAction.OfferedPlan != null)
             {
@@ -187,7 +191,7 @@ internal static class VerifyCombatActivity
             Tick(companion);
             string reason = companion.Brain.Course.Last.Reason;
             reasons[reason] = reasons.GetValueOrDefault(reason) + 1;
-            if (companion.Brain.Chooser.Current?.Name == "combat") combatTicks++;
+            if (companion.Brain.Activity.Current?.Name == "combat") combatTicks++;
             closestApproach = MathF.Min(closestApproach, Vector2.Distance(threat.Center, player.Center));
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
@@ -239,8 +243,8 @@ internal static class VerifyCombatActivity
         for (int tick = 0; tick < 120; tick++)
         {
             Tick(companion);
-            if (companion.Brain.Chooser.Current?.Name == "mine") mineTicks++;
-            if (companion.Brain.Chooser.Current?.Name == "combat") combatTicks++;
+            if (companion.Brain.Activity.Current?.Name == "mine") mineTicks++;
+            if (companion.Brain.Activity.Current?.Name == "combat") combatTicks++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
         Console.WriteLine($"  distant-idle-enemy: mine ticks {mineTicks}, combat ticks {combatTicks} of 120");
@@ -253,7 +257,7 @@ internal static class VerifyCombatActivity
     {
         var (companion, player) = MineScene(TileID.Copper, new Point(25, 89), new Point(26, 89), new Point(27, 89));
         WaitForJob(companion, "mine", 300);
-        var chooser = companion.Brain.Chooser;
+        var chooser = companion.Brain;
         Projectile shot = HostileShot(companion.NPC.Center - new Vector2(80, 0), new Vector2(8, 0));
         int evadeTicks = 0, suspended = 0, hits = 0, mineTicks = 0;
         for (int tick = 0; tick < 30; tick++)
@@ -262,7 +266,7 @@ internal static class VerifyCombatActivity
             var grant = companion.Brain.ControlGrants.Last!.Value;
             if (grant.AppliedOwner == "evade") evadeTicks++;
             if (chooser.Activity.Phase == ActivityPhase.Suspended) suspended++;
-            if (chooser.Current?.Name == "mine") mineTicks++;
+            if (chooser.Activity.Current?.Name == "mine") mineTicks++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
             shot.position += shot.velocity;
             if (shot.Hitbox.Intersects(companion.NPC.Hitbox)) hits++;
@@ -300,7 +304,7 @@ internal static class VerifyCombatActivity
         for (int tick = 0; tick < 60; tick++)
         {
             Tick(companion);
-            if (companion.Brain.Chooser.Current?.Name == "combat") combatTicks++;
+            if (companion.Brain.Activity.Current?.Name == "combat") combatTicks++;
             if (companion.Combat.LastFireOutcome == "fired") fired++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
@@ -340,13 +344,13 @@ internal static class VerifyCombatActivity
 
     private static void WaitForJob(CompanionNPC companion, string job, int ticks)
     {
-        for (int tick = 0; tick < ticks && companion.Brain.Chooser.Current?.Name != job; tick++)
+        for (int tick = 0; tick < ticks && companion.Brain.Activity.Current?.Name != job; tick++)
         {
             Tick(companion);
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
-        Require(companion.Brain.Chooser.Current?.Name == job,
-            $"the scene must first be {job}, or the row proves nothing; current={companion.Brain.Chooser.Current?.Name}");
+        Require(companion.Brain.Activity.Current?.Name == job,
+            $"the scene must first be {job}, or the row proves nothing; current={companion.Brain.Activity.Current?.Name}");
     }
 
     private static NPC Hostile(int slot, int type, Vector2 bottom, int damage = -1, int life = -1)

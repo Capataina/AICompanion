@@ -166,8 +166,8 @@ internal static class VerifyFollowRecoveryAndProtection
             "combat execution must retain the scored target and anchor until preparation refreshes them");
         Require(combat.CommittedPlan != null && combat.CommittedPlan.PrimaryTarget == npc.whoAmI,
             "combat entry must commit the prepared enemy, not the later urgent enemy");
-        companion.Brain.Chooser.Activity.Select(combat, context);
-        long firstProtection = companion.Brain.Chooser.Activity.Id;
+        companion.Brain.Activity.Select(combat, context);
+        long firstProtection = companion.Brain.Activity.Id;
         typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, threat);
         threat.Urgency = .15f;
         threat.EffectiveTicksToPlayer = 150;
@@ -204,7 +204,7 @@ internal static class VerifyFollowRecoveryAndProtection
         senses.Threats.Threats.Clear();
         senses.SetInterventionEstimate(float.PositiveInfinity);
         Require(VerifyPreparedActivities.PrepareAndScore(combat, context) == 0 && combat.CommittedPlan == null, "disappeared threat releases commitment");
-        companion.Brain.Chooser.Activity.Select(combat, context);
+        companion.Brain.Activity.Select(combat, context);
         var replacement = new NPC { whoAmI = 5, active = true, life = 100, lifeMax = 100, damage = 20, position = new Vector2(500, 880) };
         Main.npc[5] = replacement;
         var second = new Threat { Npc = replacement, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
@@ -218,8 +218,8 @@ internal static class VerifyFollowRecoveryAndProtection
         float renewed = VerifyPreparedActivities.PrepareAndScore(combat, context);
         Require(renewed > 0 && combat.CommittedPlan != null && combat.CommittedPlan.PrimaryTarget == 5,
             $"the replacement threat must be offered and committed a fresh plan; renewed={renewed} reason={combat.EligibilityReason}");
-        companion.Brain.Chooser.Activity.Select(combat, context);
-        Require(companion.Brain.Chooser.Activity.Id != firstProtection,
+        companion.Brain.Activity.Select(combat, context);
+        Require(companion.Brain.Activity.Id != firstProtection,
             "guarding a different enemy must start a distinct protection activity in the shared owner");
         second.Urgency = .15f;
         var secondHeld = combat.CommittedPlan;

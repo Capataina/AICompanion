@@ -71,7 +71,7 @@ internal static class VerifyOfferValidity
             $"an unclaimed stand must be neither admitted nor refused; destination={offer.Destination}, reason={offer.Reason}, undecided={offer.Undecided}");
 
         // Resolve still holds it: the hold is the plan's point, and only rock or a proven absence
-        // refuses. The chooser reads the undecided offer, not the hold.
+        // refuses. What decides reads the undecided offer, not the hold.
         Vector2? chosen = positioner.Resolve(request, companion.Brain.Senses);
         Require(chosen == far, "Resolve must hold the planned point even where the flood has not claimed it");
     }
