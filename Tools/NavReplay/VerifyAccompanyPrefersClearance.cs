@@ -30,9 +30,13 @@ internal static class VerifyAccompanyPrefersClearance
             var movement = new CoordinateMovement();
             Vector2 boxCentre = new(60 * 16f, 48 * 16f);
             Vector2 half = new(200f, 180f);
+            // No floor: this row is about the walk climbing off a floor toward clearer air, so a floor on where
+            // legs may be drawn would be doing the work the row is asking the clearance preference to do. The
+            // box's own bottom edge is the way to say "none" in the units the parameter takes.
+            float noFloor = boxCentre.Y + half.Y;
             Vector2 centre = new(60 * 16f, 56 * 16f), velocity = Vector2.Zero;
             float startClear = ClearanceHeat.TerrainAt(world, centre);
-            Controls first = movement.Accompany(new OrbState(centre, velocity), boxCentre, half, Vector2.Zero, _ => false);
+            Controls first = movement.Accompany(new OrbState(centre, velocity), boxCentre, half, Vector2.Zero, noFloor, _ => false);
             float firstGap = Vector2.Distance(centre, movement.Navigator.Hover.LastTarget);
             if (firstGap > Weights.AccompanyWanderSpeedPx + Tolerance)
                 return Fail($"the first target is {firstGap:0.00} px from the body (at most one step, {Weights.AccompanyWanderSpeedPx})");
@@ -41,7 +45,7 @@ internal static class VerifyAccompanyPrefersClearance
             Vector2 best = centre;
             for (int i = 0; i < 400; i++)
             {
-                Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), boxCentre, half, Vector2.Zero, _ => false));
+                Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), boxCentre, half, Vector2.Zero, noFloor, _ => false));
                 float clearance = ClearanceHeat.TerrainAt(world, centre);
                 if (clearance > bestClear)
                 {

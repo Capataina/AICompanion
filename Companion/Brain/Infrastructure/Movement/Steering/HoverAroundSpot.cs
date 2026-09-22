@@ -128,13 +128,24 @@ public sealed class HoverAroundSpot
     /// refuses nothing here: the swept test already keeps the target in free space the body can fly to, and a place an
     /// unfinished flood has not reached is not an absence.</para>
     /// </summary>
-    public Controls Across(OrbState live, Vector2 centre, Vector2 halfSize, Vector2 lead, Func<Vector2, bool> refused, ITileWorld world)
+    public Controls Across(OrbState live, Vector2 centre, Vector2 halfSize, Vector2 lead, float lowestLegY,
+        Func<Vector2, bool> refused, ITileWorld world)
     {
         float inset = Navigator.SettleRadius;
         Vector2 room = new(MathF.Max(0f, halfSize.X - inset), MathF.Max(0f, halfSize.Y - inset));
         Vector2 wantMin = -room, wantMax = room;
         if (lead.X > Weights.AccompanyLeadPixels) wantMin.X = -room.X * Weights.AccompanyRearShare;
         else if (lead.X < -Weights.AccompanyLeadPixels) wantMax.X = room.X * Weights.AccompanyRearShare;
+        // **The floor on the tour, in the box's own frame.** The region holds the player, so its lower part is
+        // level with his legs and the floor he stands on, and a tour that draws its legs from the far edge of
+        // the whole box therefore draws some of them at his shins — which is what the 22 September play was
+        // reporting as "always too close to the floor". The caller passes the world y below which no leg may be
+        // drawn; `CoordinateBrainTick` passes the top of his head, so the tour lives over him while the region
+        // keeps holding him. It is a bound on the *part legs are drawn from*, never on the region, for a reason
+        // recorded at the wide branch below and in this folder's guide: lifting the region itself was built and
+        // reverted the same day, because the region's own membership is also combat's stand admission.
+        float floorOffset = lowestLegY - centre.Y;
+        wantMax.Y = MathF.Max(-room.Y, MathF.Min(room.Y, floorOffset));
 
         // The walk starts from the body whenever there is no walk to continue: released by another request, never begun, or a box
         // that jumped — a teleport, a respawn, a new region — so an offset describing somewhere else never places the target. It
@@ -261,6 +272,14 @@ public sealed class HoverAroundSpot
             // sometimes and this is the branch that has to work — and cross to the furthest reachable place,
             // ties going to the clearer one. It runs only when the first stage found nothing, which is the
             // pocket case and not the ordinary one.
+            //
+            // **The floor above does not bind this branch, and that is deliberate rather than an oversight.**
+            // It sweeps the whole `room`, his shins included. The floor is a preference about where the tour
+            // would rather live; getting out of a pocket is not a case that preference was written for, and in
+            // the capture that forced this branch the only way out ran west and then *down* past his head
+            // before turning back east under the rock. A floor that bound here would have re-sealed the pocket
+            // the branch exists to escape, which is the same shape as the rear share being a preference rather
+            // than a cage.
             wide = true;
             float far = -1f;
             for (int ix = 0; ix < WideLattice; ix++)

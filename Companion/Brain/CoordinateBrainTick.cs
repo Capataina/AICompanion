@@ -397,7 +397,14 @@ public sealed class Brain
             // The flood holds lattice corners, and a place pressed against a wall can have none the circle fits at while the
             // circle can still sweep straight to it; the walk is continuous and swept clear from its last target, which already
             // keeps it inside the free space connected to the body, and that is what being held by the flood was for.
-            return Movement.Accompany(companion.Motor.State, region.Centre, region.HalfSize, region.Lead,
+            // The floor the tour draws its legs above is the top of his head, derived from the sense's own two points
+            // rather than from a constant, so a player whose height changes carries it with him. The region still holds
+            // him — its lower part is level with his legs, which is what put the tour at his shins — and the floor is
+            // the narrow answer to that: it bounds where the walk *aims*, and nothing else. Lifting the region itself
+            // was built and reverted on 22 September, because `Region.Accepts` is also combat's stand admission and a
+            // lifted region cannot admit a melee stand beside a hostile standing where he stands.
+            float head = Senses.Player.Position.Y - (Senses.Player.Bottom.Y - Senses.Player.Position.Y);
+            return Movement.Accompany(companion.Motor.State, region.Centre, region.HalfSize, region.Lead, head,
                 point => footprint is Rectangle asked && Infrastructure.Observation.PlayerSense.BodyTiles(point + new Vector2(0f, CircleContact.Radius),
                     (int)CircleContact.Diameter, (int)CircleContact.Diameter).Intersects(asked));
         }

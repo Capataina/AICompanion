@@ -51,6 +51,13 @@ internal static class VerifyAccompanyGetsPastAnObstruction
     private static readonly Vector2 HalfSize = new(261.83f, 104.73f);
     private static readonly Vector2 Lead = new(45.45f, -2.91f);
 
+    /// <summary>The capture's own floor for the tour: the top of the player's head, his recorded feet at y 5808
+    /// less a player's height. It is passed rather than waived because the escape branch is *exempt* from the
+    /// floor and this row is what says so — the way out of this pocket runs west and then down past his head
+    /// before turning back east, so a floor that bound the wide draw would re-seal the pocket the branch
+    /// exists to escape, and the row would go red with a clamp that looked perfectly reasonable.</summary>
+    private const float PlayerHead = 5808f - 42f;
+
     /// <summary>Within this of a wall the body is hugging it rather than passing it; the orb is twenty across.</summary>
     private const float Hugging = 2f;
 
@@ -86,7 +93,7 @@ internal static class VerifyAccompanyGetsPastAnObstruction
             for (int tick = 0; tick < Ticks; tick++)
             {
                 Step(world, ref centre, ref velocity,
-                    movement.Accompany(new OrbState(centre, velocity), BoxCentre, HalfSize, Lead, _ => false));
+                    movement.Accompany(new OrbState(centre, velocity), BoxCentre, HalfSize, Lead, PlayerHead, _ => false));
                 float clearance = CircleContact.Clearance(world, centre);
                 furthestOff = MathF.Max(furthestOff, clearance);
                 if (freeAt < 0 && clearance > Hugging * 4f) freeAt = tick;

@@ -31,6 +31,7 @@
     <Compile Include="VerifyAccompanyingTargetIsContinuous.cs" />
     <Compile Include="VerifyAccompanyPrefersClearance.cs" />
     <Compile Include="VerifyAccompanyGetsPastAnObstruction.cs" />
+    <Compile Include="VerifyAccompanyStaysAboveHisHead.cs" />
     <Compile Include="VerifyEvadeUnderSustainedFire.cs" />
     <Compile Include="VerifyNavigatorKeepsMoving.cs" />
     <Compile Include="VerifyNavigatorConclusions.cs" />

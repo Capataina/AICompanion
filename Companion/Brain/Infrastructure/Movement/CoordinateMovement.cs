@@ -59,13 +59,19 @@ public sealed class CoordinateMovement
     /// there is no place to go, and the body moves about the box the region is — its centre, half-size and lead — by
     /// <see cref="HoverAroundSpot.Across"/>. Plain numbers and a refusal test rather than the region itself, so the
     /// movement core keeps no reference to the senses it is fed by.
+    ///
+    /// <para><paramref name="lowestLegY"/> is the world y below which the tour may not draw a leg, and it travels as a
+    /// number for the same reason the box does: the floor the brain wants is the top of the player's head, and naming
+    /// the player here would give this core a sense to know about. It is required rather than defaulted, because a
+    /// default would be the one value nobody chose and would read as "no floor" in exactly the fixtures that should be
+    /// declaring one.</para>
     /// </summary>
-    public Controls Accompany(OrbState live, Vector2 centre, Vector2 halfSize, Vector2 lead, Func<Vector2, bool> refused)
+    public Controls Accompany(OrbState live, Vector2 centre, Vector2 halfSize, Vector2 lead, float lowestLegY, Func<Vector2, bool> refused)
     {
         holdAnchor = null;
         Produced(Producer.Accompany);
         Navigator.Interrupt(live, AttemptEnding.Completed, "accompanying");
-        return Navigator.Hover.Across(live, centre, halfSize, lead, refused, MovementQueries.World);
+        return Navigator.Hover.Across(live, centre, halfSize, lead, lowestLegY, refused, MovementQueries.World);
     }
 
     /// <summary>A missing chosen place does not cancel a travel intention: aim at the anchor itself until <paramref name="arrived"/> says the body is there, and hover once it is.</summary>

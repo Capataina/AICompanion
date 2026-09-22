@@ -54,6 +54,9 @@ if (args.Length == 1 && args[0] == "--self-test")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the accompanying walk tours what it can reach rather than living on a wall inside its box",
             VerifyAccompanyGetsPastAnObstruction.Run,
             killedBy: "a tour that draws every leg from the far edge of the box whether or not the body has a way to it, so a wall standing inside the region holds the body against its face")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "the accompanying walk draws no leg below the floor its caller names, which in the game is the top of his head",
+            VerifyAccompanyStaysAboveHisHead.Run,
+            killedBy: "a tour drawing its legs from the whole box, whose lower part is the player's legs and the ground he stands on, so the companion keeps diving at his feet")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the body flies toward a goal while its search runs, and a finished search is not run again for an unchanged goal",
             VerifyNavigatorKeepsMoving.Run,
             killedBy: "a navigator that hovers until a search returns, restarts a search that hit its node limit or proved an absence, or keeps a proven absence to itself instead of handing the goal back")

@@ -5,7 +5,7 @@ This subsystem turns a place the brain wants the orb to be into a velocity the m
 ```
 Movement/
 ├─ CLAUDE.md                 this guide
-├─ CoordinateMovement.cs     the request surface: MoveTo, HoverHere, Hold, SeekDestination, Accompany, Evade
+├─ CoordinateMovement.cs     the request surface: MoveTo, HoverHere, Hold, SeekDestination, Accompany (with the floor its legs stay above), Evade
 ├─ MovementQueries.cs        the read-only geometry surface: the world, tile and corner questions, hover points
 ├─ LimitPlanningWork.cs      the shared millisecond allowance every search reads, and the switch that lifts it offline
 ├─ Contact/                  the circle-against-tiles contact, the one body the orb has
