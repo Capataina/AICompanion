@@ -160,6 +160,23 @@ internal static class RunTheWorld
         int TicksReachComplete,
         /// <summary>The combat variant's fight record, or null on an ordinary run, which places no zombie.</summary>
         FightTrace? Fight,
+        /// <summary>
+        /// The decision audit's own two counts at the end of the run, taken from the mod's statics
+        /// rather than parsed back out of a capture, so the row that grades them holds whether or not
+        /// a recorder was attached.
+        ///
+        /// They are two numbers rather than one because <c>Audited</c> increments at the top of the
+        /// audit before its source is consulted, so a session whose installer never ran reports every
+        /// decision audited and would look healthy under one count. <c>ObservationsRead</c> is lower
+        /// than <c>Audited</c> by design and not by fault: the observation is read once per *decision*
+        /// ordinal, and a carried course repeats its ordinal on every tick it holds the body.
+        /// </summary>
+        long DecisionsAudited,
+        long AuditObservationsRead,
+        /// <summary>Every contract violation the audit counted this run, by kind, whether or not the
+        /// recorder's coalescing kept it. Empty on a healthy run, and empty in exactly the same way on
+        /// a run whose audit was never wired — which is why the two counts above are graded first.</summary>
+        IReadOnlyDictionary<string, long> ContractViolations,
         /// <summary>One entry per tick for the play measures, always filled: the cost of keeping it is a struct a tick.</summary>
         IReadOnlyList<PlayTick> Play)
     {
@@ -463,6 +480,10 @@ internal static class RunTheWorld
             : new FightTrace(combatCurrent, fire, threatened, killStep, firedTicks);
         return new Outcome(centres, trace, claims, inside, connected, route.Count, clock.Elapsed.TotalSeconds, worldSource,
             light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer,
-            ticksOutsideKnownRadius, ticksReachComplete, fight, play);
+            ticksOutsideKnownRadius, ticksReachComplete, fight,
+            live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Audited,
+            live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.ObservationsRead,
+            new Dictionary<string, long>(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Counts),
+            play);
     }
 }
