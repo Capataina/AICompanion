@@ -420,6 +420,46 @@ public static class ChronicleTests
         foreach (string fixture in WriteBehaviourParity.NamedFixtures)
             Require(sources.Contains("\"" + fixture + "\"", StringComparison.Ordinal),
                 $"the parity table names the fixture case '{fixture}', which no instrument under Tools/ registers any more — the row claims coverage nothing provides");
+
+        // **A check that ran and found nothing is three answers and only one of them is agreement.**
+        // Before the row's witness existed this table said the play agreed with Self-preservation on a
+        // session holding zero damage events and zero downings, and said the same of Recovering when it
+        // cannot follow and Breaking containers — thirteen agreements that were a function of which
+        // checks ran rather than of the play, identical on a capture four days older. Each arm below
+        // drives the real page over a one-behaviour specification, varying only the witness's own
+        // evidence, because a fixture that holds the witness constant cannot tell the three apart.
+        string spec = Path.GetTempFileName();
+        try
+        {
+            void Parity(string behaviour, string columns, string rows, string expected, string why)
+            {
+                File.WriteAllText(spec, $"# Behaviour By Behaviour\n\n| **{behaviour}** — the gloss the parse discards |\n");
+                string tsv = Path.GetTempFileName();
+                try
+                {
+                    File.WriteAllText(tsv, $"# schema=0.44.0\ntick\t{columns}\n{rows}");
+                    string page = WriteBehaviourParity.Of(Session.Load(tsv), Array.Empty<Finding>(),
+                        Array.Empty<(string, string)>(), spec);
+                    string row = page.Split('\n').FirstOrDefault(l => l.Contains(behaviour, StringComparison.Ordinal)
+                        && l.StartsWith("  ", StringComparison.Ordinal)) ?? "";
+                    Require(row.TrimEnd().EndsWith(expected, StringComparison.Ordinal),
+                        $"'{behaviour}' read as something other than '{expected}' — {why}: '{row.Trim()}'");
+                }
+                finally { File.Delete(tsv); }
+            }
+
+            Parity("Self-preservation", "npc_hit", "1\t\n2\t\n", "not exercised",
+                "its checks ran and found nothing on a session in which the companion was never hit, and a session with nothing to grade "
+                + "is not a session the play agreed with");
+            Parity("Self-preservation", "npc_hit", "1\t\n2\tzombie\n", "play agrees",
+                "its checks ran silent on a session that does hold the behaviour, which is the one case the word `agrees` is earned by");
+            // A behaviour whose row declares no witness stays in the third value rather than being
+            // promoted, which is what makes declaring one worth doing.
+            Parity("Finding a route", "npc_hit", "1\t\n2\t\n", "silent",
+                "no witness is declared for it, so nothing in the capture says whether the behaviour occurred and the row must not claim "
+                + "either that it did or that it did not");
+        }
+        finally { File.Delete(spec); }
     }
 
     private static void TheCourseTimelineIsOneRowPerDecisionAndFoldsWhatRepeats()

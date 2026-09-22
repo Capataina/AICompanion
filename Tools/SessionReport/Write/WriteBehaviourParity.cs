@@ -29,9 +29,13 @@ namespace AICompanion.Tools.SessionReport;
 /// <para><b>What this does not read is the fixture's own verdict.</b> A case's pass or fail lives in
 /// `Tools/Ledger/runs/`, which is a store of whichever runs happen to be committed at whichever
 /// commits, and a report about one capture that changed its verdict depending on the state of that
-/// store would be reporting on the store. So the row names the fixture and says whether the play
-/// agrees with *silence*, and reading a named case's last verdict is the ledger's own scoreboard's
-/// job.</para>
+/// store would be reporting on the store. So the column is headed `cases N` and counts names, and
+/// reading a named case's last verdict is the ledger's own scoreboard's job. The heading matters
+/// beside the verdict column: read as "fixtures 2" next to "play agrees" it invites "two fixtures pass
+/// and the play agrees with them", which is two claims this page does not make.</para>
+///
+/// <para><b>A check that ran and found nothing is three answers, and the verdict says which.</b> See
+/// <see cref="Witness"/> for what went wrong when it was one.</para>
 /// </summary>
 public static class WriteBehaviourParity
 {
@@ -48,7 +52,60 @@ public static class WriteBehaviourParity
     /// rather than names, so renaming a check class breaks the build here instead of quietly unpairing
     /// a row.</para>
     /// </summary>
-    private sealed record Mapped(string Behaviour, string[] Fixtures, Type[] Checks);
+    /// <summary>
+    /// Whether this capture contains anything of the behaviour for a check to grade.
+    ///
+    /// <para><b>A silent check is not agreement, and treating it as agreement is the mirror of the
+    /// false positives this page was built in the same change as.</b> Before this existed the table
+    /// said the play agreed with <i>Self-preservation</i> on a session with zero damage events and zero
+    /// downings, with <i>Recovering when it cannot follow</i> on one where `recovery_active` was false
+    /// on all 2,340 rows, and with <i>Breaking containers</i> on one whose census never admitted a pot;
+    /// the same thirteen agreements appeared on a different capture from four days earlier, which is
+    /// the tell that the number was a function of which checks ran rather than of the play. A false
+    /// negative in a coverage table is worse than a false positive in a findings block, because the
+    /// findings block is read adversarially and the coverage table is read as reassurance.</para>
+    ///
+    /// <para>The answer is three-valued for the same reason the light and reach senses are: <c>true</c>
+    /// the behaviour occurred, <c>false</c> it provably did not, and <c>null</c> this capture cannot
+    /// say — either because the column or occurrence the witness reads is absent, or because no witness
+    /// is declared for the row at all. A row with no witness reads as silent-and-unwitnessed rather
+    /// than being promoted to agreement, so declaring one is what *earns* the word "agrees".</para>
+    /// </summary>
+    private sealed record Witness(string What, Func<Session, bool?> Occurred);
+
+    private sealed record Mapped(string Behaviour, string[] Fixtures, Type[] Checks, Witness? Saw = null);
+
+    /// <summary>A witness over a text column: absent column means the capture cannot say.</summary>
+    private static Witness Column(string what, string column, Func<string, bool> holds)
+        => new(what, session => session.Find(column) is not { } found ? null
+            : Enumerable.Range(0, session.Count).Any(i => holds(found.Text[i])));
+
+    /// <summary>A witness over the sidecar's occurrence kinds.</summary>
+    private static Witness Occurrence(string what, string kind)
+        => new(what, session =>
+        {
+            GodsEyeEventLog log = ReadGodsEyeEvents.Read(session.Path);
+            return !log.Present ? null : log.Events.Any(e => string.Equals(e.kind, kind, StringComparison.Ordinal));
+        });
+
+    /// <summary>A witness asking whether a domain was ever admitted usable by the course's own census.
+    /// A domain the world never offered is a behaviour the play had no chance to exercise.</summary>
+    private static Witness Admitted(string what, string domain)
+        => new(what, session =>
+        {
+            GodsEyeEventLog log = ReadGodsEyeEvents.Read(session.Path);
+            if (!log.Present) return null;
+            bool any = false;
+            foreach (GodsEyeEvent e in log.Events)
+            {
+                if (!string.Equals(e.kind, "decision", StringComparison.Ordinal)) continue;
+                var admitted = ACensusAdmissionSurvivesItsBinder.ReadAdmissions(e.detail);
+                if (admitted.Count == 0) continue;
+                any = true;
+                if (admitted.TryGetValue(domain, out var entry) && entry.Usable > 0) return true;
+            }
+            return any ? false : (bool?)null;
+        });
 
     private static readonly Mapped[] Mapping =
     {
@@ -73,7 +130,8 @@ public static class WriteBehaviourParity
                 "the target hold survives ordinary motion and breaks on a change that should change the choice",
                 "only the combat stance fires",
             },
-            new[] { typeof(TheChosenWeaponIsTheBetterOne), typeof(CombatHeldTargetsItsBinderCouldNotSee), typeof(TheHandsWorkWhileThreatened), typeof(NotFightingMeansNothingToShoot), typeof(HuntsWorthTakingAreTaken) }),
+            new[] { typeof(TheChosenWeaponIsTheBetterOne), typeof(CombatHeldTargetsItsBinderCouldNotSee), typeof(TheHandsWorkWhileThreatened), typeof(NotFightingMeansNothingToShoot), typeof(HuntsWorthTakingAreTaken) },
+            Occurrence("a hostile appearing", "npc-spawn")),
         new("Chaining several jobs into one trip",
             new[] { "the search keeps the best order the winner beat", "collecting, lighting and pot breaking bind steps a course can hold" },
             Array.Empty<Type>()),
@@ -104,10 +162,12 @@ public static class WriteBehaviourParity
             new[] { typeof(TheCommittedPlanWasPerformed), typeof(HuntingProducesAnOutcome), typeof(HuntingStaysOnHisScreen) }),
         new("Self-preservation",
             new[] { "every liquid is air to the orb: it flies through water, honey, lava and shimmer at its air pace and is never hurt", "downing and revival keep life on the NPC" },
-            new[] { typeof(TheCompanionStaysUp), typeof(DamageArrivesWhereDangerWasSeen) }),
+            new[] { typeof(TheCompanionStaysUp), typeof(DamageArrivesWhereDangerWasSeen) },
+            Column("the companion being hit", "npc_hit", v => v.Length > 0 && v != "-")),
         new("Lighting the area",
             new[] { "torches go where his smart cursor would put one in the dark, and the record says why not", "native lighting projections preserve captured light and shared deficits" },
-            new[] { typeof(TorchesGoWhereHisCursorWould), typeof(TheTorchGivesUpTheHand) }),
+            new[] { typeof(TorchesGoWhereHisCursorWould), typeof(TheTorchGivesUpTheHand) },
+            Admitted("anywhere dark admitted as work", "light-target")),
         new("Deciding what counts as a threat",
             new[]
             {
@@ -129,7 +189,8 @@ public static class WriteBehaviourParity
             new[] { typeof(AHittingFightKeptItsScore), typeof(CombatWasPricedInACrowd) }),
         new("Breaking containers",
             new[] { "collecting, lighting and pot breaking bind steps a course can hold" },
-            new[] { typeof(CompletedTransferClaimsWereReceived) }),
+            new[] { typeof(CompletedTransferClaimsWereReceived) },
+            Admitted("a pot admitted as work", "pot-target")),
         new("Dodging and kiting",
             new[] { "a dodge bends mining without stopping it", "safety bends the body inside its job and never takes it: an enemy beside a leaving player, firing on, a bent guard, an intervening hostile" },
             Array.Empty<Type>()),
@@ -140,7 +201,8 @@ public static class WriteBehaviourParity
                 "the mining list decides which ores are work, and remembers every ore the player has held",
                 "remaining work is accounted to whoever did it",
             },
-            new[] { typeof(RepeatedFailedMethodsAreFindings) }),
+            new[] { typeof(RepeatedFailedMethodsAreFindings) },
+            Admitted("an ore admitted as work", "mine-target")),
         new("Reporting what it is doing",
             new[] { "a capture states the configuration it ran under and the course order it took", "every candidate a preparation refused is named with the stage and what it read" },
             new[] { typeof(ColumnsHoldWhatTheyClaim), typeof(TheCaptureWasClosed), typeof(NoOccurrenceWasDropped), typeof(TheDecisionAuditRanOnTheDecisionsTheCaptureHolds) }),
@@ -164,7 +226,8 @@ public static class WriteBehaviourParity
             new[] { typeof(FollowingMakesRouteProgress), typeof(ArrivalDoesNotStrandFollowing) }),
         new("Looting",
             new[] { "a collected drop is claimed only for what arrived", "assistance is useful rather than merely nearby" },
-            new[] { typeof(CompletedTransferClaimsWereReceived) }),
+            new[] { typeof(CompletedTransferClaimsWereReceived) },
+            Occurrence("anything picked up", "pickup")),
         new("Weapon selection",
             new[]
             {
@@ -172,10 +235,12 @@ public static class WriteBehaviourParity
                 "weapon, target, stand and aim are valued by what the companion's own shots achieved",
                 "a weapon's misses against one enemy type stay with that type",
             },
-            new[] { typeof(TheChosenWeaponIsTheBetterOne), typeof(WeaponKnowledgeIsCalibrated) }),
+            new[] { typeof(TheChosenWeaponIsTheBetterOne), typeof(WeaponKnowledgeIsCalibrated) },
+            Occurrence("a weapon used", "shot")),
         new("Recovering when it cannot follow",
             new[] { "recovery flight and protection admit only what may start them", "a companion sealed off from the player does not travel away from him" },
-            new[] { typeof(BeingUnableToReachHimGetsNoticed) }),
+            new[] { typeof(BeingUnableToReachHimGetsNoticed) },
+            Column("recovery flight running", "recovery_active", v => v is "True" or "true" or "1")),
         new("Changing the world",
             new[] { "ore work breaks ore without excavating ordinary terrain", "a closed door is opened rather than treated as a wall" },
             Array.Empty<Type>()),
@@ -248,7 +313,7 @@ public static class WriteBehaviourParity
         var skippedNames = skipped.Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
         var rows = new List<(string Behaviour, string Fixtures, string Play, string Verdict)>();
         var extract = new List<(string Behaviour, int Tick)>();
-        int noFixture = 0, disagrees = 0, agrees = 0, unmeasured = 0;
+        int noFixture = 0, disagrees = 0, agrees = 0, unmeasured = 0, notExercised = 0, unwitnessed = 0;
 
         foreach (string behaviour in behaviours)
         {
@@ -280,7 +345,29 @@ public static class WriteBehaviourParity
             string verdict;
             if (mapped.Checks.Length == 0) { play = "no check reads it"; verdict = "unmeasured"; unmeasured++; }
             else if (ran.Count == 0) { play = $"{skippedHere} check(s), all skipped on this capture"; verdict = "unmeasured"; unmeasured++; }
-            else if (fired.Count == 0) { play = $"{ran.Count} check(s) ran, silent"; verdict = "play agrees"; agrees++; }
+            else if (fired.Count == 0)
+            {
+                // **Silence is three answers, and only one of them is agreement.** A check that ran and
+                // found nothing has either watched the behaviour happen correctly, watched a session the
+                // behaviour never occurred in, or run with nobody able to say which. The row's declared
+                // witness is what separates them, and a row with none stays in the third.
+                bool? saw = mapped.Saw?.Occurred(session);
+                if (saw == true) { play = $"{ran.Count} check(s) silent, and the capture shows {mapped.Saw!.What}"; verdict = "play agrees"; agrees++; }
+                else if (saw == false)
+                {
+                    play = $"{ran.Count} check(s) silent, and nothing shows {mapped.Saw!.What}";
+                    verdict = "not exercised";
+                    notExercised++;
+                }
+                else
+                {
+                    play = mapped.Saw is null
+                        ? $"{ran.Count} check(s) silent; no witness says whether it occurred"
+                        : $"{ran.Count} check(s) silent; the capture cannot say about {mapped.Saw.What}";
+                    verdict = "silent";
+                    unwitnessed++;
+                }
+            }
             else
             {
                 Finding worst = fired.OrderByDescending(f => f.Rows).First();
@@ -303,11 +390,14 @@ public static class WriteBehaviourParity
         var text = new StringBuilder();
         text.Append($"behaviour parity  {behaviours.Count} behaviour(s) in {Path.GetFileName(path)}'s specification: "
             + $"{noFixture} named by no fixture at all, and in this capture "
-            + $"{agrees} the play agrees with, {disagrees} it contradicts, {unmeasured} nothing here measures\n");
-        text.Append("                  the fixture column is a count of named cases, not their verdicts: a case's pass or fail lives in the ledger, "
-            + "and a report that read it would report on which runs happen to be committed\n");
+            + $"{agrees} the play agrees with, {disagrees} it contradicts, {notExercised} this play never exercised, "
+            + $"{unwitnessed} silent with nothing to say whether they occurred, {unmeasured} nothing here measures\n");
+        text.Append("                  a check that ran and found nothing is not agreement: a row says `play agrees` only where a declared "
+            + "witness saw the behaviour happen, `not exercised` where the witness proves it did not, and `silent` where nobody can say\n");
+        text.Append("                  the fixture column counts named cases and reads none of their verdicts, so it is `cases N` rather than a "
+            + "score: a case's pass or fail lives in the ledger, and a report that read it would report on which runs happen to be committed\n");
         foreach ((string behaviour, string fixtures, string play, string verdict) in rows)
-            text.Append($"  {Fit(behaviour, 36)}  fixtures {Fit(fixtures, 8)}  {Fit(play, 52)}  {verdict}\n");
+            text.Append($"  {Fit(behaviour, 36)}  cases {Fit(fixtures, 5)}  {Fit(play, 70)}  {verdict}\n");
         foreach (Mapped stale in Mapping.Where(m => !behaviours.Contains(m.Behaviour, StringComparer.Ordinal)))
             text.Append($"  mapping for '{stale.Behaviour}' names no behaviour the specification still holds; the README row was renamed or removed\n");
         // The same coverage question asked backwards, which is the half a table of behaviours cannot
