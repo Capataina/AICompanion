@@ -83,6 +83,7 @@ internal static class VerifyEngineMotion
         ("a flood bounded by travel cost exhausts inside its radius with exactly the corners the ball holds", VerifyFreeSpace.FloodBounded),
         ("an enemy's observed motion is forecast from what it actually did", VerifyObservedMotion.Run),
         ("the god's-eye occurrence stream records what it claims", VerifyGodsEyeEvents.Run),
+        ("a decision that contradicts itself is named while it happens", VerifyDecisionTripwires.Run),
         ("retained courses compare conserved futures and publish complete repairs", VerifyCourseCore.Run),
         ("projected effects preserve causality and physical resource capacity", VerifyProjectionContracts.Run),
         ("course orders resume concrete bindings before forecasting consequences", VerifyCourseOrderProjection.Run),

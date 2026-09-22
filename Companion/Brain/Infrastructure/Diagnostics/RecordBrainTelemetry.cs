@@ -124,7 +124,7 @@ public sealed class BrainTelemetry : ModSystem
     // columns as their evidence, so all three were grading constants. `<activity>_time` stays at 1.000 and
     // is documented at its site as constant by design, because the course has no per-activity time factor
     // to report and inventing one would be the very substitution this bump exists to declare.
-    private const string Schema = "0.44.0";
+    private const string Schema = "0.45.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -219,6 +219,10 @@ public sealed class BrainTelemetry : ModSystem
     public static string Folder => Path.Combine(Main.SavePath, "ModSources", "AICompanion", "Telemetry");
     internal static double ElapsedMilliseconds => sessionClock.Elapsed.TotalMilliseconds;
 
+    /// <summary>Stands the decision audit's reader up before any world opens, and whether or not
+    /// recording is switched on, because the audit's source is wiring rather than session state.</summary>
+    public override void Load() => ReadLiveCourseForAudit.Install();
+
     public override void OnWorldLoad()
     {
         Close("superseded-by-world-load");
@@ -253,6 +257,7 @@ public sealed class BrainTelemetry : ModSystem
             lastDecision = null;
             firstUpdateRecorded = false;
             ScenarioCapture.Reset();
+            AuditDecisionContracts.Reset();
             TravelEpisodes.Reset();
             BehaviourCensus.Reset();
             SessionMap.Reset();
@@ -359,6 +364,10 @@ public sealed class BrainTelemetry : ModSystem
         // The open journey and the open stop belong to this session, so they are written before the stream closes; the
         // census closes its own open episode inside Report for the same reason.
         TravelEpisodes.Close(CompanionNPC.Instance);
+        // The decision audit coalesces its violations, so the totals in the capture are the totals as
+        // at the last record it wrote; this enqueues one closing record per kind that has moved since,
+        // while the event stream is still taking them.
+        AuditDecisionContracts.Flush();
         GodsEyeEvents.Close();
         try
         {
@@ -712,6 +721,11 @@ public sealed class BrainTelemetry : ModSystem
             if (candidate is Activities.Gathering.ChopTree chopAction) chop = chopAction;
         }
         activityControls += $";mine-last-conclusion={mine?.LastConclusion?.ToString() ?? "none"}";
+        // The one contract that is a per-tick cost rather than a property of a decision, so it is
+        // audited here: `DecideMs` is laid at the end of the decide phase and does not exist at the
+        // moment the decision records itself. Every other contract is audited where the decision is
+        // recorded, in `AuditDecisionContracts`.
+        AuditDecisionContracts.ObserveDecideCost(brain.DecideMs, (long)Main.GameUpdateCount);
         if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
         {
             var board = new StringBuilder();

@@ -42,8 +42,32 @@ public sealed class CourseTracePayload
 /// <summary>Accepts immutable values only and leaves encoding and I/O to the bounded diagnostics worker.</summary>
 public static class RecordCourseTrace
 {
+    /// <summary>
+    /// Records one course occurrence, auditing a decision against its contracts on the way through.
+    ///
+    /// The audit sits here rather than in the course owner because this is the seam a diagnostic is
+    /// allowed to occupy: the owner decides, and this reads what it recorded. It also sits here
+    /// rather than in the recorder's per-tick row, because the contracts are properties of a
+    /// *decision* and the row is a property of a tick — a retained course carried for five hundred
+    /// ticks is one decision, and a per-tick audit reports one contradiction five hundred times.
+    ///
+    /// The audit may return fields to append, which is how <c>target-evidence</c> and
+    /// <c>target-evidence-age</c> reach a payload built in <c>Selection/</c>: a refused order records
+    /// the count of its refusals and not the evidence the binder read, and the evidence is only
+    /// reachable while the frozen observation is still in hand. Appending rather than rebuilding
+    /// upstream keeps the decision's own record the course owner's and this addition Diagnostics'.
+    /// </summary>
     public static bool Record(CourseTracePhase phase, CourseTraceContext context, CourseTracePayload payload)
-        => GodsEyeEvents.RecordCourse(phase, context, payload, required: phase is CourseTracePhase.NativeReceipt or CourseTracePhase.Lifecycle, snapshot: null);
+    {
+        IReadOnlyList<KeyValuePair<string, CourseTraceValue>> extra = AuditDecisionContracts.Observe(context, payload);
+        if (extra.Count > 0)
+        {
+            var fields = new List<KeyValuePair<string, CourseTraceValue>>(payload.Fields);
+            foreach (var field in extra) if (!payload.Fields.ContainsKey(field.Key)) fields.Add(field);
+            payload = new CourseTracePayload(payload.Kind, payload.Version, fields);
+        }
+        return GodsEyeEvents.RecordCourse(phase, context, payload, required: phase is CourseTracePhase.NativeReceipt or CourseTracePhase.Lifecycle, snapshot: null);
+    }
 
     public static bool RecordDecisionSnapshot(CourseDecisionSnapshot snapshot)
     {
