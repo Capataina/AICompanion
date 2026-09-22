@@ -13,12 +13,41 @@ The property is worth stating as a property, because the family chooser this rep
 ```text
 Opportunities/
 ├─ CLAUDE.md                  source and binding contracts
-├─ DescribeOpportunity.cs    keys, physical needs, census units and source/binder interfaces
-├─ DiscoverOpportunities.cs  round-robin resumable discovery with cache coverage
+├─ DescribeOpportunity.cs    keys, physical needs, census units, the admission's own evidence key, and source/binder interfaces
+├─ DiscoverOpportunities.cs  round-robin resumable discovery, cache coverage, and the retirement of admissions the current observation cannot support
 ├─ DiscoverAssistanceOpportunities.cs pure drop, light and pot census adapters
 ├─ BindAssistanceOpportunity.cs one binder for all three assistance domains
 └─ BindOpportunity.cs        shared manifest/epoch gate and domain live validation
 ```
+
+## An admission is only as good as the observation it was decided against
+
+**The store outlives observations, so a candidate can go on claiming an evidence the decision does not hold — and that is what ended the owner's play of 0.38.13.** Every decision in the last twenty-five seconds of capture `2026-09-22_10-05-56-125` read `combat=usable:3, collect-target=usable:4` and then refused all twenty-eight orders built from them, twelve `target-capture-missing` and sixteen `assistance-target-unresolved`. Both strings are the same test in two domains — the target fact's evidence is not `Observed` — so this was never a preference between two kinds of work. The census and the binder were reading two different worlds, the only order left to price was the empty one, and an empty order is companionship. From outside it is a companion that has stopped doing anything with five hostiles round it and three drops at its feet.
+
+The mechanism is one sentence: discovery keeps candidates in a bounded store across decisions, each admission was decided against whatever snapshot the slice that produced it ran on, and nothing re-examined it afterwards. A drop taken off the floor, a hostile killed, a tile somebody else mined — the fact disappears from every later observation and the candidate sits there usable for ever, spending the search's orders on a target that cannot bind.
+
+So **every candidate names the one fact its own domain's binder reads first**, `Opportunity.AdmissionEvidence`, and `DiscoverOpportunities.Continue` re-reads that key against the current observation before it serves anything:
+
+```
+evidence in this snapshot        what the store does        why
+├─ present and Observed          serve it unchanged         the admission still stands
+├─ absent, unpinned              retire it from the store   the world no longer holds it; a rescan
+│                                                           re-finds it if it comes back, and a seat
+│                                                           nobody can bind is one a live domain wants
+├─ absent, pinned                serve it Unresolved        the published course still holds this step;
+│                                                           whether that survives is ValidateNextUse's
+│                                                           answer, not discovery's
+└─ present, not Observed         serve it Unresolved        not gone — not answered yet, which is the
+                                 admission-evidence-<state> third value this tree keeps everywhere
+```
+
+Measured on the reproduction, `Tools/EngineReplay/DecisionMaking/VerifyAdmittedOpportunitiesBind.cs`: a drop removed at tick 150 was still served `KnownUsable:observed-drop` at tick 499, with nine refusals a decision for every one of the 350 decisions in between, while the funnel reported three usable drops. With the sweep the same run refuses nothing and the course keeps publishing.
+
+Two properties of the sweep are deliberate and worth not undoing. **The evidence key is a required constructor parameter** rather than an optional one, so a source added later has to say what its admission rests on; a stand-in with no facts behind it passes `default`, which names no kind and is skipped, and that exemption is visible at the call site where a nullable parameter would have hidden it. And **the sweep is not charged to the allowance**: it is bounded by the store's own capacity, sixty-four dictionary reads at the very worst, and a cut halfway through is the one outcome that puts the defect straight back, because the candidates it had not reached would go on claiming their evidence.
+
+The durable property, which is the general form of the one above it: **a cache that survives the input it was computed from must re-derive its answer against the current input or say it cannot.** Recency and fairness were the two axes this store already had; freshness of the admission is the third, and it is the one whose absence is invisible from every count a reader would check, because a stale candidate reports as healthy in exactly the funnel a reader opens.
+
+`AIC-449` — a trunk published `usable`, examined every slice, never appearing in `Course.Admitted` — is **not** this seam and is not closed by it. That defect is a candidate that never reaches the store; this one is a candidate that never leaves it. The sweep only removes and downgrades, so it cannot make a missing candidate appear, and it cannot make that one worse either: the chop capture's fact key is stable across captures, so a live trunk's evidence reads `Observed` and the sweep passes over it.
 
 The census owns normalisation; enumeration order, cache occupancy and target partition do not own value. Sources report examined bounds, unfinished work and loss of cached coverage. Changed revisions dirty estimates and invoke validation; they are not themselves proof that a native action became forbidden. Bind/predict/compare consumers read immutable snapshots and sparse hypothetical state, never `Main`.
 

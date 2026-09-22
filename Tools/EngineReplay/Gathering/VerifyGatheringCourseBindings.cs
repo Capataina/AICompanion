@@ -51,7 +51,7 @@ internal static class VerifyGatheringCourseBindings
         var original = Opportunity(snapshot);
         var opportunity = new Opportunity(original.Key, original.Revision, original.Target, original.Admission,
             original.Reason, original.Needs.Select(need => need with { RemainingAmount = 7.5 }),
-            original.Methods, original.Dependencies);
+            original.Methods, original.Dependencies, original.AdmissionEvidence);
         var state = new ProjectedCourseState(new(20, 30));
         var gate = new BindOpportunity(new[] { new GatheringOpportunityBinder("mine-target") });
         var binding = gate.Bind(opportunity, state, snapshot, new(), new(double.PositiveInfinity)).Binding

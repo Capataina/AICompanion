@@ -63,7 +63,7 @@ public sealed class DiscoverAssistanceOpportunities : IOpportunitySource
                 site.Target, site.Generation);
             examined.Add(new Opportunity(key, observed.Version, new(site.ContactX ?? site.X, site.ContactY ?? site.Y), admission, site.Reason,
                 new[] { new UsefulNeed(new(need, site.Target, site.Generation), Math.Max(0, site.Amount), Math.Max(1, site.CensusAmount), admission == OpportunityAdmission.KnownUsable ? 1 : 0) },
-                new[] { key.Purpose }, reader.Manifest()));
+                new[] { key.Purpose }, reader.Manifest(), raw.Key));
         }
         if (cursor.Offset == sites.Length) cursor.Complete();
         return new(examined, new(Name, facts.WorldEpoch, cursor.Offset, sites.Length, cursor.Exhausted && complete,

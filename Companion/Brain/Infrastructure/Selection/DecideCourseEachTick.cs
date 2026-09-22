@@ -126,6 +126,13 @@ public sealed class DecideCourseEachTick
     /// every three-valued answer in this tree exists to preserve.</summary>
     public IReadOnlyList<OpportunityCoverage> Coverage => discovery.Coverage;
 
+    /// <summary>Every candidate discovery is currently serving the search, for a reader that needs the
+    /// individual keys rather than the per-domain counts <see cref="Admitted"/> aggregates. A count says
+    /// three combat opportunities are usable; only the keys say which three, and which observation each
+    /// was admitted against — which is the difference between diagnosing a census and diagnosing a
+    /// store.</summary>
+    public IReadOnlyList<Opportunity> Candidates => discovery.Candidates;
+
     /// <summary>
     /// What discovery found, by domain and by whether the search may actually order it.
     ///

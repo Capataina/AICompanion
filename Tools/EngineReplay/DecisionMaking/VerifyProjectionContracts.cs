@@ -421,7 +421,7 @@ internal static class VerifyProjectionContracts
     }
 
     private static Opportunity Opportunity()
-        => new(Key, 1, default, OpportunityAdmission.KnownUsable, "fixture", Array.Empty<UsefulNeed>(), new[] { "fixture" }, DependencyManifest.Empty);
+        => new(Key, 1, default, OpportunityAdmission.KnownUsable, "fixture", Array.Empty<UsefulNeed>(), new[] { "fixture" }, DependencyManifest.Empty, default);
 
     private sealed class ReadingBinder(FactKey key) : IOpportunityBinder
     {
@@ -455,7 +455,7 @@ internal static class VerifyProjectionContracts
             {
                 long position = cursor.Offset; cursor.Advance(); Examined++;
                 found.Add(new(new(Name, "fixture", position.ToString(), 1), 1, new(position, 0), OpportunityAdmission.KnownUsable,
-                    "fixture", Array.Empty<UsefulNeed>(), new[] { "fixture" }, DependencyManifest.Empty));
+                    "fixture", Array.Empty<UsefulNeed>(), new[] { "fixture" }, DependencyManifest.Empty, default));
             }
             if (cursor.Offset == count) cursor.Complete();
             return new(found, new(Name, facts.WorldEpoch, cursor.Offset, count, cursor.Exhausted, budget.Cut, "fixture"));

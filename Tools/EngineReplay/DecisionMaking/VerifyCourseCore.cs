@@ -614,7 +614,7 @@ internal static class VerifyCourseCore
             {
                 long index = cursor.Offset; cursor.Advance(); Examined++;
                 result.Add(new(new(name, "group", index.ToString(), 1), 1, new(index, 0), OpportunityAdmission.KnownUsable,
-                    "observed", new[] { new UsefulNeed(Loot, 20, 20, 1) }, new[] { "pickup" }, DependencyManifest.Empty));
+                    "observed", new[] { new UsefulNeed(Loot, 20, 20, 1) }, new[] { "pickup" }, DependencyManifest.Empty, default));
             }
             if (cursor.Offset == count) cursor.Complete();
             return new(result, new(name, facts.WorldEpoch, cursor.Offset, count, cursor.Exhausted, budget.Cut, "fixture-line"));

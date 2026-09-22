@@ -423,7 +423,7 @@ public sealed class GatheringOpportunitySource : IOpportunitySource
                 : new[] { new UsefulNeed(GatheringOpportunityBinder.Need(site), amount, census,
                     admission == OpportunityAdmission.KnownUsable ? 1 : 0) };
             examined.Add(new Opportunity(key, observed.Version, workingPose, admission, site.Reason,
-                needs, new[] { site.Purpose }, reader.Manifest()));
+                needs, new[] { site.Purpose }, reader.Manifest(), raw.Key));
         }
         if (captureComplete && cursor.Offset == sites.Length) cursor.Complete();
         state.Prefix = sites.Take((int)cursor.Offset).Select(fact => fact.Key).ToArray();
