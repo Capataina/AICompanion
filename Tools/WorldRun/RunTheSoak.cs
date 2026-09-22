@@ -50,8 +50,8 @@ internal static class RunTheSoak
     /// How much the floor of the last window may exceed the floor of the first.
     ///
     /// <b>This is a bound taken from a measurement rather than a declaration the brain makes.</b> There
-    /// is no fact budget anywhere in `Selection/` — `AuditDecisionContracts.MaximumFactsPerDecision` says
-    /// the same thing about its own 512 — so what is available is the play: 150 facts climbing to 1,603
+    /// is no fact budget anywhere in `Selection/` — `AuditDecisionContracts.MaximumFactsOfKind` says the
+    /// same thing about its own bounds — so what is available is the play: 150 facts climbing to 1,603
     /// and never falling. A quarter of the audit's bound catches a climb of that shape long before the
     /// audit's own tripwire would, and leaves ordinary churn alone: on the surface soak measured below,
     /// the window floors move by tens rather than hundreds.
@@ -366,7 +366,7 @@ internal static class RunTheSoak
         string message = $"{label}: window floors {string.Join(" ", floors)} over {floors.Count} window(s) of "
             + $"{GrowthWindowDecisions} decision(s) after {WarmUpDecisions} warm-up decisions; first {first}, last {last}, peak {peak}, "
             + $"{fallbacks} window(s) fell back on the one before against the {requiredFallbacks} required. Two lines: "
-            + $"last <= first + {GrowthSlackFacts}, a quarter of AuditDecisionContracts.MaximumFactsPerDecision, "
+            + $"last <= first + {GrowthSlackFacts}, half the flat per-kind bound AuditDecisionContracts.MaximumFactsOfKind holds, "
             + "because there is no declared fact budget in Selection/ to mirror and the play climbed 150 -> 1,603 and "
             + $"never fell; and one fall-back per {RequiredFallbackSpanWindows} window(s), the brief's own rule, "
             + "because a floor that only ever rises is a store outliving its observations however slowly it does it";

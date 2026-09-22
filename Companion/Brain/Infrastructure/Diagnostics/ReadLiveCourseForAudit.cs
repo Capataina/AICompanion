@@ -70,6 +70,12 @@ public static class ReadLiveCourseForAudit
             admitted.Add(new(domain, usable, unresolved, unusable, reason));
 
         var targets = new List<TargetFact>();
+        // Every kind is tallied, not only the six target kinds, because the size contract the audit
+        // keeps is now per kind and the runaway it exists to catch is `combat-use` — which is not a
+        // target kind and so was invisible to this reader. One dictionary over a loop this method
+        // already makes; the target list stays restricted, because the *age* contracts below it are
+        // about targets and nothing else.
+        var byKind = new Dictionary<string, int>(StringComparer.Ordinal);
         DecisionFactSnapshot? facts = course.Facts;
         if (facts != null)
         {
@@ -77,11 +83,12 @@ public static class ReadLiveCourseForAudit
             for (int i = 0; i < all.Count; i++)
             {
                 DecisionFact fact = all[i];
+                byKind[fact.Key.Kind] = byKind.TryGetValue(fact.Key.Kind, out int had) ? had + 1 : 1;
                 if (!IsTargetKind(fact.Key.Kind)) continue;
                 targets.Add(new(fact.Key.Kind, fact.Key.ToString(),
                     fact.Evidence == FactEvidence.Observed, fact.Evidence.ToString()));
             }
         }
-        return new(admitted, targets);
+        return new(admitted, targets, byKind);
     }
 }

@@ -210,15 +210,20 @@ public sealed class CombatOpportunityBinder:IOpportunityBinder
         // first use's key exactly while replacing everything after it.
         //
         // The target filter reads the *key* rather than the value, because `UseId` puts the target slot
-        // and generation in the identity — so the uses belonging to other targets are never consumed and
-        // never enter this manifest, and the declaration stays complete without becoming a subscription
-        // to every shot in the snapshot.
+        // and generation in the identity — so no other target's use is deserialised here and the value
+        // filter that used to repeat the same test is gone rather than kept beside its replacement.
+        //
+        // **It does not follow that only this target's uses are in the manifest, and the first version of
+        // this comment claimed exactly that.** `Bind`, thirty lines above, walks every `combat-use` fact
+        // in key order calling `facts.Read` until one binds for this target, so on a crowd every earlier
+        // target's uses are declared before this method runs. That over-declares, which over-invalidates
+        // rather than under-invalidates and is safe; what would not be safe is a later reader building on
+        // the exclusivity this comment used to assert.
         string mine=FormattableString.Invariant($"npc:{slot}.{generation}/");
         var front=facts.Facts.Where(f=>f.Key.Kind=="combat-use"
                 &&f.Key.Identity.StartsWith(mine,StringComparison.Ordinal))
             .OrderBy(f=>f.Key).Select(f=>CombatCourseFacts.Read<CombatCourseFacts.Use>(facts.Read(f.Key)))
-            .Where(u=>u!=null&&u.TargetSlot==slot&&u.TargetGeneration==generation
-                &&float.IsFinite(u.ExpectedTargetDamage)&&u.ExpectedTargetDamage>0&&u.TargetImpactTicks>0)
+            .Where(u=>u!=null&&float.IsFinite(u.ExpectedTargetDamage)&&u.ExpectedTargetDamage>0&&u.TargetImpactTicks>0)
             .OrderBy(u=>u!.FireTick).ToArray();
         if(front.Length==0) return (0,state.Tick+travel,state.Tick+travel,state.Tick+travel);
         int opening=front[0]!.FireTick;

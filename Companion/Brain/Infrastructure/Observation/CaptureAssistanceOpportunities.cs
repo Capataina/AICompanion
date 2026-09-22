@@ -256,7 +256,13 @@ public sealed class CaptureAssistanceOpportunities
         // rectangle sweeps nothing while still reporting a finished sweep. That would be a finished
         // census of a world nobody looked at, which is the one confusion coverage exists to prevent, so
         // an empty area publishes Unresolved and the domain honestly reports an unanswered question.
-        facts.Add(Coverage("light-coverage", area, area.Width > 0 && area.Height > 0));
+        // The site the course is working right now is published whatever it ranks, which is hysteresis
+        // rather than a favour: the set below is re-ranked from scratch every observation, and an absent
+        // unpinned fact is what `RetireAdmissionsThisObservationCannotSupport` retires, so a site that
+        // drifted one rank would be torn out from under a course already flying to it.
+        string? workingOn = context.Companion.Brain.Course.Last.Binding is { } bound
+            && bound.Opportunity.Domain == "light-target" ? bound.Opportunity.Target : null;
+        var swept = new List<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>>();
         // A census publishes opportunities, not tiles.
         //
         // This loop used to emit a `light-target` fact for every tile in the window — a 125x125 square
@@ -335,8 +341,34 @@ public sealed class CaptureAssistanceOpportunities
                     : stepAnswer == false ? "the-placement-step-refuses-this-tile" : "observed-persistent-darkness";
                 var value = new AssistanceOpportunityFact("light-target", $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8,
                     reading.IsDark ? 1 : 0, reading.IsDark ? 1 : 0, admission, reason, $"light={reading.Light};brightness={reading.Brightness:R};coverage={coverage.Area}", contact);
-                facts.Add(Fact("light-target", value.Target, 0, value));
+                // Ranked by darkness rather than by `Amount`, because a light site's `Amount` is the
+                // binary `IsDark` the need arithmetic wants — every usable site scores exactly 1, so a
+                // top-K by Amount would be the same arbitrary prefix that tile-identity order already
+                // gives, wearing a ranking's name. Brightness is the quantity that actually separates
+                // two dark tiles, and the tier ahead of it keeps the ranking answering the right
+                // question first: a usable site is never dropped to publish an unusable one. Worth is
+                // the last word rather than the first, because within one spacing cell the sites are
+                // substitutes and cost decides between them; `RankCensusSitesByWorth` owns that order
+                // and the measurement that forced it.
+                int tier = admission == "usable" ? 0 : admission == "unknown" ? 1 : 2;
+                // Cost is squared tile distance from the heading, which is the anchor every "near the
+                // player" measure in this tree already uses and the centre of the window being swept.
+                // It decides which sites survive a cut, so it is measured from the heading rather than
+                // from the body deliberately: the body moves every tick, and a cut keyed to it would
+                // change the published set under a flying companion and retire admissions on ticks when
+                // nothing about the world moved.
+                double dx = x - heading.X, dy = y - heading.Y;
+                swept.Add(new(point, tier, 1 - reading.Brightness, dx * dx + dy * dy, value));
             }
+        // The limit is the window's own arithmetic rather than a number: two torches must be more than
+        // the placer's spacing apart in both axes, so a window this wide can never usefully hold more
+        // than this many of them however dark it is, and publishing past that is spending the decision's
+        // budget on answers no placement could take.
+        (List<AssistanceOpportunityFact> published, int withheld) = RankCensusSitesByWorth.PublishTheBest(
+            swept, RankCensusSitesByWorth.MostSitesAWindowCanHold(work, CompanionTorches.SpacingTiles),
+            site => site.Target == workingOn);
+        foreach (AssistanceOpportunityFact site in published) facts.Add(Fact("light-target", site.Target, 0, site));
+        facts.Add(Coverage("light-coverage", area, area.Width > 0 && area.Height > 0, withheld));
     }
 
     /// <summary>
@@ -391,14 +423,25 @@ public sealed class CaptureAssistanceOpportunities
     /// enumeration exhausted. It carries the swept area so a reader can tell which world a complete
     /// answer is complete about, and it is versioned by that text so an unchanged window keeps one
     /// version across observations rather than dirtying every dependent estimate each tick.</summary>
-    private DecisionFact Coverage(string kind, Rectangle scanned, bool swept = true)
+    /// <summary>
+    /// What was swept, and — since 22 September 2026 — how much of what was swept is not in the snapshot.
+    ///
+    /// `withheld` is the third value this census owes, and it is on the coverage fact rather than on the
+    /// sites because it is a statement about the *sweep*. A site absent from a swept area used to mean
+    /// exactly one thing, "looked, nothing there", which is what let the census stop publishing walls; a
+    /// bounded census makes absence mean two things, and without this count a caller cannot tell a
+    /// neighbourhood with no dark tile from a neighbourhood whose dark tile lost its bucket. Zero is the
+    /// old meaning and is the ordinary case; non-zero says the sweep answered about more than it
+    /// published and the remainder is *not yet ranked* rather than absent.
+    /// </summary>
+    private DecisionFact Coverage(string kind, Rectangle scanned, bool swept = true, int withheld = 0)
     {
         var key = new FactKey(kind, "native-census");
         // The area is named rather than only the verdict, because "complete" is only meaningful about
         // somewhere. World edges are the one caveat the word "exhaustive" overstates: both scans skip a
         // margin through WorldGen.InWorld, so a window overlapping the edge of the world sweeps slightly
         // less than the rectangle it publishes.
-        string text = $"{(swept ? "exhaustive" : "unscanned")};area={scanned.Left},{scanned.Top}:{scanned.Width}x{scanned.Height};world-edge-margin-skipped";
+        string text = $"{(swept ? "exhaustive" : "unscanned")};area={scanned.Left},{scanned.Top}:{scanned.Width}x{scanned.Height};world-edge-margin-skipped;withheld={withheld}";
         long current = factVersions.TryGetValue(key, out var prior) && prior.Text == text ? prior.Version : ++version;
         factVersions[key] = (text, current);
         return new(key, current, new FactValue(Text: text), swept ? FactEvidence.Observed : FactEvidence.Unresolved);

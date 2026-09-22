@@ -34,6 +34,12 @@
          project cannot see, so no row here can establish that the install happens. The capture's
          closing line carries `audit-observations-read` for that, and SessionReport grades it. -->
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/AuditDecisionContracts.cs" />
+    <!-- The audit's per-kind fact bound asks the census how many sites a window can hold, so the ranking
+         comes with it; a name this project compiles twice must be in both copies or the second one
+         silently keeps the previous binary. The placer's own file is deliberately *not* here — it
+         reaches the tile watcher and pulls half the mod in behind it, which is why the audit mirrors the
+         spacing constant and a row asserts the two still agree. -->
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/RankCensusSitesByWorth.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/QueueDiagnosticRecords.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/FlushDiagnosticRecords.cs" />
     <Compile Include="../../Companion/PlayerIntegration/ObservePlayerEvents.cs" />

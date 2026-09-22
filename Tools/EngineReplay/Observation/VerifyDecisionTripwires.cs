@@ -1,3 +1,7 @@
+// The placer's own spacing is read through the live mod, because this project compiles the audit a
+// second time without the placer behind it; see the mirror check in contract five.
+extern alias live;
+
 #nullable enable
 
 using System.Globalization;
@@ -172,18 +176,49 @@ internal static class VerifyDecisionTripwires
 
     // ── contract five ─────────────────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// The size contract is per kind, and the row's whole point is the case a single total could not see.
+    ///
+    /// The bound was one number over the whole observation and it fired 470–647 times a run on the
+    /// 22 September replay, every one of them on `light-target` — a census sized to its window — while a
+    /// runaway in `combat-use` at three or four hundred would have sat inside the same total unnoticed.
+    /// So the third arm is the one that matters: a snapshot whose light kind is at its own bound and
+    /// whose combat kind is over its own must name **`combat-use`**, which the old bound could not do at
+    /// any threshold, because 196 healthy light facts plus 300 runaway combat facts is 496 and under 512.
+    /// </summary>
     private static void AnOversizedObservationIsNamed()
     {
-        int bound = AuditDecisionContracts.MaximumFactsPerDecision;
+        int light = AuditDecisionContracts.MaximumFactsOfKind("light-target");
+        int other = AuditDecisionContracts.MaximumFactsOfKind("combat-use");
         AuditDecisionContracts.Reset();
-        Audit(30, 1, Decision("course-published", "keep-company", settled: true, steps: 0, facts: bound + 1), Empty());
+        Audit(30, 1, Decision("course-published", "keep-company", settled: true, steps: 0, facts: light + 1),
+            Sized(("light-target", light + 1)));
         Require(Count("fact-count-above-bound") == 1,
-            $"an observation of {bound + 1} facts against a bound of {bound} must be named; counts={Counts()}");
+            $"a light census of {light + 1} sites against that kind's bound of {light} must be named; counts={Counts()}");
 
         AuditDecisionContracts.Reset();
-        Audit(30, 1, Decision("course-published", "keep-company", settled: true, steps: 0, facts: bound), Empty());
+        Audit(30, 1, Decision("course-published", "keep-company", settled: true, steps: 0, facts: light),
+            Sized(("light-target", light)));
         Require(Count("fact-count-above-bound") == 0,
-            $"an observation of exactly {bound} facts is inside the bound and must not be named; counts={Counts()}");
+            $"a light census of exactly {light} sites is inside its own bound and must not be named; counts={Counts()}");
+
+        AuditDecisionContracts.Reset();
+        Audit(30, 1, Decision("course-published", "keep-company", settled: true, steps: 0, facts: light + other + 1),
+            Sized(("light-target", light), ("combat-use", other + 1)));
+        Require(Count("fact-count-above-bound") == 1,
+            $"a combat-use runaway beside a healthy light census must be named, which a single total of "
+                + $"{light + other + 1} could not separate from the census; counts={Counts()}");
+
+        // The audit cannot reference the placer's own file — `EngineReplay` compiles this audit a second
+        // time and the placer reaches the tile watcher — so it mirrors the spacing, and a mirror needs a
+        // check or it drifts in silence and the light bound quietly widens.
+        // Hoisted rather than interpolated: `{live::…}` parses as the value `live` with a format
+        // specifier and fails as CS0118, which this tree documents and everybody hits once.
+        int placerSpacing = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.CompanionTorches.SpacingTiles;
+        int mirrored = AuditDecisionContracts.TorchSpacingTiles;
+        Require(mirrored == placerSpacing,
+            $"the audit mirrors a torch spacing of {mirrored} against the placer's {placerSpacing}, so the light "
+                + "census's fact bound is computed from a spacing the placer does not use");
     }
 
     // ── contract six ──────────────────────────────────────────────────────────────────────────────
@@ -564,6 +599,12 @@ internal static class VerifyDecisionTripwires
     }
 
     private static DecisionInputs Empty() => new(Array.Empty<CensusAdmission>(), Array.Empty<TargetFact>());
+
+    /// <summary>An observation of a stated shape: how many facts of each kind, without building them.
+    /// The size contract reads the tally and nothing else, so a row about size supplies a tally.</summary>
+    private static DecisionInputs Sized(params (string Kind, int Count)[] kinds)
+        => new(Array.Empty<CensusAdmission>(), Array.Empty<TargetFact>(),
+            kinds.ToDictionary(k => k.Kind, k => k.Count, StringComparer.Ordinal));
 
     private static DecisionInputs Inputs(IReadOnlyList<CensusAdmission> admitted, params TargetFact[] targets)
         => new(admitted, targets);

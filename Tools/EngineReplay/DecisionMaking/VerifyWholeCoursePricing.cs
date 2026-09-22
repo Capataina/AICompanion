@@ -289,7 +289,8 @@ internal static class VerifyWholeCoursePricing
         return (victim, motion);
     }
 
-    private static Opportunity Site() => new(new("fixture", "use", "whole-course", 1), 1, default,
+    // A real purpose, because the search refuses any whose executor the map does not name.
+    private static Opportunity Site() => new(new("fixture", "collect", "whole-course", 1), 1, default,
         OpportunityAdmission.KnownUsable, "fixture", new[] { new UsefulNeed(new(NeedKind.Loot, "whole-course"), 1, 1, 1) },
         new[] { "use" }, DependencyManifest.Empty, default);
 
