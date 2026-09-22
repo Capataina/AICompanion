@@ -187,6 +187,36 @@ public static class ChronicleTests
             Require(Math.Abs(Value("brain-share") - 90.0) < 0.5, $"brain-share={Value("brain-share")}");
             Require(Math.Abs(Value("inspector-share") - 11.0) < 0.5, $"inspector-share={Value("inspector-share")}");
 
+            // **The brain column is read one row back, and a fixture with a constant brain cost cannot
+            // tell.** `frame_ms` is anchored at PostUpdateEverything, so a row written inside update N
+            // carries the interval that closed at the end of update N−1 and the brain cost inside it is
+            // the *previous* row's — which is exactly what `FrameCost.RemainderMilliseconds` is handed
+            // when the producer computes `engine_ms`. Every fixture above holds brain_ms at 9.00, so
+            // both phases give the same share and the reader summed this row's brain against the
+            // previous update's interval for as long as it existed. This one alternates 20 and 2 with a
+            // 25 ms interval, over three rows whose first is unmeasured:
+            //
+            //   row 0   frame -1   brain 20      excluded: no interval
+            //   row 1   frame 25   brain  2      its interval covers update 0, whose brain was 20
+            //   row 2   frame 25   brain  2      its interval covers update 1, whose brain was  2
+            //
+            // The right phase sums 22 over a 50 ms interval and reads 44%; the row's own brain sums 4
+            // and reads 8%. Nothing else in the file separates those two numbers.
+            var phased = new StringBuilder("# schema=0.45.0\n"
+                + "tick\twall_elapsed_ms\tframe_ms\tdraws\toverlay_ms\tinspector_ms\tengine_ms\tbrain_ms\trecord_ms\n"
+                + "0\t0.00\t-1.00\t1\t0.00\t0.00\t0.00\t20.00\t0.00\n"
+                + "1\t25.00\t25.00\t1\t0.00\t0.00\t5.00\t2.00\t0.00\n"
+                + "2\t50.00\t25.00\t1\t0.00\t0.00\t23.00\t2.00\t0.00\n");
+            File.WriteAllText(file, phased.ToString());
+            var phasedRows = new MeasureTheFrame().Rows(Session.Load(file)).ToList();
+            double Phased(string name) => phasedRows.Single(r => r.Case == "frame/" + name).Value ?? -1;
+            Require(Math.Abs(Phased("brain-share") - 44.0) < 0.01,
+                $"the brain share must be taken from the row before each interval, which is 44% here; reading the row's own gives 8%. brain-share={Phased("brain-share"):0.00}");
+            // The same phase in the check's own split, which is a second copy of the arithmetic.
+            Finding[] phasedFinding = new TheFrameFitsTheEnginesTimestep().Run(Session.Load(file)).ToArray();
+            Require(phasedFinding.Length == 1 && phasedFinding[0].Detail.Contains("brain 11.00 ms a frame (44.0%)", StringComparison.Ordinal),
+                $"the check's split must read the same phase as the measure: {(phasedFinding.Length == 0 ? "no finding" : phasedFinding[0].Detail)}");
+
             // The producer pin. The five columns are written by a file this project does not compile,
             // so a rename there leaves every row above passing against a capture nobody writes.
             string recorder = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));

@@ -18,7 +18,7 @@ Checks/
 ├─ CheckTheCensusAgainstItsBinder.cs  a domain the census admitted usable survived the binder in the same decision
 ├─ CheckTheChoices.cs                 choice rows reflect what the activity owner recorded
 ├─ CheckTheFight.cs                   hands work while threatened; a hitting fight keeps its score; a fight held over targets its binder cannot see; a crowd is priced from here
-├─ CheckTheFrame.cs                   the whole update against the engine's own timestep, reported with its split rather than as a share alone
+├─ CheckTheFrame.cs                   the whole update against the engine's own timestep, reported with its split rather than as a share alone; the brain read one row back for the phase `Measures/CLAUDE.md` states
 ├─ CheckTheInstrument.cs              the body is never held in place by something the record does not name
 ├─ CheckThePlayersReference.cs        his own cursor's dark tile left unlit, and a usable hunt beside him idle, while keeping company won
 ├─ CheckTheRecord.cs                  identities parse correctly, columns hold what they claim, the capture closed
