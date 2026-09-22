@@ -275,7 +275,7 @@ internal static class VerifyProjectionContracts
     private static void EffectFactDependencies()
     {
         var fact = new FactKey("effect-result", "target");
-        var manifest = new DependencyManifest(new[] { new FactRead(fact, 1, "observed", FactEvidence.Observed) });
+        var manifest = new DependencyManifest(new[] { new FactRead(fact, 1, default, FactEvidence.Observed) });
         var first = Binding(106, new[] { Effect(107, 1, dependencies: manifest) }, travel: 1);
         var later = Binding(108, parents: new[] { 107L });
         var index = CourseDependencyIndex.Build(new CourseProjection(new[] { first, later }, Array.Empty<PredictedHarm>(), Array.Empty<CompanionshipInterval>(), 0, true));
@@ -312,7 +312,7 @@ internal static class VerifyProjectionContracts
     private static void LateBoundParentOrdering()
     {
         var changed = new FactKey("effect-result", "late-parent");
-        var manifest = new DependencyManifest(new[] { new FactRead(changed, 1, "observed", FactEvidence.Observed) });
+        var manifest = new DependencyManifest(new[] { new FactRead(changed, 1, default, FactEvidence.Observed) });
         var parent = Effect(121, 10, parents: new[] { 120L }, dependencies: manifest,
             delta: new[] { new EffectDelta(changed, new FactValue(X: 1)) }, earliestTick: 5, latestTick: 20,
             evidence: EstimateStatus.NativeBound);

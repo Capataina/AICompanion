@@ -93,7 +93,7 @@ public sealed class BindCourseOrder : ICourseProjector
             {
                 var key = new FactKey("capacity", resource.CapacityKey);
                 if (!facts.TryRead(key, out var fact) || fact.Evidence != FactEvidence.Observed
-                    || !awaitingApplication.Dependencies.Reads.Any(read => read.Key == key && read.Digest == fact.Digest))
+                    || !awaitingApplication.Dependencies.Reads.Any(read => read.Key == key && read.Matches(fact)))
                     return Finish(ProjectionStatus.Rejected, null, "capacity-input-unresolved:" + resource.CapacityKey, cursor);
                 capacities[resource.CapacityKey] = fact.Value.Amount;
             }

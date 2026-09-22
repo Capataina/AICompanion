@@ -131,7 +131,7 @@ public sealed class ForecastCourseCompanionship
     private DecisionFact Read(FactKey key)
     {
         if (!snapshot.TryRead(key, out var fact)) fact = new(key, -1, default, FactEvidence.Missing);
-        reads[key] = new(key, fact.Version, fact.Digest, fact.Evidence);
+        reads[key] = new(key, fact.Version, fact.Value, fact.Evidence);
         return fact;
     }
     private CourseCompanionshipResult Result(ProjectionStatus status, string reason, bool inside = false)

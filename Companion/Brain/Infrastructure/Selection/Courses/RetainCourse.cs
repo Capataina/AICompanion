@@ -313,7 +313,7 @@ public sealed class RetainCourse
             {
                 var key = new FactKey("capacity", phase.CapacityKey);
                 if (!facts.TryRead(key, out var capacity) || capacity.Evidence != FactEvidence.Observed
-                    || !step.Dependencies.Reads.Any(read => read.Key == key && read.Digest == capacity.Digest)) return false;
+                    || !step.Dependencies.Reads.Any(read => read.Key == key && read.Matches(capacity))) return false;
                 capacities[phase.CapacityKey] = capacity.Value.Amount;
             }
         }

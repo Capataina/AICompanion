@@ -48,8 +48,12 @@ public sealed record DecisionFact
     ///
     /// The fields are immutable, so a value computed twice is the same value and there is no lock here
     /// deliberately: the worst a race can do is compute an identical string twice, and the brain is
-    /// single-threaded anyway — the diagnostics worker reads <see cref="FactRead"/>, which already holds
-    /// its string, and never touches a fact.
+    /// single-threaded anyway.
+    ///
+    /// **Nothing in production asks for either of these any more**, since <see cref="FactRead"/> stopped
+    /// recording a hash on 22 September 2026. They survive for a recorded capture read back in another
+    /// process, which cannot compare fields it did not store; being lazy, an unread digest costs nothing,
+    /// which is what makes keeping them cheaper than deleting and reinstating them.
     /// </summary>
     public string CanonicalValue
         => canonical ??= System.Text.Json.JsonSerializer.Serialize(new { Key, Version, Value, Evidence });
@@ -59,12 +63,30 @@ public sealed record DecisionFact
     /// <summary>Whether two facts about the same key carry the same observation, without asking either
     /// for its digest. The digest is a hash of exactly these three fields, so this is what a digest
     /// comparison was approximating and is strictly stronger than it — a hash can collide and a field
-    /// comparison cannot. Callers comparing a live fact against a recorded <see cref="FactRead"/> still
-    /// use the digest, because a recorded read is all the string they have.</summary>
+    /// comparison cannot.</summary>
     public bool SameObservationAs(DecisionFact other)
         => Version == other.Version && Evidence == other.Evidence && Value.Equals(other.Value);
 }
-public readonly record struct FactRead(FactKey Key, long Version, string Digest, FactEvidence Evidence);
+
+/// <summary>
+/// One fact as a decision read it, kept so the decision can be asked later whether the world still
+/// says what it said. It records the fields rather than a hash of them.
+///
+/// It held the hash until 22 September 2026, and the hash is what made lazy digesting only a partial
+/// saving: every tracked read took <c>fact.Digest</c>, so 4,329 of a 500-decision scene's 16,200
+/// snapshot facts — 26.7% — were still serialised and SHA-256'd, measured by a sentinel on that scene.
+/// A read now carries <see cref="FactValue"/> and <see cref="FactEvidence"/> straight across, which is a
+/// struct copy of two doubles, a double pair and a string reference, and <see cref="Matches"/> compares
+/// exactly the three fields the hash was over — so the check is strictly stronger than the one it
+/// replaced, since a hash can collide and a field comparison cannot. <see cref="DecisionFact.Digest"/>
+/// survives with no production caller, for a recorded capture that needs a stable cross-process token.
+/// </summary>
+public readonly record struct FactRead(FactKey Key, long Version, FactValue Value, FactEvidence Evidence)
+{
+    /// <summary>Whether a live fact still carries the observation this read was taken from.</summary>
+    public bool Matches(DecisionFact fact)
+        => fact.Version == Version && fact.Evidence == Evidence && fact.Value.Equals(Value);
+}
 
 /// <summary>Only captured values enter hypothetical evaluation. Missing reads are recorded,
 /// so an incomplete capture cannot look like a complete decision about an empty world.</summary>
@@ -118,7 +140,7 @@ public sealed class TrackedFactReader
     public DecisionFact Read(FactKey key)
     {
         if (!snapshot.TryRead(key, out var fact)) fact = new(key, -1, default, FactEvidence.Missing);
-        reads[key] = new(key, fact.Version, fact.Digest, fact.Evidence);
+        reads[key] = new(key, fact.Version, fact.Value, fact.Evidence);
         return fact;
     }
     public DependencyManifest Manifest() => new(reads.Values);
@@ -144,7 +166,7 @@ public sealed class DependencyManifest
     public bool Recorded => Reads.All(r => r.Evidence is FactEvidence.Observed or FactEvidence.Modelled or FactEvidence.Unresolved);
     public IReadOnlyList<FactKey> Changed(DecisionFactSnapshot snapshot)
         => Array.AsReadOnly(Reads.Where(r => !snapshot.TryRead(r.Key, out var now)
-            || now.Version != r.Version || now.Digest != r.Digest).Select(r => r.Key).ToArray());
+            || !r.Matches(now)).Select(r => r.Key).ToArray());
     public static DependencyManifest Empty { get; } = new(Array.Empty<FactRead>());
 }
 

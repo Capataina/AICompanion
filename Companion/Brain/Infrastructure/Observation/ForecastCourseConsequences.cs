@@ -473,7 +473,7 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
         if (!facts.TryRead(key, out DecisionFact fact)) fact = new(key, -1, default, FactEvidence.Missing);
         // A missing answer is a question rather than an input, so it never enters the manifest: recording
         // it would make the cost depend on a fact that does not exist and could never stop being changed.
-        if (fact.Evidence != FactEvidence.Missing) harmReads.Add(new(key, fact.Version, fact.Digest, fact.Evidence));
+        if (fact.Evidence != FactEvidence.Missing) harmReads.Add(new(key, fact.Version, fact.Value, fact.Evidence));
         return fact;
     }
 
