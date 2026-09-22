@@ -71,6 +71,27 @@ internal static class VerifyGodsEyeEvents
         playerHooks.OnHurt(new Player.HurtInfo { Damage = 20 });
         owner.statLife = 10;
         playerHooks.OnHurt(new Player.HurtInfo { Damage = 300 });
+        // One item slot, three occupants, and the two ways a slot changes hands. Generations used to
+        // advance only from `GlobalItem.OnSpawn`, which a drop staged straight into `Main.item` never
+        // fires, so slot 3 carried generation 1 through all three of these and `pickup.related` joined
+        // a transfer to whichever a reader assumed. Nothing here calls the spawn hook, deliberately:
+        // this is exactly the path that produced the defect.
+        Item dropped = Drop(3, type: 71, stack: 12, new Vector2(600f, 800f), age: 5);
+        GodsEyeEvents.RecordDropSighted(dropped, 40f, 0.25f);
+        int firstDrop = GodsEyeEvents.ItemIdentity(dropped);
+        dropped.timeSinceItemSpawned = 40;
+        int sameDrop = GodsEyeEvents.ItemIdentity(dropped);
+        // A different type in the same slot.
+        Item second = Drop(3, type: 73, stack: 1, new Vector2(640f, 800f), age: 0);
+        int secondDrop = GodsEyeEvents.ItemIdentity(second);
+        second.timeSinceItemSpawned = 90;
+        GodsEyeEvents.RecordPickup(reusedNpc, second, 1, "cargo", 0);
+        // The same type again in the same slot, which the type alone cannot separate: the only thing
+        // that says these are two items is the spawn age going backwards, from the 90 the slot's last
+        // occupant had reached to the 1 a fresh drop carries.
+        Item third = Drop(3, type: 73, stack: 4, new Vector2(660f, 800f), age: 1);
+        int thirdDrop = GodsEyeEvents.ItemIdentity(third);
+
         RecordTerrainChunks.ObserveActors(reusedNpc, owner);
         var capture = new RecordTerrainChunks();
         for (int tick = 0; tick < 49; tick++) capture.PostUpdateEverything();
@@ -127,6 +148,22 @@ internal static class VerifyGodsEyeEvents
         failures += Require(spawn.Position == shooterSpawn && death.Position != spawn.Position && respawn.Subject != spawn.Subject,
             "NPC spawn/death or slot reuse generation did not retain occurrence state");
 
+        failures += Require(sameDrop == firstDrop,
+            $"one item aging in its slot must keep its identity; {firstDrop} became {sameDrop}");
+        failures += Require(secondDrop != firstDrop,
+            $"a different item type in a reused slot must open a new generation; both read {secondDrop}");
+        failures += Require(thirdDrop != secondDrop,
+            $"the same type in a reused slot must be told apart by its spawn age going backwards; both read {thirdDrop}");
+        Event sighted = events.Single(record => record.Kind == "drop-sighted");
+        failures += Require(sighted.Related == firstDrop.ToString()
+                && sighted.Channel == "loot-sense" && sighted.Position == dropped.Center
+                && sighted.Detail.Contains("slot=3;stack=12;distance=40.0"),
+            $"a sighted drop must name its identity, slot, stack and where it lay; related={sighted.Related}, detail={sighted.Detail}");
+        Event pickup = events.Single(record => record.Kind == "pickup");
+        failures += Require(pickup.Related == secondDrop.ToString(),
+            $"a pickup must join the item actually taken rather than the slot's first ever occupant;"
+                + $" related={pickup.Related}, taken={secondDrop}, first={firstDrop}");
+
         Event? changedSnapshot = events.Where(record => record.Kind == "terrain-snapshot" && record.Position == new Vector2(256f, 768f)).Cast<Event?>().LastOrDefault();
         bool terrainComplete = changedSnapshot is { Detail: string detail }
             && detail.Contains("width=16;height=16;")
@@ -169,7 +206,8 @@ internal static class VerifyGodsEyeEvents
             JsonElement root = document.RootElement;
             events.Add(new Event(
                 root.GetProperty("v").GetInt32(), root.GetProperty("seq").GetInt32(), root.GetProperty("wall_elapsed_ms").GetDouble(),
-                root.GetProperty("kind").GetString()!, root.GetProperty("subject").GetInt32(), root.GetProperty("channel").GetString()!,
+                root.GetProperty("kind").GetString()!, root.GetProperty("subject").GetInt32(),
+                root.GetProperty("related").GetString()!, root.GetProperty("channel").GetString()!,
                 new Vector2(root.GetProperty("pos_x").GetSingle(), root.GetProperty("pos_y").GetSingle()), root.GetProperty("detail").GetString()!));
         }
         return events;
@@ -177,6 +215,14 @@ internal static class VerifyGodsEyeEvents
 
     private static NPC Npc(int slot, Vector2 position, Vector2 velocity)
         => new() { whoAmI = slot, type = slot, active = true, width = 16, height = 32, position = position, velocity = velocity, life = 100 };
+
+    /// <summary>A world drop staged straight into its slot, which is the path that never fires
+    /// <c>GlobalItem.OnSpawn</c> and therefore the path the identity fix had to be built against.
+    /// No <c>SetDefaults</c>: the identity reads the type, the stack and the spawn age, and loading an
+    /// item's real definition here would make the row depend on the game's content tables.</summary>
+    private static Item Drop(int slot, int type, int stack, Vector2 position, int age)
+        => new() { whoAmI = slot, type = type, stack = stack, active = true, width = 16, height = 16,
+            position = position, timeSinceItemSpawned = age };
 
     private static Projectile Projectile(int slot, Vector2 position, Vector2 velocity)
         => new() { whoAmI = slot, type = 1, active = true, width = 10, height = 10, position = position, velocity = velocity, damage = 20, owner = Main.myPlayer };
@@ -188,5 +234,5 @@ internal static class VerifyGodsEyeEvents
         return 1;
     }
 
-    private readonly record struct Event(int Version, int Sequence, double Elapsed, string Kind, int Subject, string Channel, Vector2 Position, string Detail);
+    private readonly record struct Event(int Version, int Sequence, double Elapsed, string Kind, int Subject, string Related, string Channel, Vector2 Position, string Detail);
 }

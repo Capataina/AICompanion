@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -273,6 +274,9 @@ public sealed class BrainTelemetry : ModSystem
             ScenarioCapture.Reset();
             AuditDecisionContracts.Reset();
             FrameCost.Reset();
+            // The identities are per session, so a previous world's drop cannot suppress this one's
+            // first sighting of the slot it happens to reuse.
+            sightedDrops.Clear();
             lastBrainMs = 0;
             overrunWindowOpenedAt = Main.GameUpdateCount;
             overrunsInWindow = 0;
@@ -472,6 +476,23 @@ public sealed class BrainTelemetry : ModSystem
         overrunsInWindow = 0;
         worstFrameInWindow = 0;
         worstFrameSplit = "";
+    }
+
+    /// <summary>
+    /// One extra preamble line from a harness that is driving this recorder rather than a game.
+    ///
+    /// It exists because the world run had to reach `QueueDiagnosticRecords.TryEnqueueTsv` by
+    /// reflection to stamp what it was replaying, and a reflective call into a method this folder is
+    /// free to rename is a break nobody finds until it throws at run time. The caller owns the line's
+    /// content and this owns the `# ` and the ordering; it is refused once the header has been written,
+    /// because a preamble line after the header is a line every reader will mis-parse as a trailer.
+    /// </summary>
+    /// <returns>Whether the line was accepted: false where no session is open or the header has already
+    /// gone out, both of which are the caller's mistake rather than a dropped record.</returns>
+    public static bool AnnotateHeader(string line)
+    {
+        if (diagnosticWriter == null || headerWritten || string.IsNullOrWhiteSpace(line)) return false;
+        return QueueDiagnosticRecords.TryEnqueueTsv(line.StartsWith("# ", StringComparison.Ordinal) ? line : "# " + line);
     }
 
     private static void WriteMetadata()
@@ -763,6 +784,7 @@ public sealed class BrainTelemetry : ModSystem
         TravelEpisodes.Watch(companion);
         Brain brain = companion.Brain;
         var senses = brain.Senses;
+        WatchSightedDrops(senses);
         NPC npc = companion.NPC;
         RecordTerrainChunks.ObserveActors(npc, Main.LocalPlayer);
         string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
@@ -832,6 +854,25 @@ public sealed class BrainTelemetry : ModSystem
                 board.Append(CultureInfo.InvariantCulture,
                     $";course:{leader.Key}=value:{leader.Value.Total.Nominal:0.000},useful:{leader.Value.UsefulEffects:0.000}"
                     + $",harm:{leader.Value.Harm:0.000},gap:{leader.Value.Companionship:0.000}");
+            // The reason here is the commonest *non-usable* admission's, which merges two groups that
+            // fail in opposite directions: a candidate proven unusable is a census that finished and
+            // found nothing, and one left unresolved is a census that has not answered, which is the
+            // middle value this whole tree is built on not collapsing. A domain with both reports one
+            // string and a reader cannot tell which group it describes.
+            //
+            // **The group is one accessor away and it is on the course's own branch.**
+            // `DecideCourseEachTick.Candidates` exposes each `Opportunity` with its `Admission` and its
+            // `Reason`, so the reason can be tagged with the group it came from — a stale candidate
+            // reads `Unresolved:admission-evidence-absent` rather than a bare reason string. The line is
+            // written out and commented because this worktree does not carry that accessor yet; it is
+            // uncommented at the merge and the plain `reason:` below goes with it.
+            //
+            //   string Group(string domain) => course.Candidates
+            //       .Where(c => c.Key.Domain == domain && c.Admission != OpportunityAdmission.KnownUsable)
+            //       .GroupBy(c => c.Admission + ":" + c.Reason, StringComparer.Ordinal)
+            //       .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            //       .Select(g => g.Key).FirstOrDefault() ?? "-";
+            //
             foreach (var domain in course.Admitted)
                 board.Append(CultureInfo.InvariantCulture,
                     $";course-admitted:{domain.Domain}=usable:{domain.Usable},unknown:{domain.Unresolved},unusable:{domain.Unusable},reason:{(domain.Reason.Length == 0 ? "-" : domain.Reason)}");
@@ -1001,6 +1042,10 @@ public sealed class BrainTelemetry : ModSystem
             // measurement six readings of the 22 September capture each named as the one thing that
             // would have settled the census-against-binder contradiction and could not be taken.
             h.Append("\ttarget_evidence\ttarget_evidence_age");
+            // Pixels from the body's bottom edge down to the first support, platforms counted, negative
+            // where the edge is already inside it. It ends the row because a body sinking into a
+            // platform was otherwise a reconstruction from the centre, the grid and a radius.
+            h.Append("\tsupport_below_px");
             QueueDiagnosticRecords.TryEnqueueTsv(h.ToString());
             headerWritten = true;
         }
@@ -1367,12 +1412,27 @@ public sealed class BrainTelemetry : ModSystem
         // them, by purpose. A course with no steps is companionship and writes `-`, as it did before
         // for fewer than two close jobs.
         //
-        // `task_order_runner_up` **cannot be filled**, and it writes the reason rather than a dash,
-        // because a dash here would be indistinguishable from the dead column it replaces.
-        // `SearchCourseOrders` retains `Best` and `BestValue` and no second-best order: the search
-        // prunes as it goes and the order that came closest is discarded rather than kept. Filling this
-        // needs an accessor on that class — the runner-up projection whose first step differs from the
-        // best one's — and that file belongs to the course, not to this folder.
+        // `task_order_runner_up` writes the reason it cannot be filled rather than a dash, because a
+        // dash here is exactly what the dead column already wrote and a reader could not tell the two
+        // apart. `SearchCourseOrders` retained `Best` and `BestValue` and no second-best order: the
+        // search prunes as it goes and the order that came closest was discarded rather than kept.
+        //
+        // **The accessor that fills it has landed on the course's own branch and is one line away
+        // here.** `DecideCourseEachTick.LastRunnerUpOrder` is
+        // `(IReadOnlyList<string> Purposes, double Value)?` — the best order whose first step differs
+        // from the published one's — and the join below is written out and commented because this
+        // worktree does not carry that file yet. It is uncommented at the merge, and the line it
+        // replaces goes with it; the column's meaning is already declared by 0.45.0 either way, since
+        // "the runner-up" and "why there is none" are the same question answered two ways.
+        //
+        //   var runnerUp = brain.Course.LastRunnerUpOrder;
+        //   sb.Append('\t').Append(runnerUp is not { } second || second.Purposes.Count == 0
+        //           ? "-"
+        //           : string.Join(">", second.Purposes) + "@" + second.Value.ToString("0.000", CultureInfo.InvariantCulture));
+        //
+        // A dash is right there and not here: once the accessor exists, "no second-best order was
+        // found" is a fact about this decision's search, where today's string is a fact about the
+        // recorder having nothing to ask.
         var published = brain.Course.Course.Current?.Projection.Steps;
         sb.Append('\t').Append(published == null || published.Count == 0
                 ? "-"
@@ -1448,6 +1508,7 @@ public sealed class BrainTelemetry : ModSystem
         // here. A dash is a decision that contradicted nothing, never an absence of evidence.
         sb.Append('\t').Append(AuditDecisionContracts.LastTargetEvidence.Length == 0 ? "-" : AuditDecisionContracts.LastTargetEvidence)
             .Append('\t').Append(AuditDecisionContracts.LastTargetEvidenceAge.Length == 0 ? "-" : AuditDecisionContracts.LastTargetEvidenceAge);
+        sb.Append('\t').Append(SupportBelow(npc.Bottom));
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
@@ -1582,11 +1643,79 @@ public sealed class BrainTelemetry : ModSystem
             TileShape.SolidUpperLeft => "slope-upper-left",
             TileShape.SolidUpperRight => "slope-upper-right",
             TileShape.Half => "half-block",
-            TileShape.Platform => passThrough ? "platform" : "solid-platform",
+            // No `solid-platform` arm: `ReadGameTerrain.Shape` returns `Platform` only where
+            // `PassThrough` is already true, and `TextTileWorld` maps the same glyphs both ways, so a
+            // non-pass-through platform is unreachable by construction in every world this reads. The
+            // arm existed and wrote a string no capture could ever carry, which is a reader being
+            // taught to look for a state that does not exist.
+            TileShape.Platform => "platform",
             TileShape.Solid => "solid",
             _ => "air",
         };
     }
+
+    /// <summary>
+    /// How far the body's bottom edge is above the first support beneath it, in pixels, counting a
+    /// platform as support — <see cref="MovementQueries.IsSupport"/> is the predicate, so this is the
+    /// same "is there something here" every search asks rather than a second opinion about tiles.
+    ///
+    /// <b>A negative value is the reading this exists for.</b> A body resting on a surface reads zero
+    /// or a little above; a body whose bottom edge is below the top of the tile supporting it is
+    /// *inside* that tile, and the number says by how much. Before this column a body sinking into a
+    /// platform was a reconstruction from the body's centre, the tile grid and a radius, which is the
+    /// arithmetic a reader gets wrong by a body radius when `npc_px` changed from feet to centre.
+    ///
+    /// A dash means no support was found inside the window, which is not the same fact as no support:
+    /// the probe stops at <see cref="SupportProbeTiles"/> tiles, because an orb over a chasm would
+    /// otherwise walk the column to the world's floor on every tick of a long fall.
+    /// </summary>
+    /// <summary>Identities the loot sense has already been seen admitting, so a drop lying on the floor
+    /// for a thousand ticks is one occurrence and not a thousand.</summary>
+    private static readonly HashSet<int> sightedDrops = new();
+
+    /// <summary>
+    /// One <c>drop-sighted</c> occurrence per drop, on the tick the loot sense first admits it.
+    ///
+    /// <b>What a capture could not say before it.</b> An item reached the record only by being
+    /// considered in a candidate funnel or by being picked up, so a drop the companion saw and never
+    /// went for existed nowhere — three of the 22 September capture's tail drops are nameable in no
+    /// record at all — and a world run had nothing to stage. The sighting is the sense's own admission
+    /// rather than a decision about the drop, so it fires whatever the course then does.
+    ///
+    /// It reads <c>Senses.Loot</c> from here rather than from Observation, because the recorder is the
+    /// consumer and a sense does not write occurrences; the identity is the god's-eye item identity, so
+    /// a sighting and a later pickup join on the same number.
+    /// </summary>
+    private static void WatchSightedDrops(Infrastructure.Observation.Senses senses)
+    {
+        if (!GodsEyeEvents.Active) return;
+        // A slot emptied and refilled gives a new identity rather than a new slot, so the set is
+        // pruned by what is live this tick rather than by a bound: the sense holds only drops inside
+        // its own search radius, so it cannot grow without limit.
+        if (sightedDrops.Count > 4096) sightedDrops.Clear();
+        foreach (Observation.LootSense.Pickup drop in senses.Loot.Pickups)
+        {
+            if (!Observation.LootSense.IsWorldDrop(drop.Item)) continue;
+            if (!sightedDrops.Add(GodsEyeEvents.ItemIdentity(drop.Item))) continue;
+            GodsEyeEvents.RecordDropSighted(drop.Item, drop.DistanceToCompanion, drop.Value);
+        }
+    }
+
+    private static string SupportBelow(Vector2 bottom)
+    {
+        int x = (int)MathF.Floor(bottom.X / 16f);
+        int feet = (int)MathF.Floor(bottom.Y / 16f);
+        for (int y = feet; y < feet + SupportProbeTiles; y++)
+        {
+            if (!MovementQueries.IsSupport(x, y)) continue;
+            return (y * 16f - bottom.Y).ToString("0.00", CultureInfo.InvariantCulture);
+        }
+        return "-";
+    }
+
+    /// <summary>How far down <see cref="SupportBelow"/> looks. Two screens at the game's own tile size,
+    /// which is past anything a hover holds and short of walking a shaft to the world's floor.</summary>
+    private const int SupportProbeTiles = 64;
 
     internal static string DescribeControls(Controls controls)
         => $"desired={controls.Desired.X.ToString("0.00", CultureInfo.InvariantCulture)},{controls.Desired.Y.ToString("0.00", CultureInfo.InvariantCulture)}";

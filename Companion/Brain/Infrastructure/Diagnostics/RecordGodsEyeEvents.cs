@@ -22,6 +22,9 @@ public static class GodsEyeEvents
     private static readonly Dictionary<int, int> npcGenerations = new();
     private static readonly Dictionary<int, int> projectileGenerations = new();
     private static readonly Dictionary<int, int> itemGenerations = new();
+    /// <summary>What was last seen in each item slot, so a slot reused by a different drop opens a new
+    /// generation. See <see cref="ItemIdentity"/> for why the slot alone cannot say.</summary>
+    private static readonly Dictionary<int, (int Type, int Age)> itemOccupants = new();
     private static int sequence;
     private static int lastMovementSteps = -1;
     private static Navigator.ExecutionStatus lastMovementStatus;
@@ -183,7 +186,7 @@ public static class GodsEyeEvents
         // still intentional here: a sidecar collision must fail loudly rather than turn a later
         // load retry into an apparently complete earlier session.
         active = true;
-        npcGenerations.Clear(); projectileGenerations.Clear(); itemGenerations.Clear(); sequence = 0;
+        npcGenerations.Clear(); projectileGenerations.Clear(); itemGenerations.Clear(); itemOccupants.Clear(); sequence = 0;
         RecordTerrainChunks.Reset();
         lastMovementSteps = -1;
         lastMovementEnding = null;
@@ -341,9 +344,45 @@ public static class GodsEyeEvents
     /// <summary>One accepted contact pickup. <paramref name="collectionAttemptId"/> is the open collection attempt when this item is
     /// the drop that attempt walked toward, zero for every other pickup, so a reader sums an attempt's received quantity by identity.</summary>
     public static void RecordPickup(NPC companion, Item item, int amount, string destination, long collectionAttemptId)
-        => Write("pickup", Stable(npcGenerations, companion.whoAmI), Stable(itemGenerations, item.whoAmI).ToString(CultureInfo.InvariantCulture), item.type.ToString(CultureInfo.InvariantCulture), destination, item.Center, Vector2.Zero, Vector2.Zero, amount, $"stack={item.stack};collection-attempt-id={collectionAttemptId}");
+        => Write("pickup", Stable(npcGenerations, companion.whoAmI), ItemIdentity(item).ToString(CultureInfo.InvariantCulture), item.type.ToString(CultureInfo.InvariantCulture), destination, item.Center, Vector2.Zero, Vector2.Zero, amount, $"stack={item.stack};collection-attempt-id={collectionAttemptId}");
 
-    public static void RecordItemSpawn(Item item) => Next(itemGenerations, item.whoAmI);
+    /// <summary>One drop the loot sense has just admitted for the first time, so a reader can stage a
+    /// drop the companion saw and never reached. Before it, the only items a capture named were the
+    /// ones a funnel considered or a pickup transferred, and the 22 September capture's tail carried
+    /// three drops nameable nowhere at all.</summary>
+    public static void RecordDropSighted(Item item, float distanceToCompanion, float value)
+        => Write("drop-sighted", 0, ItemIdentity(item).ToString(CultureInfo.InvariantCulture),
+            item.type.ToString(CultureInfo.InvariantCulture), "loot-sense", item.Center, item.velocity, Vector2.Zero, item.stack,
+            $"slot={item.whoAmI};stack={item.stack};distance={distanceToCompanion:0.0};value={value:0.000}");
+
+    /// <summary>A drop the engine has just spawned, which opens a new generation on that slot.</summary>
+    public static void RecordItemSpawn(Item item)
+    {
+        itemOccupants[item.whoAmI] = (item.type, item.timeSinceItemSpawned);
+        Next(itemGenerations, item.whoAmI);
+    }
+
+    /// <summary>
+    /// The stable identity of the item in a slot, advancing the generation whenever the slot's occupant
+    /// has changed since this recorder last looked.
+    ///
+    /// <b>Why the slot alone is not the item.</b> Generations used to advance only from
+    /// <c>GlobalItem.OnSpawn</c>, which a drop staged directly into <c>Main.item</c> never fires — a
+    /// world run, a fixture, or anything the engine does not route through its own spawn path — so slot
+    /// 1 carried generation 1 through two entirely different items and `pickup.related` joined a
+    /// transfer to whichever of them a reader assumed. Comparing what is in the slot now against what
+    /// was in it last time catches the whole class without depending on which path put it there:
+    /// a different type is a different item, and a lower <c>timeSinceItemSpawned</c> is a different
+    /// item of the same type, because that counter only ever climbs while one item occupies a slot.
+    /// </summary>
+    internal static int ItemIdentity(Item item)
+    {
+        int slot = item.whoAmI, age = item.timeSinceItemSpawned;
+        bool replaced = itemOccupants.TryGetValue(slot, out (int Type, int Age) seen)
+            && (seen.Type != item.type || age < seen.Age);
+        itemOccupants[slot] = (item.type, age);
+        return replaced ? Next(itemGenerations, slot) : Stable(itemGenerations, slot);
+    }
 
     public static void RecordEffectiveNpcDamage(NPC subject, NPC.HitInfo hit, int damageDone)
         => Write("npc-damage", Stable(npcGenerations, subject.whoAmI), "", subject.TypeName, "", subject.Center, subject.velocity, Vector2.Zero, Math.Max(0, damageDone), $"raw={hit.Damage};effective={Math.Max(0, damageDone)};life-now={subject.life};knockback={hit.Knockback:0.00}");
