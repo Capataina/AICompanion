@@ -91,7 +91,8 @@ internal static class VerifyWhatEachDecisionCosts
             + $"{assembling:N0} bytes ({perFact:0} per fact); serialising one of them afterwards cost "
             + $"{oneSerialise:N0} bytes");
 
-        // Measured 22 September 2026 on this machine: 112 bytes a fact against the 1,387 the constructor
+        // Measured 22 September 2026 on this machine, and it is what this row prints when it runs rather
+        // than a figure from the morning: 96 bytes a fact against the 1,387 the constructor
         // charged while it serialised and hashed every fact — a JSON string, its UTF-8 bytes, a hash and
         // a hex string per fact nobody had asked about. The play of 0.38.13 carried 1,603 facts at about
         // thirty-eight decisions a second, so that difference **extrapolates** to roughly two megabytes a

@@ -34,6 +34,7 @@ internal static class VerifyTheCensusFrontIsCurrent
         int red = 0;
         red += Row("a hostile that arrives after the search is still minted a use", ANewHostileIsPublished);
         red += Row("a hostile flickering in and out of the set cannot buy a search a tick", ChurnIsRateLimited);
+        red += Row("a hostile arriving just after a forced search waits the bar and no longer", ArrivalBehindTheBarIsBounded);
         return red;
     }
 
@@ -206,6 +207,78 @@ internal static class VerifyTheCensusFrontIsCurrent
             + $"{cut} of the sixty published a cut front");
     }
 
+    /// <summary>
+    /// The rate limit's own cost, asserted rather than left as a sentence.
+    ///
+    /// `a hostile that arrives after the search is still minted a use` passes on a scene where nothing
+    /// had stamped the bar, so it measures the best case. The guide said the rate "prices the first
+    /// change at once and makes only the second wait", which is true only when the first change is the
+    /// first change ever: after any set-forced search, a genuine arrival inside the next
+    /// `ForcedSearchInterval` ticks waits out the remainder. A review measured that at seven ticks and
+    /// nobody had written the row.
+    ///
+    /// So the scene forces a change, lets a hostile arrive a few ticks later, and bounds the wait by the
+    /// interval itself rather than by a number written here — ten ticks is a sixth of a second, which the
+    /// guide argues is inside a player's reaction, and the row is what stops the interval being raised
+    /// without anybody re-reading that argument. The pin goes at the interval plus a tick's slack for the
+    /// preparation order, not at the seven that was measured, because seven is where this scene's arrival
+    /// happened to land and the contract is the bar.
+    /// </summary>
+    private static void ArrivalBehindTheBarIsBounded()
+    {
+        ActionContext ctx = FloorWhereCollectingWins();
+        Brain brain = ctx.Companion.Brain;
+        FightEnemies fight = brain.Chooser.Actions.OfType<FightEnemies>().Single();
+        for (int tick = 0; tick < 120; tick++) Tick(ctx);
+        Require(fight.OfferedPlan != null,
+            $"premise: combat must be holding a prepared plan; offer={fight.Eligibility}/{fight.EligibilityReason}");
+
+        // The bar is armed by a set change that leaves everything else alone. Killing a hostile was the
+        // obvious way and it is the wrong one: it changes who wins the body, combat commits, and a
+        // commitment's front is deliberately unbounded, so the scene measured a different mechanism and
+        // reported the arrival as never priced at all. One hostile flickering in and out is the change
+        // with no other consequence — the same lever the churn row pulls.
+        Spawn(NewHostile, new Vector2(24 * 16, 60 * 16));
+        Tick(ctx);
+        Require(PublishedTargets(brain).Contains(NewHostile),
+            "premise: the first change must force a search and price the newcomer, or the bar was never armed");
+        // The second hostile is what makes this row exhibit the delay rather than merely bound it, and
+        // two earlier shapes did not. Departing and re-arriving the *same* hostile inside the window
+        // restores the set the last search recorded, so there is no change left to rate-limit; waiting
+        // for the departure to reach the front first works, and by then the bar has expired on its own.
+        // A distinct body arriving two ticks after the bar was armed is the only sequence in which a
+        // genuine arrival is the change being held.
+        Tick(ctx);
+        // Beside the first, not further out: the first arrival is the scene's own proof that a hostile
+        // there is priceable at all, and a newcomer somewhere the planner never solves against would be
+        // absent from the front for its own reasons and read as the bar suppressing it.
+        Spawn(SecondArrival, new Vector2(25 * 16, 60 * 16));
+        Require(!PublishedTargets(brain).Contains(SecondArrival),
+            "premise: the second hostile must not already be in the front, or there is nothing to wait for");
+        int minted = 0;
+        for (int tick = 1; tick <= 60; tick++)
+        {
+            Tick(ctx);
+            if (PublishedTargets(brain).Contains(SecondArrival)) { minted = tick; break; }
+        }
+        Require(minted > 0,
+            "the arriving hostile was never minted a use in the sixty ticks after it, so the bar is not a "
+                + "delay but a suppression");
+        int waited = minted;
+        Require(waited <= ForcedSearchInterval + 1,
+            $"the arrival waited {waited} ticks behind a bar of {ForcedSearchInterval}, so the rate limit is "
+                + "costing more than the interval it declares and the guide's reaction-time argument is about "
+                + "the wrong number");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"  arrival behind the bar: minted {waited} tick(s) after "
+            + $"arriving, against a declared interval of {ForcedSearchInterval}");
+    }
+
+    /// <summary>Mirrors `FightEnemies.ForcedSearchInterval`, which is private to the stance: the row is
+    /// about the declared bar, so a drift between the two would make it assert a bar nobody uses. It is
+    /// small enough to be read at a glance and the message prints it, so a red says which number it
+    /// held.</summary>
+    private const int ForcedSearchInterval = 10;
+
     /// <summary>Every distinct hostile the frozen observation currently carries a priced use for. This is
     /// the census's own input: `CombatOpportunitySource` walks these facts and mints one opportunity per
     /// distinct target, so a hostile absent here is a hostile the course cannot order a shot at.</summary>
@@ -226,12 +299,14 @@ internal static class VerifyTheCensusFrontIsCurrent
     private static int LiveHostiles()
     {
         int count = 0;
-        for (int slot = FirstHostile; slot <= NewHostile; slot++)
+        for (int slot = FirstHostile; slot <= SecondArrival; slot++)
             if (Main.npc[slot].active && Main.npc[slot].life > 0) count++;
         return count;
     }
 
-    private const int FirstHostile = 30, NewHostile = 32;
+    /// <summary>The slots this file seeds. `SecondArrival` is the arrival-behind-the-bar row's alone, and
+    /// it is inside the range `ClearTheScene` and `LiveHostiles` walk so it cannot outlive its row.</summary>
+    private const int FirstHostile = 30, NewHostile = 32, SecondArrival = 33;
 
     /// <summary>Two drops beside a standing player and two hostiles in reach: collecting wins the body, so
     /// combat prepares a plan every tick and never commits one, which is the state the capture recorded.</summary>
@@ -271,7 +346,7 @@ internal static class VerifyTheCensusFrontIsCurrent
     {
         foreach (Projectile projectile in Main.projectile) projectile.active = false;
         for (int slot = 10; slot <= 11; slot++) { Main.item[slot] = new Item(); Main.item[slot].active = false; }
-        for (int slot = FirstHostile; slot <= NewHostile; slot++) { Main.npc[slot].active = false; Main.npc[slot].life = 0; }
+        for (int slot = FirstHostile; slot <= SecondArrival; slot++) { Main.npc[slot].active = false; Main.npc[slot].life = 0; }
     }
 
     private static void Tick(ActionContext ctx)

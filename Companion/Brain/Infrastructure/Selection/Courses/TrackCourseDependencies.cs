@@ -62,8 +62,9 @@ public sealed record DecisionFact
 /// A read now carries <see cref="FactValue"/> and <see cref="FactEvidence"/> straight across, which is a
 /// struct copy of two doubles, a double pair and a string reference, and <see cref="Matches"/> compares
 /// exactly the three fields the hash was over — so the check is strictly stronger than the one it
-/// replaced, since a hash can collide and a field comparison cannot. <see cref="DecisionFact.Digest"/>
-/// survives with no production caller, for a recorded capture that needs a stable cross-process token.
+/// replaced, since a hash can collide and a field comparison cannot. The hash itself was deleted later
+/// the same day, once this read was its last caller; a recorded capture read back in another process
+/// still needs a stable token and builds its own in <c>CaptureDecisionSnapshot.Digest(string)</c>.
 /// </summary>
 public readonly record struct FactRead(FactKey Key, long Version, FactValue Value, FactEvidence Evidence)
 {

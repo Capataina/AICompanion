@@ -100,15 +100,19 @@ internal static class VerifyEncounterConduct
     /// win — which here is the *riskier* one, because its harm is the only thing making its total smaller, so a
     /// survival rule left switched on everywhere is caught rather than merely unexercised.</para>
     ///
-    /// <para><b>The plan's other column for this gate, "idle artificially wins by zero damage", is not
-    /// asserted here and this row does not catch it.</b> It is not a mutation on this tree — it is the tree's
-    /// behaviour: `NominalOrder` opens with the harm comparison and applies no feasibility or meaningfulness
-    /// qualifier, so for an empty course `I` and any feasible fight `F` it reduces to
-    /// `F.CompanionHarm.CompareTo(0)`, positive whenever the fight costs anything at all. An earlier version
-    /// of this summary claimed a third assertion covering it and said that arm failed on this tree; there was
-    /// no such assertion and the row was green, which is a docstring describing a check nobody wrote. The
-    /// finding is routed to whoever owns `Selection/` rather than asserted here, because a red row is a stop
-    /// for every lane; `DecisionMaking/CLAUDE.md` carries the arm to add once the ordering is ruled on.</para>
+    /// <para><b>The plan's other column for this gate, "idle artificially wins by zero damage", was the
+    /// tree's behaviour when this fixture was written and is closed; the arm for it is elsewhere.</b>
+    /// `NominalOrder` opened with the harm comparison under no qualifier, so for an empty course `I` and
+    /// any feasible fight `F` it reduced to `F.CompanionHarm.CompareTo(0)` — positive whenever the fight
+    /// cost anything at all. This fixture routed the finding rather than asserting it, because a red row
+    /// is a stop for every lane; `edcb3ab` then qualified the comparison on both sides taking hostile
+    /// life, so survival-first is a rule between fights and an idle course cannot win an encounter by
+    /// having nothing to lose. The arm landed as the third arm of
+    /// `retained courses compare conserved futures` in `VerifyCourseCore.SurvivalIsBetweenFights`,
+    /// beside the two it needs to sit with — a winnable fight beating idle, and the safer of two fights
+    /// still winning — and not here, because those three are one rule read three ways. What this row
+    /// still owns is the encounter *gate*: that the ordering applies during an encounter and not
+    /// outside one.</para>
     /// </summary>
     private static void SurvivalOrdersFeasibleFightsAndOnlyUnderAnEncounter()
     {

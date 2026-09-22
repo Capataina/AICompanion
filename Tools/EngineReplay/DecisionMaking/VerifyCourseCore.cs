@@ -99,8 +99,31 @@ internal static class VerifyCourseCore
             $"a fight worth {hopeless.Total.Nominal:0.0000} beat standing still, so the encounter qualifier "
             + "has become a bonus for being a fight rather than the removal of a tie-break that did not apply");
 
+        // The fourth arm is a probe rather than a rule, and it exists because the phrase "survival-first"
+        // is weaker than it sounds and the boundary is worth being a number somebody can read.
+        //
+        // Survival-first binds only *between fights*. Against standing still the sole floor is expected
+        // value, and the objective prices companion harm as `Damage / CurrentLife` with no clamp at one
+        // and no death term anywhere — so a hit taking the companion's whole life is a cost of 1.0 and
+        // nothing about it says "and then it is over". With the target worth its whole census amount, the
+        // break-even against idle therefore sits **past** the companion's own life: a forecast 100 damage
+        // on a 100-life companion still takes the fight. That is the intended shape of the fix rather
+        // than a defect hiding behind it — a downed companion is revived in this game, so death is a cost
+        // and not an absorbing state, and giving the objective a death term is a product decision the
+        // owner holds. What is not acceptable is the boundary being invisible, so it is asserted where it
+        // actually is: the fight wins at a cost of the companion's whole life, and loses somewhere above
+        // it. A clamp at one would move this line and this arm is what would catch it.
+        CourseValue fatal = Value(Fight(5, 40, 100)), overkill = Value(Fight(6, 40, 130));
+        Require(CompareCourseOutcomes.NominalOrder(nothing, fatal, encounter: true) < 0,
+            $"a fight forecast to take the companion's whole life lost to standing still at a cost of "
+                + $"{fatal.CompanionHarm:0.0000}, so the break-even has moved below lethal and the guide's "
+                + "account of where survival-first stops binding is wrong");
+        Require(CompareCourseOutcomes.NominalOrder(nothing, overkill, encounter: true) > 0,
+            $"a fight costing {overkill.CompanionHarm:0.0000} of the companion's life still beat standing "
+                + "still, so nothing bounds what the objective will pay for a kill");
+
         string detail = System.FormattableString.Invariant(
-            $"  encounter ordering: a fight worth {winnable.Total.Nominal:0.0000} at a cost of {winnable.CompanionHarm:0.0000} beats idle at {nothing.Total.Nominal:0.0000}; between two fights the safer ({safer.CompanionHarm:0.0000}) still beats the deadlier ({deadlier.CompanionHarm:0.0000}) though it is worth less");
+            $"  encounter ordering: a fight worth {winnable.Total.Nominal:0.0000} at a cost of {winnable.CompanionHarm:0.0000} beats idle at {nothing.Total.Nominal:0.0000}; between two fights the safer ({safer.CompanionHarm:0.0000}) still beats the deadlier ({deadlier.CompanionHarm:0.0000}) though it is worth less; against idle the break-even sits past the companion's own life — lethal ({fatal.CompanionHarm:0.0000}) still wins, {overkill.CompanionHarm:0.0000} loses");
         AICompanion.Tools.Ledger.EmitLedgerRows.Detail(detail);
     }
 
