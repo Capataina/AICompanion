@@ -215,6 +215,8 @@ internal static class VerifyEngineMotion
         // Appended here rather than at the very end of the list, because the entry below it must stay
         // last for the reason its own comment gives.
         ("a vein's remaining work is answered or refused by name, never left unknown", VerifyVeinRemainingWork.Run),
+        ("an encounter suppresses work and orders feasible fights by what the companion survives", VerifyEncounterConduct.Run),
+        ("no domain recomputes a spatial fact the senses already publish", VerifySharedSpatialFacts.Run),
         // Last on purpose, and the position is a finding rather than a preference. This case drives 220
         // whole brain ticks with two hostiles, a third spawned mid-scene and one killed, which is the
         // widest process footprint any case in this table has. Registered eighth it turned three
