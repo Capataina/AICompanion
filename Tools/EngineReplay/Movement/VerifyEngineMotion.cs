@@ -106,6 +106,7 @@ internal static class VerifyEngineMotion
         // in this table, and it is here rather than only behind `--retained-course-combat` because the
         // pricing it guards is what the whole-suite run would otherwise never exercise.
         ("binding a fight claims the front rather than its first shot", VerifyCombatCourseBinding.TheBoundFightClaimsTheFrontRatherThanItsFirstShot),
+        ("a bound fight is occupied and declared for its whole length", VerifyCombatCourseBinding.ABoundFightIsOccupiedAndDeclaredForItsWholeLength),
         ("a decision that spans ticks keeps the fight the body is already in", VerifyADecisionInFlightKeepsTheFight.Run),
         ("what one decision costs to assemble and to carry", VerifyWhatEachDecisionCosts.Run),
         ("the search keeps the best order the winner beat", VerifyTheSearchRetainsItsRunnerUp.Run),
@@ -227,16 +228,16 @@ internal static class VerifyEngineMotion
         ("a vein's remaining work is answered or refused by name, never left unknown", VerifyVeinRemainingWork.Run),
         ("G13 an encounter suppresses work and orders feasible fights by what the companion survives", VerifyEncounterConduct.Run),
         ("G10 no domain recomputes a spatial fact the senses already publish", VerifySharedSpatialFacts.Run),
-        // Last on purpose, and the position is a finding rather than a preference. This case drives 220
-        // whole brain ticks with two hostiles, a third spawned mid-scene and one killed, which is the
-        // widest process footprint any case in this table has. Registered eighth it turned three
-        // `VerifyAttackPlanning` scenes and `VerifyTravelEpisodes` red in-suite while all four stayed
-        // green alone; putting its own world back — the npc and item slots it seeded, every projectile,
-        // the mining policy, the player's pose — did not clear them, and `VerifyCompanionLifecycle.Create`
-        // rebuilds every actor slot and re-seeds the gear at the next case anyway, so the residue is a
-        // process static `ResetProcessState.BeforeCase` does not restore and this row is only the first
-        // case wide enough to expose it. Naming that static is the reset's job and the main thread owns
-        // it; running last means nothing inherits the residue in the meantime.
+        // Last because the cause of an in-suite red near here is still open, and **not because this case
+        // was shown to carry it.** Registering it eighth coincided with three `VerifyAttackPlanning`
+        // scenes and `VerifyTravelEpisodes` going red in-suite while all four stayed green alone, and
+        // that was written up here as a residue this case leaks. A review on 22 September 2026 refuted
+        // both halves: the journey row runs *before* this one, so nothing this case does can reach it,
+        // and one brain tick of `an opportunity the census admits usable is one the binder can still
+        // read` reddens `a spread weapon closes at full life` on a pristine tree. So the class is a
+        // process static written by the non-combat half of a single brain tick, it is not this file's,
+        // and `ResetProcessState` is where it closes — a separate harness lane owns naming it. Running
+        // last costs nothing and this position asserts nothing.
         ("combat's published front describes the hostiles that are there now", VerifyTheCensusFrontIsCurrent.Run),
     };
 

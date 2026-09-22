@@ -116,12 +116,98 @@ internal static class VerifyCombatCourseBinding
     /// </summary>
     public static int TheBoundFightClaimsTheFrontRatherThanItsFirstShot()
     {
-        var target = new CombatCourseFacts.Target(12, 3, 1, 30, 30, 64, 32, 0, 0);
-        var weapon = new CombatCourseFacts.Weapon(0, 9, 2, 20, 0, 10, 1, 8, 5);
+        StepBinding bound = BindAThreeShotFight();
+        PredictedEffect effect = bound.Effects.Single();
+        Require(effect.Amount == 30,
+            $"binding this fight claims {effect.Amount} damage where the front takes the target's whole "
+            + $"30 life: 12 is the first shot alone, which is what the course was charged a whole "
+            + $"excursion's companionship gap against, and 36 is the front uncapped by what is there to kill");
+        // 12 at 10, 12 at 40, 6 at 90 — the third shot is capped to the life that is left.
+        Require(Math.Abs(effect.NominalTick - 38) < 1e-6,
+            $"the claimed damage is timed at {effect.NominalTick} rather than the damage-weighted mean 38 "
+            + $"of when it lands: 10 prices a long fight as instant, 90 discounts the opening shot as hard "
+            + $"as the closing one, and 46.67 is the mean of the three impacts with no weight on the third "
+            + $"being a partial hit");
+        Require(effect.EarliestTick == 10 && effect.LatestTick == 90,
+            $"the interval reads {effect.EarliestTick}..{effect.LatestTick} rather than the first impact 10 "
+            + $"to the last 90, so it does not say when this damage begins or when it is complete");
+        Require(effect.Evidence == EstimateStatus.Nominal,
+            "claiming the whole front must not claim bounds it does not have; the evidence stays nominal");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"  a bound fight claims {effect.Amount} of 30 life at a weighted mean tick "
+            + $"{effect.NominalTick} over {effect.EarliestTick}..{effect.LatestTick}, against the 12 at tick 10 "
+            + "one use alone would have claimed");
+        return 0;
+    }
+
+    /// <summary>
+    /// A step is occupied for as long as the effect it carries, and it declares every use that effect
+    /// was computed from.
+    ///
+    /// Two halves of one review finding, on one scene, because they are two halves of one claim. **The
+    /// occupancy**: `useTicks` and both `ResourcePhase`s used to end one use after arrival while the
+    /// effect ran to the last impact, so the order search could schedule a second step inside a window
+    /// the fight already owned and `ForecastCourseCompanionship` charged the gap for one use against a
+    /// credit spanning the fight — the asymmetry that commit named and moved only half of. **The
+    /// manifest**: `FightAhead` summed its uses out of the raw snapshot rather than through
+    /// `TrackedFactReader.Read`, so the binding declared a dependency on one of the three uses it
+    /// claimed, and every consumer that asks whether a retained course is still priced on facts the
+    /// world still holds — `DependencyManifest.Changed`, `RetainCourse`, `BindCourseOrder`,
+    /// `RepairCourse.Invalidate` — was blind to a change confined to the second or third.
+    ///
+    /// The manifest arm is written as "every claimed use, by key" rather than as a count, because a
+    /// count passes against a binder that reads three arbitrary facts.
+    /// </summary>
+    public static int ABoundFightIsOccupiedAndDeclaredForItsWholeLength()
+    {
+        StepBinding bound = BindAThreeShotFight();
+        PredictedEffect effect = bound.Effects.Single();
+        double arrival = bound.TravelTicks;
+        Require(Math.Abs(arrival + bound.UseTicks - effect.LatestTick) < 1e-6,
+            $"the step declares {bound.UseTicks} ticks of use from an arrival at {arrival}, ending at "
+            + $"{arrival + bound.UseTicks}, while the effect it carries runs to {effect.LatestTick}: one "
+            + $"use's occupancy against a whole fight's credit is the asymmetry this was supposed to close, "
+            + $"and a phase that ends early lets the search book a second step inside the fight's own window");
+        foreach (var resource in new[] { CourseResource.Body, CourseResource.Hand })
+        {
+            ResourcePhase phase = bound.Resources.Single(r => r.Resource == resource);
+            Require(Math.Abs(phase.EndTick - effect.LatestTick) < 1e-6,
+                $"the {resource} is declared free at {phase.EndTick} while the fight it is holding runs to "
+                + $"{effect.LatestTick}");
+        }
+        var declared = bound.Dependencies.Reads.Select(read => read.Key).ToHashSet();
+        var claimed = ThreeShots().Select(shot => CombatCourseFacts.UseKey(shot.Id)).ToArray();
+        var missing = claimed.Where(key => !declared.Contains(key)).ToArray();
+        Require(missing.Length == 0,
+            $"the effect claims {effect.Amount} damage computed from {claimed.Length} uses and the binding "
+            + $"declares {claimed.Length - missing.Length} of them: {string.Join(", ", missing.Select(k => k.ToString()))} "
+            + $"are absent from the manifest, so a change confined to one of them dirties nothing and the "
+            + $"course stays published on a claim the world no longer supports");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"  the step holds body and hand from {arrival} to "
+            + $"{effect.LatestTick} and declares all {claimed.Length} uses it claimed, of "
+            + $"{bound.Dependencies.Reads.Count} reads");
+        return 0;
+    }
+
+    private static CombatCourseFacts.Use[] ThreeShots()
+    {
         CombatCourseFacts.Use Shot(string id, int fireTick, float damage)
             => new(id, 7, 0, 0, 12, 3, 0, 9, 2, 32, 32, 64, 32, 1, 0, fireTick, 20, damage, 10);
-        var shots = new[] { Shot("plan:7/segment:0/use:0", 100, 12), Shot("plan:7/segment:0/use:1", 130, 12),
-            Shot("plan:7/segment:0/use:2", 180, 12) };
+        return new[]
+        {
+            Shot(CombatCourseFacts.UseId(12, 3, 0, 32, 32, 0), 100, 12),
+            Shot(CombatCourseFacts.UseId(12, 3, 0, 32, 32, 1), 130, 12),
+            Shot(CombatCourseFacts.UseId(12, 3, 0, 32, 32, 2), 180, 12),
+        };
+    }
+
+    /// <summary>Three uses against one 30-life target from one stand, firing 0, 30 and 80 ticks apart and
+    /// landing ten ticks after each. The ids come from `UseId` rather than being written by hand, because
+    /// the binder filters the front by the target the identity encodes.</summary>
+    private static StepBinding BindAThreeShotFight()
+    {
+        var target = new CombatCourseFacts.Target(12, 3, 1, 30, 30, 64, 32, 0, 0);
+        var weapon = new CombatCourseFacts.Weapon(0, 9, 2, 20, 0, 10, 1, 8, 5);
+        var shots = ThreeShots();
         DecisionFact Fact(FactKey key, long version, object value, double amount = 0)
             => new(key, version, new FactValue(amount, Text: JsonSerializer.Serialize(value)), FactEvidence.Observed);
         var facts = new[]
@@ -143,26 +229,7 @@ internal static class VerifyCombatCourseBinding
             .Bind(slice.Examined[0], new ProjectedCourseState(new CoursePoint(32, 32)), snapshot,
                 new DecisionWorkCursor(), new DecisionWorkBudget(double.PositiveInfinity, 8, () => 0, 1));
         Require(bound.Binding != null, $"premise: the front must bind at all; {bound.Reason}");
-        PredictedEffect effect = bound.Binding!.Effects.Single();
-        Require(effect.Amount == 30,
-            $"binding this fight claims {effect.Amount} damage where the front takes the target's whole "
-            + $"30 life: 12 is the first shot alone, which is what the course was charged a whole "
-            + $"excursion's companionship gap against, and 36 is the front uncapped by what is there to kill");
-        // 12 at 10, 12 at 40, 6 at 90 — the third shot is capped to the life that is left.
-        Require(Math.Abs(effect.NominalTick - 38) < 1e-6,
-            $"the claimed damage is timed at {effect.NominalTick} rather than the damage-weighted mean 38 "
-            + $"of when it lands: 10 prices a long fight as instant, 90 discounts the opening shot as hard "
-            + $"as the closing one, and 46.67 is the mean of the three impacts with no weight on the third "
-            + $"being a partial hit");
-        Require(effect.EarliestTick == 10 && effect.LatestTick == 90,
-            $"the interval reads {effect.EarliestTick}..{effect.LatestTick} rather than the first impact 10 "
-            + $"to the last 90, so it does not say when this damage begins or when it is complete");
-        Require(effect.Evidence == EstimateStatus.Nominal,
-            "claiming the whole front must not claim bounds it does not have; the evidence stays nominal");
-        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"  a bound fight claims {effect.Amount} of 30 life at a weighted mean tick "
-            + $"{effect.NominalTick} over {effect.EarliestTick}..{effect.LatestTick}, against the 12 at tick 10 "
-            + "one use alone would have claimed");
-        return 0;
+        return bound.Binding!;
     }
 
     private static void Require(bool condition, string message)

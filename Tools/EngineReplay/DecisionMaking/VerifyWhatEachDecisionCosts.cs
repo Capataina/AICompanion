@@ -34,7 +34,7 @@ internal static class VerifyWhatEachDecisionCosts
     public static int Run()
     {
         int red = 0;
-        red += Row("a fact carries no digest until something asks for one", AFactCostsNothingUntilRead);
+        red += Row("a fact costs its own fields and never a serialise nobody asked for", AFactCostsNothingUntilRead);
         red += Row("the frozen observation does not grow with the ground the player has covered", TheObservationStaysBounded);
         return red;
     }
@@ -70,45 +70,59 @@ internal static class VerifyWhatEachDecisionCosts
             .Select(i => new FactKey("mine-target", "tile:1:" + i, i)).ToArray();
         FactValue[] values = Enumerable.Range(0, facts)
             .Select(i => new FactValue(i, i * 16, i * 16, "{\"site\":" + i + "}")).ToArray();
-        Build(keys, values, 50).Last().Digest.GetHashCode();
+        Serialised(Build(keys, values, 50).Last());
 
         long before = GC.GetTotalAllocatedBytes(precise: true);
         DecisionFact[] built = Build(keys, values, facts);
         long assembling = GC.GetTotalAllocatedBytes(precise: true) - before;
 
-        long beforeDigest = GC.GetTotalAllocatedBytes(precise: true);
-        _ = built[0].Digest;
-        long oneDigest = GC.GetTotalAllocatedBytes(precise: true) - beforeDigest;
+        // What the bound excludes, measured rather than named, because a bound stated as an absolute can
+        // pass by the facts having got smaller. Serialising one fact is what the constructor used to do
+        // to every fact, so the row asserts the pair: the per-fact cost is under the bound *and* it is
+        // below the cost of the one operation it is claiming not to pay.
+        long beforeOne = GC.GetTotalAllocatedBytes(precise: true);
+        Serialised(built[0]);
+        long oneSerialise = GC.GetTotalAllocatedBytes(precise: true) - beforeOne;
 
         double perFact = assembling / (double)facts;
-        Console.WriteLine($"  per-fact cost: assembling {facts} facts allocated {assembling:N0} bytes "
-            + $"({perFact:0} per fact); one digest afterwards cost {oneDigest:N0} bytes");
+        // Through the emitter rather than the console, because a measurement only a terminal saw is a
+        // measurement the run file cannot be asked for afterwards.
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"  per-fact cost: assembling {facts} facts allocated "
+            + $"{assembling:N0} bytes ({perFact:0} per fact); serialising one of them afterwards cost "
+            + $"{oneSerialise:N0} bytes");
 
-        // Measured 22 September 2026 on this machine: 112 bytes a fact lazily against 1,387 eagerly, a
-        // JSON string, its UTF-8 bytes, a hash and a hex string per fact nobody had asked about. At the
-        // play's 1,600 facts and thirty-eight decisions a second that difference is about two megabytes
-        // a decision and seventy-seven a second, which is the allocation rate behind the session's 50
-        // gen-2 collections. The bound sits well above the lazy figure and well below the eager one, so
-        // it bounds the class of mistake rather than fingerprinting one allocator.
+        // Measured 22 September 2026 on this machine: 112 bytes a fact against the 1,387 the constructor
+        // charged while it serialised and hashed every fact — a JSON string, its UTF-8 bytes, a hash and
+        // a hex string per fact nobody had asked about. The play of 0.38.13 carried 1,603 facts at about
+        // thirty-eight decisions a second, so that difference **extrapolates** to roughly two megabytes a
+        // decision, which is an arithmetic consequence of this row's per-fact figure and a fact count
+        // from a capture nobody re-ran, not a rate anybody observed. The bound sits well above the
+        // current figure and well below the old one, so it bounds the class of mistake rather than
+        // fingerprinting one allocator.
         Require(perFact < 400,
-            $"assembling an observation costs {perFact:0} bytes a fact before anything reads one, which is the "
-            + $"eager digest: {facts} facts allocated {assembling:N0} bytes");
-        Require(oneDigest > 0,
-            "asking for a digest allocated nothing, so the digest is not being computed and this row is "
-            + "measuring a field that no longer exists");
+            $"assembling an observation costs {perFact:0} bytes a fact before anything reads one, which is "
+            + $"the serialise-per-fact the constructor used to do: {facts} facts allocated {assembling:N0} bytes");
+        Require(oneSerialise > perFact,
+            $"serialising one fact cost {oneSerialise:N0} bytes against {perFact:0} to assemble one, so the "
+            + "operation this row claims a fact does not pay for is no longer more expensive than the fact "
+            + "— the bound above would pass against a constructor that serialises");
 
-        // Laziness must not have changed what a digest is. Two facts built the same way agree, two built
-        // differently do not, and a fact's digest is stable across reads.
+        // The field comparison is the only equality a fact has now: two facts built the same way agree and
+        // two built differently do not.
         var one = new DecisionFact(new FactKey("kind", "identity", 3), 7, new FactValue(1, 2, 3, "text"), FactEvidence.Observed);
         var same = new DecisionFact(new FactKey("kind", "identity", 3), 7, new FactValue(1, 2, 3, "text"), FactEvidence.Observed);
         var other = new DecisionFact(new FactKey("kind", "identity", 3), 8, new FactValue(1, 2, 3, "text"), FactEvidence.Observed);
-        Require(one.Digest == same.Digest && one.Digest == one.Digest,
-            $"two identical facts no longer digest alike; {one.Digest} against {same.Digest}");
-        Require(one.Digest != other.Digest,
-            $"a changed version no longer changes the digest; both read {one.Digest}");
-        Require(one.SameObservationAs(same) && !one.SameObservationAs(other),
-            "the field comparison that replaced the digest comparison disagrees with the digest");
+        Require(one.SameObservationAs(same),
+            "two facts carrying one observation no longer compare equal");
+        Require(!one.SameObservationAs(other),
+            "a changed version no longer changes the comparison, so a stale read would match a moved world");
     }
+
+    /// <summary>One fact in the canonical form the constructor used to build for every fact, kept here
+    /// rather than on <c>DecisionFact</c> because it is the cost this row measures against and nothing in
+    /// production wants it.</summary>
+    private static string Serialised(DecisionFact fact)
+        => System.Text.Json.JsonSerializer.Serialize(new { fact.Key, fact.Version, fact.Value, fact.Evidence });
 
     private static DecisionFact[] Build(FactKey[] keys, FactValue[] values, int count)
     {

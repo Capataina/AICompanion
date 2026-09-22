@@ -20,6 +20,7 @@ WorldRun/
 ├─ ApplyTheRecordedPreferences.cs  the companion's settings taken from the session rather than from this process
 ├─ AttachTheRecorder.cs         the mod's own recorder and the audit's installer, writing a capture marked synthetic where no reader of real ones looks
 ├─ RunTheWorld.cs               the tick loop, what it records about every tick, and the per-tick decision record the play measures read
+├─ CountTheFrozenObservationByKind.cs  what the observation is made of per decision, and where its light sites are, when AIC_FACT_KINDS names a file
 ├─ RunTheScenario.cs            a committed scenario window played in its world: the grid checked against the tiles, the orb flown to a standing player
 ├─ ScoreTheRun.cs               determinism, the recorded comparison, the checkpoint matrix
 ├─ GradeThePlayMeasures.cs      three verdicts, their floors and refusals to grade, and the measures over one production-clock pass
@@ -279,6 +280,10 @@ activity-exited-during-decision     4
 ```
 
 Those are the audit's counts rather than the recorder's kept records, and they belong to the brain lanes rather than to this folder. What this folder can say is that the number was zero for a reason that had nothing to do with the brain.
+
+**The fact-count figure was then read as a leak and it is not one, which is why `CountTheFrozenObservationByKind.cs` exists.** The verdicts can say the observation is above a bound and cannot say what is in it, so the first reading — a set nobody clears — was consistent with the evidence and wrong. Set `AIC_FACT_KINDS` to a file and every tick writes its tick, observation ordinal, total, a tally by fact kind, the bounding box of the `light-target` sites and the player's intent-region heading; unset, the probe costs one static string read a tick. On the 22 September capture it says `light-target` is 1,540 of the final 1,582 facts with every other kind in single or low double digits, and — the half a tally alone cannot give — that those sites span 125 tiles, the work window's own width, with the box's minimum corner tracking the heading and holding nothing from a window eighteen hundred ticks earlier. A census re-sweeping a moving window and one accumulating inside it both produce a rising count on a descent; only the corner moving separates them. `Companion/Brain/Activities/NearbyAssistance/CLAUDE.md` carries what follows for the census and `.../Selection/Courses/CLAUDE.md` for the bound.
+
+**The three counts move between runs of one tree, so a figure from this block is quoted with its run.** The table above is `fa4fa61`-and-after on main. The same command on a tree carrying the combat lane's changes filed 476, 31 and 2, and the fight verdict failed on one run and passed on the next with nothing changed between them. The instrument reads a live brain over 2,340 ticks under the production clock, so its counts are a sample rather than a constant, and a difference of this size between two trees is not attributable to either without a batch.
 
 ## Running it
 
