@@ -16,7 +16,11 @@ using AICompanion.Tools.Ledger;
 // Exit code: 0 when every self-test case passed, 1 otherwise.
 
 // The portable tier's reset. This process holds no game: what a case here can leave behind is the
-// shared planning allowance, the search's world override, the clearance field and the census.
+// shared planning allowance, the search's world override, the clearance field, the census and the
+// published enemy boxes. The last is a fact one component writes for another to read within a tick,
+// so whichever case last wrote it decides what every later case's stand generator and park climb away
+// from; the engine tier's reset clears it for the same reason (ResetProcessState.cs), and the fixtures
+// here that cleared it themselves were each fixing the one reader somebody remembered.
 EmitLedgerRows.ResetBeforeCase = keepProductionAllowances =>
 {
     LimitPlanningWork.Unbounded = !keepProductionAllowances;
@@ -24,6 +28,7 @@ EmitLedgerRows.ResetBeforeCase = keepProductionAllowances =>
     FreeSpaceSearch.WorldOverride = null;
     ClearanceField.Shared.Invalidate();
     BehaviourCensus.Reset();
+    MovementQueries.Hazards = Array.Empty<Microsoft.Xna.Framework.Rectangle>();
 };
 
 if (args.Length == 1 && args[0] == "--self-test")
