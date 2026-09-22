@@ -82,7 +82,7 @@ public static class Program
         new ArrivalDoesNotStrandFollowing(),
         new ClaimedArrivalsStayInsideTheirSuccessRegion(),
         new HuntingProducesAnOutcome(),
-        new HuntingHadAWeaponThatCouldReach(),
+        new CombatHeldTargetsItsBinderCouldNotSee(),
         // A submerged body running its breath down was a check here and is not replaced. The orb has
         // no breath, and every liquid is air to it, so there is no submerged state for a check to watch.
         new FollowingRespondsAfterDeparture(),

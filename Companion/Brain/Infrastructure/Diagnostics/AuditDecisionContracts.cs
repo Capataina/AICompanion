@@ -126,6 +126,19 @@ public static class AuditDecisionContracts
 
     private readonly record struct Record(string Signature, long Tick, long Since, long Total);
 
+    /// <summary>
+    /// The evidence the last decision's refused targets read, and how stale each was, as the recorder
+    /// writes them into <c>target_evidence</c> and <c>target_evidence_age</c>.
+    ///
+    /// They are held here rather than recomputed at the row, because the frozen observation is in hand
+    /// while the decision records itself and is not at the row; and they survive a carried tick on
+    /// purpose, because a retained course is one decision and its evidence does not change while it is
+    /// carried. A decision that refused nothing the census admitted clears them, so the columns read
+    /// as a dash rather than repeating the last contradiction for ever.
+    /// </summary>
+    public static string LastTargetEvidence { get; private set; } = "";
+    public static string LastTargetEvidenceAge { get; private set; } = "";
+
     /// <summary>How many decisions have reached this audit in the session. It is the seam's own
     /// witness: an end-to-end row drives the real brain and requires one audit per recorded decision,
     /// so removing the hook in <see cref="RecordCourseTrace"/> reddens it rather than going quiet.</summary>
@@ -155,6 +168,7 @@ public static class AuditDecisionContracts
         publishedTick = long.MinValue;
         lastActivity = "";
         lastDecisionTick = long.MinValue;
+        LastTargetEvidence = LastTargetEvidenceAge = "";
         Audited = 0;
     }
 
@@ -269,10 +283,12 @@ public static class AuditDecisionContracts
                     + $" and every refusal was one of the not-observed pair ({RefusalSummary(refusals)})",
                 UsableSummary(inputs.Admitted));
 
+        LastTargetEvidence = anyContradiction ? evidence.ToString() : "";
+        LastTargetEvidenceAge = anyContradiction ? ages.ToString() : "";
         if (anyContradiction)
         {
-            fields.Add(new("target-evidence", CourseTraceValue.TextValue(evidence.ToString())));
-            fields.Add(new("target-evidence-age", CourseTraceValue.TextValue(ages.ToString())));
+            fields.Add(new("target-evidence", CourseTraceValue.TextValue(LastTargetEvidence)));
+            fields.Add(new("target-evidence-age", CourseTraceValue.TextValue(LastTargetEvidenceAge)));
         }
         return fields;
     }

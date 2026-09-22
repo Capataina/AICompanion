@@ -38,7 +38,7 @@ public static class ChronicleTests
             MultiRunRetainsDefinitiveExit();
             DecisionContractsDistinguishStallsFromProgress();
             AFrozenBodyWithARouteAheadIsReportedAndARestingOneIsNot();
-            HuntRangeEvidenceDoesNotInventUniversalFailure();
+            CombatHoldingUnobservableTargetsIsFoundAndOldCapturesSkip();
             DowningDoesNotProveAvoidability();
             ASelectedActivityMustHaveCarriedAnEligibleOffer();
             ASelectionChangesOnlyWithANewComparison();
@@ -900,37 +900,75 @@ public static class ChronicleTests
         finally { File.Delete(file); }
     }
 
-    private static void HuntRangeEvidenceDoesNotInventUniversalFailure()
+    /// <summary>
+    /// The check that could not run between schema 0.40.0 and 0.45.0, on the evidence it reads now.
+    ///
+    /// <para>It used to parse the arsenal's bounded shortlist of rejected weapon-target pairs out of
+    /// `target_evidence`, and the weapon block's rename took that column away, so it has been a named
+    /// skip on every capture since and the shortlist it parsed is written nowhere. 0.45.0 gives the two
+    /// names back with the course's meaning and the check asks the question the 22 September capture
+    /// raised: a fight held while every target the census admitted read as not observed to the binder
+    /// that had to use it.</para>
+    ///
+    /// <para><b>The dangerous case is the old capture, and it is asserted through the runner rather
+    /// than through the check.</b> A pre-0.40.0 capture carries both names holding the arsenal's format,
+    /// and a predicate written for the new one would parse it confidently as something else. The check
+    /// names `frame_ms` in its `Needs` as the witness and never reads it, so such a capture reaches the
+    /// coverage block as a named skip; asking the check directly would prove nothing about that, which
+    /// is why the last case here goes through `Program.Evaluate`.</para>
+    /// </summary>
+    private static void CombatHoldingUnobservableTargetsIsFoundAndOldCapturesSkip()
     {
         string file = Path.GetTempFileName();
         try
         {
-            Finding[] Read(string evidence, int age = 0, string fire = "no-target", string action = "hunt")
+            Finding[] Read(string evidence, string age = "combat=40", string fire = "not-fighting",
+                string action = "combat", int rows = 301)
             {
-                var trace = new StringBuilder("tick\taction\tbrain_fresh\tfire\ttarget_evidence_age\ttarget_evidence\n");
-                for (int tick = 0; tick < 301; tick++)
-                    trace.AppendLine($"{tick}\t{action}\t1\t{fire}\t{age}\t{evidence}");
+                var trace = new StringBuilder("# schema=0.45.0\n"
+                    + "tick\taction\tbrain_fresh\tfire\ttarget_evidence_age\ttarget_evidence\tframe_ms\n");
+                for (int tick = 0; tick < rows; tick++)
+                    trace.AppendLine($"{tick}\t{action}\t1\t{fire}\t{age}\t{evidence}\t25.00");
                 File.WriteAllText(file, trace.ToString());
-                return new HuntingHadAWeaponThatCouldReach().Run(Session.Load(file)).ToArray();
+                return new CombatHeldTargetsItsBinderCouldNotSee().Run(Session.Load(file)).ToArray();
             }
 
-            const string distant = "7:12:0:0:weapon=1:outside-reach";
-            Require(Read("7:12:0:0:weapon=0:no-clear-trajectory|" + distant).Length == 0,
-                "one weapon outside reach turned a mixed rejection set into a universal range failure");
-            Require(Read("7:12:10:weapon=0:kills=0:harm=0:value=10|" + distant).Length == 0,
-                "an accepted attack pair was ignored beside a range rejection");
-            foreach (string malformed in new[] { "", "-", "outside-reach", distant + "|", distant + "|truncated", "x:12:0:0:weapon=1:outside-reach" })
-                Require(Read(malformed).Length == 0, "missing or malformed evidence became an all-pairs claim");
-            Require(Read(distant, age: 100).Length == 0, "retained old evidence became a fresh range observation");
-            Require(Read(distant, fire: "fired").Length == 0 && Read(distant, fire: "cooldown").Length == 0,
-                "successful shooting or cooldown became failed pursuit");
-            Finding[] findings = Read("7:12:0:0:weapon=0:outside-reach|" + distant);
+            const string unseen = "combat=combat-target:8000001:0:Unresolved:0/3";
+            Finding[] findings = Read(unseen);
             Require(findings.Length == 1 && findings[0].Severity == Severity.Potential,
-                "a bounded range-only interval must remain a potential issue, not proof of impossible pursuit");
-            Require(findings[0].Detail.Contains("recorded", StringComparison.Ordinal),
-                "range diagnosis lost its bounded evidence qualification");
-            Require(Read("7:12:0:0:weapon=0:outside-reach|" + distant, action: "combat").Length == 1,
-                "the same interval under the merged stance's label was not read as a fight");
+                $"a sustained fight over targets the binder cannot see must be one potential finding; got {findings.Length}");
+            Require(findings[0].Detail.Contains("not `Observed`", StringComparison.Ordinal)
+                    && findings[0].Detail.Contains("-1 is a fact key this recorder never saw observed", StringComparison.Ordinal),
+                $"the finding must say what the evidence and the age mean: {findings[0].Detail}");
+
+            // The universal claim is universal. One domain reading Observed beside one that does not is
+            // a census and a binder agreeing about something, and the older version of this check made
+            // exactly this mistake in the other direction — an existential match read as a universal.
+            Require(Read(unseen + "|collect-target=collect-target:7:0:Observed:4/4").Length == 0,
+                "one observed domain beside an unobserved one must not read as every target unobserved");
+
+            foreach (string quiet in new[] { "", "-", "Unresolved", "combat=", "combat=k:Unresolved",
+                         "combat=k:Unresolved:0/3|", "combat=k:Unresolved:x/3", "7:12:0:0:weapon=1:outside-reach" })
+                Require(Read(quiet).Length == 0,
+                    $"a dash, an absence or a shape this producer does not write must be refused rather than matched: '{quiet}'");
+
+            Require(Read(unseen, fire: "fired").Length == 0 && Read(unseen, fire: "cooldown").Length == 0,
+                "a fight that is firing or reloading is a fight working");
+            Require(Read(unseen, action: "keep-company").Length == 0, "keeping company is not a fight held");
+            Require(Read(unseen, rows: 299).Length == 0, "a stretch under the inspection threshold must stay quiet");
+            Require(Read(unseen, action: "hunt").Length == 1, "the pre-merge stance label must still be read as a fight");
+
+            // The witness. An older capture carries both names holding the arsenal's own format and no
+            // `frame_ms`, and must reach the coverage block as a skip rather than this predicate.
+            var old = new StringBuilder("# schema=0.39.0\ntick\taction\tbrain_fresh\tfire\ttarget_evidence_age\ttarget_evidence\n");
+            for (int tick = 0; tick < 301; tick++)
+                old.AppendLine($"{tick}\thunt\t1\tno-target\t0\t7:12:0:0:weapon=1:outside-reach");
+            File.WriteAllText(file, old.ToString());
+            var (findingsOnOld, skipped, _) = Program.Evaluate(Session.Load(file));
+            Require(skipped.Any(s => s.Name == new CombatHeldTargetsItsBinderCouldNotSee().Name),
+                "a capture from before the columns changed meaning must skip this check by name, not be parsed by it");
+            Require(!findingsOnOld.Any(f => f.Check == new CombatHeldTargetsItsBinderCouldNotSee().Name),
+                "the arsenal's own evidence format was read as the course's");
         }
         finally { File.Delete(file); }
     }

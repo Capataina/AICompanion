@@ -645,52 +645,96 @@ public sealed class TheChosenWeaponIsTheBetterOne : ICheck
 }
 
 /// <summary>
-/// Finds sustained fresh range-only rejections even while the body moves. Arsenal.BestTarget
-/// records a bounded shortlist, independent of the pursuit target; this evidence can suggest an
-/// unproductive approach but cannot establish that all possible attacks or destinations failed.
-/// Matches `combat` as well as `hunt`: the merged stance closes either side for a proven absence
-/// of any firing position, so a sustained stretch under it is the same shape whatever side runs.
+/// Finds sustained stretches in which the companion held a fight while every target its own census
+/// had admitted read as not observed to the binder that had to use it.
+///
+/// <para><b>This check has run on nothing since schema 0.40.0 and its subject has changed.</b> It
+/// read `target_evidence` and `target_evidence_age`, which were the arsenal's own bounded shortlist
+/// of rejected weapon-target pairs, and asked whether every recorded pair was out of reach. The
+/// weapon block's rename took those columns away, so the check has been a named skip on every capture
+/// since, and the shortlist it parsed is not written anywhere now. Schema 0.45.0 gives the two names
+/// back with the course's meaning, and the question they answer is the one the 22 September 2026
+/// capture actually raised: a census admitting three combat targets as usable while the ordering
+/// stage in the same decision refuses every order built from them because the target fact is not
+/// observed. Six independent readings of that capture each named the evidence level and the age of
+/// that fact as the measurement that would settle it, and none could take it.</para>
+///
+/// <para><b>A capture older than 0.45.0 must not reach this predicate</b>, because a pre-0.40.0 one
+/// carries both column names holding the arsenal's format and would be parsed confidently as
+/// something else. `frame_ms` is named in <see cref="Needs"/> as the witness for that and is never
+/// read — the same device `ClaimedArrivalsStayInsideTheirSuccessRegion` uses for `npc_px`.</para>
+///
+/// <para>It stays Potential. A target reading unresolved for a few ticks is the brain working — a
+/// census sweeping, a model query outstanding — and only a sustained stretch of it beside a fight
+/// that never fires is worth opening.</para>
 /// </summary>
-public sealed class HuntingHadAWeaponThatCouldReach : ICheck
+public sealed class CombatHeldTargetsItsBinderCouldNotSee : ICheck
 {
-    /// <summary>300 consecutive samples warrant inspection; they do not certify physical impossibility.</summary>
+    /// <summary>300 consecutive samples warrant inspection; they do not certify a defect. The tail of
+    /// the 22 September capture held 521 of them.</summary>
     private const int Sustained = 300;
 
-    public string Name => "could it reach what it was hunting";
-    public string[] Needs => new[] { "action", "brain_fresh", "fire", "target_evidence", "target_evidence_age" };
+    public string Name => "did it hold a fight whose targets its binder could not see";
+
+    /// <summary>`frame_ms` is the schema witness and is never read: the two evidence columns changed
+    /// meaning without changing name, so a check whose predicate depends on which meaning they carry
+    /// names a column only the new schema writes.</summary>
+    public string[] Needs => new[] { "action", "brain_fresh", "fire", "target_evidence", "target_evidence_age", "frame_ms" };
 
     public IEnumerable<Finding> Run(Session s)
     {
         foreach (var span in FindStretches.Where(s.Count, i => s["action"].Text[i] is "hunt" or "combat"
             && s["brain_fresh"].Number[i] == 1
             && s["fire"].Text[i] is not ("fired" or "cooldown")
-            && s["target_evidence_age"].Number[i] == 0
-            && RecordedPairsAreOutsideReach(s["target_evidence"].Text[i]), Sustained))
+            && EveryRecordedTargetIsUnobserved(s["target_evidence"].Text[i]), Sustained))
             yield return new Finding(Severity.Potential, Name,
-                "hunting persisted while every freshly recorded attack pair was outside reach",
-                $"{span.Length} consecutive samples (inspection threshold {Sustained}) contain only outside-reach "
-                + $"rejections in the recorded shortlist, with no shot taken. Fire outcomes {FindStretches.Summarise(s["fire"], span)}. "
-                + "The shortlist is bounded and the arsenal's targets need not be the pursuit target. This does not "
-                + "establish that every weapon-target pair was considered or that a useful firing position was impossible. "
-                + "Compare pursuit identity, destination validity, route progress and granted controls to distinguish "
-                + "a legitimate long approach from invalid positioning, interruption or failed execution.",
+                "a fight was held while every target the census had admitted read as not observed to the binder",
+                $"{span.Length} consecutive samples (inspection threshold {Sustained}) carry a combat stance, a fresh "
+                + $"brain and no shot, and on every one of them the evidence recorded for the refused targets is not "
+                + $"`Observed`. Fire outcomes {FindStretches.Summarise(s["fire"], span)}. The ages over the stretch begin "
+                + $"{s["target_evidence_age"].Text[span.Start]} and end {s["target_evidence_age"].Text[span.End]}, where a "
+                + "-1 is a fact key this recorder never saw observed in the session at all and is a different thing from a "
+                + "stale one. This is the census and the binder disagreeing about the same fact inside one decision; the "
+                + "`contract-violation` occurrences beside it name each one with the key it read. It does not establish "
+                + "which of the two stages is wrong, and a domain whose targets all read observed here while the binder "
+                + "still refuses them would be the sharper finding — the two would then be reading different keys.",
                 s.Tick(span.Start), s.Tick(span.End), span.Length);
     }
 
-    private static bool RecordedPairsAreOutsideReach(string evidence)
+    /// <summary>
+    /// Whether every domain in a recorded evidence cell reads as something other than `Observed`.
+    ///
+    /// The wire format is the recorder's: `domain=key:evidence:observed/total`, domains separated by
+    /// `|`. A cell the writer left as a dash means the decision contradicted nothing and is not a
+    /// finding; an entry whose shape this does not recognise is refused outright rather than matched
+    /// on a substring, because the previous version of this check parsed a different producer's format
+    /// under the same column name and the whole point of the witness column is that such a mix-up
+    /// must not reach here silently.
+    ///
+    /// <b>The entry is parsed from its right-hand end, and that is the one detail a reader would get
+    /// wrong.</b> The key is a `FactKey`, whose own rendering is `kind:identity:generation`, so it
+    /// carries two colons of its own and a left-to-right split on `:` finds five fields rather than
+    /// three. The last field is the counted pair, the one before it is the evidence, and everything
+    /// before that is the key however many colons it holds — which also means a later key shape with
+    /// more of them still parses. The fixture caught this before its first green run.
+    /// </summary>
+    private static bool EveryRecordedTargetIsUnobserved(string evidence)
     {
-        if (string.IsNullOrWhiteSpace(evidence)) return false;
-        foreach (string pair in evidence.Split('|'))
+        if (string.IsNullOrWhiteSpace(evidence) || evidence == "-") return false;
+        foreach (string entry in evidence.Split('|'))
         {
-            // Rejection wire format from Arsenal.BestTarget. Accepted outcomes have a different
-            // shape. Reject incomplete/unknown formats rather than extract a matching substring.
-            string[] fields = pair.Split(':');
-            if (fields.Length != 6 || !int.TryParse(fields[0], out int target) || target < 0
-                || !long.TryParse(fields[1], out long generation) || generation < 0
-                || fields[2] != "0" || fields[3] != "0"
-                || !fields[4].StartsWith("weapon=", StringComparison.Ordinal)
-                || !int.TryParse(fields[4].AsSpan(7), out int weapon) || weapon < 0
-                || fields[5] != "outside-reach") return false;
+            int equals = entry.IndexOf('=');
+            if (equals <= 0) return false;
+            string body = entry[(equals + 1)..];
+            int counts = body.LastIndexOf(':');
+            if (counts <= 0) return false;
+            int level = body.LastIndexOf(':', counts - 1);
+            if (level <= 0) return false;
+            if (body[..level].Length == 0) return false;
+            if (body[(level + 1)..counts] is not ("Unresolved" or "Missing" or "Modelled" or "absent" or "no-snapshot")) return false;
+            string[] counted = body[(counts + 1)..].Split('/');
+            if (counted.Length != 2 || !int.TryParse(counted[0], out int observed) || observed < 0
+                || !int.TryParse(counted[1], out int total) || total < 0) return false;
         }
         return true;
     }

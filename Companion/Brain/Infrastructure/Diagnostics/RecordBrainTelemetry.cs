@@ -864,6 +864,10 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var a in brain.Chooser.Actions)
                 if (a is Activities.ICandidateFunnelSource) textColumns.Append(',').Append(a.Name).Append("_funnel");
             textColumns.Append(",torch_reference,torch_reference_dark,torch_reference_stage");
+            // 0.45.0's two textual columns. The declaration is a hand-maintained string beside the
+            // header builder and is the half that gets forgotten, which is how `torch_reason` spent a
+            // whole schema reading as a column that failed to parse as a number.
+            textColumns.Append(",target_evidence,target_evidence_age");
             QueueDiagnosticRecords.TryEnqueueTsv(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
@@ -975,6 +979,14 @@ public sealed class BrainTelemetry : ModSystem
             // sections, all of which are that same update's. The interval a row can see closed at the
             // end of the update before it, so `frame_ms` describes the update before the row's own.
             h.Append("\tframe_ms\tdraws\toverlay_ms\tinspector_ms\tengine_ms");
+            // The two names return here, and **they do not mean what they meant before 0.40.0**, which
+            // is why a reader of them names a 0.45.0-only witness column rather than trusting the name.
+            // They were the arsenal's own rejected-pair shortlist — `slot:generation:0:0:weapon=N:reason`
+            // — and went with the weapon block's rename; they are the course's now, per domain, as
+            // `<domain>=<fact key>:<evidence>:<observed>/<total>` and `<domain>=<ticks>`, which is the
+            // measurement six readings of the 22 September capture each named as the one thing that
+            // would have settled the census-against-binder contradiction and could not be taken.
+            h.Append("\ttarget_evidence\ttarget_evidence_age");
             QueueDiagnosticRecords.TryEnqueueTsv(h.ToString());
             headerWritten = true;
         }
@@ -1417,6 +1429,11 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(remainder < 0 && frameMs < 0 ? "-1.00" : remainder.ToString("0.00", CultureInfo.InvariantCulture));
         ObserveFrameOverrun(frameMs, remainder, npc);
         lastBrainMs = brain.TotalMs;
+        // What the binder read about the targets its own census admitted, held by the audit from the
+        // moment the decision recorded itself, because the frozen observation is in hand there and not
+        // here. A dash is a decision that contradicted nothing, never an absence of evidence.
+        sb.Append('\t').Append(AuditDecisionContracts.LastTargetEvidence.Length == 0 ? "-" : AuditDecisionContracts.LastTargetEvidence)
+            .Append('\t').Append(AuditDecisionContracts.LastTargetEvidenceAge.Length == 0 ? "-" : AuditDecisionContracts.LastTargetEvidenceAge);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
