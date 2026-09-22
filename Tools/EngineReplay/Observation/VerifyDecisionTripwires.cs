@@ -36,6 +36,7 @@ internal static class VerifyDecisionTripwires
         failed += RunOneRow.Case("a frozen observation past its declared size is named", AnOversizedObservationIsNamed, Family);
         failed += RunOneRow.Case("a decision past its allowance and its largest slice is named", AnOverrunningDecisionIsNamed, Family);
         failed += RunOneRow.Case("one decision carried across ticks is audited once", OneDecisionCarriedAcrossTicksIsAuditedOnce, Family);
+        failed += RunOneRow.Case("a tick carrying a course reads the observation nowhere and allocates nothing", ACarriedTickReadsNothingAndAllocatesNothing, Family);
         failed += RunOneRow.Case("a refused target's evidence and its age ride on the decision", RefusedTargetEvidenceRidesOnTheDecision, Family);
         failed += RunOneRow.Case("a contradiction held for hundreds of ticks is counted in full and written a handful of times", AHeldContradictionIsCountedInFullAndCoalesced, Family);
         failed += RunOneRow.Case("the refusal strings the contracts read are still the ones the binders emit", TheRefusalStringsStillMatchTheirProducers, Family);
@@ -225,6 +226,100 @@ internal static class VerifyDecisionTripwires
             $"every recorded decision must still reach the audit, carried or not; audited={AuditDecisionContracts.Audited}");
     }
 
+    /// <summary>
+    /// What a carried tick costs, which is the half of the last row that a count of violations cannot
+    /// see. The audit's inputs come through a delegate that walks the whole frozen observation, and the
+    /// first wiring invoked it before the ordinal short-circuit — so a course carried for five hundred
+    /// ticks paid five hundred walks of fifteen hundred facts to reach a method that returned at its
+    /// second line. The scene is a source shaped like the real reader: a pool of 1,548 facts of which
+    /// 60 are targets, walked and flattened into fresh lists on every call, which is
+    /// <c>ReadLiveCourseForAudit.Read</c>'s own work.
+    ///
+    /// The row prints the before number rather than asserting against a remembered one, because a cost
+    /// figure taken any other way is not comparable and this project's standing rule says so.
+    /// </summary>
+    private static void ACarriedTickReadsNothingAndAllocatesNothing()
+    {
+        const int Ticks = 200;
+        const long Ordinal = 7;
+        (CensusAdmission[] Census, TargetFact[] Pool) world = FactPool();
+        int reads = 0;
+        Func<DecisionInputs?>? installed = AuditDecisionContracts.Source;
+        try
+        {
+            AuditDecisionContracts.Source = () =>
+            {
+                reads++;
+                var admitted = new List<CensusAdmission>(world.Census);
+                var targets = new List<TargetFact>();
+                foreach (TargetFact fact in world.Pool)
+                    if (fact.Kind.EndsWith("-target", StringComparison.Ordinal)) targets.Add(fact);
+                return new DecisionInputs(admitted, targets);
+            };
+            CourseTracePayload carried = Decision("course-retained", "keep-company", settled: true, steps: 1, facts: 60);
+            // The contexts are built before anything is measured, because the brain builds one per tick
+            // whatever the audit does: a `CourseTraceContext` is a fourteen-field record and leaving its
+            // allocation inside the measured region charges the audit 128 bytes a tick it never spent.
+            var contexts = new CourseTraceContext[Ticks];
+            for (long tick = 0; tick < Ticks; tick++) contexts[tick] = Context(tick, Ordinal);
+
+            // The ordering this replaced, measured rather than recalled: the source invoked on every
+            // tick, then the audit. One read is the decision's; the other 199 are what the reorder removed.
+            AuditDecisionContracts.Reset();
+            reads = 0;
+            AuditDecisionContracts.Observe(contexts[0], carried);
+            long beforeBytes = GC.GetAllocatedBytesForCurrentThread();
+            for (int tick = 1; tick < Ticks; tick++)
+            {
+                AuditDecisionContracts.Source!.Invoke();
+                AuditDecisionContracts.Observe(contexts[tick], carried);
+            }
+            beforeBytes = GC.GetAllocatedBytesForCurrentThread() - beforeBytes;
+            int beforeReads = reads;
+
+            // The ordering as it stands.
+            AuditDecisionContracts.Reset();
+            reads = 0;
+            AuditDecisionContracts.Observe(contexts[0], carried);
+            long afterBytes = GC.GetAllocatedBytesForCurrentThread();
+            for (int tick = 1; tick < Ticks; tick++)
+                AuditDecisionContracts.Observe(contexts[tick], carried);
+            afterBytes = GC.GetAllocatedBytesForCurrentThread() - afterBytes;
+
+            int carriedTicks = Ticks - 1;
+            Console.WriteLine($"    carried-tick cost over {carriedTicks} ticks of one decision:"
+                + $" before {beforeReads} source reads and {beforeBytes / (double)carriedTicks:0.0} bytes/tick,"
+                + $" after {reads} source reads and {afterBytes / (double)carriedTicks:0.0} bytes/tick");
+
+            Require(reads == 1,
+                $"one frozen observation must be read once, whatever the tick count; read it {reads} times");
+            Require(reads <= beforeReads,
+                $"the reorder must not read more than the ordering it replaced; {reads} against {beforeReads}");
+            Require(afterBytes / (double)carriedTicks < 8d,
+                $"a carried tick must allocate nothing; {afterBytes / (double)carriedTicks:0.0} bytes/tick over"
+                    + $" {carriedTicks} ticks, against {beforeBytes / (double)carriedTicks:0.0} before");
+        }
+        finally { AuditDecisionContracts.Source = installed; }
+    }
+
+    /// <summary>A frozen observation the size of the 22 September capture's tail: 1,548 facts, of which
+    /// 60 are targets. Only the kinds ending in <c>-target</c> are ever flattened, which is the real
+    /// reader's own filter.</summary>
+    private static (CensusAdmission[] Census, TargetFact[] Pool) FactPool()
+    {
+        var census = new[]
+        {
+            new CensusAdmission("combat", 3, 0, 0, ""),
+            new CensusAdmission("collect-target", 4, 0, 0, ""),
+        };
+        var pool = new List<TargetFact>(1548);
+        for (int i = 0; i < 1548; i++)
+            pool.Add(i % 26 == 0
+                ? Target("combat-target", (8000000 + i).ToString(CultureInfo.InvariantCulture), observed: false)
+                : new TargetFact("terrain-cell", $"terrain-cell:{i}:0", true, "Observed"));
+        return (census, pool.ToArray());
+    }
+
     // ── the evidence the payload gains ────────────────────────────────────────────────────────────
 
     private static void RefusedTargetEvidenceRidesOnTheDecision()
@@ -308,11 +403,14 @@ internal static class VerifyDecisionTripwires
         // produces — so the records are counted per kind rather than in total. Counting them together
         // is what the first run of this row did, and it reported ten where each kind wrote five.
         var contradiction = records.Where(r => Payload(r, "violation") == "census-admitted-binder-refused").ToList();
-        // One at the first fire and one per sixty ticks after it: five records rather than three hundred,
-        // which is what keeps a pathological session inside the sidecar's optional partition.
-        Require(contradiction.Count is > 0 and <= 8,
-            $"a contradiction held for three hundred ticks must be written a handful of times, not once a tick;"
-                + $" wrote {contradiction.Count} of that kind and {records.Count} violation records in all");
+        // Exactly six, and the arithmetic is the assertion: ticks 0, 60, 120, 180 and 240 fire under the
+        // sixty-tick clause, and the close flushes the sixth. A range would accept both failures this
+        // row exists to catch — delete the sixty-tick clause and a constant signature writes one record
+        // plus the flush, which `<= 8` passes; delete the signature clause and it writes three hundred.
+        Require(contradiction.Count == 6,
+            $"a contradiction held for three hundred ticks must be written at ticks 0, 60, 120, 180 and 240 with a"
+                + $" sixth at the close; wrote {contradiction.Count} of that kind and {records.Count} violation"
+                + " records in all");
         Require(Payload(contradiction[^1], "occurrences-total") == "300",
             $"the last record must carry the running total the coalescing dropped; occurrences-total='{Payload(contradiction[^1], "occurrences-total")}'");
         Require(Payload(contradiction[0], "detail").Contains("admitted 3 usable", StringComparison.Ordinal)

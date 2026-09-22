@@ -59,7 +59,13 @@ public static class RecordCourseTrace
     /// </summary>
     public static bool Record(CourseTracePhase phase, CourseTraceContext context, CourseTracePayload payload)
     {
-        IReadOnlyList<KeyValuePair<string, CourseTraceValue>> extra = AuditDecisionContracts.Observe(context, payload);
+        // Nothing is audited while the recorder is off, because the audit's only output is an
+        // occurrence nobody would write and two payload fields on a record nobody would keep. The
+        // gate is here rather than inside the audit so that the delegate hop is not paid either: a
+        // session with recording disabled runs this method to a single boolean read.
+        IReadOnlyList<KeyValuePair<string, CourseTraceValue>> extra = GodsEyeEvents.Active
+            ? AuditDecisionContracts.Observe(context, payload)
+            : Array.Empty<KeyValuePair<string, CourseTraceValue>>();
         if (extra.Count > 0)
         {
             var fields = new List<KeyValuePair<string, CourseTraceValue>>(payload.Fields);

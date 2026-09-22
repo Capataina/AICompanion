@@ -184,10 +184,16 @@ public static class AuditDecisionContracts
         CourseTraceContext context, CourseTracePayload payload)
     {
         if (payload.Kind != "course-decision") return Array.Empty<KeyValuePair<string, CourseTraceValue>>();
-        DecisionInputs? inputs = Source?.Invoke();
-        if (inputs == null) return Array.Empty<KeyValuePair<string, CourseTraceValue>>();
-        return Audit(context, payload, inputs);
+        // The source is passed rather than invoked, so the frozen observation is read only on the
+        // ticks the audit needs it — see `Audit`'s own note on the ordering.
+        return Audit(context, payload, Source);
     }
+
+    /// <summary>The explicit-input overload a fixture drives, which is the same audit with a source
+    /// that hands back one prepared set.</summary>
+    internal static IReadOnlyList<KeyValuePair<string, CourseTraceValue>> Audit(
+        CourseTraceContext context, CourseTracePayload payload, DecisionInputs inputs)
+        => Audit(context, payload, () => inputs);
 
     /// <summary>
     /// The audit itself, taking every input explicitly so a fixture can drive one decision without a
@@ -195,7 +201,7 @@ public static class AuditDecisionContracts
     /// breaking together is a different finding from either alone.
     /// </summary>
     internal static IReadOnlyList<KeyValuePair<string, CourseTraceValue>> Audit(
-        CourseTraceContext context, CourseTracePayload payload, DecisionInputs inputs)
+        CourseTraceContext context, CourseTracePayload payload, Func<DecisionInputs?>? source)
     {
         Audited++;
         long tick = context.SourceTick;
@@ -206,9 +212,6 @@ public static class AuditDecisionContracts
         long steps = Integer(payload, "steps");
         long factCount = Integer(payload, "facts");
         string release = Text(payload, "release-reason");
-        Dictionary<string, long> refusals = Refusals(payload);
-
-        RememberObservedFacts(inputs.Targets, tick);
 
         // Contract four, a transition: the bound activity changed while a decision was still running.
         // This is the mid-session fight death of the 22 September capture — a decision that spans
@@ -236,6 +239,18 @@ public static class AuditDecisionContracts
         // The rest is per decision rather than per tick, and must not repeat while a course is carried.
         if (context.ObservationOrdinal == auditedOrdinal) return Array.Empty<KeyValuePair<string, CourseTraceValue>>();
         auditedOrdinal = context.ObservationOrdinal;
+
+        // The frozen observation is read here and nowhere earlier, which is the whole of the ordering:
+        // a carried course repeats its ordinal, so the source is invoked once per decision rather than
+        // once per tick. Reading it above — where the first version did — walked every fact in the
+        // observation on every tick of a held course, 1,548 of them at the 22 September capture's tail.
+        DecisionInputs? read = source?.Invoke();
+        if (read == null) return Array.Empty<KeyValuePair<string, CourseTraceValue>>();
+        DecisionInputs inputs = read;
+        RememberObservedFacts(inputs.Targets, tick);
+        // Parsed here rather than above for the same reason: the refusal tally is a dictionary per
+        // call and no transition contract reads it, so a carried tick allocates nothing at all.
+        Dictionary<string, long> refusals = Refusals(payload);
 
         // Contract five: the frozen observation is larger than anything the brain declared it needs.
         if (factCount > MaximumFactsPerDecision)
@@ -269,7 +284,12 @@ public static class AuditDecisionContracts
                     + $" order(s) naming its targets with {wanted}; the snapshot holds {total} {kind} fact(s),"
                     + $" {observed} of them observed, and {key} reads {evidenceValue}, last observed"
                     + $" {(age < 0 ? "never this session" : age + " tick(s) ago")}",
-                $"{domain.Domain}:{domain.Usable}:{wanted}:{evidenceValue}");
+                // The signature carries *which* domain contradicted itself and how, never how many
+                // candidates it admitted: a live count moves between decisions while the contradiction
+                // stands, and a signature that moves defeats the coalescing it keys — the count is one
+                // record a tick again, which is the failure the coalescing exists to stop. The number
+                // is in the detail, where it belongs.
+                $"{domain.Domain}:{wanted}:{evidenceValue}");
         }
 
         // Contract two: an empty course published beside usable work, where every refusal the search
@@ -281,7 +301,8 @@ public static class AuditDecisionContracts
             Fire("empty-course-beside-usable-work", tick, context,
                 $"a settled course with no steps was published (reason={reason}) while {UsableSummary(inputs.Admitted)},"
                     + $" and every refusal was one of the not-observed pair ({RefusalSummary(refusals)})",
-                UsableSummary(inputs.Admitted));
+                // Which domains had usable work, not how much: see the note on the signature above.
+                DomainsWithUsableWork(inputs.Admitted));
 
         LastTargetEvidence = anyContradiction ? evidence.ToString() : "";
         LastTargetEvidenceAge = anyContradiction ? ages.ToString() : "";
@@ -447,6 +468,22 @@ public static class AuditDecisionContracts
             text.Append(domain.Domain).Append(" admitted ").Append(domain.Usable).Append(" usable");
         }
         return text.Length == 0 ? "no domain admitted usable work" : text.ToString();
+    }
+
+    /// <summary>The domains that admitted usable work, by name and in order, with no count in it. This
+    /// is the coalescing key for the empty-course contract, and it is deliberately the same set of
+    /// facts as <see cref="UsableSummary"/> with the numbers removed: the numbers belong in the detail
+    /// a reader reads, and a key that moves with them writes a record a tick.</summary>
+    private static string DomainsWithUsableWork(IReadOnlyList<CensusAdmission> admitted)
+    {
+        var text = new StringBuilder();
+        foreach (CensusAdmission domain in admitted)
+        {
+            if (domain.Usable <= 0) continue;
+            if (text.Length > 0) text.Append(',');
+            text.Append(domain.Domain);
+        }
+        return text.Length == 0 ? "none" : text.ToString();
     }
 
     private static string RefusalSummary(Dictionary<string, long> refusals)
