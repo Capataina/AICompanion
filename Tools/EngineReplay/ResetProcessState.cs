@@ -180,6 +180,7 @@ internal static class ResetProcessState
         RebuildTheMiniatureWorld();
         ResetSearchPolicy();
         FillActorSlots();
+        EmptyActorSlots();
     }
 
     /// <summary>
@@ -224,6 +225,35 @@ internal static class ResetProcessState
         if (Main.player == null) Main.player = new Player[Main.maxPlayers + 1];
         for (int i = 0; i < Main.player.Length; i++)
             Main.player[i] ??= new Player();
+    }
+
+    /// <summary>
+    /// Every hostile, item and projectile a case seeded is gone before the next case starts.
+    ///
+    /// <see cref="FillActorSlots"/> puts an object in each slot and deliberately leaves an occupied one
+    /// alone, so a zombie a combat row placed in slot 30 and never killed stayed active into every case
+    /// after it. One leaked hostile is harmless in most scenes; sixteen combat and weapon-knowledge
+    /// cases in a row leave enough of them standing that a companion asked to walk to a distant player
+    /// fights instead, and "a whole journey is recorded against its proven ticks" went red with no
+    /// journey recorded at all — green alone, green after any one of those sixteen, red after the block
+    /// (bisected on 22 September 2026 with the ledger's `|` case filter). Lane C met the same leak from
+    /// the other side the same day: its own seeded drops and hostiles turned a travel row red until each
+    /// fixture emptied its own scene in a <c>finally</c>. A per-fixture <c>finally</c> fixes the fixtures
+    /// somebody remembered to write one into; the reset is the only place the class is closed.
+    ///
+    /// The player slots are left as they are: the fixtures build the player they need and the engine
+    /// walks every player slot expecting an object, which <see cref="FillActorSlots"/> already guarantees.
+    /// </summary>
+    private static void EmptyActorSlots()
+    {
+        for (int i = 0; i < Main.npc.Length; i++)
+            Main.npc[i] = new NPC { whoAmI = i, active = false };
+        if (Main.item != null)
+            for (int i = 0; i < Main.item.Length; i++)
+                Main.item[i] = new Item();
+        if (Main.projectile != null)
+            for (int i = 0; i < Main.projectile.Length; i++)
+                Main.projectile[i] = new Projectile { whoAmI = i, active = false };
     }
 
     /// <summary>Registered once, from the entry point, so every case in every suite runs through it.</summary>
