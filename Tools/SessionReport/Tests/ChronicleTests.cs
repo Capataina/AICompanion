@@ -71,6 +71,7 @@ public static class ChronicleTests
             CourseSnapshotRequiresActualValuesAndMatchingDigests();
             CourseReaderRejectsMixedAndDigestOnlySnapshots();
             CourseDecisionsAreReadCheckedAndNarrated();
+            ACensusAdmissionMustSurviveItsOwnBinder();
             TheGuideQuotesTheSchemaConstantItDocuments();
             TheAuditsOwnWiringIsWitnessedByTheCapture();
             TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
@@ -299,6 +300,201 @@ public static class ChronicleTests
                 "a capture whose recorder never wrote the counts must skip by name rather than read their absence as zero");
             Require(check.Run(session).ToArray().Length == 0, "a skipped check must still produce nothing when asked");
         });
+    }
+
+    /// <summary>
+    /// The contradiction six independent readings of the 22 September 2026 capture each found by hand
+    /// and no check asked for: a domain the census admitted usable whose every order the same decision
+    /// refused for want of an observed target.
+    ///
+    /// <para>Two things are pinned rather than asserted, because a check whose literals drift reports a
+    /// clean run for ever. The two refusal strings are read out of the binders that write them, and the
+    /// domain sets are read out of the recorder's own <c>RefusalFor</c>, which is the same mapping in
+    /// the other direction — so a rename in either file reddens this before it silences the check.</para>
+    ///
+    /// <para>The rest of the group is the join, and every arm is a way the join can be wrong: an
+    /// admission and a refusal in one record is the observed contradiction and is Definitive; an
+    /// admission carried forward to a later decision is the same reading with an inference in it and is
+    /// counted apart; a domain admitted with nothing usable is not a contradiction however many orders
+    /// were refused; and a refusal reason no binder in the table owns is not attributed to anything.</para>
+    /// </summary>
+    private static void ACensusAdmissionMustSurviveItsOwnBinder()
+    {
+        string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));
+        string combat = Source("Companion", "Brain", "Activities", "Combat", "CombatCourseOpportunity.cs");
+        string assistance = Source("Companion", "Brain", "Infrastructure", "Selection", "Opportunities", "BindAssistanceOpportunity.cs");
+        string audit = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "AuditDecisionContracts.cs");
+        string recorder = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
+
+        Require(combat.Contains("\"target-capture-missing\"", StringComparison.Ordinal),
+            "combat no longer refuses `target-capture-missing`; the census-against-binder check is reading a string nobody writes");
+        Require(assistance.Contains("Refuse(\"assistance-target-unresolved\")", StringComparison.Ordinal),
+            "the assistance binder no longer refuses `assistance-target-unresolved`; the census-against-binder check is reading a string nobody writes");
+        foreach (string domain in ACensusAdmissionSurvivesItsBinder.DomainsBehind["assistance-target-unresolved"])
+            Require(audit.Contains($"\"{domain}\"", StringComparison.Ordinal) && assistance.Contains($"\"{domain}\"", StringComparison.Ordinal),
+                $"the assistance domain '{domain}' is named by neither the binder nor the recorder's own refusal map; the reader's table has drifted from the producer's");
+        Require(audit.Contains("\"combat\" => CombatNotObserved", StringComparison.Ordinal),
+            "the recorder's own refusal map no longer sends the combat domain to combat's refusal; the reader's table mirrors that map and has drifted from it");
+        Require(recorder.Contains(ACensusAdmissionSurvivesItsBinder.AdmittedPrefix, StringComparison.Ordinal),
+            $"the recorder no longer writes `{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}`, which is the only place a census admission reaches a capture");
+        Require(audit.Contains($"\"{ACensusAdmissionSurvivesItsBinder.TripwireViolation}\"", StringComparison.Ordinal),
+            $"the recorder's own tripwire kind `{ACensusAdmissionSurvivesItsBinder.TripwireViolation}` is gone; the cross-check reads a record nobody writes");
+
+        object Field(string kind, string text) => new { Kind = kind, Text = text };
+        string Marker(int seq, string kind) => JsonSerializer.Serialize(new { v = 1, seq, tick = 0, wall_elapsed_ms = 0d,
+            kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+            expected_x = 0f, expected_y = 0f, amount = 0, detail = "" });
+
+        // The `decision` occurrence's detail, in the producer's own shape: the admission entry's values
+        // are comma-separated key:value pairs inside a semicolon-separated field, which is why the check
+        // parses them itself rather than through ReadGodsEyeEvents.Field.
+        string Admission(int seq, long tick, params (string Domain, long Usable)[] domains)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "decision",
+                subject = 0, related = "", label = "keep-company", channel = "WithPlayer", pos_x = 0f, pos_y = 0f,
+                vel_x = 0f, vel_y = 0f, expected_x = 0f, expected_y = 0f, amount = 0,
+                detail = "scores=;" + string.Concat(domains.Select(d =>
+                    $"{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}{d.Domain}=usable:{d.Usable},unknown:0,unusable:0,reason:-;")) });
+
+        string Refusal(int seq, long tick, params (string Reason, long Count)[] refusals)
+        {
+            var fields = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["reason"] = Field("text", "published-course-holds-no-step"),
+                ["activity"] = Field("text", "keep-company"),
+                ["settled"] = Field("flag", "true"),
+                ["purpose"] = Field("text", ""),
+                ["steps"] = Field("integer", "0"),
+                ["orders-priced"] = Field("integer", "1"),
+                ["orders-refused"] = Field("integer", refusals.Sum(r => r.Count).ToString(CultureInfo.InvariantCulture)),
+                ["search-exhausted"] = Field("flag", "true"),
+                ["release-reason"] = Field("text", ""),
+                ["facts"] = Field("integer", "7"),
+            };
+            foreach ((string reason, long count) in refusals)
+                fields[ReadCourseDecisions.RefusalPrefix + reason] = Field("integer", count.ToString(CultureInfo.InvariantCulture));
+            return JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "course-course-decision",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+                payload_kind = ReadCourseDecisions.Kind, payload_version = 1, phase = "brain",
+                observation_ordinal = tick, receipt_watermark = 0L,
+                payload = new { Kind = ReadCourseDecisions.Kind, Version = 1, Fields = fields } });
+        }
+
+        string Violation(int seq, long tick, string signature)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "course-contract-violation",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+                payload_kind = "contract-violation", payload_version = 1, phase = "brain",
+                observation_ordinal = tick, receipt_watermark = 0L,
+                payload = new { Kind = "contract-violation", Version = 1, Fields = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["violation"] = Field("text", ACensusAdmissionSurvivesItsBinder.TripwireViolation),
+                    ["detail"] = Field("text", "the census admitted and the binder refused"),
+                    ["signature"] = Field("text", signature),
+                } } });
+
+        void Drive(string schema, string[] records, Action<Session> assert)
+        {
+            string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+            try
+            {
+                File.WriteAllText(tsv, $"# schema={schema}\ntick\n1\n# end=fixture;rows=1\n");
+                var lines = new List<string> { Marker(0, "session") };
+                lines.AddRange(records);
+                lines.Add(Marker(records.Length + 1, "session-end"));
+                File.WriteAllLines(events, lines);
+                assert(Session.Load(tsv));
+            }
+            finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+        }
+
+        Finding[] Run(Session session) => new ACensusAdmissionSurvivesItsBinder().Run(session).ToArray();
+
+        // One decision carrying both halves, then two carrying only the refusal against the admission
+        // carried forward. The Definitive grade is earned by the first; the other two are the inference
+        // and must be counted apart rather than folded into it.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 100, ("target-capture-missing", 12)),
+            Refusal(3, 101, ("target-capture-missing", 12)),
+            Refusal(4, 102, ("target-capture-missing", 12)),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Length == 1, $"the census-against-binder check reported {found.Length} finding(s) rather than one per contradicting domain");
+            Require(found[0].Severity == Severity.Definitive, $"a contradiction observed in one record was graded {found[0].Severity}");
+            Require(found[0].Rows == 3, $"the finding counted {found[0].Rows} decision(s) rather than the three the fixture holds");
+            Require(found[0].Detail.Contains("1 of those decisions carried the admission and the refusal in one record", StringComparison.Ordinal),
+                "the finding did not separate the observed contradiction from the ones read against a carried admission: " + found[0].Detail);
+            Require(found[0].Detail.Contains("refused 36 order(s)", StringComparison.Ordinal),
+                "the finding lost the refusal total it is counting: " + found[0].Detail);
+            Require(found[0].FirstTick == 100 && found[0].LastTick == 102, "the finding lost the span its decisions covered");
+        });
+
+        // A census that admitted nothing usable is not contradicted by any number of refusals, which is
+        // the whole load-bearing half: refusals alone are a search doing its job.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("combat", 0)),
+            Refusal(2, 100, ("target-capture-missing", 12)),
+        }, session => Require(Run(session).Length == 0,
+            "a domain admitted with nothing usable was reported as contradicting its binder"));
+
+        // A refusal no binder in the table owns is attributed to nothing.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 100, ("budget-cut", 12)),
+        }, session => Require(Run(session).Length == 0,
+            "a refusal reason outside the reader's own binder table was attributed to a domain anyway"));
+
+        // Two assistance domains usable at once: the reason names the binder, not the site, so the
+        // refusal cannot be attributed to one of them and the finding has to say so.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("collect-target", 4), ("light-target", 2)),
+            Refusal(2, 100, ("assistance-target-unresolved", 16)),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Length == 2, $"two usable assistance domains behind one refusal produced {found.Length} finding(s) rather than one each");
+            Require(found.All(f => f.Detail.Contains("cannot be attributed to", StringComparison.Ordinal)),
+                "an unattributable refusal was reported as if it named its domain");
+        });
+
+        // The recorder's own tripwire, from the other side of the decision: agreement is stated, and a
+        // domain it fired on that this reader found nothing in is its own finding.
+        Drive("0.45.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 100, ("target-capture-missing", 12)),
+            Violation(3, 100, "combat:target-capture-missing:Unresolved"),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Length == 1 && found[0].Detail.Contains("the two instruments agree", StringComparison.Ordinal),
+                "the reader did not state its agreement with the recorder's own tripwire: " + string.Join(" | ", found.Select(f => f.Title)));
+        });
+        Drive("0.45.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 100, ("target-capture-missing", 12)),
+            Violation(3, 100, "collect-target:assistance-target-unresolved:Unresolved"),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Any(f => f.Title.Contains("tripwire named", StringComparison.Ordinal)),
+                "the tripwire naming a domain this reader found nothing in was not reported as the instruments disagreeing");
+            Require(found.Any(f => f.Detail.Contains("did **not** fire for combat", StringComparison.Ordinal)),
+                "a finding whose domain the tripwire never named claimed corroboration it does not have");
+        });
+
+        // A capture older than the two fields skips by name through the runner rather than reading a
+        // clean run, and the runner is what has to skip it.
+        Drive("0.41.0", new[] { Admission(1, 100, ("combat", 3)), Refusal(2, 100, ("target-capture-missing", 12)) },
+            session => Require(Program.Evaluate(session).Skipped.Any(s => s.Name == new ACensusAdmissionSurvivesItsBinder().Name),
+                "a capture from before the census admissions existed was graded rather than skipped by name"));
     }
 
     private static void CourseDecisionsAreReadCheckedAndNarrated()
