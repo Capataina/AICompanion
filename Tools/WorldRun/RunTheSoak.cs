@@ -367,8 +367,10 @@ internal static class RunTheSoak
         {
             EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, Case,
                 $"{audited} decision(s) audited and {read} frozen observation(s) read in {Path.GetFileName(capture)}, "
-                + "so four of the six contracts could not have fired whatever this run did; the audit's source "
-                + "returns null when CompanionNPC.Instance finds no companion in Main.npc");
+                + "so four of the six contracts could not have fired whatever this run did. The two causes this run "
+                + "already closes are the source never being installed and the companion having no slot for "
+                + "CompanionNPC.Instance to find, so a skip here is a third one and the place to look is what "
+                + "ReadLiveCourseForAudit.Read returned null for");
             return 0;
         }
 
