@@ -27,8 +27,6 @@ public static class DescribeExecutionEvidence
     public static IReadOnlyList<Line> Of(Brain brain)
     {
         var lines = new List<Line>();
-        var chooser = brain.Chooser;
-
         // The course's worth per activity rather than the retired chooser's family nominations. This
         // section printed "no comparison has run yet" for whole sessions after `0bb2c8a`, and it was
         // telling the truth about `Chooser.LastScores` while being wrong about the companion, which had
@@ -72,7 +70,7 @@ public static class DescribeExecutionEvidence
         else lines.Add(new("no control has been granted yet"));
 
         lines.Add(new("Effects and how the attempt ended", Heading: true));
-        var owner = chooser.Activity;
+        var owner = brain.Activity;
         lines.Add(new(owner.AttemptOpen
             ? $"attempt {owner.AttemptId} open under {owner.Current?.Name ?? "-"} ({owner.Phase}), {owner.AttemptEffects} productive effect(s) so far"
             : $"no attempt open; {owner.Current?.Name ?? "no activity"} is {owner.Phase}"));

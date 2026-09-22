@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Activities;
@@ -29,10 +30,16 @@ public sealed class Brain
     public Brain() => ProtectCompanionHomes.Reset();
     public readonly Senses Senses = new();
     /// <summary>The course owner: what the companion is doing and why, decided once per tick from one
-    /// frozen observation. This is the brain's decision surface now; `Chooser` survives for the activity
-    /// list it holds and the lifecycle it owns, not for its scoring.</summary>
+    /// frozen observation. Since 22 September 2026 it is the brain's only decision surface — the family
+    /// chooser that stood beside it for attribution went with `AIC-419`, and the three things it held
+    /// that were never decisions are the three fields below.</summary>
     public readonly DecideCourseEachTick Course = new();
-    public readonly Chooser Chooser = new();
+    /// <summary>The six jobs a course can bind. A registration, not a decision: see `RegisterActivities`.</summary>
+    public readonly List<CompanionAction> Actions = RegisterActivities.All();
+    /// <summary>Which of them holds the body, and the attempt lifecycle around it.</summary>
+    public readonly OwnCurrentActivity Activity = new();
+    /// <summary>How far apart the companion and the player are, and what that is costing. Observation only.</summary>
+    public readonly ObserveCompanionship Companionship = new();
     /// <summary>
     /// The combat activity, held by name because the tick prepares it every frame to produce the priced
     /// attack front the course discovers shots from.
@@ -42,7 +49,7 @@ public sealed class Brain
     /// lighting rows prove a torch was placed by lighting rather than won by something else — and a
     /// lookup that threw there turned every one of those scenes into a crash inside the tick.
     /// </summary>
-    public FightEnemies? Fighting => fighting ??= Chooser.Actions.OfType<FightEnemies>().FirstOrDefault();
+    public FightEnemies? Fighting => fighting ??= Actions.OfType<FightEnemies>().FirstOrDefault();
     private FightEnemies? fighting;
     public readonly Positioner Positioner = new();
     public readonly ChooseMeetingPlace Meeting = new();
@@ -63,7 +70,7 @@ public sealed class Brain
     }
 
     public PositionRequest LastRequest { get; private set; }
-    public CompanionAction? LastAction => Chooser.Current;
+    public CompanionAction? LastAction => Activity.Current;
     public ulong LastTick { get; private set; } = ulong.MaxValue;
     public bool ChoiceEvaluated { get; private set; }
     public bool MovementStalled { get; private set; }
@@ -155,7 +162,7 @@ public sealed class Brain
     }
 
     public void SuspendActivity(CompanionNPC companion, string reason)
-        => Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), reason);
+        => Activity.Suspend(new ActionContext(companion, Senses, Roaming), reason);
 
     public void ApplyDownedControls(CompanionNPC companion)
     {
@@ -167,19 +174,19 @@ public sealed class Brain
     private void FinaliseControls(CompanionNPC companion, ActivityControlRequest request)
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
-        ActivityControlGrant grant = ControlGrants.Apply(companion, request, Chooser.Activity);
+        ActivityControlGrant grant = ControlGrants.Apply(companion, request, Activity);
         var ctx = new ActionContext(companion, Senses, Roaming);
         bool fired = Engage(companion, ctx, grant.Hand);
         // Only an ordinary execution tick: recovery and downed grants belong to responses that own the body for another purpose.
-        if (request.ObserveProgress) Incidental.Consider(ctx, grant.Hand, fired, Chooser.Current, Chooser.Activity.Id);
+        if (request.ObserveProgress) Incidental.Consider(ctx, grant.Hand, fired, Activity.Current, Activity.Id);
         if (request.CountReunion) CountStranded();
         if (request.ObserveProgress)
         {
             WatchProgress(companion);
-            Chooser.Activity.ObserveOutcome(ctx);
+            Activity.ObserveOutcome(ctx);
         }
-        Presentation = new ActivitySnapshot(Terraria.Main.GameUpdateCount, Chooser.Activity.Id,
-            Chooser.Current?.Family, Chooser.Current?.Name, Chooser.Activity.Phase,
+        Presentation = new ActivitySnapshot(Terraria.Main.GameUpdateCount, Activity.Id,
+            Activity.Current?.Family, Activity.Current?.Name, Activity.Phase,
             companion.IsDowned, FollowRecovery.Active, MovementStalled);
         FinaliseMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
     }
@@ -205,7 +212,7 @@ public sealed class Brain
 
         var ctx = new ActionContext(companion, Senses, Roaming);
         Senses.SetInterventionEstimate(companion.Combat.EstimateInterventionTicks(ctx));
-        Chooser.ObserveCompanionship(ctx);
+        Companionship.Observe(ctx);
 
         if (FollowRecovery.Active && TryFollowRecovery(companion, player, false, out var initialRecovery)) return initialRecovery;
 
@@ -230,10 +237,10 @@ public sealed class Brain
         // one frozen observation, one discovery pass over all six domains, one bounded order search
         // priced by real consequences, and one published course whose next step this tick carries out.
         //
-        // The legacy `Chooser.Choose` is no longer on this path. It is still compiled, because deleting
-        // the family chooser in the same change that first runs its replacement would leave no way to
-        // tell which of the two broke anything in play; the plan's migration table owns its removal and
-        // that happens once this has been played.
+        // The family chooser this replaced is gone as of 22 September 2026 (`AIC-419`). It stayed compiled
+        // and off this path for a day so a defect met in play could be attributed to one brain or the
+        // other; the world run's play-measures instrument grades the course on the capture that motivated
+        // it now, so the attribution no longer needs a second brain standing behind it.
         //
         // The bound step supplies the position request rather than the activity's own `Execute`. That is
         // the load-bearing half of the switch: a course's whole value is that the *course* decided where
@@ -270,14 +277,14 @@ public sealed class Brain
         // writes: the narrowing *moves into discovery*, where the censuses are already sliced and
         // budgeted against the frozen observation, rather than being skipped on the tick. That is a
         // design change rather than a condition on this loop, and it stays with the plan.
-        foreach (CompanionAction candidate in Chooser.Actions) candidate.Prepare(ctx);
+        foreach (CompanionAction candidate in Actions) candidate.Prepare(ctx);
         CourseDecision decision = Course.Decide(ctx, companion.Combat, Fighting?.LastSearch,
             LimitPlanningWork.Current);
         CompanionAction? action = decision.Activity.Length == 0 ? null
-            : Chooser.Actions.Find(candidate => candidate.Name == decision.Activity);
-        Chooser.Activity.Select(action, ctx);
+            : Actions.Find(candidate => candidate.Name == decision.Activity);
+        Activity.Select(action, ctx);
         ChoiceEvaluated = true;
-        Chooser.Activity.BeginExecution();
+        Activity.BeginExecution();
         LastRequest = decision.Binding is { } step ? ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center)
             // An unsettled decision may carry a continuation instead of a step — the fight the body is
             // already in, kept while the brain thinks rather than abandoned to keeping company, which is
@@ -328,7 +335,7 @@ public sealed class Brain
             companion.NPC.Center, player.Center, companion.Motor.ClearOfTerrain
                 && player.velocity.Y == 0f && companion.NPC.Center.Y <= player.Center.Y)) return false;
         LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
-        Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
+        Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Movement.Hold(companion.Motor.State, preemptedBy: "follow-recovery-flight");
         request = new ActivityControlRequest(Controls.None, "follow-recovery-flight", RecoveryVelocity:
             FollowRecovery.Steer(companion.NPC.Center, companion.NPC.velocity, player.Center, player.velocity));
@@ -358,7 +365,7 @@ public sealed class Brain
             companion.Combat.NoteHandsBusy();
             return false;
         }
-        if (Chooser.Current is not FightEnemies fight)
+        if (Activity.Current is not FightEnemies fight)
         {
             EngageTarget = null;
             companion.Combat.NoteNotFighting();

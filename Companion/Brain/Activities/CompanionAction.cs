@@ -43,7 +43,7 @@ public abstract class CompanionAction
     {
         var preferences = PlayerIntegration.CompanionPreferences.Current;
         bool sameJob = admittedIdentity != null && Equals(admittedIdentity, identity ?? ActivityIdentity);
-        bool collectingWork = Name == "collect" && identity is Terraria.Item && ctx.Companion.Brain.Chooser.IsCollectingWork(target);
+        bool collectingWork = Name == "collect" && identity is Terraria.Item && ctx.Companion.Brain.Activity.IsCollectingWork(target);
         float radius = sameJob || collectingWork ? preferences.ActiveActivityRadius : preferences.NewActivityRadius;
         // The work radius is measured to the player's intent region rather than to his body, and this
         // is the one place every activity's "near the player" test lives, so mining, chopping,

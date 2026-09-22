@@ -220,7 +220,7 @@ internal static class VerifyTorchPlacementRule
             $"the offered site must be a tile in the room the game's own torch step accepts; site={site} {offer}");
 
         var brain = ctx.Companion.Brain;
-        brain.Chooser.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
+        brain.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
         Point? placed = null;
         for (int tick = 0; tick < 1200 && placed == null; tick++)
         {

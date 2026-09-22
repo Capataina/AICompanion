@@ -491,7 +491,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         {
             retryAfter = Main.GameUpdateCount + 30;
             bool worked = Perform(ctx, tile);
-            if (worked) ctx.Companion.Brain.Chooser.RecordWork(tile.ToWorldCoordinates());
+            if (worked) ctx.Companion.Brain.Activity.RecordWork(tile.ToWorldCoordinates());
             else Release("native-interaction-refused");
             target = null;
             // A method that works a region rather than a site searches again on the next preparation, from

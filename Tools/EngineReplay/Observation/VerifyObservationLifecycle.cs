@@ -138,8 +138,8 @@ internal static class VerifyObservationLifecycle
         var (mine, ctx) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Opportunistic,
             TileID.Copper, new Microsoft.Xna.Framework.Point(25, 89));
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "recorded conclusion needs a real admitted vein");
-        int index = ctx.Companion.Brain.Chooser.Actions.FindIndex(action => action.Name == "mine");
-        ctx.Companion.Brain.Chooser.Actions[index] = mine;
+        int index = ctx.Companion.Brain.Actions.FindIndex(action => action.Name == "mine");
+        ctx.Companion.Brain.Actions[index] = mine;
         live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = live::AICompanion.Companion.Brain.Activities.WorkPolicy.Disabled;
         mine.Execute(ctx);
         var conclusion = mine.LastConclusion ?? throw new InvalidOperationException("revocation omitted the job conclusion");
@@ -231,7 +231,7 @@ internal static class VerifyObservationLifecycle
         // What is still worth asserting is the half that did not change: an empty board must not produce
         // *work*. A companion that starts mining because its board was empty is the defect either
         // contract exists to prevent, and it is the one this row can still catch.
-        string? postRecovery = companion.Brain.Chooser.Current?.Name;
+        string? postRecovery = companion.Brain.Activity.Current?.Name;
         Require(postRecovery is null or "keep-company",
             $"an empty post-recovery board may only rest or keep company, never take up work; got {postRecovery ?? "none"}");
         Require(companion.Brain.LastRequest.Kind != live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
@@ -286,7 +286,7 @@ internal static class VerifyObservationLifecycle
             "recovery and downing must each close their own attempt as an interruption, and nothing else "
                 + "may close one; actual records: "
                 + string.Join("\n", attempts) + "\nretained by the brain: "
-                + string.Join("\n", companion.Brain.Chooser.Activity.RecentAttempts));
+                + string.Join("\n", companion.Brain.Activity.RecentAttempts));
         string recoveryEvent = File.ReadLines(events).Single(line => line.Contains("\"kind\":\"decision\"", StringComparison.Ordinal)
             && line.Contains("control-source=follow-recovery-flight", StringComparison.Ordinal));
         using var recorded = System.Text.Json.JsonDocument.Parse(recoveryEvent);
@@ -345,7 +345,7 @@ internal static class VerifyObservationLifecycle
         var (_, context) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Disabled,
             TileID.Copper, new Microsoft.Xna.Framework.Point(25, 89));
         var companion = context.Companion;
-        companion.Brain.Chooser.Actions.Clear();
+        companion.Brain.Actions.Clear();
         var recorder = new BrainTelemetry(); Attach(recorder);
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
@@ -366,12 +366,12 @@ internal static class VerifyObservationLifecycle
         int life = companion.NPC.life;
         var suspendingOwners = new[] { "survival-escape", "follow-recovery-flight", "downed" };
         string owner = companion.Brain.ControlGrants.Last?.RequestedOwner ?? "-";
-        Require(companion.Motor.LiquidKind == 0 && companion.Brain.Chooser.Current == null
-                && companion.Brain.Chooser.Activity.Phase != live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended
+        Require(companion.Motor.LiquidKind == 0 && companion.Brain.Activity.Current == null
+                && companion.Brain.Activity.Phase != live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended
                 && Array.IndexOf(suspendingOwners, owner) < 0 && life == lifeBefore,
             "liquid under a body with no ordinary offer must be read and create no response: "
             + $"centre={companion.NPC.Center} liquidKind={companion.Motor.LiquidKind} owner={owner} "
-            + $"phase={companion.Brain.Chooser.Activity.Phase} life={lifeBefore}->{life} activity={companion.Brain.Chooser.Current?.Name ?? "<none>"}");
+            + $"phase={companion.Brain.Activity.Phase} life={lifeBefore}->{life} activity={companion.Brain.Activity.Current?.Name ?? "<none>"}");
         companion.CheckDead();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);

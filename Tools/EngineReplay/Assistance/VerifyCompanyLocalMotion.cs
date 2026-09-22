@@ -71,7 +71,7 @@ internal static class VerifyCompanyLocalMotion
     {
         var ctx = BuildNeighbourhood(hazards: true);
         var brain = ctx.Companion.Brain;
-        brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
+        brain.Actions.RemoveAll(a => a.Name != "keep-company");
         var violations = new List<string>();
         var counts = new SortedDictionary<string, int>();
         void Count(string what) => counts[what] = counts.TryGetValue(what, out int n) ? n + 1 : 1;
@@ -86,7 +86,7 @@ internal static class VerifyCompanyLocalMotion
                 if (!brain.Positioner.ChosenReturnable) { Note(violations, $"t{tick} resolved destination {tile} outside the returnable region"); Count("destination outside the returnable region"); }
             }
             Vector2 centre = ctx.Npc.Center;
-            if (brain.Chooser.IsCollectingWork(centre)) { Note(violations, $"t{tick} movement recorded as productive work"); Count("productive credit"); }
+            if (brain.Activity.IsCollectingWork(centre)) { Note(violations, $"t{tick} movement recorded as productive work"); Count("productive credit"); }
         }
         string ledger = $"violation ticks by kind: {string.Join(", ", counts.Select(c => $"{c.Key}={c.Value}"))}; first violations: {string.Join("; ", violations)}";
         Require(violations.Count == 0, $"keeping company over pools must never resolve a place the body does not fit or cannot come back from; {ledger}");

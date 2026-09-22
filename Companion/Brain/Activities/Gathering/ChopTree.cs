@@ -281,10 +281,15 @@ public sealed class ChopTree : CompanionAction
                 ctx.Companion.StartAnimation(axe.type, axe.useAnimation);
                 if (ctx.Companion.Chopper.LastOutcome is { } outcome)
                 {
-                    var owner = ctx.Companion.Brain.Chooser.Activity;
-                    Infrastructure.Diagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "axe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
+                    var owner = ctx.Companion.Brain.Activity;
+                    Infrastructure.Diagnostics.GodsEyeEvents.// The course's decision identity, which is the same `choice_id` the recorder's rows carry since
+                    // schema 0.43.0. This passed `Chooser.EvaluationId` until 22 September 2026, and the chooser
+                    // stopped advancing that counter when `0bb2c8a` took it off the tick — so every `tool-effect`
+                    // occurrence in every played session claimed identity zero and could not be joined to the
+                    // decision that caused it. `b595fbd` fixed the column and left the occurrence behind it.
+                    RecordToolEffect(ctx.Npc, "axe", outcome, ctx.Companion.Brain.Course.DecisionId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
                     if (outcome.Effect == Infrastructure.Interactions.TileToolEffect.Removed && outcome.Target == t.Bottom) attemptFelled = true;
-                    if (outcome.Productive) ctx.Companion.Brain.Chooser.RecordWork(t.Bottom.ToWorldCoordinates());
+                    if (outcome.Productive) ctx.Companion.Brain.Activity.RecordWork(t.Bottom.ToWorldCoordinates());
                 }
             }
             return PositionRequest.Hold;

@@ -119,7 +119,7 @@ internal static class VerifyGatheringCooperation
         var ctx = SetUpTrees(near, far);
         var clock = new TileDamageClock();
         clock.OnWorldLoad();
-        var chop = ctx.Companion.Brain.Chooser.Actions.OfType<ChopTree>().Single();
+        var chop = ctx.Companion.Brain.Actions.OfType<ChopTree>().Single();
         var run = RunBrain(ctx, 600, () => ctx.Companion.Chopper.LastOutcome is { Productive: true } outcome && outcome.Target == near);
         Require(run.ChopStrikes.Count > 0 && TileChopper.TreeStands(near),
             $"the hand-over fixture needs a productive strike on the nearer trunk first; strikes={run.ChopStrikes.Count} target={chop.ActivityTarget}");
@@ -131,7 +131,7 @@ internal static class VerifyGatheringCooperation
             $"a trunk the player took must move the companion to the separate trunk; target={chop.ActivityTarget}");
         Require(!(ctx.Companion.Chopper.LastOutcome is { } later && later.Target == near && later.Attempt != lastAttemptOnNear),
             "the companion must not strike the trunk the player is working after the player started on it");
-        var left = ctx.Companion.Brain.Chooser.Activity.RecentAttempts.LastOrDefault(a => a.Activity == "chop" && a.ProductiveEffects > 0);
+        var left = ctx.Companion.Brain.Activity.RecentAttempts.LastOrDefault(a => a.Activity == "chop" && a.ProductiveEffects > 0);
         Require(left is { Status: AttemptStatus.Partial, Cause: "player-took-trunk" },
             $"the attempt on the trunk the player took must end partial and say so; got {left}");
         Main.tile[near.X, near.Y].ClearEverything();
@@ -140,7 +140,7 @@ internal static class VerifyGatheringCooperation
         Advance(ctx, 10);
         Require(LastAttempt(ctx, "chop") is { Status: AttemptStatus.Complete, Attribution: AttemptAttribution.Companion },
             $"the separate trunk the companion felled must be its own completion; got {LastAttempt(ctx, "chop")}");
-        Require(!ctx.Companion.Brain.Chooser.Activity.RecentAttempts.Any(a => a.Activity == "chop" && a.Attribution == AttemptAttribution.Shared),
+        Require(!ctx.Companion.Brain.Activity.RecentAttempts.Any(a => a.Activity == "chop" && a.Attribution == AttemptAttribution.Shared),
             "the trunk the player felled alone must not appear as shared companion production");
     }
 
@@ -153,7 +153,7 @@ internal static class VerifyGatheringCooperation
             var ctx = SetUpTrees(trunk);
             ctx.Npc.Bottom = new Vector2(14 * 16 + 8, 60 * 16);
             TerrainChanges.Reset();
-            RunBrain(ctx, 300, () => ctx.Companion.Brain.LastAction?.Name == "chop" && ctx.Companion.Brain.Chooser.Activity.AttemptOpen
+            RunBrain(ctx, 300, () => ctx.Companion.Brain.LastAction?.Name == "chop" && ctx.Companion.Brain.Activity.AttemptOpen
                 && !FindToolAccess.InReach(ctx.Npc.Bottom, trunk));
             Require(ctx.Companion.Brain.LastAction?.Name == "chop" && ctx.Companion.Chopper.LastOutcome == null,
                 $"the invalid case needs the companion walking to the trunk with no strike; action={ctx.Companion.Brain.LastAction?.Name}");
@@ -326,7 +326,7 @@ internal static class VerifyGatheringCooperation
         WorkPolicies.Chopping = WorkPolicy.Mimic;
         var workClock = new TileDamageClock();
         workClock.OnWorldLoad();
-        var chop = ctx.Companion.Brain.Chooser.Actions.OfType<ChopTree>().Single();
+        var chop = ctx.Companion.Brain.Actions.OfType<ChopTree>().Single();
         bool fail = true, effectOnly = false, noItem = false;
         new TileDamageWatcher().KillTile(trunk.X, trunk.Y, TileID.Trees, ref fail, ref effectOnly, ref noItem);
         VerifyOreWork.AdvanceBrain(ctx);
@@ -357,7 +357,7 @@ internal static class VerifyGatheringCooperation
         MakeTree(trunk);
         WorkPolicies.Chopping = WorkPolicy.Opportunistic;
         TerrainChanges.Reset();
-        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
+        var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
         bool mineRuledOut = false;
         var before = Snapshot();
         var run = RunBrain(ctx, 900, () =>
@@ -427,7 +427,7 @@ internal static class VerifyGatheringCooperation
     }
 
     private static AttemptOutcome? LastAttempt(ActionContext ctx, string activity)
-        => ctx.Companion.Brain.Chooser.Activity.RecentAttempts.LastOrDefault(a => a.Activity == activity) is { AttemptId: > 0 } found ? found : null;
+        => ctx.Companion.Brain.Activity.RecentAttempts.LastOrDefault(a => a.Activity == activity) is { AttemptId: > 0 } found ? found : null;
 
     private static live::AICompanion.Companion.Brain.Infrastructure.Interactions.TileToolObservation? LastToolOutcome(ActionContext ctx, bool chopping)
         => chopping ? ctx.Companion.Chopper.LastOutcome : ctx.Companion.Miner.LastOutcome;

@@ -64,7 +64,7 @@ internal static class VerifyTheCensusFrontIsCurrent
     {
         ActionContext ctx = FloorWhereCollectingWins();
         Brain brain = ctx.Companion.Brain;
-        FightEnemies fight = brain.Chooser.Actions.OfType<FightEnemies>().Single();
+        FightEnemies fight = brain.Actions.OfType<FightEnemies>().Single();
 
         // Settle until combat is holding an offer it never got to commit, which is the state the play
         // sat in for five hundred ticks: a prepared plan, with the body doing something else.
@@ -75,8 +75,8 @@ internal static class VerifyTheCensusFrontIsCurrent
         Require(ctx.Companion.Combat.Planner.Committed == null,
             $"premise: combat must never have taken the body — this row is about the prepared path, and a "
             + $"committed plan is a different contract; committed={ctx.Companion.Combat.Planner.Committed?.Id}");
-        Require(brain.Chooser.Current?.Name != "combat",
-            $"premise: something else must own the body; activity={brain.Chooser.Current?.Name ?? "none"}");
+        Require(brain.Activity.Current?.Name != "combat",
+            $"premise: something else must own the body; activity={brain.Activity.Current?.Name ?? "none"}");
         int before = PublishedTargets(brain).Count;
 
         // Placed away from the line of fire on purpose. A hostile that walks into the shot invalidates

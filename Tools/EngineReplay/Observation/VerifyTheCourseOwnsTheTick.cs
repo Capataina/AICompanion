@@ -63,7 +63,7 @@ internal static class VerifyTheCourseOwnsTheTick
     {
         ActionContext ctx = Scene();
         Tick(ctx, 2);
-        Chooser chooser = ctx.Companion.Brain.Chooser;
+        var chooser = ctx.Companion.Brain.Companionship;
         Require(chooser.EstimatedReturnTicks >= 0f,
             $"the return estimate was never computed on a tick the course owns; ticks={chooser.EstimatedReturnTicks}");
 
@@ -146,8 +146,8 @@ internal static class VerifyTheCourseOwnsTheTick
         Brain brain = ctx.Companion.Brain;
         Require(brain.LastRequest.Kind == RequestKind.WithPlayer,
             $"an empty world produced {brain.LastRequest.Kind} rather than keeping the player company");
-        Require(brain.Chooser.Activity.Current?.Name == "keep-company",
-            $"the activity carrying an empty course is not keeping company; activity={brain.Chooser.Activity.Current?.Name ?? "none"}");
+        Require(brain.Activity.Current?.Name == "keep-company",
+            $"the activity carrying an empty course is not keeping company; activity={brain.Activity.Current?.Name ?? "none"}");
     }
 
     /// <summary>
@@ -205,7 +205,7 @@ internal static class VerifyTheCourseOwnsTheTick
         ActionContext ctx = Scene();
         Tick(ctx, 2);
         Brain brain = ctx.Companion.Brain;
-        Require(brain.Chooser.Activity.Current != null || brain.LastRequest.Kind == RequestKind.WithPlayer,
+        Require(brain.Activity.Current != null || brain.LastRequest.Kind == RequestKind.WithPlayer,
             "no activity owns the tick and the body was not asked to keep company either, so the tick has no owner at all");
     }
 

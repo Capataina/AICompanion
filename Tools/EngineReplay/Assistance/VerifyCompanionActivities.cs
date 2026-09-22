@@ -69,7 +69,7 @@ internal static class VerifyCompanionActivities
         // first frames a companion lives are spent flooding reach and optional work refuses an
         // unanswered search rather than walking at it.
         for (int i = 0; i < 3; i++) VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
-        string? chosen = ctx.Companion.Brain.Chooser.Current?.Name;
+        string? chosen = ctx.Companion.Brain.Activity.Current?.Name;
         Require(chosen == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen ?? "none"}");
     }
 
@@ -118,7 +118,7 @@ internal static class VerifyCompanionActivities
     private static void ActivityOwnershipSurvivesInterruption()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-        var owner = ctx.Companion.Brain.Chooser.Activity;
+        var owner = ctx.Companion.Brain.Activity;
         var activity = new ActivityProbe { Target = ctx.Player.Bottom };
         owner.Select(activity, ctx);
         long first = owner.Id;
@@ -167,7 +167,7 @@ internal static class VerifyCompanionActivities
         ctx.Player.Bottom = new Vector2(80, 960);
         SeeThePlayer();
         activity.Target = ctx.Player.Bottom + new Vector2(Preferences.Current.NewActivityRadius + 100, 0);
-        ctx.Companion.Brain.Chooser.RecordWork(activity.Target);
+        ctx.Companion.Brain.Activity.RecordWork(activity.Target);
         var loot = new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems();
         var item = new Item(); item.SetDefaults(ItemID.CopperOre); item.active = true; item.Bottom = activity.Target;
         Item previous = Main.item[5];
@@ -244,8 +244,8 @@ internal static class VerifyCompanionActivities
             foreach (Item slot in ctx.Companion.Bag.Items) { slot.SetDefaults(ItemID.StoneBlock); slot.stack = slot.maxStack; }
             collect.Prepare(ctx);
             Require(collect.Score() == 0, "unknown contents cannot promise collection capacity from a full bag");
-            Require(ctx.Companion.Brain.Chooser.Actions.Count(a => a.Name == "collect") == 1
-                && !ctx.Companion.Brain.Chooser.Actions.Any(a => a.Name is "loot" or "break-pots"),
+            Require(ctx.Companion.Brain.Actions.Count(a => a.Name == "collect") == 1
+                && !ctx.Companion.Brain.Actions.Any(a => a.Name is "loot" or "break-pots"),
                 "collection must have one registered behaviour for drops and pots");
         }
         finally { Preferences.Current.PotBreaking = oldPolicy; Main.item[5] = previous; }
@@ -303,7 +303,7 @@ internal static class VerifyCompanionActivities
             enemy.velocity = Vector2.Zero;
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
             var activity = new ActivityProbe { Target = ctx.Npc.Bottom };
-            var chooser = ctx.Companion.Brain.Chooser;
+            var chooser = ctx.Companion.Brain;
             chooser.Actions.Clear();
             if (!emptyOffers) { chooser.Actions.Add(activity); chooser.Activity.Select(activity, ctx); chooser.Activity.BeginExecution(); }
             int suspendedTicks = 0, handsWithheld = 0;
@@ -317,8 +317,8 @@ internal static class VerifyCompanionActivities
             }
             Require(suspendedTicks == 0 && handsWithheld == 0,
                 $"an enemy beside the body must neither suspend the job nor withhold the hands; emptyOffers={emptyOffers}, suspended ticks={suspendedTicks}, hands withheld={handsWithheld}");
-            Require(!new live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser().Actions.Any(a => a.Name == "kite"),
-                "kiting must not remain an ordinary family candidate");
+            Require(!live::AICompanion.Companion.Brain.Infrastructure.Selection.RegisterActivities.All().Any(a => a.Name == "kite"),
+                "kiting must not remain a registered activity");
         }
 
         var (_, playerOnly) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
@@ -327,7 +327,7 @@ internal static class VerifyCompanionActivities
         playerThreat.SetDefaults(NPCID.Zombie);
         playerThreat.active = true; playerThreat.damage = 100; playerThreat.dontTakeDamage = true;
         playerThreat.Bottom = playerOnly.Player.Bottom - new Vector2(64, 0);
-        playerOnly.Companion.Brain.Chooser.Actions.Clear();
+        playerOnly.Companion.Brain.Actions.Clear();
         VerifyCompanionLifecycle.TickWithOneControlGrant(playerOnly.Companion);
         Require(playerOnly.Senses.Threats.PlayerDanger > 0 && playerOnly.Senses.Threats.CompanionDanger == 0,
             "player-only danger must read as the player's alone, not the companion's own");
@@ -459,7 +459,7 @@ internal static class VerifyCompanionActivities
                     brain.Positioner.Resolve(primeHome, brain.Senses);
                 Require(brain.Positioner.ReachComplete,
                     $"the reach region must settle before the comparison, or a refusal reads as an absence: {scene.Name}");
-                var combatPreview = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
+                var combatPreview = brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
                 int ticks = 0;
                 // The plan search decides once its stands do, and the wall means the stands on the
                 // companion's side never solve: the scene is ticked in production order — observe,
@@ -493,7 +493,7 @@ internal static class VerifyCompanionActivities
                     // added hostile threatens, and letting the body move would make them four geometries.
                     using (CombatFixture.BeginDecision())
                     {
-                        foreach (var candidate in brain.Chooser.Actions) candidate.Prepare(ctx);
+                        foreach (var candidate in brain.Actions) candidate.Prepare(ctx);
                         brain.Course.Decide(ctx, ctx.Companion.Combat, null,
                             live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Current);
                     }
@@ -508,8 +508,8 @@ internal static class VerifyCompanionActivities
                 // invariance that holds vacuously, which is worse than a red.
                 var worths = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
                     .ReadCourseWorthPerActivity.Of(brain).ToDictionary(w => w.Action.Name);
-                var combat = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
-                seen[scene.Name] = (worths["mine"].Raw, brain.Chooser.Reunion.DelayCostPerTick, combat.Score(),
+                var combat = brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
+                seen[scene.Name] = (worths["mine"].Raw, brain.Companionship.Reunion.DelayCostPerTick, combat.Score(),
                     brain.Senses.Threats.PlayerDanger, brain.Senses.Threats.CompanionDanger);
                 // Combat's offer legitimately reads the player's danger through its danger lift, so it is
                 // not one of the excursion raws the invariance loop below holds fixed; it is read directly
@@ -615,8 +615,8 @@ internal static class VerifyCompanionActivities
             // tick and regroup urgency was computed inside it; the observation moved to
             // `ObserveCompanionship`, which the live tick calls directly, so the row drives the thing it
             // is actually about rather than a decision procedure that no longer runs.
-            ctx.Companion.Brain.Chooser.ObserveCompanionship(ctx);
-            Require(ctx.Companion.Brain.Chooser.RegroupUrgency == 0,
+            ctx.Companion.Brain.Companionship.Observe(ctx);
+            Require(ctx.Companion.Brain.Companionship.RegroupUrgency == 0,
                 $"{mode} comfortable following must not request regrouping; inside={ctx.Companion.Brain.Senses.Intent.Inside} gap={ctx.Companion.Brain.Senses.Intent.Region.GapBeyond(ctx.Npc.Center)}");
         }
         Preferences.Current.DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode.Standard;
@@ -625,7 +625,7 @@ internal static class VerifyCompanionActivities
     private static void ConsecutiveJobsEarnTheirOwnAllowance()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-        var chooser = ctx.Companion.Brain.Chooser;
+        var chooser = ctx.Companion.Brain;
         chooser.Actions.Clear();
         var activity = new ActivityProbe { Target = ctx.Player.Bottom };
         chooser.Actions.Add(activity);
@@ -636,11 +636,11 @@ internal static class VerifyCompanionActivities
         // hands the course's chosen activity to and is deliberately not part of the retired scorer.
         activity.Prepare(ctx);
         chooser.Activity.Select(activity, ctx);
-        Require(ReferenceEquals(chooser.Current, activity), "premise: the probe is the incumbent");
+        Require(ReferenceEquals(chooser.Activity.Current, activity), "premise: the probe is the incumbent");
         activity.Identity = new object();
         activity.Prepare(ctx);
         chooser.Activity.Select(activity, ctx);
-        Require(ReferenceEquals(chooser.Current, activity), "next job must remain in the same behaviour");
+        Require(ReferenceEquals(chooser.Activity.Current, activity), "next job must remain in the same behaviour");
         activity.Target = ctx.Player.Bottom + new Vector2(Preferences.Current.NewActivityRadius + 100, 0);
         Require(activity.Allows(ctx), "a new job selected by the incumbent must earn its own continuation allowance");
     }
@@ -667,7 +667,7 @@ internal static class VerifyCompanionActivities
         Require(!brain.MovementStalled, "an intentional settled hold must not be labelled stuck");
         for (int i = 0; i < window; i++)
         {
-            brain.Chooser.Activity.Select(i % 2 == 0
+            brain.Activity.Select(i % 2 == 0
                 ? new live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies()
                 : new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany(), ctx);
             Tick(i % 2 == 0 ? RequestKind.WithPlayer : RequestKind.Exact, i % 8 - 4);

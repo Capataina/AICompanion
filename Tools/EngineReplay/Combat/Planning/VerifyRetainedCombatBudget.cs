@@ -70,8 +70,8 @@ internal static class VerifyRetainedCombatBudget
         CachePlanned.Clear();
         CacheSimulated.Clear();
         var scene = CreateUsefulScene();
-        var fight = scene.Companion.Brain.Chooser.Actions.OfType<FightEnemies>().Single();
-        scene.Companion.Brain.Chooser.Activity.Select(fight, scene.Context);
+        var fight = scene.Companion.Brain.Actions.OfType<FightEnemies>().Single();
+        scene.Companion.Brain.Activity.Select(fight, scene.Context);
         DecisionWorkBudget cut = new(double.PositiveInfinity, measurement.OperationsUsed + 1, () => 0, 1);
         bool fired;
         using (CombatFixture.BeginDecision(cut))

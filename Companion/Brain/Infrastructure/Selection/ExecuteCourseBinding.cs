@@ -21,8 +21,9 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection;
 /// give the companion two ways to mine and no single answer about what it is doing — which is the
 /// post-grant second chooser the plan names for deletion, arriving again by the back door.
 ///
-/// Nothing calls this yet: `CoordinateBrainTick` still runs `Chooser.Choose`. It is the third of the
-/// three pieces the tick switch needs, landed and checkable on its own.
+/// This said "nothing calls this yet" from the day it landed until 22 September 2026, and it had been
+/// wrong since `0bb2c8a` the morning after: `CoordinateBrainTick` supplies every tick's position request
+/// through it. Corrected while `AIC-419` deleted the chooser the old sentence named.
 /// </summary>
 public static class ExecuteCourseBinding
 {

@@ -200,7 +200,7 @@ internal static class VerifyCollectionContracts
         for (int i = 0; i < 4; i++) falling.Add(Drop(ItemID.CopperOre, 5, new Vector2((43 + i) * 16 + 8, 50 * 16), Slot + i));
         Item? far = null;
         var brain = ctx.Companion.Brain;
-        var collect = brain.Chooser.Actions.OfType<CollectNearbyItems>().Single();
+        var collect = brain.Actions.OfType<CollectNearbyItems>().Single();
         var nearby = new List<(double Ms, int Tick)>();
         int farOffered = -1, landedBy = -1;
         for (int tick = 0; tick < 300; tick++)

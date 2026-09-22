@@ -330,7 +330,7 @@ public class CompanionNPC : ModNPC
             // the companion leaves them for the player they heal.
             if (ItemID.Sets.IsAPickup[item.type])
                 continue;
-            var owner = Brain.Chooser.Activity;
+            var owner = Brain.Activity;
             // Arrival then hovers inside SettleRadius, which is larger than the prove slack. A gel the
             // walk proved then sat on for 22 s of Arrived without a transfer was the body drifting
             // outside PickupReach of a pose that still counted as arrived.

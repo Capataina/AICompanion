@@ -57,7 +57,7 @@ internal static class VerifyADecisionInFlightKeepsTheFight
             long cap = CalibrateTheCap();
             ActionContext ctx = Scene();
             Brain brain = ctx.Companion.Brain;
-            var fight = brain.Chooser.Actions.OfType<FightEnemies>().Single();
+            var fight = brain.Actions.OfType<FightEnemies>().Single();
 
             // Premise: the body is in a fight it committed to, with the whole allowance available. A row
             // that starves the brain before combat has anything to lose proves nothing about losing it.
@@ -65,7 +65,7 @@ internal static class VerifyADecisionInFlightKeepsTheFight
             long committed = ctx.Companion.Combat.Planner.Committed?.Id
                 ?? throw new InvalidOperationException(
                     $"premise: no plan was ever committed, so there is no fight to interrupt; "
-                    + $"activity={brain.Chooser.Current?.Name ?? "none"}; decision={brain.Course.Last.Reason}; "
+                    + $"activity={brain.Activity.Current?.Name ?? "none"}; decision={brain.Course.Last.Reason}; "
                     + $"offered={fight.OfferedPlan?.Id.ToString() ?? "none"}; eligibility={fight.Eligibility}/{fight.EligibilityReason}");
 
             Brain.PlanningOperationAllowance = cap;
@@ -116,7 +116,7 @@ internal static class VerifyADecisionInFlightKeepsTheFight
                 Tick(ctx);
                 bool deciding = !brain.Course.Last.Settled;
                 if (deciding) decidingInWindow++;
-                if (brain.Chooser.Current?.Name == "combat") combatTicks++;
+                if (brain.Activity.Current?.Name == "combat") combatTicks++;
                 if (deciding && before != null && ctx.Companion.Combat.Planner.Committed == null
                     && ctx.Companion.Combat.Planner.LastInvalidation == "activity-exited") exitedWhileDeciding++;
                 if (ctx.Companion.Combat.LastFireOutcome == "fired") firedInWindow++;
@@ -173,7 +173,7 @@ internal static class VerifyADecisionInFlightKeepsTheFight
             try
             {
                 ActionContext ctx = Scene();
-                var fight = ctx.Companion.Brain.Chooser.Actions.OfType<FightEnemies>().Single();
+                var fight = ctx.Companion.Brain.Actions.OfType<FightEnemies>().Single();
                 for (int tick = 0; tick < 60 && ctx.Companion.Combat.Planner.Committed == null; tick++) Tick(ctx);
                 Brain.PlanningOperationAllowance = cap;
                 int unsettled = 0, offering = 0;

@@ -357,7 +357,7 @@ internal static class VerifyLightAndReachSenses
         var brain = ctx.Companion.Brain;
         // Keeping company only, so the hand stays free and nothing places a torch while we wait for one to
         // come up; lighting is prepared directly afterwards.
-        brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
+        brain.Actions.RemoveAll(a => a.Name != "keep-company");
         for (int tick = 0; tick < 600 && !ctx.Companion.Torch.Shown; tick++)
             VerifyOreWork.AdvanceBrain(ctx);
         Require(ctx.Companion.Torch.Shown,
@@ -621,7 +621,7 @@ internal static class VerifyLightAndReachSenses
         GiveTorches(ctx);
         Settle(ctx);
         var brain = ctx.Companion.Brain;
-        brain.Chooser.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
+        brain.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
 
         int first = -1, second = -1, companyBetween = 0;
         var courseReasons = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -705,7 +705,7 @@ internal static class VerifyLightAndReachSenses
             var ctx = Scene((_, _) => .02f);
             GiveTorches(ctx);
             var brain = ctx.Companion.Brain;
-            brain.Chooser.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
+            brain.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
             double decideMax = 0, decideTotal = 0;
             for (int tick = 0; tick < 600; tick++)
             {

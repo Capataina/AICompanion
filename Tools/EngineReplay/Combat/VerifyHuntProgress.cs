@@ -108,7 +108,7 @@ internal static class VerifyHuntProgress
         var (companion, ctx, combat) = RunningScene(12, 160);
         int searchTick = combat.OfferedPlan!.Validity.LastProgressTick;
         var first = combat.CommittedPlan!;
-        var owner = companion.Brain.Chooser.Activity;
+        var owner = companion.Brain.Activity;
 
         SetTick(companion, searchTick + 60);
         owner.Suspend(ctx, "follow-recovery-flight");
@@ -162,7 +162,7 @@ internal static class VerifyHuntProgress
         }
         var ctx = new C(companion, companion.Brain.Senses);
         var combat = new Combat();
-        companion.Brain.Chooser.Activity.Select(combat, ctx);
+        companion.Brain.Activity.Select(combat, ctx);
         if (VerifyPreparedActivities.PrepareAndScore(combat, ctx) <= 0)
             throw new InvalidOperationException("Churn fixture must offer a live target");
 
@@ -227,7 +227,7 @@ internal static class VerifyHuntProgress
         companion.Brain.Senses.Update(companion.NPC, player);
         var ctx = new C(companion, companion.Brain.Senses);
         var combat = new Combat();
-        companion.Brain.Chooser.Activity.Select(combat, ctx);
+        companion.Brain.Activity.Select(combat, ctx);
 
         // Prime the reach flood to completion, then prepare once: the search's finished answer rather
         // than what the first flood slice happened to reach. WithPlayer pumps the flood; a firing request
@@ -292,7 +292,7 @@ internal static class VerifyHuntProgress
         companion.Brain.Senses.Threats.Threats.Add(new T { Npc = target, DistanceToCompanion = offsetPx, DistanceToPlayer = offsetPx });
         var ctx = new C(companion, companion.Brain.Senses);
         var combat = new Combat();
-        companion.Brain.Chooser.Activity.Select(combat, ctx);
+        companion.Brain.Activity.Select(combat, ctx);
         if (VerifyPreparedActivities.PrepareAndScore(combat, ctx) <= 0 || combat.OfferedPlan == null || combat.CommittedPlan == null)
             throw new InvalidOperationException($"Combat progress fixture must offer and commit a live target; reason={combat.EligibilityReason}");
         return (companion, ctx, combat);

@@ -145,7 +145,7 @@ internal static class VerifyWorkAccounting
         var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, vein);
         ctx.Player.Bottom = new Vector2(80 * 16, 60 * 16);
         ctx.Npc.Bottom = new Vector2(80 * 16 + 8, 60 * 16);
-        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
+        var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
         TerrainChanges.Reset();
         for (int tick = 0; tick < 600 && vein.All(p => Main.tile[p.X, p.Y].HasTile); tick++) VerifyOreWork.AdvanceBrain(ctx);
         Require(vein.Count(p => !Main.tile[p.X, p.Y].HasTile) == 1 && mine.JobId > 0,
@@ -160,7 +160,7 @@ internal static class VerifyWorkAccounting
             "no strike may land after the player leaves the activity range");
         Require(mine.LastConclusion is { JobId: var ended, ObservedClear: false, Present: 2, CompanionRemovals: 1 } && ended == job,
             $"the cancelled job must keep its remaining ore as present work and its one companion removal; got {mine.LastConclusion}");
-        var attempt = ctx.Companion.Brain.Chooser.Activity.RecentAttempts.LastOrDefault(a => a.Activity == "mine");
+        var attempt = ctx.Companion.Brain.Activity.RecentAttempts.LastOrDefault(a => a.Activity == "mine");
         Require(attempt is { Status: AttemptStatus.Partial, ProductiveEffects: > 0 },
             $"work cancelled by range after a removal is partial, never complete; got {attempt}");
     }

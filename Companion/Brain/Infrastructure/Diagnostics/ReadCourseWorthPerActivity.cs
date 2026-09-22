@@ -42,8 +42,8 @@ public static class ReadCourseWorthPerActivity
 
     public static List<Worth> Of(Brain brain)
     {
-        var worths = new List<Worth>(brain.Chooser.Actions.Count);
-        foreach (CompanionAction action in brain.Chooser.Actions)
+        var worths = new List<Worth>(brain.Actions.Count);
+        foreach (CompanionAction action in brain.Actions)
             worths.Add(Of(brain, action));
         return worths;
     }

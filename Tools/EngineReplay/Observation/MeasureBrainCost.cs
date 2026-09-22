@@ -124,7 +124,7 @@ internal static class MeasureBrainCost
             var brain = companion.Brain;
             var grant = brain.ControlGrants.Last!.Value;
             run.Trace.Add(string.Create(CultureInfo.InvariantCulture,
-                $"{brain.Chooser.Current?.Name ?? "-"}|{brain.LastRequest.Kind}|{companion.Motor.AppliedControls}|{grant.AppliedOwner}|{grant.Hand}|{companion.NPC.position.X:R},{companion.NPC.position.Y:R}"));
+                $"{brain.Activity.Current?.Name ?? "-"}|{brain.LastRequest.Kind}|{companion.Motor.AppliedControls}|{grant.AppliedOwner}|{grant.Hand}|{companion.NPC.position.X:R},{companion.NPC.position.Y:R}"));
             Sample("senses", brain.SensesMs);
             Sample("reflex+safety", brain.ReflexMs);
             Sample("decide", brain.DecideMs);

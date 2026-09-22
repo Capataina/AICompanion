@@ -152,7 +152,7 @@ internal static class RenderNativeInterface
         // This is a retained-state rendering fixture, not a discovery run. The public
         // activity target comes from preparation, separately from the native ore target.
         mine.GetType().GetField("preparedTarget", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(mine, target.ToWorldCoordinates());
-        companion.Brain.Chooser.Activity.Select(mine,
+        companion.Brain.Activity.Select(mine,
             new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses));
         foreach (var entry in new[] { (Terraria.ID.ItemID.CopperOre, "Copper Ore"), (Terraria.ID.ItemID.Wood, "Wood"), (Terraria.ID.ItemID.Gel, "Gel") })
         {
@@ -193,7 +193,7 @@ internal static class RenderNativeInterface
         brain.ControlGrants.GetType().GetProperty("Last")!.SetValue(brain.ControlGrants,
             new live::AICompanion.Companion.Brain.Infrastructure.Grants.ActivityControlGrant(3, 100, 1, live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended,
                 "downed", "travel-recovery-clearance", default, default, live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Unavailable, null, Vector2.Zero, 1));
-        var owner = brain.Chooser.Activity;
+        var owner = brain.Activity;
         var recent = (System.Collections.IList)owner.GetType().GetField("recent", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(owner)!;
         recent.Add(new live::AICompanion.Companion.Brain.Activities.AttemptOutcome(7, 1, "mine", live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Gathering,
             90, 100, live::AICompanion.Companion.Brain.Activities.AttemptStatus.Complete, "tracked-vein-observed-clear", 3,

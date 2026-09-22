@@ -141,7 +141,7 @@ internal static class VerifyOreWork
             var brain = ctx.Companion.Brain;
             var workClock = new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock();
             workClock.OnWorldLoad();
-            brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
+            brain.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
             // The companion's centre hovers one radius clear of the floor, so the player's feet are that radius
             // lower again; this used to read off the walker's own feet and would now stand him in the air.
             ctx.Player.Bottom = ctx.Npc.Center + new Vector2(separation - 120 * 4, CircleContact.Radius);
@@ -172,7 +172,7 @@ internal static class VerifyOreWork
             Console.WriteLine(FormattableString.Invariant(
                 $"MEASURE course-departure separation={separation} nearlyDone={nearlyDone}: chose={chosen} reason={brain.Course.Last.Reason} bound={step}\n    admitted: {admitted}\n    leaders: {leaders}\n    coverage: {coverage}"));
             var worth = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
-                .ReadCourseWorthPerActivity.Of(brain, brain.Chooser.Actions.Single(a => a.Name == "mine"));
+                .ReadCourseWorthPerActivity.Of(brain, brain.Actions.Single(a => a.Name == "mine"));
             float mineValue = worth.Raw;
             string scores = $"mine={mineValue} priced={worth.Priced} offer={worth.Offer}:{worth.OfferReason}; {admitted}";
             if (separation == VetoSeparation)
@@ -274,7 +274,7 @@ internal static class VerifyOreWork
             var brain = ctx.Companion.Brain;
             var workClock = new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock();
             workClock.OnWorldLoad();
-            brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
+            brain.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
             const int separation = 576;
             // The player stands on the upper floor, five rows above the companion's corridor floor.
             ctx.Player.Bottom = ctx.Npc.Center + new Vector2(separation - 120 * speed, -5 * 16 + CircleContact.Radius);
@@ -327,8 +327,8 @@ internal static class VerifyOreWork
             // on every brain tick and the recorder writes all three as columns, so this row is still the
             // only witness that the return estimate reads the *priced route home* rather than a straight
             // line — the defect that reached six other call sites, which the folder guide carries.
-            brain.Chooser.ObserveCompanionship(ctx);
-            seen[(speed, farRoute, nearlyDone)] = (brain.Chooser.Reunion.DelayCostPerTick, brain.Chooser.EstimatedReturnTicks,
+            brain.Companionship.Observe(ctx);
+            seen[(speed, farRoute, nearlyDone)] = (brain.Companionship.Reunion.DelayCostPerTick, brain.Companionship.EstimatedReturnTicks,
                 brain.Positioner.EstimatedTravelTicks(from, to) ?? -1f);
         }
         }
@@ -486,9 +486,9 @@ internal static class VerifyOreWork
     private static void AProjectileInterruptsCoherentToolOwnership()
     {
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
-        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
-        ctx.Companion.Brain.Chooser.Actions.Clear();
-        ctx.Companion.Brain.Chooser.Actions.Add(mine);
+        var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
+        ctx.Companion.Brain.Actions.Clear();
+        ctx.Companion.Brain.Actions.Add(mine);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
         var effect = ctx.Companion.Miner.LastOutcome;
@@ -511,9 +511,9 @@ internal static class VerifyOreWork
         Require(ctx.Companion.Brain.Senses.Threats.Threats.Count == 0
             && ctx.Companion.Brain.Reflexes.Active == "avoid-collision"
             && ctx.Companion.Brain.ControlGrants.Last is { AppliedOwner: "evade", Hand: live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.WorkTool }
-            && ctx.Companion.Brain.Chooser.Activity.Phase == live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Executing
-            && ctx.Companion.Brain.Chooser.Activity.AttemptOpen && mine.HandsBusy,
-            $"a projectile without an enemy must bend the working body's motion and leave the work, its attempt and its tool hand in place; enemies={ctx.Companion.Brain.Senses.Threats.Threats.Count}; projectiles={ctx.Companion.Brain.Senses.Projectiles.Threats.Count}; reflex={ctx.Companion.Brain.Reflexes.Active}; grant={ctx.Companion.Brain.ControlGrants.Last}; phase={ctx.Companion.Brain.Chooser.Activity.Phase}; attempt open={ctx.Companion.Brain.Chooser.Activity.AttemptOpen}; busy={mine.HandsBusy}");
+            && ctx.Companion.Brain.Activity.Phase == live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Executing
+            && ctx.Companion.Brain.Activity.AttemptOpen && mine.HandsBusy,
+            $"a projectile without an enemy must bend the working body's motion and leave the work, its attempt and its tool hand in place; enemies={ctx.Companion.Brain.Senses.Threats.Threats.Count}; projectiles={ctx.Companion.Brain.Senses.Projectiles.Threats.Count}; reflex={ctx.Companion.Brain.Reflexes.Active}; grant={ctx.Companion.Brain.ControlGrants.Last}; phase={ctx.Companion.Brain.Activity.Phase}; attempt open={ctx.Companion.Brain.Activity.AttemptOpen}; busy={mine.HandsBusy}");
         Main.projectile[0].active = false;
     }
 
@@ -743,11 +743,16 @@ internal static class VerifyOreWork
                 else ctx.Npc.Center = new Vector2(15 * 16 + 8, 90 * 16 - CircleContact.Radius);
                 Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
                     $"permission fixture needs prepared work: chopping={chopping}; inPosition={inPosition}");
-                var admission = live::AICompanion.Companion.Brain.Infrastructure.Selection.ValidatePreparedActivity.Capture(action);
+                // The activity's own live-permission answer, which is what a binder reads. It went through
+                // `ValidatePreparedActivity.Capture(action).Rejection(action)` until 22 September 2026, and
+                // that type's first line was this same property — the captured identity checks it added
+                // around it belonged to the chooser's activation stage and went with it (`AIC-419`). The
+                // course's equivalent identity check is the admission-evidence sweep in
+                // `Opportunities/DiscoverOpportunities`, held by `VerifyAdmittedOpportunitiesBind`.
                 if (chopping) WorkPolicies.Chopping = WorkPolicy.Disabled;
                 else WorkPolicies.Mining = WorkPolicy.Disabled;
-                Require(admission.Rejection(action) == "work-disabled",
-                    $"revoked work must fail activation admission: chopping={chopping}; inPosition={inPosition}; rejection={admission.Rejection(action)}");
+                Require(action.PreparedTargetRejection == "work-disabled",
+                    $"revoked work must refuse its own prepared target: chopping={chopping}; inPosition={inPosition}; rejection={action.PreparedTargetRejection}");
                 var request = action.Execute(ctx);
                 Require(request == live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold
                     && !action.HandsBusy && ctx.Companion.Miner.LastOutcome == null && ctx.Companion.Chopper.LastOutcome == null,
@@ -1317,7 +1322,7 @@ internal static class VerifyOreWork
             var standing = FindToolAccess.Approach(blocked, ctx.Npc.Center, ctx.Companion.Brain.Senses.Reach, out _);
             Require(standing != Reachability.Reach.Yes,
                 $"the {shape} ore must have no usable approach; got {standing}");
-            var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
+            var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
             float value = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
             Require(value > 0f && mine.TargetTile == usable && mine.Eligibility == OfferEligibility.Usable,
                 $"a {shape} nearer ore must not mask the exposed farther one; value={value} target={mine.TargetTile} offer={mine.Eligibility}/{mine.EligibilityReason}");
@@ -1416,7 +1421,7 @@ internal static class VerifyOreWork
                 $"ore row {oreRow} must be out of tool reach from where the body starts, or this is not a ceiling case");
             Require(standing == Reachability.Reach.Yes && hover.Y < startedAt.Y - 16f,
                 $"the approach must name a hover above the body's own start; got {standing} at {hover} from {startedAt}");
-            var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
+            var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
             var run = RunBrainUntilBroken(ctx, ore, 900);
             Require(run.Broken && run.StrikeFeet.Count > 0,
                 $"ceiling ore mirrored={mirrored} must be mined from a hover; status={mine.Status} centre={ctx.Npc.Center} action={ctx.Companion.Brain.LastAction?.Name} request={ctx.Companion.Brain.LastRequest}");
@@ -1496,7 +1501,7 @@ internal static class VerifyOreWork
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         ctx.Npc.Center = new Vector2(15 * 16f + 8f, ctx.Npc.Center.Y);
         TerrainChanges.Reset();
-        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
+        var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
         AdvanceBrain(ctx);
         Require(mine.JobId > 0 && ctx.Companion.Brain.LastAction?.Name == "mine" && !FindToolAccess.InReach(ctx.Npc.Center, ore),
             $"the fixture must catch the companion walking to a proven job; job={mine.JobId} action={ctx.Companion.Brain.LastAction?.Name} status={mine.Status} feet={ctx.Npc.Center}");
@@ -1509,7 +1514,7 @@ internal static class VerifyOreWork
             "a sealed ore must receive no strike and its seal no digging");
         Require(mine.Score() == 0f && mine.Eligibility is not (OfferEligibility.Usable or OfferEligibility.Unresolved),
             $"a sealed ore must stop being offered as usable or undecided work; offer={mine.Eligibility}/{mine.EligibilityReason}");
-        var sealedAttempt = ctx.Companion.Brain.Chooser.Activity.RecentAttempts.LastOrDefault(attempt => attempt.Activity == "mine");
+        var sealedAttempt = ctx.Companion.Brain.Activity.RecentAttempts.LastOrDefault(attempt => attempt.Activity == "mine");
         // The cause is the orb's wording, `MineOre.NoProvenPoseReason`: a cell the body can be reached into,
         // where the walker's was a pose it could prove it could stand in. Only the string moved — the status
         // and the absence of any credited effect are what this row is about, and both were already right.
@@ -1589,7 +1594,7 @@ internal static class VerifyOreWork
         var brain = ctx.Companion.Brain;
         using (CombatFixture.BeginDecision())
         {
-            foreach (var candidate in brain.Chooser.Actions) candidate.Prepare(ctx);
+            foreach (var candidate in brain.Actions) candidate.Prepare(ctx);
             brain.Course.Decide(ctx, ctx.Companion.Combat, null,
                 live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Current);
         }

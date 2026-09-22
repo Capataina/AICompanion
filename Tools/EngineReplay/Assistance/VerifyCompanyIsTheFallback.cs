@@ -133,7 +133,7 @@ internal static class VerifyCompanyIsTheFallback
     {
         var (companion, player, ctx) = Scene();
         var brain = companion.Brain;
-        foreach (var action in brain.Chooser.Actions.Where(a => a.Name != "keep-company").ToList()) brain.Chooser.Actions.Remove(action);
+        foreach (var action in brain.Actions.Where(a => a.Name != "keep-company").ToList()) brain.Actions.Remove(action);
         float cap = Weights.KeepCompanyFarCap, leash = Weights.LeashHard;
         float highest = 0f, highestAt = 0f;
         var samples = new List<string>();
@@ -169,7 +169,7 @@ internal static class VerifyCompanyIsTheFallback
     {
         var (companion, player, ctx) = Scene();
         var brain = companion.Brain;
-        foreach (var action in brain.Chooser.Actions.Where(a => a.Name != "keep-company").ToList()) brain.Chooser.Actions.Remove(action);
+        foreach (var action in brain.Actions.Where(a => a.Name != "keep-company").ToList()) brain.Actions.Remove(action);
         int column = PlayerTileX + 3;
         for (int y = FloorY - 12; y < FloorY; y++) Solid(column, y);
         TerrainChanges.Reset();
@@ -196,7 +196,7 @@ internal static class VerifyCompanyIsTheFallback
         // for it and there is nothing for `ReadCourseWorthPerActivity` to find. What this row is about —
         // how the rejoin value grows with distance and where it caps — has always been the activity's own
         // arithmetic, and `Score()` after a preparation is that number at its source.
-        var company = companion.Brain.Chooser.Actions
+        var company = companion.Brain.Actions
             .OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
         company.Prepare(ctx);
         return company.Score();
