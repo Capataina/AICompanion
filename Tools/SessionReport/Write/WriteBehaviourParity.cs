@@ -204,7 +204,10 @@ public static class WriteBehaviourParity
             new[] { typeof(RepeatedFailedMethodsAreFindings) },
             Admitted("an ore admitted as work", "mine-target")),
         new("Reporting what it is doing",
-            new[] { "a capture states the configuration it ran under and the course order it took", "every candidate a preparation refused is named with the stage and what it read" },
+            // The candidate-funnel fixture went with the family chooser at schema 0.46.0 — it graded a
+            // preparation-time shortlist the course does not keep — so the row is down to one case
+            // rather than carrying a name no instrument registers. The self-test pin is what noticed.
+            new[] { "a capture states the configuration it ran under and the course order it took" },
             new[] { typeof(ColumnsHoldWhatTheyClaim), typeof(TheCaptureWasClosed), typeof(NoOccurrenceWasDropped), typeof(TheDecisionAuditRanOnTheDecisionsTheCaptureHolds) }),
         new("Finding a route",
             new[]
