@@ -431,11 +431,12 @@ internal static class VerifyEncounterContext
         Main.bloodMoon = bloodMoon;
         Main.worldSurface = playerOnSurface ? 120 : 40;
         for (int t = 0; t < 3; t++) VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
-        // What the ore is worth is read from the course that decided, not from the family chooser's
-        // `LastScores`. The chooser is still compiled and its `Current` is still set — the tick selects
-        // the bound activity through it — but `Choose` no longer runs, so its score ledger is empty and
-        // this row read a valued job as worth zero. `(mine, 0, none)` was the course choosing mining
-        // correctly beside a ledger nobody fills.
+        // What the ore is worth is read from the course that decided. It read the family chooser's
+        // `LastScores` until 21 September 2026, and that ledger was empty from the tick switch on, so
+        // this row read a valued job as worth zero: `(mine, 0, none)` was the course choosing mining
+        // correctly beside a ledger nobody filled. The chooser itself was deleted on 22 September
+        // (`AIC-419`); what the tick still selects through is `OwnCurrentActivity`, which was never
+        // part of the decision.
         var course = ctx.Companion.Brain.Course;
         float mine = course.LastLeaders.TryGetValue("mine-target", out var leader) ? (float)leader.Total.Nominal : 0f;
         return (course.Last.Binding?.Opportunity.Purpose ?? course.Last.Activity,
