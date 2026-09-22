@@ -27,7 +27,18 @@ internal static class ReadRecordedRoute
         Vector2 PlayerFeet,
         Vector2 PlayerVelocity,
         bool PlayerGrounded,
-        Vector2 CompanionCentre);
+        Vector2 CompanionCentre,
+        /// <summary>The player's life on that tick, or -1 on a schema that never wrote it. A run that
+        /// advances native hostile AI needs it: a zombie that reaches the replayed player takes his
+        /// life down every tick, and a player who dies in the replay is a player the senses stop
+        /// treating as somebody to keep company with — a difference the recording never had.</summary>
+        int PlayerLife,
+        /// <summary>How many drops the loot sense counted that tick, or -1 when the column is absent. It is a count
+        /// and never a position, which is why the drops are staged from the events sidecar and this is only the
+        /// denominator that says how many of them the sidecar failed to name.</summary>
+        int Loot,
+        /// <summary>How many threats the sense counted that tick, or -1 when the column is absent.</summary>
+        int Threats);
 
     /// <summary>
     /// What the capture says both bodies could do, or nothing at all.
@@ -49,6 +60,11 @@ internal static class ReadRecordedRoute
         string Schema,
         Kits Kits,
         string WorldLine,
+        /// <summary>The capture's <c># config=</c> header, which is the weaker of the two records of what
+        /// the companion's settings were: the events sidecar's own configuration occurrence outranks it,
+        /// because on the capture of 22 September 2026 the two disagree about chopping and the census
+        /// reasons the session wrote agree with the occurrence.</summary>
+        string ConfigLine,
         IReadOnlyList<Step> Steps)
     {
         public Step this[int index] => Steps[index];
@@ -59,7 +75,7 @@ internal static class ReadRecordedRoute
     {
         if (!File.Exists(capturePath)) throw new FileNotFoundException($"no capture at {capturePath}", capturePath);
 
-        string schema = "unknown", revision = "unknown", worldLine = "", capabilities = "";
+        string schema = "unknown", revision = "unknown", worldLine = "", capabilities = "", configLine = "";
         string[]? header = null;
         var steps = new List<Step>();
 
@@ -73,6 +89,7 @@ internal static class ReadRecordedRoute
                 else if (comment.StartsWith("source_revision=", StringComparison.Ordinal)) revision = comment[16..].Split(';')[0].Trim();
                 else if (comment.StartsWith("world=", StringComparison.Ordinal)) worldLine = comment[6..].Trim();
                 else if (comment.StartsWith("capabilities=", StringComparison.Ordinal)) capabilities = comment[13..].Trim();
+                else if (comment.StartsWith("config=", StringComparison.Ordinal)) configLine = comment[7..].Trim();
                 continue;
             }
             string[] cells = line.TrimStart('﻿').Split('\t');
@@ -90,14 +107,17 @@ internal static class ReadRecordedRoute
                 Pair(cells, header, "player_px"),
                 Pair(cells, header, "player_vel"),
                 Cell(cells, header, "player_ground") == "1",
-                Pair(cells, header, "npc_px")));
+                Pair(cells, header, "npc_px"),
+                Count(cells, header, "player_life"),
+                Count(cells, header, "loot"),
+                Count(cells, header, "threats")));
         }
 
         if (header == null) throw new InvalidDataException($"{capturePath} has no TSV header");
         if (steps.Count == 0) throw new InvalidDataException($"{capturePath} holds no rows at or after tick {fromTick}");
         ConfirmTheTrackIsContiguous(steps, capturePath);
 
-        return new Route(Path.GetFileName(capturePath), revision, schema, ParseKits(capabilities), worldLine, steps);
+        return new Route(Path.GetFileName(capturePath), revision, schema, ParseKits(capabilities), worldLine, configLine, steps);
     }
 
     /// <summary>
@@ -148,6 +168,27 @@ internal static class ReadRecordedRoute
         int index = Array.IndexOf(header, name);
         if (index < 0) throw new InvalidDataException($"the capture has no column named {name}; this schema cannot be replayed as a route");
         return cells[index];
+    }
+
+    /// <summary>
+    /// A whole-number column, or -1 where this capture's schema does not carry it.
+    ///
+    /// Unlike <see cref="Cell"/> this never refuses, and the difference is deliberate: the columns
+    /// it reads are context rather than the track. A capture with no <c>player_life</c> can still be
+    /// replayed as a route — it just cannot have that life placed — while a capture with no
+    /// <c>player_px</c> cannot be replayed at all, and conflating the two would turn an old schema
+    /// into a crash instead of a reduced run.
+    /// </summary>
+    private static int Count(string[] cells, string[] header, string name)
+    {
+        int index = Array.IndexOf(header, name);
+        if (index < 0 || index >= cells.Length) return -1;
+        // `player_life` is written as "100/100" and the rest are plain integers, so the value is cut
+        // at the slash rather than parsed two different ways by the caller.
+        string text = cells[index];
+        int slash = text.IndexOf('/');
+        if (slash >= 0) text = text[..slash];
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : -1;
     }
 
     private static float Number(string[] cells, string[] header, string name)

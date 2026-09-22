@@ -95,6 +95,15 @@ internal static class WorldRunEntry
         var loaded = LoadTheSavedWorld.Load(world);
         string worldNote = DescribeWorldMatch(route, loaded);
 
+        // The play measures: one pass, under the game's own clock, with the recording's hostiles and
+        // drops in the world and the real recorder writing a quarantined capture. It is its own
+        // command rather than extra rows on the run above for two reasons that are both about what a
+        // number means. The rows above lift the planning allowances so two passes are comparable;
+        // these rows are about a brain being cut by its deadline, which is the thing a player met.
+        // And a second pass would double the cost of the longest run this instrument has.
+        if (args.Contains("--play-measures"))
+            return PlayMeasures(args, route, worldNote, suite, capture!);
+
         Console.WriteLine($"ROUTE {route.Capture} schema={route.Schema} source={route.SourceRevision[..Math.Min(7, route.SourceRevision.Length)]} "
             + $"steps={route.Count} from tick {route[0].Tick} to {route[^1].Tick}");
         Console.WriteLine($"KITS {(route.Kits.Known ? route.Kits.Raw : "not recorded by this schema; checkpoint verdicts will skip")}");
@@ -174,6 +183,76 @@ internal static class WorldRunEntry
     }
 
     /// <summary>
+    /// The morning's play, reproduced: the recorded route, the recorded hostiles, the recorded drops,
+    /// the game's own clock, and a recorder writing where no reader of real captures will find it.
+    /// </summary>
+    private static int PlayMeasures(string[] args, ReadRecordedRoute.Route route,
+        string worldNote, string suite, string capturePath)
+    {
+        var cast = ReadRecordedActors.Read(capturePath, route.Steps.Max(s => s.Loot));
+        var motion = Value(args, "--hostile-motion=") == "synthetic"
+            ? StageRecordedActors.HostileMotion.Synthetic
+            : StageRecordedActors.HostileMotion.Native;
+        var stage = new StageRecordedActors(cast, motion);
+        string preferences = ApplyTheRecordedPreferences.From(cast.Configuration, route.ConfigLine);
+        Console.WriteLine("PREFERENCES " + preferences);
+        // The cast before the run and the staging after it, because `Describe` reports what was
+        // actually placed and before the first tick that is nothing: printing it here said "0 of 18
+        // placed" on a healthy run.
+        Console.WriteLine($"CAST {cast.Note}");
+
+        RunTheWorld.Actors = stage;
+        RunTheWorld.ProductionClock = true;
+        PrepareTheHeadlessEngine.ForgetEverythingLearnedAboutTheWorld();
+
+        // Opened from inside the loop, after the companion and the player exist: the recorder's own
+        // metadata reads the player's kit, and a recorder opened before that closes itself and
+        // leaves a capture with no rows in it.
+        RunTheWorld.AfterTheCompanionIsAttached = args.Contains("--no-recorder") ? null : () =>
+        {
+            AttachTheRecorder.Open(Value(args, "--record-to="), route.Capture);
+            Console.WriteLine("RECORDER " + AttachTheRecorder.Describe());
+        };
+        if (args.Contains("--no-recorder")) Console.WriteLine("RECORDER not attached (--no-recorder)");
+
+        RunTheWorld.Outcome run;
+        try
+        {
+            run = RunTheWorld.Play(route, worldNote, seed: 1);
+        }
+        finally
+        {
+            AttachTheRecorder.Close();
+            RunTheWorld.AfterTheCompanionIsAttached = null;
+        }
+
+        Console.WriteLine($"RUN {run.Ticks} ticks in {run.Seconds:0.0}s "
+            + $"({run.Seconds / Math.Max(1, run.Ticks) * 1000:0.0} ms/tick) under the production clock; trace {run.TraceHash}");
+        Console.WriteLine("ACTORS " + stage.Describe());
+
+        // The per-tick dump, for the same reason `--print-trace` exists on the run above: a share is
+        // a summary, and the question a red raises is always which ticks and what stood in the world
+        // while they happened. It is the first thing to reach for when a row disagrees with the
+        // capture it was built from, because a thin scene and a fixed brain produce the same number.
+        if (args.Contains("--print-play"))
+        {
+            Console.WriteLine("PLAY tick|reason|activity|step|usable|unresolved|refused|hostiles|drops|decide ms|refusals");
+            foreach (RunTheWorld.PlayTick t in run.Play)
+                Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"  {t.Tick}|{t.Reason}|{t.Activity}|{(t.HasStep ? "step" : "-")}|{t.UsableAdmitted}|{t.UnresolvedAdmitted}|{t.Refused}|{t.HostilesAlive}|{t.DropsPresent}|{t.DecideMs:0.0}|")
+                    + string.Join(",", t.Refusals.Select(r => $"{r.Key}={r.Value}")));
+        }
+
+        int failures = GradeThePlayMeasures.Grade(suite, route, run, stage, cast, preferences);
+
+        foreach (LedgerRow row in EmitLedgerRows.Emitted)
+            Console.WriteLine($"{row.Verdict.ToUpperInvariant()} {row.Case}"
+                + (row.Value is { } value ? $" = {value.ToString("0.###", CultureInfo.InvariantCulture)} {row.Unit}" : "")
+                + (row.Message.Length > 0 ? $" :: {row.Message}" : ""));
+        return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
     /// Whether the world being replayed in is the world the route was recorded in, said plainly.
     ///
     /// The plan wants a hash match and a mismatch to be a skipped row, because replaying a route
@@ -219,6 +298,18 @@ internal static class WorldRunEntry
               --combat                the combat variant: a frozen zombie waits at his recorded feet
                                       thirty steps ahead, retired after five fired ticks; the rows
                                       are combat winning, no silence while threatened, and rejoining
+              --play-measures         the recording's own scene, reproduced: its hostiles and drops
+                                      placed at their recorded ticks, its settings applied, the game's
+                                      own millisecond allowances kept rather than lifted, one pass,
+                                      and a recorder writing a capture marked synthetic
+              --print-play            one line per tick of that run: the course's reason, whether a
+                                      step was bound, what the census admitted, what was refused and
+                                      why, what stood in the world, and what the decision cost
+              --record-to=<dir>       where the synthetic capture lands (default: a temporary folder)
+              --no-recorder           run the play measures without recording anything
+              --hostile-motion=native|synthetic
+                                      how a placed hostile moves; native is the game's own
+                                      NPC.UpdateNPC and synthetic is a straight walk at the player
 
             The world is never committed and Telemetry/ is gitignored, so both paths are named rather
             than discovered, and an absent one is a skipped row rather than a failure.

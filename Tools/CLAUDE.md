@@ -18,7 +18,7 @@ Tools/
 ├─ CombatAudit/                      re-decides every recorded combat snapshot through five passes, the only instrument grading a decision rather than a behaviour
 ├─ NavReplay/                        the game-free movement core's own contract rows, and the extractor that cuts a scenario out of a recording
 ├─ SessionReport/                    telemetry reader, grouped by Read, Checks, Measures, Write and Tests
-├─ WorldRun/                         the whole brain and the orb in a real saved world, behind a recorded player track or in a committed scenario window
+├─ WorldRun/                         the whole brain and the orb in a real saved world: behind a recorded player track, in a committed scenario window, or inside the recording's own staged scene of hostiles, drops and settings, graded against the play it came from
 ├─ WorldWindow/                      reshapes old plan windows from saved-world tile shapes
 └─ Scenarios/                        committed terrain windows from play, two of them the orb's checkpoints
 ```
@@ -33,7 +33,7 @@ A case whose subject *is* a deadline keeps the clock, and there are two ways to 
 
 The walker's three deadline rows went with its planner, and no orb row is about a deadline yet; the mechanism stays because the next one will be. Each of the three had announced itself by going red with its own premise assertion rather than by passing quietly, which is what a good premise sounds like — "the starved run finished its search in one tick, so it proves nothing about deadlines" — and an orb deadline row is held to the same bar.
 
-Run `dotnet run --project Tools/SessionReport -- Telemetry` after a playtest. It reads the newest session, says which checks its schema supports, and exits non-zero for definitive faults. `NavReplay/CLAUDE.md` owns the core's contract rows and the scenario extractor; `WorldWindow/CLAUDE.md` owns saved-world reshaping; `EngineReplay/CLAUDE.md` owns the native fixtures; `WorldRun/CLAUDE.md` owns the recorded-route run and the scenario checkpoints.
+Run `dotnet run --project Tools/SessionReport -- Telemetry` after a playtest. It reads the newest session, says which checks its schema supports, and exits non-zero for definitive faults. `NavReplay/CLAUDE.md` owns the core's contract rows and the scenario extractor; `WorldWindow/CLAUDE.md` owns saved-world reshaping; `EngineReplay/CLAUDE.md` owns the native fixtures; `WorldRun/CLAUDE.md` owns the recorded-route run, the scenario checkpoints and the play-measures run that stages a recording's own scene and grades it; `sh Tools/verify.sh` runs the last against the 22 September 2026 capture and that suite is red until the brain fix it measures is in, which is its purpose rather than a defect in it.
 
 **An instrument's exit code is acted on, not merely collected.** Rows are the verdict, but an instrument that fails *without* writing a red row — a crash before its first case, a project that will not build, a failing path that files none — contributes exactly the silence a healthy instrument contributes. So every non-zero exit goes to `ledger error`, which files an error row only where that instrument's own rows do not already account for it. Before that, a red SessionReport self-test exited 1 and the run still scored clean at exit 0.
 

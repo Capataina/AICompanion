@@ -201,6 +201,32 @@ cat "$world_run_combat_log"
 rm -f "$world_run_combat_log"
 record_exit "world-run" "$world_run_combat_status"
 
+# The play measures: the morning of 22 September 2026 reproduced headlessly. The same instrument
+# again, with three things the two runs above do not have — the recording's own hostiles and drops
+# placed at their recorded ticks, the companion's settings taken from the capture rather than from
+# this process's defaults, and the game's own millisecond allowances left standing instead of
+# lifted — because what the play showed was a brain being cut by its deadline in a world with
+# something in it, and a run missing any of those three grades a different companion.
+#
+# The route is pinned rather than newest, for the combat variant's reason and one of its own. The
+# rows are about a specific defect on a specific scene, so a discovered route would make the same
+# case name mean a different morning; and the capture has to carry an events sidecar, which is what
+# the hostiles and drops are read from. It plays the whole capture rather than a slice, because the
+# defect it reproduces takes about fourteen seconds of play to arrive and no slice reaches it: the
+# refusals begin at tick 827 of 2,340. One pass rather than two, which is what keeps it to about
+# half a minute — the determinism row belongs to the runs above, under the lifted allowances where
+# two passes are comparable at all.
+world_run_play_route="${AIC_WORLD_RUN_PLAY_ROUTE:-Telemetry/2026-09-22_10-05-56-125.tsv}"
+world_run_play_log=$(mktemp)
+dotnet run --project Tools/WorldRun -- \
+  --route="$world_run_play_route" --world="$world_run_world" \
+  --from-tick=1 --ticks=0 --play-measures \
+  --suite="play measures $(basename "$world_run_play_route" .tsv)" >"$world_run_play_log" 2>&1
+world_run_play_status=$?
+cat "$world_run_play_log"
+rm -f "$world_run_play_log"
+record_exit "world-run" "$world_run_play_status"
+
 # The committed scenario checkpoints: the two windows from the last walker play, the statue ledge
 # and the water pocket, played by the orb in the real world they were cut from with the player
 # standing where he stood. The scenario files are in the repository, so only the world can be
@@ -241,7 +267,8 @@ if [ "$rerun" -gt 0 ]; then
         # travel through the unquoted $arguments the other instruments use; the loop below quotes
         # them itself for this one instrument. A red scenario row is rerun through the recorded
         # route's command, which selects nothing and files a skip: rerun a scenario by hand with
-        # --scenario=<file> --world=<wld> instead.
+        # --scenario=<file> --world=<wld> instead. The same holds for a red play-measures row —
+        # rerun it by hand with --play-measures --ticks=0 and --suite unchanged.
         world-run) project="Tools/WorldRun"; arguments="" ;;
         *) echo "verify: '$red' is red under instrument '$instrument', which this script cannot rerun"; continue ;;
       esac
