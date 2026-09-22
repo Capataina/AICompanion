@@ -34,10 +34,14 @@ internal static class VerifyTheSearchRetainsItsRunnerUp
         return red;
     }
 
+    /// <summary>The scene is emptied after every row: the per-case reset rebuilds the tile map and the
+    /// process statics but leaves a seeded `Main.item` or `Main.npc` slot active, so a fixture that does
+    /// not clean up hands its drops to whatever runs next.</summary>
     private static int Row(string name, Action test)
     {
         try { test(); Console.WriteLine("  GREEN " + name); return 0; }
         catch (Exception error) { Console.WriteLine("  RED " + name + ": " + error.Message); return 1; }
+        finally { VerifyAdmittedOpportunitiesBind.ClearTheScene(); }
     }
 
     /// <summary>

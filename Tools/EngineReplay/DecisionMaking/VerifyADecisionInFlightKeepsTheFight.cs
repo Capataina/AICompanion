@@ -139,6 +139,11 @@ internal static class VerifyADecisionInFlightKeepsTheFight
         {
             Brain.PlanningOperationAllowance = allowance;
             Main.screenPosition = screen;
+            // The zombie is a slot in `Main.npc` and the per-case reset does not deactivate one, so a
+            // scene left standing here is a hostile in whatever runs next — which for a fixture measuring
+            // a plain follow journey is work to do instead of a journey to open.
+            Main.npc[30].active = false;
+            Main.npc[30].life = 0;
         }
     }
 

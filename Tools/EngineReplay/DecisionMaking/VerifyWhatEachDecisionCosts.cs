@@ -39,10 +39,16 @@ internal static class VerifyWhatEachDecisionCosts
         return red;
     }
 
+    /// <summary>The ore seam is left in the tile map, which the per-case reset rebuilds, but the work
+    /// policy this scene switches on is a process static the reset does not know about — so it goes back
+    /// here rather than travelling to the next case.</summary>
     private static int Row(string name, Action test)
     {
+        live::AICompanion.Companion.Brain.Activities.WorkPolicy policy
+            = live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining;
         try { test(); Console.WriteLine("  GREEN " + name); return 0; }
         catch (Exception error) { Console.WriteLine("  RED " + name + ": " + error.Message); return 1; }
+        finally { live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = policy; }
     }
 
     /// <summary>

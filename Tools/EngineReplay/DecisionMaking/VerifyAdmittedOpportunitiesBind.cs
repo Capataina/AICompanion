@@ -41,10 +41,22 @@ internal static class VerifyAdmittedOpportunitiesBind
         return red;
     }
 
+    /// <summary>Every row leaves the world it built empty again. `ResetProcessState.BeforeCase` rebuilds
+    /// the tile map between cases and puts the process statics back, but it does not deactivate a slot in
+    /// `Main.item` or `Main.npc` — so a scene that seeds drops and hostiles hands them to whatever runs
+    /// next, and a fixture whose subject is a companion following an empty floor then finds work to do
+    /// instead and never opens the journey it came to measure.</summary>
     private static int Row(string name, Action test)
     {
         try { test(); Console.WriteLine("  GREEN " + name); return 0; }
         catch (Exception error) { Console.WriteLine("  RED " + name + ": " + error.Message); return 1; }
+        finally { ClearTheScene(); }
+    }
+
+    internal static void ClearTheScene()
+    {
+        for (int slot = 10; slot <= 12; slot++) { Main.item[slot] = new Item(); Main.item[slot].active = false; }
+        for (int slot = 30; slot <= 36; slot++) { Main.npc[slot].active = false; Main.npc[slot].life = 0; }
     }
 
     /// <summary>
