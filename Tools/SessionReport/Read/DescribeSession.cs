@@ -189,6 +189,18 @@ public static class DescribeSession
 
         // Each activity's candidate funnel: the share of rows on which the candidate that got furthest stopped at each
         // stage, so "why was the lighting never done" opens on a count per stage rather than on a search through offers.
+        //
+        // **A loop over columns that are all gone prints nothing, and printing nothing is what this
+        // block exists to stop.** The header's whole job is to say what a capture does and does not
+        // carry, so a section that silently vanishes when its columns are retired is the census failing
+        // at its own question — a reader who knows the funnel line scrolls for it and concludes the
+        // recorder dropped it. The funnel columns went with the family chooser at 0.46.0, so from that
+        // schema the line says so once instead of the block emitting nothing.
+        bool anyFunnel = session.Names.Any(n => n.EndsWith("_funnel", StringComparison.Ordinal));
+        if (!anyFunnel && !CompletedTransferClaimsWereReceived.SchemaBelow(session, CompletedTransferClaimsWereReceived.ChooserColumnsRetired))
+            sb.Append($"funnel    retired at schema {CompletedTransferClaimsWereReceived.ChooserColumnsRetired} with the family chooser: the "
+                + "candidate funnel was a preparation-time shortlist the course does not keep. Per-domain refusals are in the decision "
+                + "occurrence's `course-refused:` tally, which the course timeline and the census-against-binder check read\n");
         foreach (string name in session.Names)
         {
             if (!name.EndsWith("_funnel", StringComparison.Ordinal)) continue;

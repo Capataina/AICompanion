@@ -11,20 +11,27 @@ namespace AICompanion.Tools.SessionReport;
 // a number to tune, and each rule below names the producer line that makes its violation impossible.
 
 /// <summary>
-/// A selected activity must have carried a usable or unresolved offer. The evaluator returns
-/// <c>value-without-eligible-offer</c> for positive value beside any other eligibility
-/// (EvaluatePreparedActivities), a family nominates only positive final value
-/// (NominateFamilyActivities), and a Deferred child is written with zero value (ChooseBehaviour), so
-/// a selection whose own offer column reads anything else — including <c>not-compared</c> — is a
-/// record that contradicts the chooser.
+/// A selected activity must have carried a usable or unresolved offer.
 ///
-/// Freshness is read from <c>choice_fresh</c>, not <c>brain_fresh</c>: a safety, recovery or downed
-/// tick runs the brain without a comparison. It barely matters here, because the <c>action</c>
-/// column (<c>Chooser.Current</c>) changes only inside <c>Chooser.Choose</c>, which rebuilds the score
-/// board the offer columns are read from and then increments the comparison identity; a retained
-/// row therefore restates its comparison's label and offers together. The check judges each
-/// comparison once, on its fresh row where one was captured, and counts its retained rows as one
-/// contradiction rather than one per row.
+/// <para><b>The producers this rule was derived from no longer exist, and the rule is kept for the
+/// captures they wrote.</b> On a recording made before 22 September 2026 the guarantee came from three
+/// places that <c>AIC-419</c> has since deleted with the family chooser: the evaluator returned
+/// <c>value-without-eligible-offer</c> for positive value beside any other eligibility
+/// (<c>EvaluatePreparedActivities</c>), a family nominated only positive final value
+/// (<c>NominateFamilyActivities</c>), and a Deferred child was written with zero value
+/// (<c>ChooseBehaviour</c>) — so on those captures a selection whose own offer column read anything
+/// else, <c>not-compared</c> included, contradicted the brain that wrote it. None of those three files
+/// is in the tree, and this paragraph is history rather than a pointer: following it to check the rule
+/// leads nowhere, which is exactly why it says so instead of naming them in the present tense.</para>
+///
+/// <para>Freshness is read from <c>choice_fresh</c>, not <c>brain_fresh</c>: a safety, recovery or
+/// downed tick runs the brain without a comparison. On those same captures it barely mattered, because
+/// the <c>action</c> column was <c>Chooser.Current</c> and changed only inside <c>Chooser.Choose</c>,
+/// which rebuilt the score board the offer columns were read from and then incremented the comparison
+/// identity, so a retained row restated its comparison's label and offers together. The check judges
+/// each comparison once, on its fresh row where one was captured, and counts its retained rows as one
+/// contradiction rather than one per row — that part is the check's own arithmetic and holds
+/// whatever wrote the rows.</para>
 ///
 /// <para><b>Schema 0.44.0 repointed the column this check is entirely about, and the paragraph above
 /// describes the producer that no longer writes it.</b> <c>&lt;activity&gt;_offer</c> is the course's
@@ -95,12 +102,17 @@ public sealed class SelectedActivitiesHadAnEligibleOffer : ICheck, ICheckCoverag
 }
 
 /// <summary>
-/// The selected activity changes only when a comparison completes. <c>Chooser.Current</c> is set in
-/// exactly one live place, <c>OwnCurrentActivity.Select</c> called from <c>Chooser.Choose</c>, which
-/// then increments the comparison identity; so two consecutive rows sharing a <c>choice_id</c> with
-/// different actions are a label that moved without a decision. A respawned brain restarts its
-/// identities, which changes the id and ends the run. EngineReplay fixtures call Select directly and
-/// are not playtest recordings.
+/// The selected activity changes only when a comparison completes — on the captures this still grades,
+/// which are the ones a family chooser wrote. The current activity was <c>Chooser.Current</c>, set in
+/// exactly one place, <c>OwnCurrentActivity.Select</c> called from <c>Chooser.Choose</c>, which then
+/// incremented the comparison identity; so two consecutive rows of such a capture sharing a
+/// <c>choice_id</c> with different actions are a label that moved without a decision. A respawned brain
+/// restarts its identities, which changes the id and ends the run. EngineReplay fixtures call Select
+/// directly and are not playtest recordings.
+///
+/// <c>Chooser</c> is gone — <c>AIC-419</c> deleted it on 22 September 2026 — and <c>Select</c> is now
+/// called from <c>CoordinateBrainTick</c> with no comparison identity of its own to increment, which is
+/// the mechanical reason the guarantee below retires rather than the schema being a convention.
 ///
 /// <para><b>Schema 0.43.0 gave <c>choice_id</c> to the course, and that retires the guarantee rather
 /// than weakening it.</b> The column reads <c>DecideCourseEachTick.DecisionId</c> now and advances once
@@ -428,6 +440,35 @@ public sealed class CompletedTransferClaimsWereReceived : ICheck, ICheckCoverage
     /// <summary>Whether the capture's recorded schema is at least <paramref name="minimum"/>; an unrecorded or unreadable schema is not.</summary>
     internal static bool SchemaAtLeast(Session session, Version minimum)
         => session.Metadata.TryGetValue("schema", out string? value) && Version.TryParse(value, out Version? recorded) && recorded >= minimum;
+
+    /// <summary>
+    /// The schema at which every column and board entry the family chooser wrote was removed, `AIC-419`
+    /// having deleted the chooser itself on 22 September 2026.
+    ///
+    /// <para><b>Every other gate in this tool is a floor and a removal is the one thing a floor cannot
+    /// see.</b> `SchemaAtLeast` answers "is this capture new enough to carry the evidence", which a
+    /// 0.46.0 capture satisfies for every question ever asked of it — including the questions whose
+    /// evidence 0.46.0 is precisely what took away. So a reader of a retired column needs a *ceiling*
+    /// beside its floor, and the shape is the same: a named decline, never a silent empty answer. This
+    /// folder already has the general form of that lesson written down — a check whose *producer* was
+    /// replaced runs, finds plenty and is confidently wrong, where a check whose *column* was removed
+    /// skips and says so — and a floor-only gate turns the second kind into the first.</para>
+    ///
+    /// <para>What went: `&lt;family&gt;_prepared` / `_deferred` / `_prepare_ms`, which nothing here read;
+    /// `&lt;activity&gt;_time`, the per-activity time discount, pinned at 1.000 by decision at 0.44.0;
+    /// `&lt;activity&gt;_funnel` and the `candidate-funnel` occurrence, a preparation-time shortlist the
+    /// course does not keep; and the decision board's score list with its `factors:`, `family:` and
+    /// `queries:` entries. The recorder's own comment at `RecordBrainTelemetry.cs:128` is the
+    /// authority for that list and carries why each was safe to take.</para>
+    /// </summary>
+    internal static readonly Version ChooserColumnsRetired = new(0, 46, 0);
+
+    /// <summary>Whether the capture predates <paramref name="retirement"/>, and so can still carry a
+    /// column removed at it. An unrecorded or unreadable schema is treated as old, because every
+    /// capture on disk that carries no readable schema predates all of this.</summary>
+    internal static bool SchemaBelow(Session session, Version retirement)
+        => !session.Metadata.TryGetValue("schema", out string? value)
+            || !Version.TryParse(value, out Version? recorded) || recorded < retirement;
 }
 
 /// <summary>

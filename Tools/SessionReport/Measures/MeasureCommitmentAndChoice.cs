@@ -179,8 +179,33 @@ public sealed class MeasureHuntKnownUnusableShare : IMeasure
     public string Name => "hunt-known-unusable-share";
     public string[] Needs => new[] { "action" };
 
+    /// <summary>
+    /// Two ways this cannot be asked, and the second is why it declines on a capture that carries a
+    /// perfectly good sidecar.
+    ///
+    /// <para>The offer it grades is read out of the decision board's <c>factors:combat=</c> breakdown,
+    /// which was the family chooser's and which <c>0.46.0</c> removed with it. On a capture at or past
+    /// that schema every decision parses as unreadable, and both shares then report <b>0 over N</b> —
+    /// which on a row whose direction is "down" reads as an improvement nobody made, lands in the
+    /// committed ledger and is compared against a 0.44.0 baseline as a fall to zero. A named decline is
+    /// a gap; a zero is a lie, and the scoreboard cannot tell them apart from the number alone.</para>
+    ///
+    /// <para>Worth knowing before trusting the pre-0.46.0 side either: the 22 September 2026 capture is
+    /// 0.44.0 and carries <b>zero</b> <c>factors:</c> entries in its whole sidecar, because
+    /// <c>0bb2c8a</c> left <c>Chooser.LastScores</c> unfilled when the course took the tick. So this
+    /// measure has been reporting nothing since long before the column was deleted; the retirement
+    /// makes that official rather than causing it, and the unreadable row beside the shares is what
+    /// says so on the captures that still pass this gate.</para>
+    /// </summary>
     public string? Missing(Session session)
-        => CheckEvents.SidecarUnavailable(session, "the decision occurrences, one per completed comparison");
+    {
+        if (CheckEvents.SidecarUnavailable(session, "the decision occurrences, one per completed comparison") is { } unavailable)
+            return unavailable;
+        return CompletedTransferClaimsWereReceived.SchemaBelow(session, CompletedTransferClaimsWereReceived.ChooserColumnsRetired) ? null
+            : $"the decision board's `factors:` breakdown, which carried hunting's own offer and was removed with the family chooser at "
+              + $"schema {CompletedTransferClaimsWereReceived.ChooserColumnsRetired}; the course's equivalent is `course-admitted:<domain>` "
+              + "beside `course-refused:<reason>`, which is per domain rather than per activity and is a different question";
+    }
 
     public IEnumerable<LedgerRow> Rows(Session session)
     {

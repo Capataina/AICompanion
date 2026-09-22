@@ -45,6 +45,7 @@ public static class ChronicleTests
             ASelectionChangesOnlyWithANewComparison();
             FindingsFoldToOneLinePerClassCarryingItsCount();
             TheCourseErasChecksReplaceTheChoosersAtTheirSchema();
+            TheRetiredChooserColumnsDeclineByNameAtTheirSchema();
             AttemptEvidenceJoinsByIdentityAndDisagreementsAreDefinitive();
             ACompletedTransferClaimNeedsItsReceivedQuantity();
             AClaimedArrivalMustLieInsideItsSuccessRegion();
@@ -2091,6 +2092,113 @@ public static class ChronicleTests
     /// because asking the check proves nothing about the runner — the same reason the revived combat
     /// check's own coverage arm does.</para>
     /// </summary>
+    /// <summary>
+    /// A capture written after the family chooser was deleted parses, and every reader of a column
+    /// that went with it declines by name instead of answering out of nothing.
+    ///
+    /// <para><b>This is the one case a floor gate cannot express, and every other schema gate in this
+    /// tool is a floor.</b> `SchemaAtLeast` asks "is this capture new enough to carry the evidence",
+    /// which a 0.46.0 capture satisfies for every question ever asked of it — including the questions
+    /// whose evidence 0.46.0 is exactly what removed. The failure mode is not a crash: a reader of a
+    /// deleted column finds an empty string or no rows, computes a number from it, and publishes a
+    /// clean-looking zero. `MeasureHuntKnownUnusableShare` is the live instance — it reads the decision
+    /// board's `factors:` breakdown, which went with the chooser, and would report a share of 0 over
+    /// several hundred decisions on a row whose direction is "down", landing in the committed ledger as
+    /// an improvement nobody made.</para>
+    /// </summary>
+    private static void TheRetiredChooserColumnsDeclineByNameAtTheirSchema()
+    {
+        string file = Path.GetTempFileName(), events = Path.ChangeExtension(file, null) + "-events.jsonl";
+        try
+        {
+            // A 0.46.0 row carries none of `<activity>_funnel`, `<activity>_time` or
+            // `<family>_prepared`/`_deferred`/`_prepare_ms`, and its decision occurrences carry no
+            // `factors:` entry. Everything else about the row is unchanged, which is the producer's own
+            // claim — "a 0.46.0 capture reads as absent columns rather than as shifted ones".
+            // Two hundred rows, because the players-reference check wants three seconds of an idle
+            // player beside a usable hunt before it says anything, and a fixture shorter than its own
+            // threshold proves only that a check can stay quiet.
+            Session Load(string schema, string extraColumns = "", string extraCells = "")
+            {
+                var text = new StringBuilder(
+                    $"# schema={schema}\n# text_columns=action,combat_offer,keep-company_offer,player_vel{extraColumns.Replace("\t", ",")}\n"
+                    + $"tick\taction\tchoice_id\tchoice_fresh\tcombat_offer\tkeep-company_offer\tnear_threat\tplayer_vel\tcombat_raw\tcombat_fin\tkeep-company_fin{extraColumns}\n");
+                for (int tick = 1; tick <= 200; tick++)
+                    text.Append($"{tick}\tkeep-company\t7\t{(tick == 1 ? 1 : 0)}\tUsable:3\tnot-compared\t4.0\t0.0,0.0\t0.80\t0.20\t0.50{extraCells}\n");
+                File.WriteAllText(file, text.ToString());
+                // One decision occurrence with no `factors:` entry, which is what 0.46.0 writes.
+                File.WriteAllLines(events, new[]
+                {
+                    JsonSerializer.Serialize(new { v = 1, seq = 0, tick = 0, wall_elapsed_ms = 0d, kind = "session",
+                        subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                        expected_x = 0f, expected_y = 0f, amount = 0, detail = "" }),
+                    JsonSerializer.Serialize(new { v = 1, seq = 1, tick = 1, wall_elapsed_ms = 0d, kind = "decision",
+                        subject = 0, related = "", label = "keep-company", channel = "WithPlayer", pos_x = 0f, pos_y = 0f,
+                        vel_x = 0f, vel_y = 0f, expected_x = 0f, expected_y = 0f, amount = 0,
+                        detail = $"scores=;{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}combat=usable:3,unknown:0,unusable:0,reason:-;" }),
+                    JsonSerializer.Serialize(new { v = 1, seq = 2, tick = 3, wall_elapsed_ms = 0d, kind = "session-end",
+                        subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                        expected_x = 0f, expected_y = 0f, amount = 0, detail = "" }),
+                });
+                return Session.Load(file);
+            }
+
+            // It parses at all, and as the schema it says it is. A header the loader silently read as
+            // unversioned would make every gate below answer for the wrong reason.
+            Session retired = Load("0.46.0");
+            Require(retired.Count == 200 && retired.Metadata.TryGetValue("schema", out string? read) && read == "0.46.0",
+                $"a 0.46.0 header did not parse as 200 rows at its own schema: {retired.Count} row(s), schema '{(retired.Metadata.TryGetValue("schema", out string? s) ? s : "absent")}'");
+            Require(!CompletedTransferClaimsWereReceived.SchemaBelow(retired, CompletedTransferClaimsWereReceived.ChooserColumnsRetired)
+                    && CompletedTransferClaimsWereReceived.SchemaBelow(Load("0.44.0"), CompletedTransferClaimsWereReceived.ChooserColumnsRetired),
+                "the retirement gate does not separate a 0.46.0 capture from a 0.44.0 one, so nothing below is testing what it claims");
+
+            // The measure whose evidence is gone declines by name rather than reporting a zero share.
+            var share = new MeasureHuntKnownUnusableShare();
+            Require(share.Missing(Load("0.44.0")) is null,
+                "the hunt-offer measure declined on a capture that predates the removal, so it has stopped grading the captures it is kept for");
+            string? declined = share.Missing(retired);
+            Require(declined is not null && declined.Contains("factors:", StringComparison.Ordinal)
+                    && declined.Contains("0.46.0", StringComparison.Ordinal),
+                "the hunt-offer measure did not decline by name on a capture whose `factors:` breakdown was removed — it reads that field "
+                + "for every decision, so without a gate it reports a share of zero, which on a row whose direction is `down` is a clean "
+                + $"number for a question nobody asked: {declined ?? "it ran"}");
+
+            // The census block says the funnel is retired rather than emitting nothing. A section that
+            // silently disappears is the absence this header exists to make visible.
+            string header = DescribeSession.Of(retired);
+            Require(header.Contains("funnel    retired at schema 0.46.0", StringComparison.Ordinal),
+                "the session header printed no funnel line at all on a 0.46.0 capture; a reader who knows that line scrolls for it and "
+                + $"concludes the recorder dropped it, which is the silent absence the census exists to stop:\n{header}");
+            Require(!DescribeSession.Of(Load("0.44.0")).Contains("funnel    retired", StringComparison.Ordinal),
+                "the header claimed the funnel was retired on a capture from before it was");
+
+            // The check whose *primary* evidence survives must not skip, and must name the two
+            // decorations that went rather than printing a shorter sentence than it used to.
+            var reference = new HuntsWorthTakingAreTaken();
+            Finding[] referenceFindings = reference.Run(retired).ToArray();
+            Require(referenceFindings.Length == 1,
+                $"the players-reference check reported {referenceFindings.Length} finding(s) on a 0.46.0 capture that holds its stretch — "
+                + "its offer, raw and final columns all survive 0.46.0, so it must still ask its question rather than skipping for want of a decoration");
+            Require(referenceFindings[0].Detail.Contains("combat_time retired at 0.46.0", StringComparison.Ordinal),
+                $"the finding dropped `combat_time` from its factor list without saying so, so two findings from two schemas read as factors "
+                + $"that moved: {referenceFindings[0].Detail}");
+            Require(referenceFindings[0].Detail.Contains("combat_funnel` was the family chooser's", StringComparison.Ordinal),
+                $"the finding lost its funnel sentence silently rather than naming what took it: {referenceFindings[0].Detail}");
+
+            // **A removed column planted back into a 0.46.0 header.** The reader must prefer the real
+            // column over the retirement notice — the notice is what it says when the column is absent,
+            // not a claim about the schema — and this is the arm that reddens if the assertions above
+            // are keyed on the schema rather than on what the capture actually carries.
+            Session planted = Load("0.46.0", "\tcombat_funnel", "\tstand-unreachable");
+            string plantedHeader = DescribeSession.Of(planted);
+            Require(plantedHeader.Contains("funnel    combat: stand-unreachable", StringComparison.Ordinal)
+                    && !plantedHeader.Contains("funnel    retired", StringComparison.Ordinal),
+                "a 0.46.0 capture that does carry a funnel column was told its funnel was retired instead of being shown it — the notice "
+                + $"is for an absent column and must never stand in front of a present one:\n{plantedHeader}");
+        }
+        finally { File.Delete(file); if (File.Exists(events)) File.Delete(events); }
+    }
+
     private static void TheCourseErasChecksReplaceTheChoosersAtTheirSchema()
     {
         string file = Path.GetTempFileName();

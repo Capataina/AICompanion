@@ -104,13 +104,29 @@ public sealed class HuntsWorthTakingAreTaken : ICheck
                 && Session.TryPair(velocity.Text[i], out float vx, out float vy) && MathF.Sqrt(vx * vx + vy * vy) <= IdleSpeed;
         foreach (Stretch stretch in FindStretches.Where(session.Count, Holds, MinTicks, AllowGap))
         {
+            // **This check's own evidence survives 0.46.0 and two of its decorations do not, so it
+            // names their absence rather than skipping.** A named skip is for a question the capture
+            // cannot answer; the question here — a usable hunt losing to keeping company beside an idle
+            // player — is answered by `_offer`, `_raw` and `_fin`, all of which the course still writes.
+            // What went with the family chooser is `_time`, its per-activity time discount, and
+            // `_funnel`, its preparation-time shortlist. Dropping them from the sentence silently would
+            // leave a reader comparing two findings from two schemas and concluding the factors moved.
+            bool retired = !CompletedTransferClaimsWereReceived.SchemaBelow(session, CompletedTransferClaimsWereReceived.ChooserColumnsRetired);
             var factors = new List<string>();
             foreach (string column in new[] { prefix + "_raw", prefix + "_fin", prefix + "_time", "keep-company_fin" })
                 if (session.Has(column)) factors.Add($"{column} {FindStretches.Mean(session[column], stretch):0.000}");
+                else if (retired && column.EndsWith("_time", StringComparison.Ordinal))
+                    factors.Add($"{column} retired at {CompletedTransferClaimsWereReceived.ChooserColumnsRetired} with the family chooser, "
+                        + "having been a constant 1.000 by decision before that");
             string offers = string.Join(", ", FindStretches.Tally(offer, stretch).Take(2).Select(p => $"{p.Key} {100f * p.Value / stretch.Length:0}%"));
             string funnel = session.Has(prefix + "_funnel")
                 ? $" Hunting's furthest candidate stopped at: {string.Join(", ", FindStretches.Tally(session[prefix + "_funnel"], stretch).Take(2).Select(p => $"{p.Key} {100f * p.Value / stretch.Length:0}%"))}."
-                : "";
+                : retired
+                    ? $" Where the candidate stopped is not in this capture: `{prefix}_funnel` was the family chooser's preparation-time "
+                      + $"shortlist and went at schema {CompletedTransferClaimsWereReceived.ChooserColumnsRetired}; the course's nearest "
+                      + "equivalent is the decision occurrence's `course-refused:<reason>` tally, which counts refusals per domain rather "
+                      + "than naming the stage one candidate reached."
+                    : "";
             yield return new Finding(
                 Severity.Potential,
                 Name,
