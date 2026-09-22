@@ -269,7 +269,35 @@ internal static class PrepareTheHeadlessEngine
         Set(companion, "loggedFirstTick", true);
 
         ForgetEverythingLearnedAboutTheWorld();
+        PutTheCompanionWhereTheEngineCanFindIt(companion, npc);
         return companion;
+    }
+
+    /// <summary>
+    /// Puts the attached body into an engine slot, because several production readers reach the
+    /// companion by scanning for it rather than by being handed it.
+    ///
+    /// <c>CompanionNPC.Instance</c> walks <c>Main.ActiveNPCs</c> for the registered type, so a body
+    /// carrying both halves of the ModNPC attachment and sitting in no slot is invisible to it. The
+    /// reader that made this visible is the decision audit's source: <c>ReadLiveCourseForAudit.Read</c>
+    /// reaches the course through <c>Instance</c>, so every world run before this returned null there
+    /// and audited every decision against nothing — `decisions-audited=600;audit-observations-read=0`
+    /// on the play-measures capture, measured by the soak lane on 22 September 2026.
+    ///
+    /// It runs after <see cref="ForgetEverythingLearnedAboutTheWorld"/> rather than beside the rest of
+    /// the attachment, because that reset switches every NPC slot off and would take the companion
+    /// with it. Slot zero is safe: <c>StageRecordedActors</c> refuses any recorded slot at or below
+    /// zero, and the combat variant's zombie stands at slot 50.
+    /// </summary>
+    private static void PutTheCompanionWhereTheEngineCanFindIt(CompanionNPC companion, NPC npc)
+    {
+        // One template registered, as the loader does, for the same reason the companion player is:
+        // a fresh template per instance makes ContentInstance<T>.Instance null once two exist.
+        if (ModContent.GetInstance<CompanionNPC>() == null) ContentInstance.Register(companion);
+        npc.type = ModContent.NPCType<CompanionNPC>();
+        npc.whoAmI = 0;
+        npc.active = true;
+        Main.npc[0] = npc;
     }
 
     /// <summary>
@@ -323,6 +351,12 @@ internal static class PrepareTheHeadlessEngine
         live::AICompanion.Companion.Progression.CompanionExperience.DefaultEnemyLife = live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLifeInThisWorld;
         live::AICompanion.Companion.Progression.CompanionExperience.NormalEnemyLife = () => live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLife(Terraria.DataStructures.GameModeData.NormalMode);
         live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.CompanionTorches.Clear();
+        // The audit's per-session memory, cleared for the same reason as everything above it: its two
+        // counts and its fact ages are static, so a second pass would inherit the first's and the row
+        // that grades them would read two runs summed. The recorder's own OnWorldLoad clears it too,
+        // which is why this was invisible until the counts were graded on a run with --no-recorder.
+        // Source is deliberately left alone by Reset, because it is wiring rather than session state.
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Reset();
         live::AICompanion.Companion.Progression.CreditWork.ForgetPaidTorches();
         foreach (NPC npc in Main.npc)
             if (npc != null)
