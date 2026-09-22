@@ -282,12 +282,18 @@ public sealed class ChopTree : CompanionAction
                 if (ctx.Companion.Chopper.LastOutcome is { } outcome)
                 {
                     var owner = ctx.Companion.Brain.Activity;
-                    Infrastructure.Diagnostics.GodsEyeEvents.// The course's decision identity, which is the same `choice_id` the recorder's rows carry since
-                    // schema 0.43.0. This passed `Chooser.EvaluationId` until 22 September 2026, and the chooser
-                    // stopped advancing that counter when `0bb2c8a` took it off the tick — so every `tool-effect`
-                    // occurrence in every played session claimed identity zero and could not be joined to the
-                    // decision that caused it. `b595fbd` fixed the column and left the occurrence behind it.
-                    RecordToolEffect(ctx.Npc, "axe", outcome, ctx.Companion.Brain.Course.DecisionId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
+                    // The course's decision identity, which is the same `choice_id` the recorder's rows carry
+                    // since schema 0.43.0. This passed `Chooser.EvaluationId` until 22 September 2026, and the
+                    // chooser stopped advancing that counter when `0bb2c8a` took it off the tick, so any
+                    // `tool-effect` occurrence written after that carried identity zero and could not be joined
+                    // to the decision that caused it. **No capture demonstrates it**: all 43 event sidecars since
+                    // the switch contain zero `tool-effect` occurrences, the last one carrying any being
+                    // `2026-09-16_09-44-42-164`, pre-switch, where the id equals the tick. So this is a defect
+                    // reasoned from the source with no observed instance, and the row that would have caught it
+                    // does not exist — it would assert that a session in which the companion breaks a tile writes
+                    // a `tool-effect` naming the decision that bound the work, which is one assertion over the
+                    // mining evidence scene's existing capture in `VerifyAttemptEvidenceProducers`.
+                    Infrastructure.Diagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "axe", outcome, ctx.Companion.Brain.Course.DecisionId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
                     if (outcome.Effect == Infrastructure.Interactions.TileToolEffect.Removed && outcome.Target == t.Bottom) attemptFelled = true;
                     if (outcome.Productive) ctx.Companion.Brain.Activity.RecordWork(t.Bottom.ToWorldCoordinates());
                 }

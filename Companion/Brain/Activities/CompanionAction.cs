@@ -98,10 +98,6 @@ public abstract class CompanionAction
             ? new(AttemptStatus.Partial, "replaced-after-productive-effect")
             : new(AttemptStatus.Attempted, "replaced-before-productive-effect");
 
-    /// <summary>The chooser clears the classification before each preparation, so a preparation path
-    /// that returns without classifying reads as no opportunity rather than keeping last tick's.</summary>
-    internal void ResetClassification() => Classify(OfferEligibility.NoOpportunity, "not-classified-this-preparation");
-
     public abstract string Name { get; }
     public abstract PurposeFamily Family { get; }
 

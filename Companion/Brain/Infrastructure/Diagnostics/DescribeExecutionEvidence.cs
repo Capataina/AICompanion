@@ -11,8 +11,8 @@ using AICompanion.Companion.Brain.Infrastructure.Interactions;
 namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 
 /// <summary>
-/// The inspector's Execution evidence, built only from state the brain has already retained: the chooser's last family
-/// nominations and scored offers, the positioner's admitted success region, the last control grant, and the activity
+/// The inspector's Execution evidence, built only from state the brain has already retained: what the course thought
+/// each activity's work was worth, the positioner's admitted success region, the last control grant, and the activity
 /// owner's open attempt and latest conclusion. It calls no planner, positioner, aimer or reach test, so reading it can
 /// neither change a decision nor pay for a solve; and it is plain data, so the offscreen renderer checks it with no game.
 /// </summary>

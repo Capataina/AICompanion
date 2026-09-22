@@ -244,7 +244,8 @@ internal static class VerifyOreWork
     /// so the same work is worth less when the way back is awkward; a stationary player's route home is
     /// not charged, because the charge scales the route by departure and calm absence is priced by
     /// accumulated separation instead. Route evidence is primed through the positioner's own flood, which
-    /// is where the chooser reads it, and the mound must actually lengthen that route or nothing is compared.
+    /// is where the reunion assessment reads it, and the mound must actually lengthen that route or nothing
+    /// is compared.
     /// </summary>
     private static void ReunionChargeReadsDepartureAndTheRouteHome()
     {

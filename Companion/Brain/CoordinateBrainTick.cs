@@ -20,10 +20,11 @@ using AICompanion.Companion.CharacterBody;
 namespace AICompanion.Companion.Brain;
 
 /// <summary>
-/// The tick order of the companion's mind: senses read the world, the chooser picks a
-/// family offer, the behaviour acts and asks for a spot, the positioner picks the spot,
-/// the navigator flies there and the evade layer bends that flight away from a predicted
-/// hit. Everything the overlay and telemetry show is left on these objects after the tick.
+/// The tick order of the companion's mind: senses read the world, every activity prepares what it
+/// would do, a course is decided or carried and its bound step names the activity and the kind of
+/// place, the positioner picks the spot, the navigator flies there and the evade layer bends that
+/// flight away from a predicted hit. Everything the overlay and telemetry show is left on these
+/// objects after the tick.
 /// </summary>
 public sealed class Brain
 {

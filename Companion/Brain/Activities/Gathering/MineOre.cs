@@ -381,12 +381,11 @@ public sealed class MineOre : CompanionAction
             if (ctx.Companion.Miner.LastOutcome is { } outcome)
             {
                 var owner = ctx.Companion.Brain.Activity;
-                Infrastructure.Diagnostics.GodsEyeEvents.// The course's decision identity, the same `choice_id` the recorder's rows carry since schema
-                // 0.43.0. This passed `Chooser.EvaluationId` until 22 September 2026, and the chooser stopped
-                // advancing that counter when `0bb2c8a` took it off the tick — so every `tool-effect` occurrence
-                // in every played session claimed identity zero and could not be joined to the decision that
-                // caused it. `b595fbd` fixed the column and left the occurrence behind it.
-                RecordToolEffect(ctx.Npc, "pickaxe", outcome, ctx.Companion.Brain.Course.DecisionId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
+                // The course's decision identity, the same `choice_id` the recorder's rows carry since schema
+                // 0.43.0. `ChopTree` carries the whole account: this passed `Chooser.EvaluationId`, which stopped
+                // advancing at `0bb2c8a`, and no capture since contains a `tool-effect` occurrence at all, so the
+                // defect is read from the source rather than observed and no row asserts it.
+                Infrastructure.Diagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "pickaxe", outcome, ctx.Companion.Brain.Course.DecisionId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
                 if (outcome.Effect == Infrastructure.Interactions.TileToolEffect.Removed
                     && outcome.Before.Type == jobType && jobTiles.Contains(outcome.Target))
                     ownRemovals.Add(outcome.Target);

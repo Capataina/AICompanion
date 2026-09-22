@@ -23,9 +23,11 @@ using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weigh
 /// it on 15 September 2026 from the third orb play, where a slime ten to fifteen tiles above an idle player was left alone
 /// while the companion hovered beside him, and where keeping company was chosen on 60.3% of the session.
 ///
-/// <para>Four rows, each with its pass line declared before the first run, and each read only through the chooser's own
-/// score ledger and the whole brain, so the same file runs against the value rules this lane replaced and a mutation that
-/// plants one of them back reddens a named row:</para>
+/// <para>Four rows, each with its pass line declared before the first run, and each read through the shared course worth
+/// reader and the whole brain, so the same file runs against the value rules this lane replaced and a mutation that
+/// plants one of them back reddens a named row. They were read through the family chooser's own score ledger until
+/// `2f89082` repointed them, which is worth knowing when comparing a row's message against an older run: that ledger
+/// had been empty since `0bb2c8a`, so the numbers those messages printed were dashes.</para>
 /// <list type="bullet">
 /// <item>an idle player, a bow in the companion's first slot and a slime thirteen tiles above his feet: hunting is chosen
 /// within 120 ticks;</item>

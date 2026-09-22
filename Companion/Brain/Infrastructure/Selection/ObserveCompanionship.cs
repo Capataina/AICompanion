@@ -11,11 +11,17 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection;
 /// than choice, which is why it is its own thing and not part of any decision.
 ///
 /// **It used to live inside `Chooser.Choose`, and all of it but the apart-tick count was dead in play for
-/// a day.** `CoordinateBrainTick` called the observation directly, so the count kept running, while
-/// `Reunion.Evaluate`, the return estimate and the regroup urgency were reached only through `Choose` —
-/// which `0bb2c8a` took off the tick. The recorder's three reunion columns therefore carried one live
-/// number beside two frozen defaults for whole sessions, and `KeepCompany.CalculateReunionValue` read a
-/// regroup urgency of exactly zero. Nothing went red, because a frozen float is a legal float.
+/// ten hours on 21 September 2026.** `CoordinateBrainTick` called the apart-tick observation directly, so
+/// the count kept running, while `Reunion.Evaluate`, the return estimate and the regroup urgency were
+/// reached only through `Choose` — which `0bb2c8a` took off the tick at 08:21. The recorder's three
+/// reunion columns therefore carried one live number beside two frozen defaults, and
+/// `KeepCompany.CalculateReunionValue` read a regroup urgency of exactly zero. Nothing went red, because
+/// a frozen float is a legal float, and `4e7d094` found it at 18:42 that evening by reading the columns.
+///
+/// **What `AIC-419` did the next day is relocate this out of the class it deleted, not revive it.** Every
+/// number here was already live at that lane's branch point, and the row below is `4e7d094`'s rather than
+/// the extraction's. Saying so matters because the deletion is the conspicuous commit: a reader crediting
+/// the extraction with the fix dates the defect a day late and assumes the guard is as young as the class.
 ///
 /// The general shape, which is the part worth keeping and the reason this is a separate class rather
 /// than a method on whatever decides: **a decision procedure that also observes leaves its observations
