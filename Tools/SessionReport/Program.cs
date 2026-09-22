@@ -251,6 +251,10 @@ public static class Program
         // the companion decided with it. They are printed together and in that order deliberately, so a
         // story is never read without the coverage statement that says how much of it is there.
         Console.Write(DescribeCourseDecisions.Of(session, fullTimeline));
+        // And the same decisions as a table keyed on the identity the rows carry, with the census, the
+        // ordered course and the cost joined to each. The narration above answers "what was it doing at
+        // tick N"; this answers "what was it given, what did it choose, and what did that cost".
+        Console.Write(WriteCourseTimeline.Of(session, fullTimeline));
         Console.Write(JoinAttemptEvidence.Describe(path, session, fullTimeline));
         Console.Write(Chronicle.Of(session, fullTimeline));
         if (session.Count == 0)

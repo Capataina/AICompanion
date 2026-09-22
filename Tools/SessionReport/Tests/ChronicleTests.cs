@@ -73,6 +73,7 @@ public static class ChronicleTests
             CourseDecisionsAreReadCheckedAndNarrated();
             ACensusAdmissionMustSurviveItsOwnBinder();
             ASyntheticCaptureIsNotReadAsPlay();
+            TheCourseTimelineIsOneRowPerDecisionAndFoldsWhatRepeats();
             TheGuideQuotesTheSchemaConstantItDocuments();
             TheAuditsOwnWiringIsWitnessedByTheCapture();
             TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
@@ -361,6 +362,109 @@ public static class ChronicleTests
     /// <para>The producer name is read as written rather than matched against <c>world-run</c>, so a
     /// second harness writing a different producer is refused as play too. The arm below uses one.</para>
     /// </summary>
+    /// <summary>
+    /// The decision table: one row per decision, folded where consecutive decisions say the same thing,
+    /// with the census, the ordered course and the cost joined to each.
+    ///
+    /// <para>Its two joins are what the arms below exist for, and both were wrong in the first version.
+    /// <b>A decision's payload is not on its own `choice_tick`</b>: `choice_id` advances on the tick a
+    /// decision is reached and the payload is written when an outcome is traced, which on the 22
+    /// September 2026 capture puts 2,340 payloads on 1,364 ticks and the decision reached at tick 5 at
+    /// tick 6 — a lookup keyed on the decision tick missed about half of them and printed dashes where
+    /// the numbers belong. And <b>a decision that traced no payload is not a difference</b>: treating
+    /// that absence as a distinguishing value split the table into a hundred runs, a third of them one
+    /// undescribed decision each, which is the per-tick log the page exists to replace.</para>
+    /// </summary>
+    private static void TheCourseTimelineIsOneRowPerDecisionAndFoldsWhatRepeats()
+    {
+        object Field(string kind, string text) => new { Kind = kind, Text = text };
+        string Marker(int seq, string kind) => JsonSerializer.Serialize(new { v = 1, seq, tick = 0, wall_elapsed_ms = 0d,
+            kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+            expected_x = 0f, expected_y = 0f, amount = 0, detail = "" });
+        string Payload(int seq, long tick, string activity, long steps, long priced, long refused)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "course-course-decision",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+                payload_kind = ReadCourseDecisions.Kind, payload_version = 1, phase = "brain",
+                observation_ordinal = tick, receipt_watermark = 0L,
+                payload = new { Kind = ReadCourseDecisions.Kind, Version = 1, Fields = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["reason"] = Field("text", "course-published"),
+                    ["activity"] = Field("text", activity),
+                    ["settled"] = Field("flag", "true"),
+                    ["purpose"] = Field("text", activity),
+                    ["steps"] = Field("integer", steps.ToString(CultureInfo.InvariantCulture)),
+                    ["orders-priced"] = Field("integer", priced.ToString(CultureInfo.InvariantCulture)),
+                    ["orders-refused"] = Field("integer", refused.ToString(CultureInfo.InvariantCulture)),
+                    ["search-exhausted"] = Field("flag", "true"),
+                    ["release-reason"] = Field("text", ""),
+                    ["facts"] = Field("integer", "7"),
+                } } });
+        string Admission(int seq, long tick, long combat)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "decision",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0,
+                detail = $"scores=;{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}combat=usable:{combat},unknown:0,unusable:0,reason:-;" });
+
+        string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+        try
+        {
+            // Six ticks, three decisions. Decision 1 is retained over ticks 1–3 and its payload is
+            // traced at tick 2, not at its own choice_tick of 1. Decision 2 at tick 4 traces nothing at
+            // all. Decision 3 at ticks 5–6 says exactly what decision 1 said, but the census has moved
+            // under it, so it must not fold into the same run.
+            var rows = new StringBuilder("# schema=0.44.0\n"
+                + "tick\tchoice_id\tchoice_tick\taction\tdecide_ms\ttask_order\ttask_order_runner_up\n"
+                + "1\t1\t1\tcombat\t4.00\t-\t-\n"
+                + "2\t1\t1\tcombat\t6.00\t-\t-\n"
+                + "3\t1\t1\tcombat\t5.00\t-\t-\n"
+                + "4\t2\t4\tcombat\t9.00\t-\t-\n"
+                + "5\t3\t5\tcombat\t7.00\t-\t-\n"
+                + "6\t3\t5\tcombat\t7.00\t-\t-\n");
+            File.WriteAllText(tsv, rows.ToString());
+            File.WriteAllLines(events, new[]
+            {
+                Marker(0, "session"),
+                Admission(1, 1, 3),
+                Payload(2, 2, "combat", 2, 7, 6),
+                Admission(3, 5, 1),
+                Payload(4, 5, "combat", 2, 7, 6),
+                Marker(5, "session-end"),
+            });
+
+            string page = WriteCourseTimeline.Of(Session.Load(tsv), fullTimeline: true);
+            Require(page.Contains("3 decision(s) over 6 tick(s)", StringComparison.Ordinal),
+                "the page did not count decisions by their identity rather than by ticks: " + page);
+            // The payload traced at tick 2 belongs to the decision reached at tick 1, and finding it is
+            // what puts numbers rather than dashes on the row. Asserted before the undescribed count,
+            // because a join keyed on the decision tick moves both and only this one names the cause.
+            string[] lines = page.Split('\n');
+            string opening = lines.FirstOrDefault(l => l.StartsWith("  1", StringComparison.Ordinal)
+                && (l.Length > 3 && (l[3] == '–' || l[3] == ' '))) ?? "";
+            Require(opening.Contains("7/6", StringComparison.Ordinal),
+                "the row opening at tick 1 carries no numbers, so the payload traced inside that decision's span was not joined to it — "
+                + $"a join keyed on `choice_tick` finds nothing at tick 1, because the trace landed at tick 2: '{opening.Trim()}'");
+            Require(page.Contains("1 decision(s) traced no payload of their own", StringComparison.Ordinal),
+                "a decision with no traced payload was not reported as undescribed, or more of them were undescribed than the fixture holds: " + page);
+            Require(page.Contains("combat=3", StringComparison.Ordinal) && page.Contains("combat=1", StringComparison.Ordinal),
+                "the census admission standing when each decision ran was not carried onto its row: " + page);
+            // Decisions 1 and 2 fold — the undescribed one is not a difference — and decision 3 does not,
+            // because the census moved. Two data rows, one per census.
+            int dataRows = lines.Count(line => line.Length > 2 && line.StartsWith("  ", StringComparison.Ordinal)
+                && char.IsAsciiDigit(line[2]));
+            Require(dataRows == 2, $"the table printed {dataRows} data row(s) rather than two — the undescribed decision must fold into the "
+                + $"run it sits in, and the census moving must split one: {page}");
+
+            // A capture whose `choice_id` is the family chooser's declines by name rather than drawing a
+            // table of a brain it did not run.
+            File.WriteAllText(tsv, rows.ToString().Replace("# schema=0.44.0", "# schema=0.42.0", StringComparison.Ordinal));
+            string older = WriteCourseTimeline.Of(Session.Load(tsv), fullTimeline: true);
+            Require(older.Contains("unavailable", StringComparison.Ordinal) && older.Contains("0.43.0", StringComparison.Ordinal),
+                "a capture from before the course owned `choice_id` was drawn as a course timeline: " + older);
+        }
+        finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+    }
+
     private static void ASyntheticCaptureIsNotReadAsPlay()
     {
         string file = Path.GetTempFileName();

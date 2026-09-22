@@ -22,7 +22,7 @@ SessionReport/
 ├─ Read/                  parser, stretches, God's Eye, attempt joins, chronicle, session description
 ├─ Checks/                one file per question the record can answer
 ├─ Measures/              the numbers a play holds, emitted as ledger rows and never graded here
-├─ Write/                 HTML timeline and multi-run provenance
+├─ Write/                 the decision table, the HTML timeline and multi-run provenance
 └─ Tests/                 ChronicleTests on synthetic records, PlayMeasureTests on a real capture
 ```
 
@@ -45,7 +45,9 @@ DescribeCourseDecisions  what happened?               those records narrated, co
                                                       activity and bound purpose
 ```
 
-A fourth file asks the question those three cannot: `Checks/CheckTheCensusAgainstItsBinder.cs` joins the census admissions on the periodic `decision` occurrence to the refusal tallies on the per-tick `course-decision` payload, and reports a domain admitted usable whose every order the same decision refused for want of an observed target. That is the whole of the 22 September 2026 capture's "not attacking and not collecting" symptom, it was visible in one field of one occurrence, and six independent readings each found it by hand because nothing here asked. `Checks/CLAUDE.md` carries the join, the grade and what the carried admission costs.
+A fourth page sits under those three and is the one to read first: `Write/WriteCourseTimeline.cs` prints one row per *decision* — keyed on `choice_id`, folded where consecutive decisions say the same thing — carrying what each domain's census admitted, what the course ordered, what it bound, what released it and what it cost. It is a different question from the narration above, which coalesces occurrences on what was decided; `Write/CLAUDE.md` owns the split and the three joins that were each a way to get it wrong. On the 22 September 2026 capture its last row is the whole diagnosis: 258 decisions from tick 1,821 to the end, keeping company, zero steps, one order priced and twenty-eight refused, beside a census admitting three combat targets and four drops.
+
+A fifth file asks the question none of those can: `Checks/CheckTheCensusAgainstItsBinder.cs` joins the census admissions on the periodic `decision` occurrence to the refusal tallies on the per-tick `course-decision` payload, and reports a domain admitted usable whose every order the same decision refused for want of an observed target. That is the whole of the 22 September 2026 capture's "not attacking and not collecting" symptom, it was visible in one field of one occurrence, and six independent readings each found it by hand because nothing here asked. `Checks/CLAUDE.md` carries the join, the grade and what the carried admission costs.
 
 The gate prints above the story in `Program`, deliberately, so a story is never read without the statement of how much of it is there. `Checks/CheckCourseDecisions.cs` restates producer guarantees with no threshold in any of them — a decision's published refusal tallies cannot account for more orders than the same record says it refused, a purpose read off the bound step means a course with at least that step, and every path through the owner names a reason — so a violation is Definitive; a capture new enough to hold decisions and holding none reports Potential rather than passing, because measuring nothing and finding nothing read identically. `Measures/MeasureCourseWork.cs` grades none of it.
 
