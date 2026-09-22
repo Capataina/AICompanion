@@ -180,6 +180,22 @@ public sealed class DecideCourseEachTick
         = new Dictionary<string, CourseValue>(StringComparer.Ordinal);
 
     /// <summary>
+    /// The best order the last search priced whose first step is not the winner's, as the purposes it
+    /// would have performed and what it was worth.
+    ///
+    /// The recorder writes this as `task_order_runner_up`, which is the column that separates a fight
+    /// that lost narrowly from one that was never on the board — and until the search retained it, that
+    /// column could only say `unavailable:the-search-retains-only-its-best-order`. Purposes rather than
+    /// keys, because a reader wants to know it nearly went mining, not which tile; the value is the
+    /// nominal total, the same number `LastLeaders` is read by.
+    ///
+    /// Null when the search priced fewer than two distinct first steps, which is a real answer: a
+    /// decision with one order on the board has no alternative, and recording "none" as though the
+    /// alternative were unreadable is the confusion the three-valued answers in this tree exist to stop.
+    /// </summary>
+    public (IReadOnlyList<string> Purposes, double Value)? LastRunnerUpOrder { get; private set; }
+
+    /// <summary>
     /// Which decision produced the action being carried out, and when it was reached.
     ///
     /// The recorder writes these as the capture's `choice_id` and `choice_tick`, and every `tool-effect`
@@ -252,6 +268,7 @@ public sealed class DecideCourseEachTick
             LastSearch = (deciding.EvaluatedOrders, deciding.RejectedOrders, deciding.Exhausted);
             LastRefusals = deciding.Refusals;
             LastLeaders = deciding.Leaders;
+            LastRunnerUpOrder = RunnerUpOf(deciding);
             if (!deciding.Exhausted) return Deciding(context);
             return Settle();
         }
@@ -354,6 +371,7 @@ public sealed class DecideCourseEachTick
         LastSearch = (search.EvaluatedOrders, search.RejectedOrders, search.Exhausted);
         LastRefusals = search.Refusals;
         LastLeaders = search.Leaders;
+        LastRunnerUpOrder = RunnerUpOf(search);
         deciding = search;
         decidingFacts = facts;
         decidingEpisode = episode;
@@ -445,6 +463,15 @@ public sealed class DecideCourseEachTick
     {
         while (!search.Exhausted && !budget.Exhausted) models.ContinueSearch(search, budget);
     }
+
+    /// <summary>The search's runner-up as the recorder reads it: the purposes that order would have
+    /// performed, in order, and its nominal worth. An empty order keeps an empty purpose list rather
+    /// than becoming null, because "the runner-up was doing nothing" is a different answer from "there
+    /// was no runner-up" and the first is a real and frequent outcome.</summary>
+    private static (IReadOnlyList<string> Purposes, double Value)? RunnerUpOf(SearchCourseOrders search)
+        => search.RunnerUp is { } order && search.RunnerUpValue is { } value
+            ? (order.Steps.Select(step => step.Opportunity.Purpose).ToArray(), value.Total.Nominal)
+            : null;
 
     /// <summary>The step the course is about to perform, which is the first one no receipt has closed.
     /// A course whose steps are all done is finished rather than current, and the caller treats that the

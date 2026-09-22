@@ -100,6 +100,7 @@ internal static class VerifyEngineMotion
         ("an opportunity the census admits usable is one the binder can still read", VerifyAdmittedOpportunitiesBind.Run),
         ("a decision that spans ticks keeps the fight the body is already in", VerifyADecisionInFlightKeepsTheFight.Run),
         ("what one decision costs to assemble and to carry", VerifyWhatEachDecisionCosts.Run),
+        ("the search keeps the best order the winner beat", VerifyTheSearchRetainsItsRunnerUp.Run),
         ("collecting, lighting and pot breaking bind steps a course can hold", VerifyAssistanceCourseBindings.Run),
         ("native lighting projections preserve captured light and shared deficits", VerifyLightingOpportunityCapture.Run),
         ("native tree census retains work across cuts and observes axe effects", VerifyTreeOpportunityCapture.Run),

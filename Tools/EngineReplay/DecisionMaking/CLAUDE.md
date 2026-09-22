@@ -15,8 +15,11 @@ DecisionMaking/
 ├─ VerifyCourseBindingExecution.cs a bound step's activity and position request, and every source having a binder at all
 ├─ VerifyAdmittedOpportunitiesBind.cs the whole tick over a scene that loses bodies: a census admission and its binder read one evidence
 ├─ VerifyADecisionInFlightKeepsTheFight.cs the whole tick with the decision held open: an unsettled tick keeps the fight rather than exiting it
-└─ VerifyWhatEachDecisionCosts.cs what a decision costs to assemble and to carry, in bytes and counts rather than milliseconds
+├─ VerifyWhatEachDecisionCosts.cs what a decision costs to assemble and to carry, in bytes and counts rather than milliseconds
+└─ VerifyTheSearchRetainsItsRunnerUp.cs the best order the winner beat, kept through the search rather than discarded
 ```
+
+**`VerifyTheSearchRetainsItsRunnerUp` guards the column the recorder writes as `task_order_runner_up`**, and its two rows are the two answers that column must be able to give. Two drops on the floor price several orders across distinct first steps, and the runner-up must start somewhere the winner does not — the first step is the discriminator because it is the only part of an order the tick performs, so two orders that begin the same way are one answer to "what would it have done instead". An empty floor prices exactly one order and the runner-up must be *null*, because "there was no alternative" and "the alternative is unreadable" are different facts and a column that is always non-empty stops being read.
 
 **`VerifyWhatEachDecisionCosts` measures bytes and counts rather than milliseconds, and that is this folder's rule rather than its preference**: the root guide records the suite running about 2.3 times slower per operation than a standalone run, so a wall-clock threshold here would test how far through the suite the row sits as much as the code under it. Its per-fact row builds two thousand facts with their keys and values prepared *outside* the measurement — a capture composes facts out of values it already holds, so the strings are the capture's cost rather than the fact's — and throws one warm-up pass away, because the JSON serialiser and the hash both warm reflection on first use. Measured 22 September 2026: 112 bytes a fact lazily against 1,387 eagerly.
 
