@@ -29,6 +29,19 @@ namespace AICompanion.Tools.SessionReport;
 /// usable:4" is one row of a table and five hundred rows of a log. The count and the span ride on the
 /// folded row, so nothing is hidden by the folding — only repeated.</para>
 ///
+/// <para><b>The release reason rides on an unsettled record, so the row that carries a decision's
+/// numbers is never the row that carries why it ended.</b> <c>DecideCourseEachTick</c> traces the
+/// release on the tick immediately after publication, and that record is unsettled; the settled record
+/// is the one holding the steps, the pricing and the refusals. On the 22 September 2026 capture the two
+/// are perfectly disjoint over all 2,340 payloads — <c>settled &amp;&amp; no release</c> 1,364 times,
+/// <c>unsettled &amp;&amp; released</c> 976, and no other combination — so a selector that prefers the
+/// settled payload and then reads its release reason prints a dash on every row of the table while the
+/// producer wrote 976 reasons. It did, for 1,068 of 1,068 decisions, until this was fixed. The two
+/// values are therefore picked off the span separately: the numbers off the settled record, the release
+/// off the last record in the span that carries one. <c>a1b9857</c> found the same shape in the release
+/// contract on the same afternoon, against a fixture whose every row was settled, which is why every
+/// fixture here now writes at least one released payload.</para>
+///
 /// <para><b>Both order columns read `-` on every capture written before schema 0.45.0</b>, and the
 /// page says so once rather than printing a dash five hundred times without explanation:
 /// <c>task_order</c> and <c>task_order_runner_up</c> read the family chooser's permutation scoring,
@@ -105,7 +118,7 @@ public static class WriteCourseTimeline
             string cost = $"{d.MedianCostMs:0.0}/{run.WorstCostMs:0.0}";
             text.Append($"  {span,-17} {run.Decisions,9:n0}  {Fit(d.Bound + (d.Settled || !d.HasPayload ? "" : "?"), 13)}  "
                 + $"{(d.HasPayload ? d.Steps.ToString(CultureInfo.InvariantCulture) : "-"),5}  {priced,14}  {cost,9}  "
-                + $"{Fit(d.Census, 40)}  {Fit(d.Order, 5)}  {d.Release}\n");
+                + $"{Fit(d.Census, 40)}  {Fit(d.Order, 5)}  {run.Release}\n");
         }
         return text.ToString();
     }
@@ -116,7 +129,11 @@ public static class WriteCourseTimeline
         bool HasPayload, bool Settled, long Steps, long Priced, long Refused, bool Exhausted,
         string Release, string Census, string Order, double MedianCostMs, double WorstCostMs);
 
-    private sealed record Run(long FromTick, long ToTick, int Decisions, Decision First, double WorstCostMs, int Undescribed);
+    private sealed record Run(long FromTick, long ToTick, int Decisions, Decision First, double WorstCostMs,
+        int Undescribed, string Release);
+
+    /// <summary>What a column reads where the producer wrote nothing for it.</summary>
+    private const string None = "-";
 
     private static List<Decision> Build(Session session)
     {
@@ -161,9 +178,14 @@ public static class WriteCourseTimeline
 
             long at = (long)(float.IsNaN(decided.Number[start]) ? from : decided.Number[start]);
             while (payloadAt < payloads.Length && payloads[payloadAt].Tick < from) payloadAt++;
-            CourseDecision? payload = null;
+            // **The numbers and the release reason come off different records, because the producer
+            // never writes them on the same one.** See the release paragraph on the class.
+            CourseDecision? payload = null, released = null;
             for (int p = payloadAt; p < payloads.Length && payloads[p].Tick <= to; p++)
+            {
                 if (payload is null || payloads[p].Settled || !payload.Settled) payload = payloads[p];
+                if (payloads[p].ReleaseReason.Length > 0) released = payloads[p];
+            }
 
             var costs = Enumerable.Range(start, end - start + 1)
                 .Select(i => (double)cost.Number[i]).Where(v => !double.IsNaN(v)).OrderBy(v => v).ToArray();
@@ -177,7 +199,7 @@ public static class WriteCourseTimeline
             built.Add(new Decision(identity, from, to, at, action.Text[start],
                 payload is not null, payload?.Settled ?? false, payload?.Steps ?? 0, payload?.OrdersPriced ?? 0,
                 payload?.OrdersRefused ?? 0, payload?.SearchExhausted ?? false,
-                payload is { ReleaseReason.Length: > 0 } ? $"{payload.ReleaseReason}@{payload.Tick:n0}" : "-",
+                released is not null ? $"{released.ReleaseReason}@{released.Tick:n0}" : None,
                 census, ordered, median, worst));
         }
         return built;
@@ -196,23 +218,29 @@ public static class WriteCourseTimeline
         long from = open.FromTick, to = open.ToTick;
         int count = 1, undescribed = open.HasPayload ? 0 : 1;
         double worst = open.WorstCostMs;
+        string release = open.Release;
         for (int i = 1; i < decisions.Count; i++)
         {
             Decision next = decisions[i];
-            if (Same(open, next))
+            if (Same(open, release, next))
             {
                 to = next.ToTick; count++; worst = Math.Max(worst, next.WorstCostMs);
+                // The run's release is whichever of its members traced one; they agree by
+                // construction, because a run only folds across decisions whose released reasons
+                // match or whose spans traced none at all.
+                if (release == None) release = next.Release;
                 if (!next.HasPayload) undescribed++;
                 // A run whose first decision traced nothing takes the first that did as its
                 // representative, so the row's numbers are numbers rather than dashes.
                 else if (!open.HasPayload) open = next;
                 continue;
             }
-            runs.Add(new Run(from, to, count, open, worst, undescribed));
+            runs.Add(new Run(from, to, count, open, worst, undescribed, release));
             open = next; from = next.FromTick; to = next.ToTick; count = 1; worst = next.WorstCostMs;
             undescribed = next.HasPayload ? 0 : 1;
+            release = next.Release;
         }
-        runs.Add(new Run(from, to, count, open, worst, undescribed));
+        runs.Add(new Run(from, to, count, open, worst, undescribed, release));
         return runs;
     }
 
@@ -230,8 +258,21 @@ public static class WriteCourseTimeline
     /// run's representative rather than against the previous decision is what keeps it honest: an
     /// undescribed decision joins whatever run it sits in, and the next described one is still compared
     /// against the run's own numbers rather than against a gap.</para>
+    ///
+    /// <para><b>A span that traced no release is not a decision that was not released</b>, for the same
+    /// reason and with the same cost. The release rides on a record written after publication, so a
+    /// decision whose identity moves on before that record lands carries none — 463 of the 22 September
+    /// 2026 capture's 1,092 do. Treating that dash as a value split the first four hundred ticks into
+    /// alternating one-decision runs (57 runs became 81) while nothing about the course had changed, so
+    /// two release reasons are compared only when both are there.</para>
     /// </summary>
-    private static bool Same(Decision a, Decision b)
+    /// <param name="releaseSoFar">The release the open run has already accumulated, which is not
+    /// <paramref name="a"/>'s own: the representative's span may have traced none while a later member's
+    /// did, and comparing against the representative then lets a third member's *different* reason fold
+    /// in silently under the second's. No capture on disk exhibits it — it is closed by construction
+    /// rather than after a sighting, because the symptom is a reason that is simply absent from a table
+    /// nobody can check against the producer without writing a script.</param>
+    private static bool Same(Decision a, string releaseSoFar, Decision b)
     {
         if (!string.Equals(a.Bound, b.Bound, StringComparison.Ordinal)
             || !string.Equals(a.Census, b.Census, StringComparison.Ordinal)
@@ -239,7 +280,8 @@ public static class WriteCourseTimeline
         if (!a.HasPayload || !b.HasPayload) return true;
         return a.Settled == b.Settled && a.Steps == b.Steps && a.Priced == b.Priced
             && a.Refused == b.Refused && a.Exhausted == b.Exhausted
-            && string.Equals(Reason(a.Release), Reason(b.Release), StringComparison.Ordinal);
+            && (releaseSoFar == None || b.Release == None
+                || string.Equals(Reason(releaseSoFar), Reason(b.Release), StringComparison.Ordinal));
     }
 
     /// <summary>A release without its tick, because the tick moves every decision and the reason does not.</summary>

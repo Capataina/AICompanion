@@ -428,7 +428,15 @@ public static class ChronicleTests
         string Marker(int seq, string kind) => JsonSerializer.Serialize(new { v = 1, seq, tick = 0, wall_elapsed_ms = 0d,
             kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
             expected_x = 0f, expected_y = 0f, amount = 0, detail = "" });
-        string Payload(int seq, long tick, string activity, long steps, long priced, long refused)
+        // **`settled` and `release` vary together here because the producer never writes them on one
+        // record.** `DecideCourseEachTick` traces a release on the tick after publication and that
+        // record is unsettled, while the settled record holds the numbers; on the 22 September 2026
+        // capture the two are disjoint over all 2,340 payloads. A fixture that wrote every payload
+        // settled with an empty release — which all four in this file did — cannot tell a reader that
+        // picks the right record from one that prints a dash on every row of the table, and the second
+        // is what shipped.
+        string Payload(int seq, long tick, string activity, long steps, long priced, long refused,
+            bool settled = true, string release = "")
             => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "course-course-decision",
                 subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
                 expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
@@ -438,13 +446,13 @@ public static class ChronicleTests
                 {
                     ["reason"] = Field("text", "course-published"),
                     ["activity"] = Field("text", activity),
-                    ["settled"] = Field("flag", "true"),
+                    ["settled"] = Field("flag", settled ? "true" : "false"),
                     ["purpose"] = Field("text", activity),
                     ["steps"] = Field("integer", steps.ToString(CultureInfo.InvariantCulture)),
                     ["orders-priced"] = Field("integer", priced.ToString(CultureInfo.InvariantCulture)),
                     ["orders-refused"] = Field("integer", refused.ToString(CultureInfo.InvariantCulture)),
                     ["search-exhausted"] = Field("flag", "true"),
-                    ["release-reason"] = Field("text", ""),
+                    ["release-reason"] = Field("text", release),
                     ["facts"] = Field("integer", "7"),
                 } } });
         string Admission(int seq, long tick, long combat)
@@ -456,10 +464,17 @@ public static class ChronicleTests
         string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
         try
         {
-            // Six ticks, three decisions. Decision 1 is retained over ticks 1–3 and its payload is
-            // traced at tick 2, not at its own choice_tick of 1. Decision 2 at tick 4 traces nothing at
-            // all. Decision 3 at ticks 5–6 says exactly what decision 1 said, but the census has moved
-            // under it, so it must not fold into the same run.
+            // Ten ticks, six decisions, and every rule the fold has.
+            //   1–3  decision 1, retained; its numbers are traced at tick 2 rather than at its own
+            //        choice_tick of 1, and its release at tick 3 on an unsettled record
+            //   4    decision 2, tracing nothing at all
+            //   5–6  decision 3, saying what decision 1 said, but under a census that has moved
+            //   7    decision 4, identical to 3 and tracing no release
+            //   8–9  decision 5, identical again, releasing `next-use-invalid:…`
+            //   10   decision 6, identical again, releasing `course-complete`
+            // So 1 and 2 fold; 3, 4 and 5 fold because a span that traced no release is not a decision
+            // that was not released; and 6 splits off 5 because two reasons that are both there and
+            // differ are a difference. Three rows.
             var rows = new StringBuilder("# schema=0.44.0\n"
                 + "tick\tchoice_id\tchoice_tick\taction\tdecide_ms\ttask_order\ttask_order_runner_up\n"
                 + "1\t1\t1\tcombat\t4.00\t-\t-\n"
@@ -467,20 +482,30 @@ public static class ChronicleTests
                 + "3\t1\t1\tcombat\t5.00\t-\t-\n"
                 + "4\t2\t4\tcombat\t9.00\t-\t-\n"
                 + "5\t3\t5\tcombat\t7.00\t-\t-\n"
-                + "6\t3\t5\tcombat\t7.00\t-\t-\n");
+                + "6\t3\t5\tcombat\t7.00\t-\t-\n"
+                + "7\t4\t7\tcombat\t7.00\t-\t-\n"
+                + "8\t5\t8\tcombat\t7.00\t-\t-\n"
+                + "9\t5\t8\tcombat\t7.00\t-\t-\n"
+                + "10\t6\t10\tcombat\t7.00\t-\t-\n");
             File.WriteAllText(tsv, rows.ToString());
             File.WriteAllLines(events, new[]
             {
                 Marker(0, "session"),
                 Admission(1, 1, 3),
                 Payload(2, 2, "combat", 2, 7, 6),
-                Admission(3, 5, 1),
-                Payload(4, 5, "combat", 2, 7, 6),
-                Marker(5, "session-end"),
+                Payload(3, 3, "combat", 2, 7, 6, settled: false, release: "course-complete"),
+                Admission(4, 5, 1),
+                Payload(5, 5, "combat", 2, 7, 6),
+                Payload(6, 7, "combat", 2, 7, 6),
+                Payload(7, 8, "combat", 2, 7, 6),
+                Payload(8, 8, "combat", 2, 7, 6, settled: false, release: "next-use-invalid:accepted-use-not-present"),
+                Payload(9, 10, "combat", 2, 7, 6),
+                Payload(10, 10, "combat", 2, 7, 6, settled: false, release: "course-complete"),
+                Marker(11, "session-end"),
             });
 
             string page = WriteCourseTimeline.Of(Session.Load(tsv), fullTimeline: true);
-            Require(page.Contains("3 decision(s) over 6 tick(s)", StringComparison.Ordinal),
+            Require(page.Contains("6 decision(s) over 10 tick(s)", StringComparison.Ordinal),
                 "the page did not count decisions by their identity rather than by ticks: " + page);
             // The payload traced at tick 2 belongs to the decision reached at tick 1, and finding it is
             // what puts numbers rather than dashes on the row. Asserted before the undescribed count,
@@ -491,16 +516,24 @@ public static class ChronicleTests
             Require(opening.Contains("7/6", StringComparison.Ordinal),
                 "the row opening at tick 1 carries no numbers, so the payload traced inside that decision's span was not joined to it — "
                 + $"a join keyed on `choice_tick` finds nothing at tick 1, because the trace landed at tick 2: '{opening.Trim()}'");
+            // The numbers and the release come off different records of the same span, and a reader that
+            // takes both from the settled one prints a dash here while the producer wrote a reason.
+            Require(opening.Contains("course-complete@3", StringComparison.Ordinal),
+                "the row opening at tick 1 carries no release reason, so the released column was read off the settled record — "
+                + $"the settled record is the one with the numbers and the release rides on the unsettled one: '{opening.Trim()}'");
+            string middle = lines.FirstOrDefault(l => l.StartsWith("  5", StringComparison.Ordinal)) ?? "";
+            Require(middle.Contains("next-use-invalid:accepted-use-not-present@8", StringComparison.Ordinal),
+                "the run opening at tick 5 lost the release its third decision traced — a run whose representative traced no release must "
+                + $"take the one a later member did, or the reason is dropped from the page entirely: '{middle.Trim()}'");
             Require(page.Contains("1 decision(s) traced no payload of their own", StringComparison.Ordinal),
                 "a decision with no traced payload was not reported as undescribed, or more of them were undescribed than the fixture holds: " + page);
             Require(page.Contains("combat=3", StringComparison.Ordinal) && page.Contains("combat=1", StringComparison.Ordinal),
                 "the census admission standing when each decision ran was not carried onto its row: " + page);
-            // Decisions 1 and 2 fold — the undescribed one is not a difference — and decision 3 does not,
-            // because the census moved. Two data rows, one per census.
             int dataRows = lines.Count(line => line.Length > 2 && line.StartsWith("  ", StringComparison.Ordinal)
                 && char.IsAsciiDigit(line[2]));
-            Require(dataRows == 2, $"the table printed {dataRows} data row(s) rather than two — the undescribed decision must fold into the "
-                + $"run it sits in, and the census moving must split one: {page}");
+            Require(dataRows == 3, $"the table printed {dataRows} data row(s) rather than three — the undescribed decision must fold into the "
+                + "run it sits in, the census moving must split one, a decision that traced no release must fold with one that did, and two "
+                + $"releases that are both there and differ must split: {page}");
 
             // A capture whose `choice_id` is the family chooser's declines by name rather than drawing a
             // table of a brain it did not run.
