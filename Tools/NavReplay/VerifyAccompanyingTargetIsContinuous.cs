@@ -28,6 +28,12 @@ using Weights = AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 internal static class VerifyAccompanyingTargetIsContinuous
 {
     private static readonly Vector2 Centre = new(60 * 16, 30 * 16), HalfSize = new(300f, 120f);
+
+    /// <summary>No floor on where the tour may draw a leg. Every row here is about the *continuity* of the
+    /// target — one step from the body after an interruption, never faster than the walk — and bounding the
+    /// part legs come from would change which places those rows are measuring the steps between. The box's own
+    /// bottom edge is how the parameter spells "none".</summary>
+    private static readonly float NoFloor = Centre.Y + HalfSize.Y;
     private const float Tolerance = 0.01f;
 
     public static int Run()
@@ -91,7 +97,7 @@ internal static class VerifyAccompanyingTargetIsContinuous
         int tick = 0;
         for (; tick < 6000; tick++)
         {
-            Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, Vector2.Zero, _ => false));
+            Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, Vector2.Zero, NoFloor, _ => false));
             if (tick > 100 && movement.Navigator.Hover.LastTarget.X > Centre.X + 150f) break;
         }
         if (movement.Navigator.Hover.LastTarget.X <= Centre.X + 150f)
@@ -111,14 +117,14 @@ internal static class VerifyAccompanyingTargetIsContinuous
             Step(world, ref centre, ref velocity, controls);
         }
 
-        Controls first = movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, Vector2.Zero, _ => false);
+        Controls first = movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, Vector2.Zero, NoFloor, _ => false);
         float gap = Vector2.Distance(centre, movement.Navigator.Hover.LastTarget);
         Vector2 last = movement.Navigator.Hover.LastTarget;
         float worst = 0f;
         Step(world, ref centre, ref velocity, first);
         for (int i = 0; i < 90; i++)
         {
-            Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, Vector2.Zero, _ => false));
+            Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, Vector2.Zero, NoFloor, _ => false));
             worst = MathF.Max(worst, Vector2.Distance(last, movement.Navigator.Hover.LastTarget));
             last = movement.Navigator.Hover.LastTarget;
         }
@@ -139,7 +145,7 @@ internal static class VerifyAccompanyingTargetIsContinuous
         var movement = new CoordinateMovement();
         Vector2 lead = new(60f, 0f);
         Vector2 centre = Centre + new Vector2(-(HalfSize.X + Navigator.SettleRadius * 0.5f), 0f), velocity = Vector2.Zero;
-        movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, lead, _ => false);
+        movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, lead, NoFloor, _ => false);
         float gap = Vector2.Distance(centre, movement.Navigator.Hover.LastTarget);
         if (gap > Weights.AccompanyWanderSpeedPx + Tolerance)
             return Fail($"entering from beyond the open part: the first target is {gap:0.00} px from the body (at most one step, {Weights.AccompanyWanderSpeedPx}); target {movement.Navigator.Hover.LastTarget - Centre}, body {centre - Centre}");
@@ -159,7 +165,7 @@ internal static class VerifyAccompanyingTargetIsContinuous
         int tick = 0;
         for (; tick < 8000; tick++)
         {
-            Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, new Vector2(60f, 0f), _ => false));
+            Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, new Vector2(60f, 0f), NoFloor, _ => false));
             if (tick > 100 && movement.Navigator.Hover.LastTarget.X > Centre.X + closesFrom + 100f) break;
         }
         string name = sweep ? "the lead sweeping through zero" : "the lead flipping in one tick";
@@ -170,7 +176,7 @@ internal static class VerifyAccompanyingTargetIsContinuous
         for (int s = 0; s <= 240; s++)
         {
             float lead = sweep ? MathF.Max(-60f, 60f - s) : -60f;
-            Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, new Vector2(lead, 0f), _ => false));
+            Step(world, ref centre, ref velocity, movement.Accompany(new OrbState(centre, velocity), Centre, HalfSize, new Vector2(lead, 0f), NoFloor, _ => false));
             float moved = Vector2.Distance(last, movement.Navigator.Hover.LastTarget);
             if (moved > worst) { worst = moved; worstLead = lead; }
             last = movement.Navigator.Hover.LastTarget;

@@ -22,7 +22,7 @@ ResetProcessState.Register();
 // run standalone (real shots taught with per-process draws, then read back) while identical in-suite.
 ResetProcessState.BeforeCase(keepProductionAllowances: false);
 
-if (args.Contains("--orb-contact")) return VerifyOrbContact.SizeRule() + VerifyOrbContact.DiagonalStep() + VerifyOrbContact.PushOutAndSlide();
+if (args.Contains("--orb-contact")) return VerifyOrbContact.SizeRule() + VerifyOrbContact.DiagonalStep() + VerifyOrbContact.PushOutAndSlide() + VerifyOrbContact.PlatformsAreAir();
 if (args.Contains("--free-space")) return VerifyFreeSpace.CorridorsAndLiquids() + VerifyFreeSpace.FloodFinishes() + VerifyFreeSpace.FloodBounded();
 if (args.Contains("--route-endings")) return VerifyRouteEndings.Run() == 0 ? 0 : 1;
 if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();

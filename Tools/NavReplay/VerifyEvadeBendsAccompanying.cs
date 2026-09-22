@@ -29,6 +29,12 @@ internal static class VerifyEvadeBendsAccompanying
     private const float HitRadius = 14f, BoxSpeed = 2f;
     private static readonly Vector2 BoxStart = new(30 * 16, 20 * 16), HalfSize = new(300f, 120f), Lead = new(60f, 0f);
 
+    /// <summary>No floor on where the tour may draw a leg: this row is about the evade layer bending an
+    /// accompanying walk, and a floor would change the walk under the thing being measured. The box travels, so
+    /// the value is relative to wherever its centre is on the tick, and its own bottom edge is how the
+    /// parameter spells "none".</summary>
+    private static float NoFloor(Vector2 box) => box.Y + HalfSize.Y;
+
     public static int Run()
     {
         LimitPlanningWork.Unbounded = true;
@@ -111,7 +117,7 @@ internal static class VerifyEvadeBendsAccompanying
         {
             Vector2 box = BoxStart + new Vector2(BoxSpeed * tick, 0f);
             var live = new OrbState(centre, velocity);
-            Controls job = movement.Accompany(live, box, HalfSize, Lead, _ => false);
+            Controls job = movement.Accompany(live, box, HalfSize, Lead, NoFloor(box), _ => false);
             Controls controls = movement.Evade(live, job, unsafeAtTick, out bool bentThisTick);
             if (bentThisTick) bent++;
             if (controls.Desired != job.Desired || controls.Burst != job.Burst) changed++;

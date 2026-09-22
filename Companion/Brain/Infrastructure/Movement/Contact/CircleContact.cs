@@ -45,9 +45,20 @@ public static class CircleContact
         if (!world.InWorld(x, y)) return true;
         TileShape shape = world.Shape(x, y);
         if (shape == TileShape.Air) return false;
-        // A platform keeps its fall-through behaviour after hammering gives it a slope or half shape,
-        // so the passable test is the world's own rather than a shape compare.
-        return !world.PassThrough(x, y);
+        // Two readings, and the body needs both to say "passable" for the same reason. A platform is
+        // passable to the orb by the owner's ruling, whatever else a world says about it, so the shape
+        // alone settles it; and a platform keeps its fall-through behaviour after hammering gives it a
+        // slope or half shape, which no shape compare can see, so the world's own flag settles that.
+        //
+        // The shape clause exists so the ruling cannot be lost through a world that reports a platform
+        // without the flag. No world in this tree produces that pair — `GameTileWorld.Shape` returns
+        // Platform only where `PassThrough` is true, `TextTileWorld` maps '=' to Platform with
+        // PassThrough true, and the capture decorator forwards both answers to what it wraps — so the
+        // clause changes no behaviour today. It is here because the
+        // combination is representable through `ITileWorld` and is already named elsewhere in the tree
+        // (the recorder writes "solid-platform" for exactly it), and a body that collides with a
+        // platform is the ruling silently reversed by a world nobody was looking at.
+        return shape != TileShape.Platform && !world.PassThrough(x, y);
     }
 
     /// <summary>What one resolution did to the body.</summary>

@@ -49,6 +49,12 @@ public sealed class HoverAroundSpot
     /// <summary>The point the body was steered at on the last call, for the overlay and for a fixture that has to say what the hover asked for.</summary>
     public Vector2 LastTarget { get; private set; }
 
+    /// <summary>Whether the accompanying leg being crossed right now was drawn from the whole box because nothing
+    /// in the part the lead leaves open could be reached. It exists so a fixture can say <em>which</em> draw it is
+    /// measuring — a wide leg suspends the rear share the lead asks for, so a row about a travelling player has to
+    /// establish that a wide leg was live rather than assume its scene produced one.</summary>
+    public bool AcrossLegIsWide => acrossLeg?.Wide ?? false;
+
     /// <summary>
     /// Forget everything a hover or a walk kept about where it was going, so the next call starts from the body: the spot, the
     /// last target and its motion, and the walk's place in the box and the part of the box it had open. The movement boundary
@@ -61,6 +67,7 @@ public sealed class HoverAroundSpot
         Anchor = null;
         previousTarget = null;
         acrossCentre = null;
+        acrossLeg = null;
         LastTargetMotion = Vector2.Zero;
     }
 
@@ -126,13 +133,24 @@ public sealed class HoverAroundSpot
     /// refuses nothing here: the swept test already keeps the target in free space the body can fly to, and a place an
     /// unfinished flood has not reached is not an absence.</para>
     /// </summary>
-    public Controls Across(OrbState live, Vector2 centre, Vector2 halfSize, Vector2 lead, Func<Vector2, bool> refused, ITileWorld world)
+    public Controls Across(OrbState live, Vector2 centre, Vector2 halfSize, Vector2 lead, float lowestLegY,
+        Func<Vector2, bool> refused, ITileWorld world)
     {
         float inset = Navigator.SettleRadius;
         Vector2 room = new(MathF.Max(0f, halfSize.X - inset), MathF.Max(0f, halfSize.Y - inset));
         Vector2 wantMin = -room, wantMax = room;
         if (lead.X > Weights.AccompanyLeadPixels) wantMin.X = -room.X * Weights.AccompanyRearShare;
         else if (lead.X < -Weights.AccompanyLeadPixels) wantMax.X = room.X * Weights.AccompanyRearShare;
+        // **The floor on the tour, in the box's own frame.** The region holds the player, so its lower part is
+        // level with his legs and the floor he stands on, and a tour that draws its legs from the far edge of
+        // the whole box therefore draws some of them at his shins — which is what the 22 September play was
+        // reporting as "always too close to the floor". The caller passes the world y below which no leg may be
+        // drawn; `CoordinateBrainTick` passes the top of his head, so the tour lives over him while the region
+        // keeps holding him. It is a bound on the *part legs are drawn from*, never on the region, for a reason
+        // recorded at the wide branch below and in this folder's guide: lifting the region itself was built and
+        // reverted the same day, because the region's own membership is also combat's stand admission.
+        float floorOffset = lowestLegY - centre.Y;
+        wantMax.Y = MathF.Max(-room.Y, MathF.Min(room.Y, floorOffset));
 
         // The walk starts from the body whenever there is no walk to continue: released by another request, never begun, or a box
         // that jumped — a teleport, a respawn, a new region — so an offset describing somewhere else never places the target. It
@@ -148,7 +166,7 @@ public sealed class HoverAroundSpot
             previousTarget = null;
             // A goal is a place in a box; a walk starting because the box jumped is in a different box,
             // so the old goal names somewhere the body is no longer near.
-            acrossGoal = null;
+            acrossLeg = null;
         }
         else
         {
@@ -200,8 +218,13 @@ public sealed class HoverAroundSpot
         float back = lead.X > Weights.AccompanyLeadPixels ? middle : minX;
         float front = lead.X < -Weights.AccompanyLeadPixels ? middle : maxX;
         float ClearanceOf(Vector2 point) => ClearanceHeat.Combined(world, point, MovementQueries.Hazards);
+        // Whether the draw below had to leave the open part to find somewhere the body can reach. It is read
+        // straight after the call rather than returned beside the goal, because the goal is a `Vector2` every
+        // other branch of this method also assigns and a tuple would have to be unpacked at each of them.
+        bool wide = false;
         Vector2 Draw(Vector2 from)
         {
+            wide = false;
             // The far *edge* rather than the far half, because README says "easing forward to its
             // leading edge, letting itself fall back toward the middle" — the extreme is the named
             // destination and the middle is what it passes through on the way back. Drawing from the far
@@ -217,26 +240,102 @@ public sealed class HoverAroundSpot
                 (float a, float b) = at >= middle ? (low, low + span) : (high - span, high);
                 return a + (float)random.NextDouble() * (b - a);
             }
-            Vector2 best = default;
-            float bestAir = float.MinValue;
+            // **A leg the body has no straight way to is not a leg**, and the rear of the box is a preference
+            // rather than a cage. The region is a box around the player and knows nothing about terrain, so a
+            // wall, an overhang or a pillar can stand inside it and the far edge can be somewhere no walk
+            // reaches; the turn machinery below then re-aims each blocked step along the clearest turn, which
+            // beside a vertical face runs up and down it, and the body lives on the face. The 10:05 capture of
+            // 22 September 2026 is two hundred ticks of exactly that, with `npc_px` x frozen at 55733 and y
+            // sliding, at a clearance of 0.1 px, and it is what the owner called "always too close to the
+            // floor… it never stayed up".
+            //
+            // So a draw is preferred when the circle can sweep to it from where the walk is now, and when no
+            // draw at the far edge can be reached the leg is drawn from the *whole* box instead, taking the
+            // furthest place the body can actually get to. The second stage is what the capture needed and the
+            // first stage alone could not give it: with the box led east, the open part began at the body's own
+            // column, so every place the walk was allowed to want was behind the pillar and widening the search
+            // inside the open part would have found nothing either. The rear share exists to keep a travelling
+            // player's companion level or ahead, which is a policy about where it would rather be; a body with
+            // nowhere in the open part it can reach is not a case that policy was written for.
+            Vector2 here = centre + acrossOffset;
+            bool Reaches(Vector2 offset) => CircleContact.SweptClear(world, here, centre + offset, OrbTerrain.Wall);
+            Vector2 best = default, reachable = default;
+            float bestAir = float.MinValue, reachableAir = float.MinValue;
             for (int draw = 0; draw < GoalDraws; draw++)
             {
                 Vector2 candidate = new(FarEdge(from.X, back, front), FarEdge(from.Y, minY, maxY));
                 if (refused(centre + candidate)) continue;
                 float air = ClearanceOf(centre + candidate);
                 if (air > bestAir) { bestAir = air; best = candidate; }
+                if (air > reachableAir && Reaches(candidate)) { reachableAir = air; reachable = candidate; }
             }
-            // Every draw refused is the player asking for the whole far edge; cross to it anyway and let
+            if (reachableAir > float.MinValue) return reachable;
+
+            // Nothing at the far edge the body has a way to. Sweep the whole box on a lattice — deterministic
+            // rather than sampled, because a random handful in a pocket finds the one open corridor only
+            // sometimes and this is the branch that has to work — and cross to the furthest reachable place,
+            // ties going to the clearer one. It runs only when the first stage found nothing, which is the
+            // pocket case and not the ordinary one.
+            //
+            // **The floor above does not bind this branch, and that is deliberate rather than an oversight.**
+            // It sweeps the whole `room`, his shins included. The floor is a preference about where the tour
+            // would rather live; getting out of a pocket is not a case that preference was written for, and in
+            // the capture that forced this branch the only way out ran west and then *down* past his head
+            // before turning back east under the rock. A floor that bound here would have re-sealed the pocket
+            // the branch exists to escape, which is the same shape as the rear share being a preference rather
+            // than a cage.
+            wide = true;
+            float far = -1f;
+            for (int ix = 0; ix < WideLattice; ix++)
+                for (int iy = 0; iy < WideLattice; iy++)
+                {
+                    Vector2 candidate = new(-room.X + (2f * room.X) * ix / (WideLattice - 1f),
+                        -room.Y + (2f * room.Y) * iy / (WideLattice - 1f));
+                    if (refused(centre + candidate)) continue;
+                    float away = Vector2.DistanceSquared(candidate, acrossOffset);
+                    float air = ClearanceOf(centre + candidate);
+                    if (away < far || (away == far && air <= reachableAir) || !Reaches(candidate)) continue;
+                    far = away;
+                    reachableAir = air;
+                    reachable = candidate;
+                }
+            if (far >= 0f) return reachable;
+
+            // Nothing anywhere in the box the body has a straight way to: keep the answer this walk has always
+            // given. Every draw refused is the player asking for the whole far edge; cross to it anyway and let
             // the per-step refusal turn the walk, rather than standing still.
+            wide = false;
             return bestAir > float.MinValue ? best : new Vector2(FarEdge(from.X, back, front), FarEdge(from.Y, minY, maxY));
         }
         float reach = Weights.AccompanyWanderSpeedPx;
-        if (acrossGoal is not Vector2 goal || Vector2.DistanceSquared(acrossOffset, goal) <= reach * reach
-            || goal.X < back || goal.X > front || goal.Y < minY || goal.Y > maxY)
+        // A goal drawn from the whole box is held against the whole box, or the check below would redraw it on
+        // the very next tick for lying outside the part that could not reach it.
+        // The bounds a leg is held against are a function of that leg's own width, computed here and again after
+        // a redraw rather than stored, so there is no third piece of state to keep in step with the pair.
+        (float goalLowX, float goalHighX, float goalLowY, float goalHighY) BoundsFor(bool legWide) => legWide
+            ? (-room.X, room.X, -room.Y, room.Y)
+            : (back, front, minY, maxY);
+        var held = acrossLeg;
+        (float goalLowX, float goalHighX, float goalLowY, float goalHighY) = BoundsFor(held?.Wide ?? false);
+        if (held is not AcrossLeg leg || Vector2.DistanceSquared(acrossOffset, leg.Goal) <= reach * reach
+            || leg.Goal.X < goalLowX || leg.Goal.X > goalHighX || leg.Goal.Y < goalLowY || leg.Goal.Y > goalHighY)
+        {
             // A goal outside the part now open is re-drawn rather than clamped onto its edge: the part
             // closes behind a player who turns round, and a clamped goal would ride that closing edge,
             // which is the two-hundred-pixel jerk the easing of that edge exists to stop.
-            acrossGoal = goal = Draw(acrossOffset);
+            leg = new AcrossLeg(Draw(acrossOffset), wide);
+            acrossLeg = leg;
+            (goalLowX, goalHighX, goalLowY, goalHighY) = BoundsFor(leg.Wide);
+        }
+        Vector2 goal = leg.Goal;
+        // While a wide goal is held the walk may use the whole box to get there. Widening the part rather than
+        // exempting the target is what keeps one rule: `InBox` is still the only clamp, and the moment the leg
+        // ends the part closes back to what the lead asks for.
+        if (leg.Wide)
+        {
+            minX = MathF.Min(minX, -room.X); maxX = MathF.Max(maxX, room.X);
+            minY = MathF.Min(minY, -room.Y); maxY = MathF.Max(maxY, room.Y);
+        }
         Vector2 toGoal = goal - acrossOffset;
         // The vertical share flattens the step the way it flattened the wander: the box is three times
         // wider than it is tall, so without it the walk climbs and dives faster than it crosses.
@@ -300,9 +399,14 @@ public sealed class HoverAroundSpot
             if (bestHeading != acrossHeading)
             {
                 Vector2 away = new(MathF.Cos(bestHeading), MathF.Sin(bestHeading) * Weights.HoverVerticalShare);
-                float span = MathF.Max(front - back, maxY - minY);
-                acrossGoal = new Vector2(Math.Clamp(bestOffset.X + away.X * span, back, front),
-                    Math.Clamp(bestOffset.Y + away.Y * span, minY, maxY));
+                float span = MathF.Max(goalHighX - goalLowX, goalHighY - goalLowY);
+                // Clamped into whichever bounds this leg is held against, so a turn on a wide leg is not dragged
+                // back into the open part the wide draw was made because the body could not reach.
+                // The re-aim keeps this leg's own width: the turn is the same leg pointed elsewhere, so a wide
+                // leg stays wide and a narrow one stays narrow, and neither can silently acquire the other's
+                // bounds.
+                acrossLeg = new AcrossLeg(new Vector2(Math.Clamp(bestOffset.X + away.X * span, goalLowX, goalHighX),
+                    Math.Clamp(bestOffset.Y + away.Y * span, goalLowY, goalHighY)), leg.Wide);
             }
             acrossHeading = bestHeading;
             next = bestOffset;
@@ -317,7 +421,7 @@ public sealed class HoverAroundSpot
             target = live.Centre;
             next = live.Centre - centre;
             // The escape puts the target somewhere the tour never drew, so the tour draws again from there.
-            acrossGoal = null;
+            acrossLeg = null;
             float reachOut = MathF.Max(room.X, room.Y) * 2f;
             // A place the escape may take is one no further outside the open part, on either axis, than the body already is. Exact
             // membership is the wrong test, because the inside latch lets a body sit beyond the open part: a body resting on a
@@ -370,14 +474,30 @@ public sealed class HoverAroundSpot
     private Vector2 acrossOffset;
     private Vector2? acrossCentre;
     private float acrossHeading, acrossRate;
-    /// <summary>Where the accompanying tour is crossing to, in the box's own frame. Null means draw one
-    /// on the next call: at the start of a walk, on arrival, or when a blocked step turned it away.</summary>
-    private Vector2? acrossGoal;
+    /// <summary>One leg of the accompanying tour: where it is crossing to, in the box's own frame, and whether
+    /// that place was drawn from the whole box because nothing in the part the lead leaves open could be
+    /// reached. The two travel as one value rather than as a point beside a flag **so the pairing cannot be
+    /// broken by a later edit**: a wide place applied to a narrow leg's bounds reopens the whole box to a walk
+    /// that never asked for it, and as two fields that invariant was four hand-maintained clear sites and a
+    /// fifth one waiting to be written. Every assignment now has to name the width it means.</summary>
+    private readonly record struct AcrossLeg(Vector2 Goal, bool Wide);
+
+    /// <summary>The leg the accompanying tour is crossing. Null means draw one on the next call: at the start of
+    /// a walk, on arrival, when the box jumped, or when the escape put the target somewhere the tour never
+    /// drew.</summary>
+    private AcrossLeg? acrossLeg;
 
     /// <summary>How many places the tour draws from the far half before crossing to the clearest of them.
     /// Enough that a leg prefers open air over a floor or an enemy, few enough that the draw stays a bias
     /// rather than a search: a leg is a place to be, not a route to prove.</summary>
     private const int GoalDraws = 4;
+
+    /// <summary>The side of the lattice the wide draw sweeps over the whole box when nothing at the far edge can
+    /// be reached. A lattice rather than more random draws, because this is the branch that has to work: in a
+    /// pocket the reachable places are a small part of the box and a random handful finds the one open corridor
+    /// only sometimes, which would make the walk's escape depend on a seed. Five a side is 25 swept tests, paid
+    /// once per leg and only on the legs where the ordinary draw found nothing.</summary>
+    private const int WideLattice = 5;
 
     /// <summary>
     /// How much of the box, measured from its far edge, a tour leg is drawn from. A third keeps the
