@@ -13,7 +13,7 @@ using AICompanion.Tools.Ledger;
 /// which are one predicate in source — and the only order left to price was the empty one, which is
 /// companionship. So the companion kept company beside a fight it had already planned.
 ///
-/// Three rows here are verdicts and the rest are measures, and which is which is a judgement about
+/// Two rows here are verdicts and the rest are measures, and which is which is a judgement about
 /// what can be wrong rather than about what is easy to assert:
 ///
 /// <list type="number">
@@ -25,16 +25,26 @@ using AICompanion.Tools.Ledger;
 /// is the project's own: <c>ScoreTheRun</c> already gives combat 180 ticks to take the body once a
 /// hostile stands beside the route, so a course that binds no step at all inside the same window is
 /// held to the same three seconds rather than to a number invented here.</item>
-/// <item><b>Silence after the last kill, with hostiles still standing, is always a defect.</b> The
-/// window opens at the tick the recording last credited the companion a kill and the hands must
-/// come back to work somewhere inside it.</item>
 /// </list>
 ///
-/// Everything else — the empty-course share, the refusal tallies, the decision cost, the collector
-/// — is a measure, because each of them has a legitimate non-zero value and a pass line on any of
-/// them would be a number nobody declared becoming a verdict. The cost measures are taken under the
-/// game's own clock and say so in their mode, because the brain a player met was one being cut by
-/// its deadline and a figure taken with the allowances lifted is not a frame cost.
+/// There was a third, and it was demoted on the day it was reviewed: *the hands fire again after the
+/// last recorded kill* had the predicate <c>fired &gt; 0</c> over a five-hundred-tick window, so one
+/// fired tick satisfied it as readily as fifty. That is a measure wearing a verdict's clothes, and
+/// the share beside it was always the row carrying the meaning, so the share is all that is left.
+/// Nothing here invents a firing rate to hold it against, because what a companion in a fight ought
+/// to fire is its weapon's cooldown times the ticks it was engaged and no row in this file has that.
+///
+/// Everything else — the empty-course share, the refusal tallies, the decision cost, the collector,
+/// the staging fidelity — is a measure, because each has a legitimate non-zero value and a pass line
+/// on any of them would be a number nobody declared becoming a verdict. The cost measures are taken
+/// under the game's own clock and say so in their mode, because the brain a player met was one being
+/// cut by its deadline and a figure taken with the allowances lifted is not a frame cost.
+///
+/// **Both verdicts refuse to grade rather than pass whenever the run could not have failed them**,
+/// and there are five such conditions: no ticks, a cut sidecar, a cast with nothing in it, a census
+/// that admitted usable work on fewer ticks than the floor, and a refusal literal that has left the
+/// file that writes it. Each is a skip naming what was missing, because a skip is loud on the
+/// scoreboard in its own block and a pass is not.
 /// </summary>
 internal static class GradeThePlayMeasures
 {
@@ -48,49 +58,115 @@ internal static class GradeThePlayMeasures
     /// </summary>
     private const int StepWithinTicks = 180;
 
-    /// <summary>The two refusal reasons that resolve to one predicate in source: the target fact's evidence is not Observed.</summary>
-    private static readonly string[] CensusContradictingRefusals =
-        { "target-capture-missing", "assistance-target-unresolved" };
+    /// <summary>
+    /// The two refusal reasons that resolve to one predicate in source: the target fact's evidence
+    /// is not Observed — paired with the file each is written in, because a literal a reader restates
+    /// is a claim about a producer and a claim about a producer goes stale in exactly one direction.
+    /// <see cref="ProducerLiteralsAreStillWhatTheBrainWrites"/> is what stops it going stale quietly.
+    /// </summary>
+    private static readonly (string Reason, string[] Producer)[] CensusContradictingRefusals =
+    {
+        ("target-capture-missing", new[] { "Companion", "Brain", "Activities", "Combat", "CombatCourseOpportunity.cs" }),
+        ("assistance-target-unresolved", new[] { "Companion", "Brain", "Infrastructure", "Selection", "Opportunities", "BindAssistanceOpportunity.cs" }),
+    };
+
+    /// <summary>
+    /// How many ticks must admit usable work before a verdict about doing that work means anything.
+    ///
+    /// The same 180 as <see cref="StepWithinTicks"/>, and the reuse is the point: a second constant
+    /// here would be a second number to keep honest about one idea, which is the reason that one is
+    /// shared with <see cref="ScoreTheRun"/> in the first place. The scale is right from the capture's
+    /// own numbers rather than from taste — the whole capture admits usable work on about 1,790 of
+    /// 2,340 ticks, roughly ten times this floor, while the 300-tick window that passed both verdicts
+    /// vacuously admitted it on zero.
+    /// </summary>
+    private const int AdmittingTicksFloor = StepWithinTicks;
+
+    private const string RefusalVerdict = "no order is refused for a target its own observation admitted";
+    private const string StepVerdict = "work the census admits becomes a bound step within three seconds";
 
     public static int Grade(string suite, ReadRecordedRoute.Route route, RunTheWorld.Outcome run,
         StageRecordedActors stage, ReadRecordedActors.Cast cast, string preferences)
     {
         IReadOnlyList<RunTheWorld.PlayTick> play = run.Play;
         string staging = stage.Describe();
-        string scene = $"{route.Capture} replayed whole under the game's own millisecond allowances, "
+        string scene = $"{route.Capture} replayed under the game's own millisecond allowances, "
             + $"{play.Count} ticks from {route[0].Tick}; {preferences}; {staging}";
+        // The short form every measure carries. The scene belongs on the three verdicts, which are
+        // the rows a reader acts on, and nowhere else: the scoreboard prints a changed row's whole
+        // message untruncated, every measure here drifts on every run because the clock is real, so
+        // a scene string on all fifteen put roughly 26 KB of the same paragraph into every verify —
+        // fifteen copies of one firefly's stack trace among them.
+        string shortScene = $"{route.Capture}@{route[0].Tick.ToString(CultureInfo.InvariantCulture)}, "
+            + $"{play.Count.ToString(CultureInfo.InvariantCulture)} ticks, production clock, "
+            + $"{stage.PlacedHostiles.ToString(CultureInfo.InvariantCulture)}/{cast.Hostiles.Count.ToString(CultureInfo.InvariantCulture)} NPCs and "
+            + $"{stage.PlacedDrops.ToString(CultureInfo.InvariantCulture)}/{cast.Drops.Count.ToString(CultureInfo.InvariantCulture)} drops staged, "
+            + $"{stage.RetiredByAThrow.ToString(CultureInfo.InvariantCulture)} retired by a throw; the verdict rows carry the whole scene";
 
-        // A scene with nothing in it passes every verdict below, and it passes them for the one
-        // reason that must never read as health: there was nothing to refuse and nothing to go and
-        // do. That is not hypothetical — a capture whose events sidecar is missing produces exactly
-        // this run, and the sidecar is the half of the input that is easiest to lose, because
-        // `Telemetry/` is gitignored and a capture is often copied as one file. So the verdicts skip
-        // and say which half of the scene was empty, and the measures below still run, because a
-        // count is not a verdict.
-        string[] verdicts =
+        // Three ways a verdict below would pass for a reason that is not the brain working, each
+        // checked before any of them is asked and each reported as a skip naming what was missing.
+        // A skip is loud on the scoreboard in its own block; a pass is not.
+        string? cannotGrade =
+            play.Count == 0 ? "the run produced no ticks"
+            : cast.StoppedReadingAt is { } cut
+                ? $"the events sidecar is cut and reading stopped at {cut}, so anything that appeared after the cut is missing from this scene and a verdict here would grade a world poorer than the recording's"
+            : cast.Hostiles.Count == 0 && cast.Drops.Count == 0
+                ? $"{Path.GetFileName(cast.EventsPath)} named no hostile and no drop, so this run replayed the player's track through an empty world "
+                    + "and every verdict below would pass for want of anything to do rather than because the brain did it"
+            : ProducerLiteralsAreStillWhatTheBrainWrites() is { } stale ? stale
+            : null;
+
+        int admitting = play.Count(t => t.UsableAdmitted > 0);
+        if (cannotGrade == null && admitting < AdmittingTicksFloor)
+            cannotGrade = string.Create(CultureInfo.InvariantCulture,
+                $"the census admitted usable work on only {admitting} of {play.Count} ticks, under the floor of {AdmittingTicksFloor}; "
+                + $"below it these verdicts pass because there was nothing to do rather than because the brain did it — a window from tick 1,700 "
+                + $"of the 22 September capture admits on zero ticks and used to pass both. Widen the window or check that the scene was staged");
+
+        if (cannotGrade != null)
         {
-            "no order is refused for a target its own observation admitted",
-            "work the census admits becomes a bound step within three seconds",
-            "the hands fire again after the last recorded kill while hostiles stand",
-        };
-        if (play.Count == 0 || (cast.Hostiles.Count == 0 && cast.Drops.Count == 0))
-        {
-            string why = play.Count == 0
-                ? "the run produced no ticks"
-                : $"{Path.GetFileName(cast.EventsPath)} named no hostile and no drop, so this run replayed the player's track through an empty world "
-                    + "and every verdict below would pass for want of anything to do rather than because the brain did it";
-            foreach (string name in verdicts)
-                EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name, why);
-            if (play.Count > 0) Measures(suite, play, cast, scene);
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, RefusalVerdict, cannotGrade);
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, StepVerdict, cannotGrade);
+            if (play.Count > 0) Measures(suite, play, route, stage, cast, shortScene);
             return 0;
         }
 
         int failures = 0;
         failures += NoRefusalContradictsItsOwnCensus(suite, play, scene);
         failures += WorkAdmittedIsWorkBegun(suite, play, scene);
-        failures += TheHandsComeBackAfterTheLastKill(suite, play, cast, scene);
-        Measures(suite, play, cast, scene);
+        Measures(suite, play, route, stage, cast, shortScene);
         return failures;
+    }
+
+    /// <summary>
+    /// Refuses to grade the refusal row when the strings it names are no longer written by the brain.
+    ///
+    /// This is the row's own worst failure mode and it is the quiet one. The row counts refusals by
+    /// two literals; the code that writes them is exactly the code being fixed; and a fix that
+    /// renames a reason rather than removing the disagreement would make the row match nothing and
+    /// go **green for the wrong reason** — green being the answer everybody is hoping for, on the
+    /// row the fix is aimed at. So the literals are pinned against their producers by reading the
+    /// files, which is the shape this repository already uses in
+    /// <c>ChronicleTests.IdentityRulesStillMatchTheProducer</c>, in that folder's own words "so a
+    /// producer rename fails the self-test instead of silently making a rule unable to fire".
+    ///
+    /// A missing file is a skip and not a pass, because the working directory is the one thing about
+    /// this check that can be wrong for a reason that is nobody's defect.
+    /// </summary>
+    private static string? ProducerLiteralsAreStillWhatTheBrainWrites()
+    {
+        foreach ((string reason, string[] producer) in CensusContradictingRefusals)
+        {
+            string path = Path.Combine(producer);
+            if (!File.Exists(path))
+                return $"{path} is not where this run can read it — the working directory is not the repository root — "
+                    + $"so the refusal literal '{reason}' cannot be checked against the code that writes it, and a row resting on an unchecked literal is not a verdict";
+            if (!File.ReadAllText(path).Contains($"\"{reason}", StringComparison.Ordinal))
+                return $"'{reason}' is no longer written by {path}. This row counts that literal, so it would now match nothing and pass — "
+                    + "which is the wrong kind of green on the row the brain fix is aimed at. Either the disagreement is gone, in which case retire this row on purpose, "
+                    + "or the reason was renamed, in which case name the new one here";
+        }
+        return null;
     }
 
     /// <summary>
@@ -111,7 +187,7 @@ internal static class GradeThePlayMeasures
         {
             if (tick.UsableAdmitted <= 0) continue;
             bool contradicts = false;
-            foreach (string reason in CensusContradictingRefusals)
+            foreach ((string reason, string[] _) in CensusContradictingRefusals)
                 if (tick.Refusals.TryGetValue(reason, out int count) && count > 0)
                 {
                     byReason[reason] = byReason.GetValueOrDefault(reason) + count;
@@ -120,14 +196,15 @@ internal static class GradeThePlayMeasures
             if (contradicts) offending.Add(tick);
         }
 
-        const string name = "no order is refused for a target its own observation admitted";
+        const string name = RefusalVerdict;
         if (offending.Count == 0)
         {
             EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, name,
                 $"no tick of {play.Count} refused an order for an unobserved target while its own census admitted usable work; {scene}",
                 mode: "production-clock",
                 killedBy: "counting refusals without requiring the same tick's census to have admitted usable work, "
-                    + "which would make an honest refusal of unreachable work read as this defect");
+                    + "which would make an honest refusal of unreachable work read as this defect; or letting the two refusal "
+                    + "literals drift out of their producers, which would make this row match nothing and pass");
             return 0;
         }
 
@@ -167,7 +244,7 @@ internal static class GradeThePlayMeasures
             else current = 0;
         }
 
-        const string name = "work the census admits becomes a bound step within three seconds";
+        const string name = StepVerdict;
         string detail = longest == 0
             ? "every tick that admitted usable work also carried a bound step"
             : string.Create(CultureInfo.InvariantCulture,
@@ -187,64 +264,32 @@ internal static class GradeThePlayMeasures
     }
 
     /// <summary>
-    /// Whether the hands ever came back after the last kill the recording credited the companion.
-    ///
-    /// The window is the recording's own rather than a count from the end, because what the play
-    /// showed is a companion that stopped fighting at a particular moment and never started again.
-    /// A capture that never credited the companion a kill cannot ask this and skips.
-    /// </summary>
-    private static int TheHandsComeBackAfterTheLastKill(string suite, IReadOnlyList<RunTheWorld.PlayTick> play,
-        ReadRecordedActors.Cast cast, string scene)
-    {
-        const string name = "the hands fire again after the last recorded kill while hostiles stand";
-        if (cast.LastCompanionKillTick < 0)
-        {
-            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name,
-                $"{Path.GetFileName(cast.EventsPath)} credits the companion no kill, so there is no moment for the hands to have fallen silent after");
-            return 0;
-        }
-
-        var window = play.Where(t => t.Tick > cast.LastCompanionKillTick && t.HostilesAlive > 0).ToList();
-        if (window.Count == 0)
-        {
-            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name,
-                $"no tick of this run sits after the recorded last kill at tick "
-                + $"{cast.LastCompanionKillTick.ToString(CultureInfo.InvariantCulture)} with a hostile still standing; "
-                + "either the window was not replayed or nothing was left alive in it");
-            return 0;
-        }
-
-        int fired = window.Count(t => t.Fired);
-        string after = string.Create(CultureInfo.InvariantCulture,
-            $"the recorded last kill at tick {cast.LastCompanionKillTick}, after which this run holds {window.Count} ticks with a hostile standing");
-        if (fired > 0)
-        {
-            EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, name,
-                $"{fired.ToString(CultureInfo.InvariantCulture)} of those ticks fired; {after}; {scene}",
-                mode: "production-clock",
-                killedBy: "counting ticks with no hostile alive in the window, which a run that placed no hostile would satisfy trivially");
-            return 0;
-        }
-        string crowd = window.Max(t => t.HostilesAlive).ToString(CultureInfo.InvariantCulture);
-        EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
-            $"not one of those ticks fired, with up to {crowd} hostile(s) standing throughout; {after}; {scene}",
-            mode: "production-clock");
-        return 1;
-    }
-
-    /// <summary>
     /// The numbers beside the verdicts: what the course did, what it refused and what it cost.
     ///
     /// None of them is graded, and the reason is the ledger's own: a measure carries its number and
     /// its direction and the scoreboard compares it against the last clean ancestor, where a
     /// threshold written here would turn "ever green" into "green now" and could not tell a flake
     /// from a regression.
+    ///
+    /// **Every one of them is a sample rather than a value**, and each says so in a tag, because
+    /// this run keeps the game's own wall clock and therefore does not repeat itself: measured over
+    /// five whole-capture runs at one commit, the shares move three to four points and the
+    /// second-generation collection count ran 12, 13 and 38. The ledger has no notion of a per-row
+    /// tolerance to declare that with — <c>CompareRunsAndScore.Drift</c> calls any difference above
+    /// 1e-9 a drift, and its only softening is a noise band built from three or more *repeat runs at
+    /// the baseline commit* — so the tag is a label for a reader rather than something the scoreboard
+    /// acts on, and every one of these will appear under "measures that moved" on every run until
+    /// somebody either teaches the ledger tolerance or runs this suite three times per commit.
     /// </summary>
-    private static void Measures(string suite, IReadOnlyList<RunTheWorld.PlayTick> play, ReadRecordedActors.Cast cast, string scene)
+    private const string SampleTag = "sampled-under-the-production-clock";
+
+    private static void Measures(string suite, IReadOnlyList<RunTheWorld.PlayTick> play, ReadRecordedRoute.Route route,
+        StageRecordedActors stage, ReadRecordedActors.Cast cast, string scene)
     {
+        string[] sampled = { SampleTag };
         void Share(string name, int numerator, int denominator, string? direction, string message)
             => EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, name,
-                denominator <= 0 ? 0 : 100.0 * numerator / denominator, "%", direction, "production-clock",
+                denominator <= 0 ? 0 : 100.0 * numerator / denominator, "%", direction, "production-clock", sampled,
                 message: $"{numerator} of {denominator}; {message}; {scene}");
 
         int published = play.Count(t => t.Reason == "published-course-holds-no-step");
@@ -259,40 +304,92 @@ internal static class GradeThePlayMeasures
         long refused = play.Sum(t => (long)t.Refused);
         long orders = refused + play.Count(t => t.HasStep);
         EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "orders refused per tick", play.Count == 0 ? 0 : (double)refused / play.Count,
-            "orders", "down", "production-clock",
+            "orders", "down", "production-clock", sampled,
             message: $"{refused} refusals over {play.Count} ticks against {orders} orders that reached pricing or binding; {scene}");
 
         foreach (var reason in play.SelectMany(t => t.Refusals).GroupBy(p => p.Key).OrderByDescending(g => g.Sum(p => p.Value)).Take(6))
             EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, $"orders refused for {reason.Key}", reason.Sum(p => p.Value),
-                "orders", "down", "production-clock", message: scene);
+                "orders", "down", "production-clock", sampled, message: scene);
 
         double[] decide = play.Select(t => t.DecideMs).OrderBy(v => v).ToArray();
         double[] brain = play.Select(t => t.BrainMs).OrderBy(v => v).ToArray();
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "decide cost p50", Percentile(decide, 0.50), "ms", "down", "production-clock",
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "decide cost p50", Percentile(decide, 0.50), "ms", "down", "production-clock", sampled,
             message: "the course search's own phase under the game's own allowances, which is the regime a player met; not comparable to a figure taken with the allowances lifted; " + scene);
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "decide cost p99", Percentile(decide, 0.99), "ms", "down", "production-clock",
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "decide cost p99", Percentile(decide, 0.99), "ms", "down", "production-clock", sampled,
             message: "as above; " + scene);
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "whole-brain cost p50", Percentile(brain, 0.50), "ms", "down", "production-clock",
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "whole-brain cost p50", Percentile(brain, 0.50), "ms", "down", "production-clock", sampled,
             message: "against a 16.67 ms frame; " + scene);
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "whole-brain cost p99", Percentile(brain, 0.99), "ms", "down", "production-clock",
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "whole-brain cost p99", Percentile(brain, 0.99), "ms", "down", "production-clock", sampled,
             message: "against a 16.67 ms frame; " + scene);
 
         int collections = play.Count == 0 ? 0 : play[^1].Gen2Collections - play[0].Gen2Collections;
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "second-generation collections over the run", collections, "collections", "down", "production-clock",
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "second-generation collections over the run", collections, "collections", "down", "production-clock", sampled,
             message: "counted for the whole process, so it includes the harness's own allocation as well as the brain's, "
-                + "and it is the mechanism the capture named for its worst frames rather than a figure attributable to one component; " + scene);
+                + "and it is the mechanism the capture named for its worst frames rather than a figure attributable to one component; "
+                + "the widest sample of any row here — 12, 13 and 38 over runs of one commit; " + scene);
 
-        // Beside the verdict on whether the hands ever came back: how often they worked once they
-        // had. The verdict is a floor — one shot in five hundred ticks satisfies it — and this is
-        // the number that says whether the companion is fighting or twitching.
+        // The silence, which stopped being a verdict on 22 September 2026. Its predicate was
+        // `fired > 0` over the whole post-kill window, so it read green at one fired tick in five
+        // hundred as readily as at fifty — a measure wearing a verdict's clothes, and the share was
+        // always the row carrying the meaning. It is the share alone now, and nothing here invents
+        // a firing rate to hold it against: what a companion in a fight ought to fire is the weapon's
+        // own cooldown times the ticks it was engaged, which is a quantity no row in this file has.
         var afterTheKill = play.Where(t => t.Tick > cast.LastCompanionKillTick && t.HostilesAlive > 0).ToList();
         if (cast.LastCompanionKillTick >= 0 && afterTheKill.Count > 0)
             Share("share of ticks after the last recorded kill that fired", afterTheKill.Count(t => t.Fired), afterTheKill.Count, "up",
                 "the denominator is the ticks after the recording's last companion kill with a hostile still standing, "
-                + "which in the capture this was built from is the 524-tick stretch the companion spent doing nothing");
+                + "which in the capture this was built from is the 524-tick stretch the companion spent doing nothing and fired on none of; "
+                + "zero here is the play's own symptom reproduced");
 
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "recorded drops this schema could not name", cast.Shortfall, "drops", "down", "production-clock",
+        TheSceneAgainstTheRecording(suite, play, route, stage, cast, scene, sampled);
+
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "recorded drops this schema could not name", cast.Shortfall, "drops", "down", "production-clock", sampled,
             message: "the loot column counted more drops at once than the events sidecar names anywhere, so the staged scene is poorer than the play's by this many; " + scene);
+    }
+
+    /// <summary>
+    /// How faithful the scene the verdicts were graded on actually was.
+    ///
+    /// Every verdict above is conditional on the staging reproducing the recording, and until
+    /// 22 September 2026 no row said whether it had — while the datum sat parsed and unread on every
+    /// tick, because <see cref="ReadRecordedRoute.Step.Threats"/> was being read out of the capture
+    /// and used nowhere. These are that calibration.
+    ///
+    /// The comparison is deliberately one-sided. The recording's <c>threats</c> column is the threat
+    /// sense's own count of hostiles it considered, not a count of NPCs, so a run with *more* actors
+    /// alive than that is the ordinary case — the fireflies and the bunny are staged and were never
+    /// threats. What means something is the other direction: a tick on which fewer actors stand here
+    /// than the recording counted threats is a tick whose scene is poorer than the play's, and a
+    /// verdict taken over a run of those is a verdict about a quieter world.
+    /// </summary>
+    private static void TheSceneAgainstTheRecording(string suite, IReadOnlyList<RunTheWorld.PlayTick> play,
+        ReadRecordedRoute.Route route, StageRecordedActors stage, ReadRecordedActors.Cast cast, string scene, string[] sampled)
+    {
+        int comparable = 0, short_ = 0, worst = 0;
+        for (int i = 0; i < play.Count && i < route.Count; i++)
+        {
+            if (route[i].Threats < 0) continue;      // a schema that never wrote the column
+            comparable++;
+            int gap = route[i].Threats - play[i].HostilesAlive;
+            if (gap <= 0) continue;
+            short_++;
+            worst = Math.Max(worst, gap);
+        }
+
+        if (comparable == 0)
+        {
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, "share of ticks with fewer actors alive than the recording counted threats",
+                $"{route.Capture} carries no threats column, so how faithful this scene was cannot be said and every verdict above rests on a staging nothing measured");
+            return;
+        }
+
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "share of ticks with fewer actors alive than the recording counted threats",
+            100.0 * short_ / comparable, "%", "down", "production-clock", sampled,
+            message: $"{short_} of {comparable}; the recording's threat sense counted more hostiles than this run had standing; the reverse is expected and not counted, "
+                + "because the staged cast includes critters the threat sense never counted; " + scene);
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "largest shortfall against the recording's threat count",
+            worst, "hostiles", "down", "production-clock", sampled,
+            message: $"the worst single tick; {stage.PlacedHostiles} of {cast.Hostiles.Count} recorded NPCs were placed at all; " + scene);
     }
 
     /// <summary>The nearest-rank percentile of an already-sorted sample, which is what every other cost row here uses.</summary>

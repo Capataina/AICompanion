@@ -87,6 +87,17 @@ internal static class ReadRecordedActors
         /// </summary>
         int LastCompanionKillTick,
         /// <summary>
+        /// The file and line where the sidecar stopped being readable, or null when it was read whole.
+        ///
+        /// A capture cut off mid-line is the ordinary shape of a session that ended badly, and this
+        /// machine ends sessions badly often enough that the root guide documents the force-quit four
+        /// times. Everything before the cut is still a usable cast, so the read keeps it; what it
+        /// cannot keep is the claim that the scene is complete, because an actor that appeared after
+        /// the cut is missing from the run with nothing saying so. The verdicts skip on this and the
+        /// measures still run.
+        /// </summary>
+        string? StoppedReadingAt,
+        /// <summary>
         /// The companion's live preference set, from the recording's own <c>configuration</c>
         /// occurrence, or empty when the schema wrote none.
         ///
@@ -112,7 +123,7 @@ internal static class ReadRecordedActors
     {
         string events = EventsPathFor(capturePath);
         if (!File.Exists(events))
-            return new Cast(events, Array.Empty<Hostile>(), Array.Empty<Drop>(), mostDropsCountedAtOnce, mostDropsCountedAtOnce, -1, "",
+            return new Cast(events, Array.Empty<Hostile>(), Array.Empty<Drop>(), mostDropsCountedAtOnce, mostDropsCountedAtOnce, -1, null, "",
                 $"no events sidecar at {Path.GetFileName(events)}, so no hostile and no drop can be placed; "
                 + "this capture's schema predates the sidecar, or it was not kept beside the TSV");
 
@@ -123,11 +134,30 @@ internal static class ReadRecordedActors
         int lastCompanionKill = -1;
         string configuration = "";
 
+        string? stoppedAt = null;
+        int lineNumber = 0;
         foreach (string line in File.ReadLines(events))
         {
+            lineNumber++;
             if (line.Length == 0 || line[0] != '{') continue;
-            using JsonDocument document = JsonDocument.Parse(line);
-            JsonElement e = document.RootElement;
+            // A half-written line ends the read rather than the process. Parsing throws an
+            // unhandled `JsonReaderException` otherwise, which is exit 134 with no ledger row, no
+            // skip and no filename — the one absence in this tool that was not a named refusal.
+            // Reading stops here rather than skipping the line and carrying on, because a cut file
+            // has nothing after the cut and a reader that swallowed one bad line would then claim a
+            // complete cast from an incomplete file.
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(line);
+            }
+            catch (System.Text.Json.JsonException failure)
+            {
+                stoppedAt = $"{Path.GetFileName(events)} line {lineNumber.ToString(CultureInfo.InvariantCulture)}: {failure.Message}";
+                break;
+            }
+            using JsonDocument owned = document;
+            JsonElement e = owned.RootElement;
             string kind = Text(e, "kind");
             int tick = Integer(e, "tick");
             switch (kind)
@@ -229,9 +259,10 @@ internal static class ReadRecordedActors
             + $"{placeable} of those drops were never picked up, against a loot column that reached {mostDropsCountedAtOnce}, "
             + (shortfall == 0
                 ? "so every drop the senses counted is named"
-                : $"so {shortfall} drop(s) the senses counted are named nowhere in this schema and cannot be staged");
+                : $"so {shortfall} drop(s) the senses counted are named nowhere in this schema and cannot be staged")
+            + (stoppedAt == null ? "" : $"; THE SIDECAR IS CUT — reading stopped at {stoppedAt}, so anything that appeared after it is missing from this scene");
 
-        return new Cast(events, hostiles, drops, mostDropsCountedAtOnce, shortfall, lastCompanionKill, configuration, note);
+        return new Cast(events, hostiles, drops, mostDropsCountedAtOnce, shortfall, lastCompanionKill, stoppedAt, configuration, note);
     }
 
     /// <summary>

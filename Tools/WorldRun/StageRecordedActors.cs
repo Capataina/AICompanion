@@ -48,6 +48,9 @@ internal sealed class StageRecordedActors
     private readonly List<int> staged = new();
     private readonly Dictionary<int, int> dropSlots = new();
 
+    /// <summary>The tick this pass opened on, so the first call knows it is the first.</summary>
+    private int? openedAt;
+
     public StageRecordedActors(ReadRecordedActors.Cast cast, HostileMotion motion)
     {
         this.cast = cast;
@@ -62,12 +65,31 @@ internal sealed class StageRecordedActors
     /// <summary>How many placed actors were taken out of the world by a throw from their own native update.</summary>
     public int RetiredByAThrow { get; private set; }
 
+    /// <summary>How many of the cast this run actually put into the world, against how many the recording holds.</summary>
+    public int PlacedHostiles { get; private set; }
+    public int PlacedDrops { get; private set; }
+
+    /// <summary>How many actors were placed at the window's first tick because they were already alive when it opened.</summary>
+    public int PlacedAlreadyAlive { get; private set; }
+
     public int HostilesAlive { get; private set; }
     public int DropsPresent { get; private set; }
 
-    /// <summary>What every row built on this run must say about how its actors behaved.</summary>
+    /// <summary>
+    /// What every row built on this run must say about how its actors behaved.
+    ///
+    /// It reports placed against recorded rather than recorded alone, and that is a correction
+    /// rather than a flourish: this sentence used to read "18 recorded NPCs and 6 recorded drops
+    /// placed", which is true only of a run from the capture's first tick. A windowed run stages
+    /// whatever falls inside its window plus whatever was already alive when it opened, and a row
+    /// that claims the whole cast while three of eighteen actors stand in the world is a row nobody
+    /// can weigh.
+    /// </summary>
     public string Describe()
-        => $"{cast.Hostiles.Count} recorded NPCs and {cast.Drops.Count} recorded drops placed from the events sidecar at their own ticks, slots and positions; "
+        => $"{PlacedHostiles} of {cast.Hostiles.Count} recorded NPCs and {PlacedDrops} of {cast.Drops.Count} recorded drops placed from the events sidecar at their own ticks, slots and positions"
+        + (PlacedAlreadyAlive > 0
+            ? $", {PlacedAlreadyAlive} of them at the window's first tick because the recording already had them alive — those stand where they spawned rather than where they had walked to, which the recording does not hold; "
+            : "; ")
         + $"hostile motion {(Motion == HostileMotion.Native ? "is the game's own NPC.UpdateNPC" : $"is synthetic — a straight walk at the player at {SyntheticPacePixelsPerTick:0.##} px/tick with terrain ignored")}"
         + (RetiredByAThrow > 0 ? $", with {RetiredByAThrow} actor(s) retired by a throw from their own native update, the first being {NativeMotionFailure}" : "")
         + "; a placed actor is held at its recorded life and for the recording's own lifetime against the engine's despawn and its kill path, because the saved world's clock is not carried and a surface zombie in this host's daylight sends itself home in ten ticks; "
@@ -95,17 +117,39 @@ internal sealed class StageRecordedActors
         DropsPresent = 0;
         RetiredByAThrow = 0;
         NativeMotionFailure = null;
+        PlacedHostiles = 0;
+        PlacedDrops = 0;
+        PlacedAlreadyAlive = 0;
+        openedAt = null;
     }
 
-    /// <summary>Places what the recording had appear by this tick and retires what it had leave, before the brain observes anything.</summary>
+    /// <summary>
+    /// Places what the recording had appear by this tick and retires what it had leave, before the
+    /// brain observes anything.
+    ///
+    /// The window's first tick is the case that used to be missing and it is not an edge: placing
+    /// only on `tick == SpawnTick` means every actor the recording already had alive when a
+    /// `--from-tick` window opens is never placed at all. Measured on the capture of 22 September,
+    /// a window from tick 1,700 staged three of eighteen actors and its census then admitted usable
+    /// work on *zero* of three hundred ticks, so both verdicts passed with an empty denominator
+    /// while the run's own sentence still claimed eighteen placed. An actor placed this way stands
+    /// where it *spawned*, because the recording holds no position for it between its spawn and its
+    /// death, and the sentence every row carries says so.
+    /// </summary>
     public void BeforeTheBrain(int tick)
     {
+        bool opening = openedAt is null;
+        openedAt ??= tick;
+
         foreach (ReadRecordedActors.Hostile hostile in cast.Hostiles)
         {
             if (hostile.Slot <= 0 || hostile.Slot >= Main.npc.Length) continue;
             NPC npc = Main.npc[hostile.Slot];
-            if (tick == hostile.SpawnTick)
+            bool alreadyAlive = opening && hostile.SpawnTick < tick && tick < hostile.DeathTick;
+            if (tick == hostile.SpawnTick || alreadyAlive)
             {
+                PlacedHostiles++;
+                if (alreadyAlive) PlacedAlreadyAlive++;
                 // The recorded slot rather than a fresh one from NPC.NewNPC, because the brain and
                 // the recorder both key an actor on its slot and a reader comparing this run
                 // against the capture that produced it compares slot to slot. A slot the recording
@@ -131,10 +175,13 @@ internal sealed class StageRecordedActors
 
         foreach (ReadRecordedActors.Drop drop in cast.Drops)
         {
-            if (tick == drop.SightingTick && drop.TakenTick > drop.SightingTick)
+            bool stillLying = opening && drop.SightingTick < tick && tick < drop.TakenTick;
+            if ((tick == drop.SightingTick || stillLying) && drop.TakenTick > drop.SightingTick)
             {
                 int slot = FreeItemSlot();
                 if (slot < 0) continue;
+                PlacedDrops++;
+                if (stillLying) PlacedAlreadyAlive++;
                 Item item = Main.item[slot];
                 item.SetDefaults(drop.Type);
                 item.stack = Math.Max(1, drop.Stack);

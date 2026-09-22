@@ -196,7 +196,10 @@ internal static class WorldRunEntry
         var stage = new StageRecordedActors(cast, motion);
         string preferences = ApplyTheRecordedPreferences.From(cast.Configuration, route.ConfigLine);
         Console.WriteLine("PREFERENCES " + preferences);
-        Console.WriteLine("ACTORS " + stage.Describe());
+        // The cast before the run and the staging after it, because `Describe` reports what was
+        // actually placed and before the first tick that is nothing: printing it here said "0 of 18
+        // placed" on a healthy run.
+        Console.WriteLine($"CAST {cast.Note}");
 
         RunTheWorld.Actors = stage;
         RunTheWorld.ProductionClock = true;
