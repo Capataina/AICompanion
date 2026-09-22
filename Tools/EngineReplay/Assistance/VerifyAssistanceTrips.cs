@@ -134,7 +134,41 @@ internal static class VerifyAssistanceTrips
     /// while proving nothing, so the pot must be admitted usable on some tick before the absence of a
     /// pot step means anything. Restoring `["break-pot"] = ""` to the map reds it by name.
     /// </summary>
+    /// <summary>
+    /// Restores what the scene below writes, because none of it is this case's to leave behind.
+    ///
+    /// The per-case reset gives the next *case* fresh preferences, a rebuilt tile map and empty actor
+    /// slots; it runs between cases and this file is one case with nine rows in it, so anything this row
+    /// writes is still standing when the next row of the same file runs. The preferences are the
+    /// documented instance of that class — `VerifyOreWork`'s sealed-tree row once read a chopping policy
+    /// a cooperation row had left — and the pot tiles are terrain, which is the other one the per-case
+    /// rebuild covers and an in-case run does not. Restored to **what was found**, never to a literal,
+    /// for the same reason the deadline regime is: a literal here is the current default written down a
+    /// second place, and it goes stale silently.
+    /// </summary>
     private static void APotIsNeverACourseStep()
+    {
+        bool torchPlacement = Preferences.Current.TorchPlacement, potBreaking = Preferences.Current.PotBreaking;
+        Policy chopping = Preferences.Current.Chopping;
+        // `Main.player[0]` is the player every row here gets from `VerifyOreWork.SetUp`, and SetUp does
+        // not re-seed its inventory — so emptying it reaches every later row of this case. The companion
+        // and its bag are not on that list: `SetUp` builds a fresh companion per row, so the bag this
+        // scene empties is its own and nobody else's.
+        Item[] inventory = (Item[])Main.player[0].inventory.Clone();
+        try { RunThePotOnlyScene(); }
+        finally
+        {
+            Preferences.Current.TorchPlacement = torchPlacement;
+            Preferences.Current.PotBreaking = potBreaking;
+            Preferences.Current.Chopping = chopping;
+            for (int i = 0; i < inventory.Length && i < Main.player[0].inventory.Length; i++)
+                Main.player[0].inventory[i] = inventory[i];
+            for (int i = 0; i < 4; i++)
+                Main.tile[27 + i % 2, FloorRow - 2 + i / 2].ClearEverything();
+        }
+    }
+
+    private static void RunThePotOnlyScene()
     {
         Point placeholder = new(60, FloorRow - 1);
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
@@ -168,7 +202,12 @@ internal static class VerifyAssistanceTrips
             // last search and a run ends on whichever tick it ends on — usually one carrying a retained
             // course that searched nothing. Reading it once at the end reported an empty dictionary on a
             // run whose every search had refused the pot.
-            foreach (string reason in brain.Course.LastRefusals.Keys)
+            // The structural tally, not the evidence one: a refusal proved by the executor map is kept
+            // apart from refusals about what an observation holds, because the audit's contracts ask
+            // whether every *evidence* refusal was a not-observed one and a structural reason mixed into
+            // that answer silences them.
+            foreach (string reason in brain.Course.LastRefusals.Keys) reasons.Add(reason);
+            foreach (string reason in brain.Course.LastStructuralRefusals.Keys)
             {
                 reasons.Add(reason);
                 if (reason == "step-purpose-has-no-executor") refusedOn++;
@@ -350,11 +389,20 @@ internal static class VerifyAssistanceTrips
         float highest = float.MaxValue, atDone = 0f;
         var trace = new System.Text.StringBuilder();
         string last = "";
+        // Read from the published course each tick rather than reconstructed at the end: a course is
+        // replaced as the run goes, so a pot bound for thirty ticks and released before the pot broke is
+        // invisible to anything that only looks at the last one.
+        string potStep = ""; int potStepAt = -1; string ownerAtDone = "none";
         for (; tick < 900 && !Done(); tick++)
         {
             VerifyOreWork.AdvanceBrain(ctx);
+            if (brain.Course.Last.Binding is { } step && step.Opportunity.Purpose == "break-pot" && potStepAt < 0)
+            {
+                potStep = step.Opportunity.ToString(); potStepAt = tick;
+            }
             highest = MathF.Min(highest, ctx.Npc.Center.Y);
             atDone = ctx.Npc.Center.Y;
+            ownerAtDone = brain.LastAction?.Name ?? "none";
             string now = $"{brain.LastAction?.Name}/{brain.LastRequest.Kind}";
             if (now != last && trace.Length < 1600) trace.Append($" t{tick}:{now}@{ctx.Npc.Center.X:0},{ctx.Npc.Center.Y:0}");
             last = now;
@@ -384,9 +432,24 @@ internal static class VerifyAssistanceTrips
             Require(!brain.Activity.RecentAttempts.Any(a => a.Activity == methodName && a.Status.ToString() == "Failed"),
                 $"the trip must reach its hover and work from it, never fail a method on the way; attempts=[{attempts}] trace:{trace}");
         else
+        {
+            // **Three assertions rather than one, because the first of them is also the defect's own
+            // signature.** "No attempt of the method ran" is what a pot broken in passing looks like and
+            // it is equally what a pot nobody ever reached looks like, so on its own it would stay green
+            // against a companion that never got near the shelf. The other two are positive: no course
+            // ever bound a `break-pot` step — read off the published course while the run goes, which is
+            // what the executor refusal in `SearchCourseOrders.Begin` exists to guarantee — and some
+            // other job owned the body on the tick the pot broke, which is what "in passing" means.
             Require(!brain.Activity.RecentAttempts.Any(a => a.Activity == methodName),
                 $"the pot was worked by an attempt of '{methodName}', so something made a trip of it — a pot is broken "
                 + $"in passing by whatever job already has the body; attempts=[{attempts}] trace:{trace}");
+            Require(potStepAt < 0,
+                $"a course bound a break-pot step at tick {potStepAt} ({potStep}), so the companion made a trip of a pot "
+                + $"no activity performs; attempts=[{attempts}] trace:{trace}");
+            Require(ownerAtDone != "none" && ownerAtDone != methodName,
+                $"the pot broke with '{ownerAtDone}' owning the body, so nothing was already carrying the body past it and "
+                + $"the break was not incidental to another job; attempts=[{attempts}] trace:{trace}");
+        }
         Console.WriteLine($"hover {(lighting ? "torch" : "pot")}: performed at tick {tick} from centre y {atDone:0}, highest {highest:0}, hover offered {hover}");
     }
 

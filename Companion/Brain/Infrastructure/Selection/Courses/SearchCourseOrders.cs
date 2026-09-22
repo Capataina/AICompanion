@@ -104,6 +104,32 @@ public sealed class SearchCourseOrders
     /// making a capture's refusal tally unreadable.</summary>
     public const string StepPurposeHasNoExecutor = "step-purpose-has-no-executor";
 
+    /// <summary>
+    /// Refusals proved by a fact of the source tree rather than by the state of an observation, counted
+    /// apart from <see cref="Refusals"/> and never mixed into it.
+    ///
+    /// **The split is a defect fix rather than a taxonomy.** `AuditDecisionContracts`' contract two,
+    /// `empty-course-beside-usable-work`, fires only when *every* refusal the search recorded is one of
+    /// the two not-observed strings, because a course refusing work on a preference is the brain
+    /// working. `step-purpose-has-no-executor` went into the same tally, so on any decision where the
+    /// census admitted a usable pot the predicate saw a third reason and the contract could not fire —
+    /// and the case that matters is the mixed one, a settled empty course beside a usable light site
+    /// *and* a refused pot, which is exactly the shape that tripwire exists to catch.
+    ///
+    /// The sharper half was the record rather than the predicate: the payload carries only the top four
+    /// reasons by count and a pot refusal scales with the number of pots admitted, so several pots could
+    /// push `target-capture-missing` and `assistance-target-unresolved` out of the written record
+    /// entirely and blind contract *one* as well — silently, because the audit would be reading a
+    /// payload that no longer carried the strings. Structural reasons are written uncut and under their
+    /// own prefix now, and there are at most as many of them as there are unexecutable purposes.
+    ///
+    /// The line between the two classes is what would change the answer: an evidence refusal can become
+    /// an acceptance when the world or the observation changes, and a structural one cannot, because it
+    /// is settled by `ExecuteCourseBinding`'s map.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> StructuralRefusals => structuralRefusals;
+    private readonly Dictionary<string, int> structuralRefusals = new(StringComparer.Ordinal);
+
     private void Refuse(string reason)
     {
         string key = string.IsNullOrEmpty(reason) ? "unstated" : reason;
@@ -176,9 +202,11 @@ public sealed class SearchCourseOrders
         bestFirstStep = null; byFirstStep.Clear(); idleOrder = null;
         EvaluatedOrders = RejectedOrders = 0;
         refusals.Clear();
+        structuralRefusals.Clear();
         // Recorded after the clear, so the count belongs to this search, and by name so a capture says
-        // which reason it was rather than leaving a domain's whole census unaccounted for.
-        for (int i = 0; i < unexecutable; i++) Refuse(StepPurposeHasNoExecutor);
+        // which reason it was rather than leaving a domain's whole census unaccounted for. It goes in
+        // the structural tally rather than the evidence one for the reason that tally's docstring gives.
+        if (unexecutable > 0) structuralRefusals[StepPurposeHasNoExecutor] = unexecutable;
         leaders.Clear();
         RequiredTravel = Array.Empty<CourseTravelRequest>();
         RequiredEnemyMotion = Array.Empty<CourseEnemyMotionRequest>();

@@ -12,6 +12,7 @@ using AICompanion.Companion.Brain.Infrastructure.Interactions.WorldProtection;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 
 namespace AICompanion.Companion.Brain.Activities.Gathering;
 
@@ -170,7 +171,7 @@ public sealed class CaptureTreeOpportunities
             : reach == Reachability.Reach.No ? "approach-unreachable" : "observed-native-tree";
         string admission = reason == "observed-native-tree" ? "usable" : reason == "approach-not-yet" ? "unknown" : "unusable";
         return new("chop-target", $"tree:{material}:{bottom.X},{bottom.Y}", generation,
-            bottom.X, bottom.Y, material, "chop", remaining?.DamageRemaining ?? 0, 0, admission, reason,
+            bottom.X, bottom.Y, material, OpportunityPurposes.Chop, remaining?.DamageRemaining ?? 0, 0, admission, reason,
             $"axe={axe.axe};policy={policy};reach={reach};native-bottom-work=true", stand.X, stand.Y,
             remaining is { } work ? new(axe.type, axe.prefix, axe.axe, axe.useTime, work.DamagePerHit, work.DamageRemaining) : null);
     }

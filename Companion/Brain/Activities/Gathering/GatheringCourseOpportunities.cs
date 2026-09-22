@@ -250,7 +250,7 @@ public sealed class CaptureGatheringOpportunities
             foreach (ObservedOre ore in observedOres.Values.OrderBy(ore => ore.Identity))
             {
                 double census = observedOres.Values.Where(other => other.Material == ore.Material).Sum(other => other.Remaining);
-                var value = new GatheringOpportunityFact("mine-target", ore.Identity, ore.Generation, ore.Tile.X, ore.Tile.Y, ore.Material, "mine",
+                var value = new GatheringOpportunityFact("mine-target", ore.Identity, ore.Generation, ore.Tile.X, ore.Tile.Y, ore.Material, OpportunityPurposes.Mine,
                     ore.Remaining, census, ore.Admission, ore.Reason, ore.Detail, ore.Stand.X, ore.Stand.Y, ore.Work);
                 facts.Add(Fact(value, ore.Complete ? FactEvidence.Observed : FactEvidence.Unresolved));
             }

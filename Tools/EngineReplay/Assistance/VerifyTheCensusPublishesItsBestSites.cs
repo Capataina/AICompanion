@@ -4,6 +4,7 @@ extern alias live;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using live::AICompanion.Companion.Brain.Infrastructure.Observation;
@@ -42,6 +43,8 @@ internal static class VerifyTheCensusPublishesItsBestSites
         Row("what the cut withheld is counted rather than forgotten", WithheldIsCounted);
         Row("the site a course is bound to survives a cut it would otherwise lose", TheBoundSiteIsNeverWithheld);
         Row("a window's bound is its own spacing rather than a number", TheBoundComesFromTheWindow);
+        Row("the census's own call keeps the bound site, rather than a predicate a fixture handed it", TheCensusCallKeepsItsBoundSite);
+        Row("the census derives the pinned site from the published course", ThePinnedSiteIsDerivedFromTheCourse);
         return red;
     }
 
@@ -173,6 +176,81 @@ internal static class VerifyTheCensusPublishesItsBestSites
         Require(RankCensusSitesByWorth.MostSitesAWindowCanHold(124, 8) > RankCensusSitesByWorth.MostSitesAWindowCanHold(62, 8),
             "doubling the work radius must raise the bound, or the bound is not the window's");
     }
+
+    /// <summary>
+    /// The wiring rather than the helper, and the row a sentinel had to write for us on 22 September 2026.
+    ///
+    /// Every row above hands `PublishTheBest` a keep predicate of its own, so all seven of them prove the
+    /// helper keeps what it is told to keep and none of them proves the census tells it anything:
+    /// neutralising the production call site's predicate to `_ => false` left the whole file green. This
+    /// row calls `CaptureAssistanceOpportunities.PublishLightSites`, which is the call `CaptureLighting`
+    /// makes — the bound, the rank and the pin as one thing — with a sweep past the real bound at the
+    /// real work radius, so the mutation that was silent now reds here.
+    ///
+    /// The pinned site is deliberately the *worst* thing in the sweep by every term the rank uses: last
+    /// tier is not available to a usable site, so it is the furthest and the least dark, which is what
+    /// makes its survival attributable to the pin and to nothing else.
+    /// </summary>
+    private static void TheCensusCallKeepsItsBoundSite()
+    {
+        const int work = 62;
+        int bound = RankCensusSitesByWorth.MostSitesAWindowCanHold(work, Spacing);
+        var swept = new List<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>>();
+        for (int i = 0; i <= bound; i++) swept.Add(LightSite(i, 0, darkness: 0.9, cost: i));
+        RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact> pinned = LightSite(500, 500, darkness: 0.01, cost: 1_000_000);
+        swept.Add(pinned);
+
+        (List<AssistanceOpportunityFact> unpinned, _) = CaptureAssistanceOpportunities.PublishLightSites(swept, work, workingOn: null);
+        Require(unpinned.All(site => site.Target != "tile:500,500"),
+            "premise: the pinned site must be one this sweep's own cut drops, or the row proves nothing");
+
+        (List<AssistanceOpportunityFact> published, int withheld) = CaptureAssistanceOpportunities.PublishLightSites(
+            swept, work, workingOn: "tile:500,500");
+        Require(published.Any(site => site.Target == "tile:500,500"),
+            $"the census's own call dropped the site its course is working, so the next observation retires "
+                + $"an admission the world still supports; published {published.Count} of {swept.Count}");
+        Require(published.Count == bound + 1,
+            $"a pinned site is published beside the bound rather than out of it; {published.Count} published "
+                + $"against a bound of {bound}");
+        Require(withheld == swept.Count - published.Count,
+            $"{swept.Count} swept and {published.Count} published, so {swept.Count - published.Count} were "
+                + $"withheld and {withheld} were counted");
+    }
+
+    /// <summary>
+    /// The other half of the same wiring, and it is a source pin because nothing headless can drive it.
+    ///
+    /// The live light window is intersected with the engine's own processed area, which is empty in a
+    /// fixture, so no headless sweep publishes a light site at all and no scene can watch the census
+    /// keep one across a rank change. What can be checked is that the census asks the *course* rather
+    /// than carrying a pin of its own: `CaptureLighting` passes `PinnedLightSite(context)`, and that
+    /// function reads the published course's binding and requires the light domain. A pin is weaker than
+    /// a behaviour row and is named as such — the play-measures replay is where this is graded end to
+    /// end, as `the light census publishes inside the work window and holds nothing it has left`.
+    /// </summary>
+    private static void ThePinnedSiteIsDerivedFromTheCourse()
+    {
+        string source = File.ReadAllText(Path.Combine(RepositoryRoot(),
+            "Companion", "Brain", "Infrastructure", "Observation", "CaptureAssistanceOpportunities.cs"));
+        Require(source.Contains("string? workingOn = PinnedLightSite(context);"),
+            "the light census no longer derives its pinned site from the course through PinnedLightSite");
+        Require(source.Contains("PublishLightSites(swept, work, workingOn)"),
+            "the light census no longer publishes through PublishLightSites, so the row above drives a call production does not make");
+        Require(source.Contains("Course.Last.Binding is { } bound") && source.Contains("bound.Opportunity.Domain == \"light-target\""),
+            "PinnedLightSite no longer reads the published course's own light binding");
+    }
+
+    private static string RepositoryRoot()
+    {
+        string path = AppContext.BaseDirectory;
+        while (!Directory.Exists(Path.Combine(path, "Companion"))) path = Path.GetFullPath(Path.Combine(path, ".."));
+        return path;
+    }
+
+    private static RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact> LightSite(int x, int y, double darkness, double cost)
+        => new(new Point(x, y), 0, darkness, cost,
+            new AssistanceOpportunityFact("light-target", $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8, 1, 1,
+                "usable", "fixture", "fixture"));
 
     /// <summary>The placer's own exclusion, read from it rather than written here, because a fixture
     /// holding its own copy of a production constant passes while production drifts.</summary>

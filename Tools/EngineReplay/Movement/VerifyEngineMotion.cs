@@ -86,6 +86,13 @@ internal static class VerifyEngineMotion
         ("the god's-eye occurrence stream records what it claims", VerifyGodsEyeEvents.Run),
         ("a decision that contradicts itself is named while it happens", VerifyDecisionTripwires.Run),
         ("a census over a moving window publishes its best sites and counts what it withheld", VerifyTheCensusPublishesItsBestSites.Run),
+        // Registered on 22 September 2026, having only ever been reachable through
+        // `--retained-course-opportunities` — which `verify.sh` never runs, so every row in it, including
+        // the seam guard its own folder guide calls the most productive row it has, had never been asked
+        // by the harness. Its gathering sibling on that same flag is deliberately not registered here:
+        // two of its rows throw `Sequence contains no elements` on this tree and adjudicating a fixture
+        // that has not run since it was written is not this lane's change.
+        ("every assistance census reaches its own discovery, keeps its identities and is walked in the rank it published", VerifyAssistanceOpportunityDiscovery.Run),
         ("the whole update is measured and its draws are counted apart from it", VerifyFrameLedger.Run),
         ("a capture states the configuration it ran under and the course order it took", VerifyCaptureHonesty.Run),
         ("retained courses compare conserved futures and publish complete repairs", VerifyCourseCore.Run),

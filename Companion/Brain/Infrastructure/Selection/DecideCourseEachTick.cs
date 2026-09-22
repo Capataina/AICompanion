@@ -174,6 +174,14 @@ public sealed class DecideCourseEachTick
     public IReadOnlyDictionary<string, int> LastRefusals { get; private set; }
         = new Dictionary<string, int>(StringComparer.Ordinal);
 
+    /// <summary>What the last search refused for a reason nothing about the world can change — a purpose
+    /// with no executor in `ExecuteCourseBinding`'s map. Kept apart from <see cref="LastRefusals"/>, and
+    /// written apart from it, because the audit's contracts ask whether every *evidence* refusal was a
+    /// not-observed one and a structural reason mixed into that answer silences them;
+    /// `SearchCourseOrders.StructuralRefusals` carries the whole argument.</summary>
+    public IReadOnlyDictionary<string, int> LastStructuralRefusals { get; private set; }
+        = new Dictionary<string, int>(StringComparer.Ordinal);
+
     /// <summary>What the best order led by each domain scored in the last search, so a losing kind of
     /// work says what it lost by rather than leaving the reader to reconstruct the objective by hand.</summary>
     public IReadOnlyDictionary<string, CourseValue> LastLeaders { get; private set; }
@@ -267,6 +275,7 @@ public sealed class DecideCourseEachTick
             Advance(deciding, models, budget);
             LastSearch = (deciding.EvaluatedOrders, deciding.RejectedOrders, deciding.Exhausted);
             LastRefusals = deciding.Refusals;
+            LastStructuralRefusals = deciding.StructuralRefusals;
             LastLeaders = deciding.Leaders;
             LastRunnerUpOrder = RunnerUpOf(deciding);
             if (!deciding.Exhausted) return Deciding(context);
@@ -370,6 +379,7 @@ public sealed class DecideCourseEachTick
         Advance(search, models, budget);
         LastSearch = (search.EvaluatedOrders, search.RejectedOrders, search.Exhausted);
         LastRefusals = search.Refusals;
+        LastStructuralRefusals = search.StructuralRefusals;
         LastLeaders = search.Leaders;
         LastRunnerUpOrder = RunnerUpOf(search);
         deciding = search;
@@ -568,6 +578,15 @@ public sealed class DecideCourseEachTick
         // separate diagnostic angles instead of one read.
         foreach (var refusal in LastRefusals.OrderByDescending(entry => entry.Value).Take(4))
             fields.Add(new("refused:" + refusal.Key, CourseTraceValue.Integer(refusal.Value)));
+        // Structural refusals are written under their own prefix and are never cut, for two reasons that
+        // are separate defects. The audit's contracts ask whether every refusal was one of the two
+        // not-observed strings, so a structural reason sharing the prefix silences them on any decision
+        // where a pot was admitted. And the cut above is top-four-by-count while a pot refusal scales
+        // with the number of pots, so several pots could push the two strings the contracts key on out of
+        // the record entirely — blinding a contract by deleting its evidence rather than by failing a
+        // predicate. There is at most one entry here per unexecutable purpose, so uncut is bounded.
+        foreach (var refusal in LastStructuralRefusals.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+            fields.Add(new("structurally-refused:" + refusal.Key, CourseTraceValue.Integer(refusal.Value)));
         RecordCourseTrace.Record(CourseTracePhase.Brain, context,
             new CourseTracePayload("course-decision", 1, fields));
         return decision;
