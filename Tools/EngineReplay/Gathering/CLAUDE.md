@@ -1,6 +1,6 @@
 # Gathering fixtures — ore, trees, and who is credited for the work
 
-Eight files. Most of them drive the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention. `VerifyRouteHomeFromEitherEnd` drives no work at all: it builds the route-home scene and reads `Chooser.RouteDetour` — a static geometry helper that survives the chooser's retirement — from beside the ore and from beside the player, because the separation cost a job pays is decided from wherever the body happens to be when the job is chosen.
+Nine files. Most of them drive the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention. `VerifyRouteHomeFromEitherEnd` drives no work at all: it builds the route-home scene and reads `Chooser.RouteDetour` — a static geometry helper that survives the chooser's retirement — from beside the ore and from beside the player, because the separation cost a job pays is decided from wherever the body happens to be when the job is chosen.
 
 **Which brain a row drives is the first thing to establish before reading its verdict.** Since `0bb2c8a` the live tick asks a course, and this folder is mid-migration by design rather than by neglect:
 
@@ -29,8 +29,14 @@ Gathering/
 │                                  and the re-answer a moved body forces over sites already found
 ├─ VerifyGatheringCourseBindings.cs native-use credit, cooldown phases, conditional successors and exact tool validation
 ├─ VerifyGatheringCooperation.cs working beside the player without competing with him
+├─ VerifyVeinRemainingWork.cs    a vein with no remaining estimate is refused by name rather than left unknown,
+│                                beside the control that resolves — the 22 September capture's own signature
 └─ VerifyWorkAccounting.cs       what a job reports against what the world shows
 ```
+
+**`VerifyVeinRemainingWork` is the one file here shaped from a capture rather than from a scene somebody invented, and the pair is what makes it a check.** The 22 September 2026 play read `native-remaining-unresolved` on every ore for all 2,340 ticks, so the defect's whole signature is one reason string; a row asserting only that a refused vein is not that string would be satisfied by any implementation that renamed it. So the file drives the same three-cell vein twice through `VerifyOreWork.SetUp` and the real native census, once as meteorite (pick requirement 50, against the fixture's copper pickaxe at 35, so the refusal is real and the tool is the cause) and once as copper, and requires the first to answer `unusable / pickaxe-cannot-damage` and the second `usable / observed-native-ore` with a positive remaining estimate. Three cells rather than one because the estimate is taken per tile and summed, so a single-cell scene cannot tell a whole-vein answer from a per-tile one, and a premise row refuses the scene outright if the flood did not join them.
+
+**One caution before reading a red in this folder as your own.** `ore work breaks ore without excavating ordinary terrain` is red *standalone* at `57db4da` with `actual native mining must reserve the tool hand`, measured on 22 September 2026 by running it alone through `run-case.sh` at that commit with the mod tree untouched. That is not the intermittent in-suite timing signature this suite's own guide documents for the same case name — that one passes standalone — so a change touching mining meets a row that is already red for a reason nobody has attributed, and the control to run is the case alone at the merge base rather than a rerun of the suite.
 
 ## The mining list: every refusal carries its own control
 

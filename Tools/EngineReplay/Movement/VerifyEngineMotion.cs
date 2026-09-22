@@ -212,6 +212,9 @@ internal static class VerifyEngineMotion
         ("the companion's stats mirror the player's", VerifyStatMirroring.Run),
         ("experience follows the game's own numbers: kills, boss fights and work level the companion alike in every difficulty", VerifyCompanionExperience.Run),
         ("a whole journey is recorded against its proven ticks", VerifyTravelEpisodes.Run),
+        // Appended here rather than at the very end of the list, because the entry below it must stay
+        // last for the reason its own comment gives.
+        ("a vein's remaining work is answered or refused by name, never left unknown", VerifyVeinRemainingWork.Run),
         // Last on purpose, and the position is a finding rather than a preference. This case drives 220
         // whole brain ticks with two hostiles, a third spawned mid-scene and one killed, which is the
         // widest process footprint any case in this table has. Registered eighth it turned three

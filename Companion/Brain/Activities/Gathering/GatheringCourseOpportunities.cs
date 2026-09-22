@@ -296,17 +296,66 @@ public sealed class CaptureGatheringOpportunities
             : !mineable ? "pickaxe-cannot-damage" : reach == Reachability.Reach.Unknown ? "approach-not-yet"
             : reach == Reachability.Reach.Yes ? "observed-native-ore" : "approach-unreachable";
         if (replacementGap) reason += ";replacement-observation-gap";
+        // A tile with no remaining estimate is a proven fact, not an unanswered question, and reading it as
+        // the second is what made every ore in the 22 September 2026 capture read
+        // `native-remaining-unresolved` for all 2,340 ticks — ten to thirteen veins discovered, none ever
+        // usable and none ever refused. `TileMiner.EstimateRemaining` answers null on five conditions and
+        // every one of them is observed: outside the world, no longer ore, inside a protected home, a tile
+        // the game refuses to kill, or a pickaxe with no power against it. None of those is a bounded search
+        // running out, which is the only thing `unknown` is for in this tree — and because optional work does
+        // not start on an unanswered search, calling a proven refusal unknown leaves the vein permanently
+        // unstartable *and* permanently unrefusable, so the census can never resolve it by looking again.
+        //
+        // The old shape made that worse in two further ways, and both are why this is a rewrite of the block
+        // rather than a renamed string. It required *every* tile of the vein to answer before any of them
+        // counted, so one dead cell in a four-hundred-tile flood zeroed the whole vein's remaining work; and
+        // the override ran after the ladder above had already computed the exact refusal, discarding
+        // `pickaxe-cannot-damage` and `outside-allowance-or-protected` in favour of a string naming neither
+        // the tile nor the condition. What the record needs from a refusal is which of the five it was.
         RemainingToolWork?[] estimates = tiles.Select(tile => miner.EstimateRemaining(tile, pick)).ToArray();
-        bool remainingKnown = estimates.All(estimate => estimate != null);
-        double remaining = remainingKnown ? estimates.Sum(estimate => estimate!.Value.DamageRemaining) : 0;
-        if (!remainingKnown) { admission = "unknown"; reason = "native-remaining-unresolved"; }
+        int answered = estimates.Count(estimate => estimate != null);
+        double remaining = estimates.Where(estimate => estimate != null).Sum(estimate => estimate!.Value.DamageRemaining);
         RemainingToolWork? targetWork = miner.EstimateRemaining(target, pick);
+        // The target is what the binding will actually swing at, so it alone decides the admission; the
+        // other tiles decide only how much work the vein is still worth.
+        bool targetSettled = true;
+        if (targetWork is null)
+        {
+            string why = WhyNoRemainingWork(miner, pick, target);
+            targetSettled = why != UnexplainedRemaining;
+            admission = targetSettled ? "unusable" : "unknown";
+            reason = why;
+        }
         CapturedToolWork? work = targetWork is { } next
             ? new(pick.type, pick.prefix, pick.pick, pick.useTime, next.DamagePerHit, next.DamageRemaining) : null;
         return new(identity, generation, target, material, remaining, admission, reason,
-            $"vein-complete={veinComplete};remaining-known={remainingKnown};pick={pick.pick};listed={listed};policy={WorkPolicies.Mining};reach={reach}",
-            stand, veinComplete && remainingKnown, work, tiles, veinComplete, replacementGap);
+            $"vein-complete={veinComplete};tiles-with-work={answered}/{tiles.Length};pick={pick.pick};listed={listed};policy={WorkPolicies.Mining};reach={reach}",
+            stand, veinComplete && targetSettled, work, tiles, veinComplete, replacementGap);
     }
+
+    /// <summary>
+    /// Which of <see cref="TileMiner.EstimateRemaining"/>'s five refusals a tile met, asked in that
+    /// method's own order so the answer is the condition it actually returned on rather than the first one
+    /// that happens to hold. The conditions are re-read here rather than returned from the miner because
+    /// each is a public predicate this file already consults for the admission above, and a second return
+    /// channel through `Interactions/` would put the same ladder in two places for one caller.
+    ///
+    /// <para>The last arm is deliberately a live possibility rather than an unreachable default: a pickaxe
+    /// with a zero <c>useTime</c> refuses with no condition above it holding, and a fact that claimed a
+    /// proven refusal there would be asserting something nobody established. That is the one case that stays
+    /// <c>unknown</c>, which is what <c>unknown</c> is for.</para>
+    /// </summary>
+    private const string UnexplainedRemaining = "native-remaining-unresolved";
+
+    private static string WhyNoRemainingWork(TileMiner miner, Item pick, Point tile)
+        => !Terraria.WorldGen.InWorld(tile.X, tile.Y, 5) ? "tile-outside-the-world"
+            : !OreFinder.IsOre(tile.X, tile.Y) ? "tile-is-no-longer-ore"
+            : ProtectCompanionHomes.IsProtected(tile) ? "outside-allowance-or-protected"
+            // Split from the pickaxe arm on purpose: a tile the game itself refuses to kill is not a tool
+            // problem, and handing a player a stronger pickaxe would not change it.
+            : !Terraria.WorldGen.CanKillTile(tile.X, tile.Y) ? "the-game-refuses-to-kill-this-tile"
+            : !miner.CanMine(tile, pick.pick) ? "pickaxe-cannot-damage"
+            : UnexplainedRemaining;
 
     /// <summary>How many cells of the sweep one budget unit buys. It is a block rather than a cell because a
     /// cell that holds no ore costs a tile-type read; see the charge at the sweep for what charging per cell
@@ -418,7 +467,14 @@ public sealed class GatheringOpportunitySource : IOpportunitySource
             double amount = Math.Max(0, site.Work?.DamageRemaining ?? site.RemainingAmount);
             double census = Math.Max(1, site.CensusAmount);
             CoursePoint workingPose = site.StandX != 0 || site.StandY != 0 ? new(site.StandX, site.StandY) : new(site.TileX * 16 + 8, site.TileY * 16 + 8);
-            IEnumerable<UsefulNeed> needs = site.Reason == "native-remaining-unresolved"
+            // A site with no captured tool work offers no need, whatever the refusal was called. This read the
+            // reason string until 22 September 2026, which made it a second place the admission ladder's
+            // vocabulary had to be kept in step: the day that string became five specific refusals, a site the
+            // pickaxe provably cannot damage would have started publishing a need worth zero rather than no
+            // need at all. `Work` is exactly the quantity the string was standing in for — it is null on
+            // precisely the sites whose target has no estimate — so the test is on the fact rather than on
+            // what somebody named it.
+            IEnumerable<UsefulNeed> needs = site.Work == null
                 ? Array.Empty<UsefulNeed>()
                 : new[] { new UsefulNeed(GatheringOpportunityBinder.Need(site), amount, census,
                     admission == OpportunityAdmission.KnownUsable ? 1 : 0) };
