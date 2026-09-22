@@ -4,12 +4,18 @@ namespace AICompanion.Companion.Brain.Activities;
 
 /// <summary>What preparation established about an opportunity, independent of how much it is worth.
 /// Only Usable and Unresolved offers may carry positive value, and an unresolved offer is a bounded
-/// investigation rather than proven work. The chooser treats a positive value on any other state as
-/// an evaluation error, so an absent or forbidden offer cannot win by carrying a stale number.
-/// Deferred is written by the query scheduler, never by an activity: the activity was not prepared
-/// this comparison because its family's allowance was spent, which says nothing about the world.
-/// Every default is NoOpportunity, and the chooser resets an activity's classification before each
-/// preparation, so a path that forgets to classify fails closed instead of keeping last tick's.</summary>
+/// investigation rather than proven work. A positive value on any other state is an evaluation error,
+/// so an absent or forbidden offer cannot win by carrying a stale number.
+/// Deferred survives its original writer and now has exactly one: a nearby-work stand outside a
+/// finished flood's known radius (`PerformNearbyWorldWork`). It used to be the per-family query
+/// scheduler's too — an activity not prepared this comparison because its family's allowance was
+/// spent — and that scheduler went with the chooser under `AIC-419`.
+/// Every default is NoOpportunity. **Nothing clears a classification between preparations any more**,
+/// which `0bb2c8a` ended rather than `AIC-419`: the chooser's own loop called `ResetClassification`
+/// before each `Prepare`, so a path that forgot to classify failed closed, and since the course took
+/// the tick such a path keeps last tick's answer instead. No path is known to do it, and nothing
+/// enforces that; restoring the guarantee means clearing in the tick's preparation loop and is a
+/// behaviour change, since an activity would flip from a stale offer to NoOpportunity.</summary>
 public enum OfferEligibility { NoOpportunity, PolicyForbidden, KnownUnusable, Unresolved, Usable, Deferred }
 
 /// <summary>How one physical attempt at a purpose ended. Attempted means execution began without an
@@ -34,7 +40,7 @@ public readonly record struct AttemptConclusion(AttemptStatus Status, string Cau
     AttemptAttribution Attribution = AttemptAttribution.NotApplicable, int ClaimedYieldType = 0, int ClaimedYieldQuantity = 0);
 
 /// <summary>Immutable history of one attempt. Productive effects count only observations the activity
-/// credited through the chooser's work record, so an external edit to the same target earns nothing.
+/// credited through `OwnCurrentActivity.RecordWork`, so an external edit to the same target earns nothing.
 /// Attempt identities are unique across every activity owner in the process. The claimed yield is the
 /// conclusion's, and is zero for an interruption, which the owner concludes without asking the activity.</summary>
 public readonly record struct AttemptOutcome(long AttemptId, long ActivityId, string Activity,

@@ -159,10 +159,10 @@ internal static class VerifyCompanionLifecycle
         companion.AI();
         var grant = companion.Brain.ControlGrants.Last;
         var presentation = companion.Brain.Presentation;
-        Require(presentation.Tick == Main.GameUpdateCount && presentation.ActivityId == companion.Brain.Chooser.Activity.Id
-            && presentation.Family == companion.Brain.Chooser.Current?.Family
-            && presentation.Activity == companion.Brain.Chooser.Current?.Name
-            && presentation.Phase == companion.Brain.Chooser.Activity.Phase
+        Require(presentation.Tick == Main.GameUpdateCount && presentation.ActivityId == companion.Brain.Activity.Id
+            && presentation.Family == companion.Brain.Activity.Current?.Family
+            && presentation.Activity == companion.Brain.Activity.Current?.Name
+            && presentation.Phase == companion.Brain.Activity.Phase
             && presentation.Downed == companion.IsDowned && presentation.Recovering == companion.Brain.FollowRecovery.Active,
             "presentation must publish one completed activity/control state, including early returns");
         Require(companion.Motor.ControlApplications == before + 1,

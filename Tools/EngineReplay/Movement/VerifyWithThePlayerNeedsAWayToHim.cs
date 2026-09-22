@@ -124,8 +124,8 @@ internal static class VerifyWithThePlayerNeedsAWayToHim
         companion.NPC.Center = new Vector2(CompanionColumn * 16 + 8, FloorRow * 16 - 40);
         companion.NPC.velocity = Vector2.Zero;
         var brain = companion.Brain;
-        var company = brain.Chooser.Actions.OfType<KeepCompany>().Single();
-        brain.Chooser.Actions.RemoveAll(a => !ReferenceEquals(a, company));
+        var company = brain.Actions.OfType<KeepCompany>().Single();
+        brain.Actions.RemoveAll(a => !ReferenceEquals(a, company));
         return companion;
     }
 

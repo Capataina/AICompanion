@@ -75,17 +75,44 @@ public sealed class MeasureTheFrame : IMeasure
         // The split is taken over the *summed* interval rather than as a mean of per-row shares,
         // because a mean of shares weights a 6 ms catch-up update the same as a 90 ms hitch and the
         // question is where the session's time went.
-        foreach ((string part, Column column, string what) in new[]
+        //
+        // The brain column is read one row back, and that is a phase rather than an adjustment.
+        // `frame_ms` is anchored at PostUpdateEverything, so a row written inside update N carries the
+        // interval that closed at the end of update N−1; the brain cost inside that interval is
+        // therefore the *previous* row's, which is exactly what `FrameCost.RemainderMilliseconds` is
+        // handed when it computes `engine_ms`. Reading this row's `brain_ms` against it — which this
+        // measure did until 22 September 2026, under a comment claiming otherwise — makes the five
+        // shares a mixture of two updates rather than a split of one, and on the 22 September capture
+        // that is a 10 ms column against a 25 ms interval being taken from the wrong tick. `record_ms`
+        // needs no shift: the producer already writes the previous row's cost there, because a row
+        // cannot contain the time spent writing itself.
+        //
+        // The split therefore runs over the measured rows that *have* a predecessor in the file, and its
+        // denominator is those rows' own intervals rather than the whole session's — a numerator and a
+        // denominator taken over different row sets is the arithmetic this folder's conventions already
+        // ban. The interval statistics above keep every measured row, because none of them reads a
+        // neighbour.
+        //
+        // **The predecessor has to be the previous *update*, not merely the previous line of the file.**
+        // The file is one row per companion AI tick, so the two are the same until a row is dropped or
+        // a tick is skipped, and then the shift silently attributes one update's interval to another
+        // update's brain cost with arithmetic that still looks fine. The tick column is the only thing
+        // that can tell them apart, so the guard is the contiguity test rather than the index test, and
+        // the row count in each share's own sentence is how a reader sees how many pairs it cost.
+        var attributable = measured.Where(i => i > 0 && session.Tick(i) == session.Tick(i - 1) + 1).ToList();
+        double attributableTotal = attributable.Sum(i => (double)frame.Number[i]);
+        foreach ((string part, Column column, int back, string what) in new[]
         {
-            ("brain", brain, "the companion's brain, on the update the interval covers rather than the row's own"),
-            ("record", record, "this recorder's own write, which is already the previous row's cost"),
-            ("overlay", overlay, "the brain overlay's world layers and cost strip"),
-            ("inspector", inspector, "the inspector's own panel"),
-            ("engine", engine, "everything left over: Terraria's update, the notch, the card, any other mod, and any cost of ours nothing times"),
+            ("brain", brain, 1, "the companion's brain on the update the interval covers, read one row back because the interval closed at the end of the previous update"),
+            ("record", record, 0, "this recorder's own write, which the producer already writes as the previous row's cost"),
+            ("overlay", overlay, 0, "the brain overlay's world layers and cost strip"),
+            ("inspector", inspector, 0, "the inspector's own panel"),
+            ("engine", engine, 0, "everything left over: Terraria's update, the notch, the card, any other mod, and any cost of ours nothing times"),
         })
             yield return PlayRow.Share(Name + "/" + part + "-share",
-                measured.Sum(i => Math.Max(0d, (double)column.Number[i])), intervalTotal, null,
-                $"of the session's total measured interval, spent in {what}");
+                attributable.Sum(i => Math.Max(0d, (double)column.Number[i - back])), attributableTotal, null,
+                $"of the measured interval on the {attributable.Count:n0} of {measured.Count:n0} measured row(s) whose own predecessor "
+                    + $"update is in the file to attribute it to, spent in {what}");
     }
 
     /// <summary>One frame at sixty a second, the engine's own fixed timestep. A fact of the world

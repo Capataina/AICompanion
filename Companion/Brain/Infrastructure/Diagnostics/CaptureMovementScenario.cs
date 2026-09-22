@@ -216,11 +216,20 @@ public static class ScenarioCapture
             zero = 0;
     }
 
+    /// <summary>
+    /// What the course thought this activity's work was worth, through the one reader every surface
+    /// shares. It read `Chooser.LastScores` until the family chooser was deleted on 22 September 2026,
+    /// and **that list has been empty on every tick since `0bb2c8a`** — so this answered zero always, the
+    /// missed-mode detector below counted a miss on every tick the player mined or chopped, and it wrote
+    /// a scenario window every cooldown of every session in which he did either. A detector wired to a
+    /// retired producer does not go quiet; it goes off, which is the noisier half of this folder's first
+    /// trap and the reason the fix is here rather than in the threshold.
+    /// </summary>
     private static float RawScore(Brain brain, string action)
     {
-        foreach (var s in brain.Chooser.LastScores)
-            if (s.Action.Name == action)
-                return s.Raw;
+        foreach (var worth in ReadCourseWorthPerActivity.Of(brain))
+            if (worth.Action.Name == action)
+                return worth.Raw;
         return 0f;
     }
 }

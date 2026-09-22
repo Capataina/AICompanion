@@ -192,7 +192,7 @@ internal static class VerifyCombatPurpose
             string Value(string name) => values[Array.IndexOf(names, name)];
             string Identity(NPC? npc) => npc != null && npc.active
                 ? $"{npc.whoAmI}:{(live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Generation(npc))}" : "-";
-            var combat = ctx.Companion.Brain.Chooser.Actions.OfType<Combat>().Single();
+            var combat = ctx.Companion.Brain.Actions.OfType<Combat>().Single();
             var landed = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Last;
             Require(landed is { } hit && Value("landed_hit_target") == $"{hit.HitSlot}:{hit.HitGeneration}"
                 && Value("landed_hit_aimed") == $"{hit.AimSlot}:{hit.AimGeneration}" && Value("landed_hit_damage") == "5"
@@ -281,7 +281,7 @@ internal static class VerifyCombatPurpose
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
             $"the guard scene's hostile (type {type}) must threaten the player before protection is read; urgency={threat?.Urgency}");
         brain.Senses.SetInterventionEstimate(ctx.Companion.Combat.EstimateInterventionTicks(ctx));
-        var combat = brain.Chooser.Actions.OfType<Combat>().Single();
+        var combat = brain.Actions.OfType<Combat>().Single();
         PrimeAndSettle(brain, ctx, combat);
         var settled = brain.Senses.Threats.Threats.Find(t => t.Npc == enemy);
         var plan = combat.OfferedPlan;
@@ -436,7 +436,7 @@ internal static class VerifyCombatPurpose
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
             $"shaft guard {access}: the zombie must threaten the player before protection is read; urgency={threat?.Urgency}");
         brain.Senses.SetInterventionEstimate(companion.Combat.EstimateInterventionTicks(ctx));
-        var combat = brain.Chooser.Actions.OfType<Combat>().Single();
+        var combat = brain.Actions.OfType<Combat>().Single();
         // Settled, so a proven absence is the flood's finished answer rather than its budget.
         PrimeAndSettle(brain, ctx, combat);
         var plan = combat.OfferedPlan;
@@ -617,7 +617,7 @@ internal static class VerifyCombatPurpose
         var visibleThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == visible);
         Require(hiddenThreat != null && visibleThreat != null, "both zombies must be observed threats before pursuit is read");
         brain.Senses.SetInterventionEstimate(companion.Combat.EstimateInterventionTicks(ctx));
-        var combat = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
+        var combat = brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
         PrimeAndSettle(brain, ctx, combat);
 
         var plan = combat.OfferedPlan;
@@ -792,7 +792,7 @@ internal static class VerifyCombatPurpose
             slime.whoAmI = 30; slime.active = true; slime.damage = 3; slime.dontTakeDamage = true; slime.velocity = Vector2.Zero;
             slime.Bottom = ctx.Npc.Bottom + new Vector2(64, 0);
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
-            ctx.Companion.Brain.Chooser.Actions.Clear();
+            ctx.Companion.Brain.Actions.Clear();
             danger = 0f;
             for (int tick = 0; tick < 60; tick++)
             {

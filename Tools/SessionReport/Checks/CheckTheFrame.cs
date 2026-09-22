@@ -53,13 +53,23 @@ public sealed class TheFrameFitsTheEnginesTimestep : ICheck
         double share = (double)over / measured.Count;
         if (share < InspectionShare) yield break;
 
-        double total = measured.Sum(i => (double)frame.Number[i]);
-        string split = string.Join(", ", new[] { "brain_ms", "record_ms", "overlay_ms", "inspector_ms", "engine_ms" }
-            .Select(name =>
+        // The split reads the brain one row back and runs only over rows that have a predecessor, for
+        // the phase reason `MeasureTheFrame` states: `frame_ms` is anchored at PostUpdateEverything, so
+        // a row's interval closed at the end of the *previous* update and the brain cost inside it is
+        // the previous row's — which is what `FrameCost.RemainderMilliseconds` is handed for `engine_ms`.
+        // The predecessor must be the previous *update* rather than the previous line: a dropped row
+        // makes the two differ and the shift then reads another update's brain cost with arithmetic
+        // that still looks right. `MeasureTheFrame` states the phase and carries the same guard.
+        var attributable = measured.Where(i => i > 0 && session.Tick(i) == session.Tick(i - 1) + 1).ToList();
+        double total = attributable.Sum(i => (double)frame.Number[i]);
+        string split = attributable.Count == 0 ? "no row has a predecessor to attribute its interval to"
+            : string.Join(", ", new[] { ("brain_ms", 1), ("record_ms", 0), ("overlay_ms", 0), ("inspector_ms", 0), ("engine_ms", 0) }
+            .Select(entry =>
             {
+                (string name, int back) = entry;
                 Column part = session[name];
-                double spent = measured.Sum(i => Math.Max(0d, (double)part.Number[i]));
-                return $"{name[..^3]} {spent / measured.Count:0.00} ms a frame ({(total <= 0 ? 0 : 100.0 * spent / total):0.0}%)";
+                double spent = attributable.Sum(i => Math.Max(0d, (double)part.Number[i - back]));
+                return $"{name[..^3]} {spent / attributable.Count:0.00} ms a frame ({(total <= 0 ? 0 : 100.0 * spent / total):0.0}%)";
             }));
 
         int worst = measured.OrderByDescending(i => frame.Number[i]).First();

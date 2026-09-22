@@ -43,7 +43,7 @@ public abstract class CompanionAction
     {
         var preferences = PlayerIntegration.CompanionPreferences.Current;
         bool sameJob = admittedIdentity != null && Equals(admittedIdentity, identity ?? ActivityIdentity);
-        bool collectingWork = Name == "collect" && identity is Terraria.Item && ctx.Companion.Brain.Chooser.IsCollectingWork(target);
+        bool collectingWork = Name == "collect" && identity is Terraria.Item && ctx.Companion.Brain.Activity.IsCollectingWork(target);
         float radius = sameJob || collectingWork ? preferences.ActiveActivityRadius : preferences.NewActivityRadius;
         // The work radius is measured to the player's intent region rather than to his body, and this
         // is the one place every activity's "near the player" test lives, so mining, chopping,
@@ -97,10 +97,6 @@ public abstract class CompanionAction
         => productiveEffects > 0
             ? new(AttemptStatus.Partial, "replaced-after-productive-effect")
             : new(AttemptStatus.Attempted, "replaced-before-productive-effect");
-
-    /// <summary>The chooser clears the classification before each preparation, so a preparation path
-    /// that returns without classifying reads as no opportunity rather than keeping last tick's.</summary>
-    internal void ResetClassification() => Classify(OfferEligibility.NoOpportunity, "not-classified-this-preparation");
 
     public abstract string Name { get; }
     public abstract PurposeFamily Family { get; }

@@ -140,9 +140,9 @@ internal static class VerifyResponsiveFollowing
         player.dead = false;
         player.velocity = Vector2.Zero;
         companion.NPC.Bottom = player.Bottom = new Vector2(400, 1280);
-        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
-        Require(!brain.Chooser.Actions.Any(a => a.Name is "walk-with" or "wander"), "obsolete companionship candidates remain registered");
-        brain.Chooser.Actions.RemoveAll(a => !ReferenceEquals(a, company));
+        var company = brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
+        Require(!brain.Actions.Any(a => a.Name is "walk-with" or "wander"), "obsolete companionship candidates remain registered");
+        brain.Actions.RemoveAll(a => !ReferenceEquals(a, company));
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         brain.Senses.Update(companion.NPC, player);
         // Prepared and selected rather than chosen: this scene has already removed every activity but
@@ -150,9 +150,9 @@ internal static class VerifyResponsiveFollowing
         // offer it makes and the purpose identity it keeps. `OwnCurrentActivity` is the owner the live
         // tick hands the course's chosen activity to, and is deliberately not part of the retired scorer.
         company.Prepare(context);
-        brain.Chooser.Activity.Select(company, context);
-        Require(ReferenceEquals(brain.Chooser.Current, company) && company.Score() > 0, "company must be a positive ordinary offer while nearby");
-        long identity = brain.Chooser.Activity.Id;
+        brain.Activity.Select(company, context);
+        Require(ReferenceEquals(brain.Activity.Current, company) && company.Score() > 0, "company must be a positive ordinary offer while nearby");
+        long identity = brain.Activity.Id;
         // Company beside a resting player is the inside method: the request aims at the region's centre and the
         // positioner parks in the clearest air inside it. Calm co-location never asks to rejoin, and the request
         // must still grow the reach region to completion.
@@ -172,10 +172,10 @@ internal static class VerifyResponsiveFollowing
         player.Bottom += new Vector2(480, 0);
         brain.Senses.Update(companion.NPC, player);
         company.Prepare(context);
-        brain.Chooser.Activity.Select(company, context);
-        Require(ReferenceEquals(brain.Chooser.Current, company) && company.Execute(context).Kind == RequestKind.WithPlayer,
+        brain.Activity.Select(company, context);
+        Require(ReferenceEquals(brain.Activity.Current, company) && company.Execute(context).Kind == RequestKind.WithPlayer,
             "departure must switch the same company activity to reunion");
-        Require(brain.Chooser.Activity.Id == identity, "a company method change must not create a new purpose");
+        Require(brain.Activity.Id == identity, "a company method change must not create a new purpose");
         var stranded = context with { Stranded = true };
         company.Prepare(stranded);
         Require(company.Execute(stranded).Kind == RequestKind.Roam, "sealed-pocket company must retain its local roaming method");
@@ -511,7 +511,7 @@ internal static class VerifyResponsiveFollowing
             bool reconnects = gapAt > 0;
             BuildParallelRoutes(gapAt);
             var companion = VerifyCompanionLifecycle.Create();
-            companion.Brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
+            companion.Brain.Actions.RemoveAll(a => a.Name != "keep-company");
             Player player = Main.player[0];
             player.dead = false;
             player.position = new Vector2(30 * 16, 76 * 16 - player.height);
@@ -979,7 +979,7 @@ internal static class VerifyResponsiveFollowing
         brain.Positioner.Resolve(request, brain.Senses);
         Require(brain.Positioner.FollowObjectiveSatisfied, FormattableString.Invariant(
             $"a moving body inside the region is with the player: companion={companion.NPC.Center} v={companion.Motor.State.Velocity} player={player.Bottom} vy={player.velocity.Y} reason={brain.Positioner.FollowObjectiveReason} inside={brain.Senses.Intent.Inside}"));
-        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
+        var company = brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         company.Prepare(context);
         string movingMethod = company.EligibilityReason;
@@ -1011,7 +1011,7 @@ internal static class VerifyResponsiveFollowing
         player.Bottom = new Vector2(400f, 1280f);
         companion.NPC.Bottom = new Vector2(400f, 1280f);
         companion.NPC.velocity = Vector2.Zero;
-        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
+        var company = brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         for (int tick = 0; tick < 240; tick++)
         {

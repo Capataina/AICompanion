@@ -380,12 +380,16 @@ public sealed class MineOre : CompanionAction
             ctx.Companion.StartAnimation(pickaxe.type, pickaxe.useAnimation);
             if (ctx.Companion.Miner.LastOutcome is { } outcome)
             {
-                var owner = ctx.Companion.Brain.Chooser.Activity;
-                Infrastructure.Diagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "pickaxe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
+                var owner = ctx.Companion.Brain.Activity;
+                // The course's decision identity, the same `choice_id` the recorder's rows carry since schema
+                // 0.43.0. `ChopTree` carries the whole account: this passed `Chooser.EvaluationId`, which stopped
+                // advancing at `0bb2c8a`, and no capture since contains a `tool-effect` occurrence at all, so the
+                // defect is read from the source rather than observed and no row asserts it.
+                Infrastructure.Diagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "pickaxe", outcome, ctx.Companion.Brain.Course.DecisionId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
                 if (outcome.Effect == Infrastructure.Interactions.TileToolEffect.Removed
                     && outcome.Before.Type == jobType && jobTiles.Contains(outcome.Target))
                     ownRemovals.Add(outcome.Target);
-                if (outcome.Productive) ctx.Companion.Brain.Chooser.RecordWork(t.Tile.ToWorldCoordinates());
+                if (outcome.Productive) ctx.Companion.Brain.Activity.RecordWork(t.Tile.ToWorldCoordinates());
             }
         }
         return PositionRequest.Hold;

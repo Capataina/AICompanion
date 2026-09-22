@@ -17,6 +17,50 @@ namespace AICompanion.Tools.SessionReport;
 /// </summary>
 public static class DescribeSession
 {
+    /// <summary>A capture nobody played, and what it was a replay of.</summary>
+    public sealed record SyntheticOrigin(string Producer, string SourceCapture, string Note);
+
+    /// <summary>
+    /// Whether this capture is a machine's rather than a person's.
+    ///
+    /// <para><c>Tools/WorldRun</c> drives the mod's real recorder, so a world run writes a capture in
+    /// exactly the format a playtest does — every column, every occurrence, a normal closure — and
+    /// nothing in the rows distinguishes one from the other. It marks the preamble
+    /// <c>synthetic=world-run;source-capture=…</c> before the header goes out, and that line is the
+    /// only thing that does. A reader that ignores it reports "0m 38s of play" about a session nobody
+    /// played and pins before-numbers against a replay of the capture they were taken from, which is a
+    /// measurement of the harness wearing a measurement of the game.</para>
+    ///
+    /// <para>The producer is read as written rather than matched against <c>world-run</c>: a second
+    /// harness writing a different producer must be refused as play too, and a reader that only knows
+    /// one name would pass it.</para>
+    ///
+    /// <para><b>The note runs to the end of the line and carries semicolons of its own</b>, which the
+    /// real marker does — "nobody played this; it is the world run replaying the source capture's
+    /// player track, hostiles and drops". A reader splitting the whole value on <c>;</c> and treating
+    /// any segment without an <c>=</c> as the producer therefore reports half that sentence as the name
+    /// of the harness, which is what the first version of this did against the first real marker it
+    /// met. The producer is the first segment and nothing else can become it; the note is everything
+    /// after <c>note=</c>, unsplit.</para>
+    /// </summary>
+    public static SyntheticOrigin? Synthetic(IReadOnlyDictionary<string, string> metadata)
+    {
+        if (!metadata.TryGetValue("synthetic", out string? value) || value.Length == 0) return null;
+        int end = value.IndexOf(';');
+        string producer = end < 0 ? value : value[..end];
+        if (producer.Length == 0) producer = "an unnamed harness";
+        string source = "unnamed", note = "";
+        int noteAt = value.IndexOf("note=", StringComparison.Ordinal);
+        if (noteAt >= 0) note = value[(noteAt + 5)..].Trim();
+        foreach (string part in (noteAt >= 0 ? value[..noteAt] : value).Split(';'))
+        {
+            int equals = part.IndexOf('=');
+            if (equals < 0) continue;
+            if (part[..equals] == "source-capture" && equals + 1 < part.Length) source = part[(equals + 1)..];
+        }
+        return new SyntheticOrigin(producer, source, note);
+    }
+
     /// <summary>Where a capture's code came from and whether it closed, in one line shared by this summary and the HTML coverage.</summary>
     internal static string CaptureStatement(Session session)
     {
@@ -60,9 +104,18 @@ public static class DescribeSession
         }
         int first = session.Tick(0), last = session.Tick(session.Count - 1);
         int span = Math.Max(0, last - first);
+        SyntheticOrigin? synthetic = Synthetic(session.Metadata);
         sb.Append($"file      {Path.GetFileName(session.Path)}\n");
+        if (synthetic is { } origin)
+            sb.Append($"synthetic {origin.Producer} replaying {origin.SourceCapture}"
+                + (origin.Note.Length > 0 ? $" — {origin.Note}" : "")
+                + "\n          every number below is the harness's own, so no reading of it is evidence about a play\n");
         sb.Append($"rows      {session.Count:n0} over ticks {first:n0}..{last:n0}");
-        sb.Append($"  ({span / 3600}m {span % 3600 / 60}s of play at sixty a tick)\n");
+        // "of play" is a claim about a person and a synthetic capture has none, so the same span is
+        // stated as what it is: ticks a harness drove at the engine's own rate.
+        sb.Append(synthetic is null
+            ? $"  ({span / 3600}m {span % 3600 / 60}s of play at sixty a tick)\n"
+            : $"  ({span / 3600}m {span % 3600 / 60}s of replayed ticks at sixty a tick, not of play)\n");
         sb.Append($"columns   {session.Names.Count}");
         if (session.Ragged > 0)
             sb.Append($", {session.Ragged} ragged row(s) dropped");
@@ -136,6 +189,18 @@ public static class DescribeSession
 
         // Each activity's candidate funnel: the share of rows on which the candidate that got furthest stopped at each
         // stage, so "why was the lighting never done" opens on a count per stage rather than on a search through offers.
+        //
+        // **A loop over columns that are all gone prints nothing, and printing nothing is what this
+        // block exists to stop.** The header's whole job is to say what a capture does and does not
+        // carry, so a section that silently vanishes when its columns are retired is the census failing
+        // at its own question — a reader who knows the funnel line scrolls for it and concludes the
+        // recorder dropped it. The funnel columns went with the family chooser at 0.46.0, so from that
+        // schema the line says so once instead of the block emitting nothing.
+        bool anyFunnel = session.Names.Any(n => n.EndsWith("_funnel", StringComparison.Ordinal));
+        if (!anyFunnel && !CompletedTransferClaimsWereReceived.SchemaBelow(session, CompletedTransferClaimsWereReceived.ChooserColumnsRetired))
+            sb.Append($"funnel    retired at schema {CompletedTransferClaimsWereReceived.ChooserColumnsRetired} with the family chooser: the "
+                + "candidate funnel was a preparation-time shortlist the course does not keep. Per-domain refusals are in the decision "
+                + "occurrence's `course-refused:` tally, which the course timeline and the census-against-binder check read\n");
         foreach (string name in session.Names)
         {
             if (!name.EndsWith("_funnel", StringComparison.Ordinal)) continue;

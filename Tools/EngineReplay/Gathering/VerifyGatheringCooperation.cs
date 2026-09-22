@@ -63,14 +63,22 @@ internal static class VerifyGatheringCooperation
         Each("W01 chopping from actual reach", ChoppingFellsFromActualReachOnEitherSide);
         Each("W02 player takes the companion's trunk", APlayerTakingTheTrunkMovesTheCompanionAndConcludesByTrunk);
         Each("W03 externally felled trunk", AnExternallyFelledTrunkIsNotCompanionProduction);
-        Each("W04 chop remaining work against departure", ChoppingRemainingWorkMeetsADepartingPlayer);
+        // W04 and G02 went with the family chooser on 22 September 2026 (`AIC-419`); both drove `Chooser.Choose`,
+        // which no longer exists. W04 was the chopping twin of `VerifyOreWork`'s departure pair, and that mining
+        // twin is already on the course and still asserts the remaining-work gradient; what W04 alone was waiting
+        // on is `AIC-450`, whether a job priced at a negative worth should still beat idling, and that question
+        // outlives the row. G02 asserted that a retained vein does not reserve its *family* for itself, which is
+        // a rule about a nomination stage the course does not have; the course finding it had turned into,
+        // `AIC-449` — a trunk published `usable / observed-native-tree`, examined every slice, never reaching
+        // `Course.Admitted` across two hundred decisions — is unchanged, still open, and belongs in
+        // `../DecisionMaking/VerifyAdmittedOpportunitiesBind.cs` beside the rest of the admission class rather
+        // than in a fixture driving a deleted chooser. `CLAUDE.md` carries both with their measurements.
         Each("W05 protection after approach", ProtectionAddedAfterTheApproachStopsTheTool);
         Each("policy toggles during every phase", PolicyTogglesDuringEveryToolPhaseStopWorkAndResume);
         Each("D4 Mimic after Disabled reads no stale player hit", AMimicSwitchAfterDisabledReadsNoStalePlayerHit);
         Each("G01 unmineable ore beside a usable tree", AnUnmineableOreDoesNotMaskAUsableTree);
-        Each("G02 retained vein against a new tree", ARetainedVeinIsComparedNotReserved);
         Each("G03 one trip unit", MiningAndChoppingPriceTravelInOneUnit);
-        if (red == 0) Console.WriteLine("gathering cooperation: actual-reach chopping, trunk hand-over, external felling, departure, protection and policy changes in every phase, and family choice pass");
+        if (red == 0) Console.WriteLine("gathering cooperation: actual-reach chopping, trunk hand-over, external felling, protection and policy changes in every phase, and an unmineable ore beside a usable tree pass");
         return red;
     }
 
@@ -111,7 +119,7 @@ internal static class VerifyGatheringCooperation
         var ctx = SetUpTrees(near, far);
         var clock = new TileDamageClock();
         clock.OnWorldLoad();
-        var chop = ctx.Companion.Brain.Chooser.Actions.OfType<ChopTree>().Single();
+        var chop = ctx.Companion.Brain.Actions.OfType<ChopTree>().Single();
         var run = RunBrain(ctx, 600, () => ctx.Companion.Chopper.LastOutcome is { Productive: true } outcome && outcome.Target == near);
         Require(run.ChopStrikes.Count > 0 && TileChopper.TreeStands(near),
             $"the hand-over fixture needs a productive strike on the nearer trunk first; strikes={run.ChopStrikes.Count} target={chop.ActivityTarget}");
@@ -123,7 +131,7 @@ internal static class VerifyGatheringCooperation
             $"a trunk the player took must move the companion to the separate trunk; target={chop.ActivityTarget}");
         Require(!(ctx.Companion.Chopper.LastOutcome is { } later && later.Target == near && later.Attempt != lastAttemptOnNear),
             "the companion must not strike the trunk the player is working after the player started on it");
-        var left = ctx.Companion.Brain.Chooser.Activity.RecentAttempts.LastOrDefault(a => a.Activity == "chop" && a.ProductiveEffects > 0);
+        var left = ctx.Companion.Brain.Activity.RecentAttempts.LastOrDefault(a => a.Activity == "chop" && a.ProductiveEffects > 0);
         Require(left is { Status: AttemptStatus.Partial, Cause: "player-took-trunk" },
             $"the attempt on the trunk the player took must end partial and say so; got {left}");
         Main.tile[near.X, near.Y].ClearEverything();
@@ -132,7 +140,7 @@ internal static class VerifyGatheringCooperation
         Advance(ctx, 10);
         Require(LastAttempt(ctx, "chop") is { Status: AttemptStatus.Complete, Attribution: AttemptAttribution.Companion },
             $"the separate trunk the companion felled must be its own completion; got {LastAttempt(ctx, "chop")}");
-        Require(!ctx.Companion.Brain.Chooser.Activity.RecentAttempts.Any(a => a.Activity == "chop" && a.Attribution == AttemptAttribution.Shared),
+        Require(!ctx.Companion.Brain.Activity.RecentAttempts.Any(a => a.Activity == "chop" && a.Attribution == AttemptAttribution.Shared),
             "the trunk the player felled alone must not appear as shared companion production");
     }
 
@@ -145,7 +153,7 @@ internal static class VerifyGatheringCooperation
             var ctx = SetUpTrees(trunk);
             ctx.Npc.Bottom = new Vector2(14 * 16 + 8, 60 * 16);
             TerrainChanges.Reset();
-            RunBrain(ctx, 300, () => ctx.Companion.Brain.LastAction?.Name == "chop" && ctx.Companion.Brain.Chooser.Activity.AttemptOpen
+            RunBrain(ctx, 300, () => ctx.Companion.Brain.LastAction?.Name == "chop" && ctx.Companion.Brain.Activity.AttemptOpen
                 && !FindToolAccess.InReach(ctx.Npc.Bottom, trunk));
             Require(ctx.Companion.Brain.LastAction?.Name == "chop" && ctx.Companion.Chopper.LastOutcome == null,
                 $"the invalid case needs the companion walking to the trunk with no strike; action={ctx.Companion.Brain.LastAction?.Name}");
@@ -163,46 +171,6 @@ internal static class VerifyGatheringCooperation
             Advance(ctx, 10);
             Require(LastAttempt(ctx, "chop") is { Status: AttemptStatus.Complete, Attribution: AttemptAttribution.Shared },
                 $"a trunk the player finished after companion strikes is a shared completion; got {LastAttempt(ctx, "chop")}");
-        }
-    }
-
-    /// <summary>The mining departure pair, with a tree: held geometry and separation, a player sustaining travel away, and only
-    /// the trunk's native remaining hits changed. A fresh trunk must yield to following and a one-hit trunk must be finished.</summary>
-    private static void ChoppingRemainingWorkMeetsADepartingPlayer()
-    {
-        // The same restatement as VerifyOreWork's departure pair, and for the same reason: since 15 September 2026 a new job is
-        // taken within 1000 px rather than 1120, so at 640 the trunk has already left the work radius and both arms read zero.
-        // The gradient between a fresh trunk and a one-hit finish is asked where the trunk is still inside it.
-        foreach (int separation in new[] { 400, 480, 576 })
-        foreach (bool nearlyDone in new[] { false, true })
-        {
-            Point trunk = new(25, 89);
-            var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Disabled, TileID.Copper, trunk);
-            MakeTree(trunk);
-            WorkPolicies.Chopping = WorkPolicy.Opportunistic;
-            var brain = ctx.Companion.Brain;
-            var workClock = new TileDamageClock();
-            workClock.OnWorldLoad();
-            brain.Chooser.Actions.RemoveAll(action => action.Name is not ("chop" or "keep-company"));
-            ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(separation - 120 * 4, 0);
-            for (int tick = 0; tick < 120; tick++)
-            {
-                ctx.Player.velocity = new Vector2(4, 0);
-                ctx.Player.position += ctx.Player.velocity;
-                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                brain.Senses.Update(ctx.Npc, ctx.Player);
-                workClock.PostUpdateEverything();
-            }
-            Item axe = TileChopper.AxeFor(ctx.Player);
-            if (nearlyDone)
-                while (ctx.Companion.Chopper.EstimateRemaining(trunk, axe) is { Hits: > 1 })
-                {
-                    Require(ctx.Companion.Chopper.Swing(trunk, axe), "the chop departure fixture needs a native hit");
-                    for (int tick = 0; tick < axe.useTime; tick++) ctx.Companion.Chopper.Tick();
-                }
-            var selected = brain.Chooser.Choose(ctx);
-            Require(selected?.Name == (nearlyDone ? "chop" : "keep-company"),
-                $"departure must distinguish a fresh trunk from a one-hit finish: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={string.Join(",", brain.Chooser.LastScores.Select(s => s.Action.Name + "=" + s.Final))}");
         }
     }
 
@@ -358,7 +326,7 @@ internal static class VerifyGatheringCooperation
         WorkPolicies.Chopping = WorkPolicy.Mimic;
         var workClock = new TileDamageClock();
         workClock.OnWorldLoad();
-        var chop = ctx.Companion.Brain.Chooser.Actions.OfType<ChopTree>().Single();
+        var chop = ctx.Companion.Brain.Actions.OfType<ChopTree>().Single();
         bool fail = true, effectOnly = false, noItem = false;
         new TileDamageWatcher().KillTile(trunk.X, trunk.Y, TileID.Trees, ref fail, ref effectOnly, ref noItem);
         VerifyOreWork.AdvanceBrain(ctx);
@@ -389,7 +357,7 @@ internal static class VerifyGatheringCooperation
         MakeTree(trunk);
         WorkPolicies.Chopping = WorkPolicy.Opportunistic;
         TerrainChanges.Reset();
-        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
+        var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
         bool mineRuledOut = false;
         var before = Snapshot();
         var run = RunBrain(ctx, 900, () =>
@@ -401,39 +369,6 @@ internal static class VerifyGatheringCooperation
             $"an ore the pick cannot damage must not mask a usable tree; felled={!TileChopper.TreeStands(trunk)} chop strikes={run.ChopStrikes.Count} mine strikes={run.MineStrikes.Count} mine={mine.Eligibility}/{mine.EligibilityReason}");
         Require(mineRuledOut, $"the unmineable ore must be classified as known-unusable work while the tree was chosen; last={mine.Eligibility}/{mine.EligibilityReason}");
         RequireOnlyChanged(before, trunk);
-    }
-
-    /// <summary>
-    /// A mining job is retained on a far vein when a usable tree appears beside the companion. Retaining a job must not
-    /// reserve the family for it: the tree is prepared and carries its value on the same board while mining is the
-    /// incumbent, and when the retained vein stops being worth anything on the same facts the tree wins that very
-    /// comparison. Whether commitment should also lose to a shorter remaining trip is the reunion valuation's question;
-    /// calm, with no reunion cost per tick, equal raw values leave the incumbent ahead by its commitment.
-    /// </summary>
-    private static void ARetainedVeinIsComparedNotReserved()
-    {
-        Point ore = new(45, 59), trunk = new(23, 59);
-        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        var brain = ctx.Companion.Brain;
-        brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "chop" or "keep-company"));
-        WorkPolicies.Chopping = WorkPolicy.Disabled;
-        for (int tick = 0; tick < 30; tick++) VerifyOreWork.AdvanceBrain(ctx);
-        var mine = brain.Chooser.Actions.OfType<MineOre>().Single();
-        var chop = brain.Chooser.Actions.OfType<ChopTree>().Single();
-        Require(brain.LastAction?.Name == "mine" && mine.JobId > 0, $"the fixture needs a retained mining job; action={brain.LastAction?.Name} status={mine.Status}");
-        MakeTree(trunk);
-        WorkPolicies.Chopping = WorkPolicy.Opportunistic;
-        TerrainChanges.Changed(trunk.X, trunk.Y);
-        brain.Chooser.Choose(ctx);
-        var chopScore = brain.Chooser.LastScores.FirstOrDefault(score => score.Action.Name == "chop");
-        Require(chopScore.Raw > 0 && chop.Eligibility == OfferEligibility.Usable,
-            $"the new tree must be prepared and compared while mining is retained; chop={chop.Eligibility}/{chop.EligibilityReason} raw={chopScore.Raw}");
-        Tile transformed = Main.tile[ore.X, ore.Y];
-        transformed.TileType = TileID.Chlorophyte;
-        Main.tileSolid[TileID.Chlorophyte] = true;
-        var chosen = brain.Chooser.Choose(ctx);
-        Require(chosen?.Name == "chop",
-            $"with the retained vein worth nothing the tree must win on the next comparison; chosen={chosen?.Name} mine={mine.Eligibility}/{mine.EligibilityReason} scores={string.Join(",", brain.Chooser.LastScores.Select(s => $"{s.Action.Name}={s.Raw:0.000}->{s.Final:0.000}"))}");
     }
 
     /// <summary>An ore and a tree either side of the companion, neither in reach. Mining and chopping must price the walk in the
@@ -492,7 +427,7 @@ internal static class VerifyGatheringCooperation
     }
 
     private static AttemptOutcome? LastAttempt(ActionContext ctx, string activity)
-        => ctx.Companion.Brain.Chooser.Activity.RecentAttempts.LastOrDefault(a => a.Activity == activity) is { AttemptId: > 0 } found ? found : null;
+        => ctx.Companion.Brain.Activity.RecentAttempts.LastOrDefault(a => a.Activity == activity) is { AttemptId: > 0 } found ? found : null;
 
     private static live::AICompanion.Companion.Brain.Infrastructure.Interactions.TileToolObservation? LastToolOutcome(ActionContext ctx, bool chopping)
         => chopping ? ctx.Companion.Chopper.LastOutcome : ctx.Companion.Miner.LastOutcome;

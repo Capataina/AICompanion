@@ -56,7 +56,15 @@ public static class MultiRunReport
             // different run happened to capture it.
             text.Append(Indent(DescribeGodsEyeEvents.Of(path, false)));
             var diagnosis = Program.Evaluate(s);
-            foreach (var finding in diagnosis.Findings)
+            // Folded by class, the same way the ordinary report folds, because one session printed two
+            // ways by two pages of one tool is the drift this tool exists to end. The fold is not
+            // cosmetic and the measurement is on the parent tree rather than on this one: at `57db4da`
+            // the 22 September 2026 capture produced 1,089 definitive findings from two classes, and
+            // this page printed a paragraph for each while the ordinary report printed eight lines.
+            // Nothing on disk exercises the difference *now* — the checks that produced those 1,089 are
+            // fixed and the 18 September capture produces none — so this is consistency ahead of a
+            // capture rather than a repair of an observed page.
+            foreach (var finding in Program.Fold(diagnosis.Findings.OrderByDescending(f => f.Rows).ToArray()))
             {
                 text.Append($"  {finding.Severity}: {finding.Title} [ticks {finding.FirstTick}..{finding.LastTick}]\n");
                 text.Append("    ").Append(finding.Detail).Append('\n');

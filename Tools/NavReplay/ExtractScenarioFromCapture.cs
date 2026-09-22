@@ -41,7 +41,14 @@ internal static class ExtractScenarioFromCapture
     /// <summary>How many of the player's recorded feet tiles the trail carries, oldest first.</summary>
     private const int TrailTiles = 200;
 
-    internal static Extract Run(string capture, int tick, int width, int height, string? into, Action<string> say)
+    /// <param name="reason">Why this window was worth cutting, written into the fixture's own header.
+    /// A committed scenario outlives the session that cut it and the only thing anybody can read it
+    /// with is the file, so a cut whose reason lives in a folder guide instead is a fact with two homes
+    /// of which the guide is the one that drifts. Omitted where the caller genuinely has no reason —
+    /// a hand-typed `--extract-scenario` at a tick somebody was curious about — and the header then
+    /// says nothing rather than inventing one.</param>
+    internal static Extract Run(string capture, int tick, int width, int height, string? into, Action<string> say,
+        string? reason = null)
     {
         string[] header = Array.Empty<string>();
         Dictionary<string, string>? row = null;
@@ -166,7 +173,10 @@ internal static class ExtractScenarioFromCapture
                 + $" window x {originX}..{originX + width - 1} y {originY}..{originY + height - 1}"
                 + $" || from {Path.GetFileName(capture)} || {snapshots} snapshots covered {knownTiles} of {width * height} tiles"
                 + $" ({100.0 * knownTiles / (width * height):F1}%) as last written, the rest closed"
-                + $", oldest contributing snapshot {(elapsed - oldestMs) / 1000.0:F1}s before the tick and newest {(elapsed - newestMs) / 1000.0:F1}s",
+                + $", oldest contributing snapshot {(elapsed - oldestMs) / 1000.0:F1}s before the tick and newest {(elapsed - newestMs) / 1000.0:F1}s"
+                // Last on the line, after every recorded key, for the same reason the provenance is:
+                // a reason holding the word "goal" written ahead of the real one would become the goal.
+                + (string.IsNullOrWhiteSpace(reason) ? "" : $" || cut for {reason.Replace('\n', ' ').Trim()}"),
             // Every position named outright rather than drawn over the grid, because a marker glyph
             // written onto a half block or a slope erases the support the body is standing on.
             $"markers S {start.X},{start.Y} G {goal.X},{goal.Y} N {start.X},{start.Y} P {player.X},{player.Y}",

@@ -152,7 +152,7 @@ internal static class RenderNativeInterface
         // This is a retained-state rendering fixture, not a discovery run. The public
         // activity target comes from preparation, separately from the native ore target.
         mine.GetType().GetField("preparedTarget", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(mine, target.ToWorldCoordinates());
-        companion.Brain.Chooser.Activity.Select(mine,
+        companion.Brain.Activity.Select(mine,
             new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses));
         foreach (var entry in new[] { (Terraria.ID.ItemID.CopperOre, "Copper Ore"), (Terraria.ID.ItemID.Wood, "Wood"), (Terraria.ID.ItemID.Gel, "Gel") })
         {
@@ -175,31 +175,26 @@ internal static class RenderNativeInterface
     }
 
     /// <summary>
-    /// Retained results the Execution page reads, set as the brain would have left them: one Gathering nomination over a
-    /// usable mining offer and an unresolved chopping one, a tool region for the seeded ore, a grant applied under a different
-    /// owner than it was requested, and a concluded attempt. This is rendering state, not a decision run: nothing here asks
-    /// the chooser, the positioner or the finaliser to compute anything.
+    /// Retained results the Execution page reads, set as the brain would have left them: a tool region for the seeded ore, a
+    /// grant applied under a different owner than it was requested, and a concluded attempt. This is rendering state, not a
+    /// decision run: nothing here asks the course, the positioner or the finaliser to compute anything.
+    ///
+    /// It used to seed a score board and a family nomination beside those, and both went with the family chooser on
+    /// 22 September 2026. The page reads `ReadCourseWorthPerActivity` for that section, so the seeded rows had been
+    /// rendering nothing since `d86dcac` repointed it; what the page prints with no course published is "no order priced"
+    /// per registered activity, which is what this scene now exercises.
     /// </summary>
     private static void SeedExecutionEvidence(live::AICompanion.Companion.CharacterBody.CompanionNPC companion,
         live::AICompanion.Companion.Brain.Activities.Gathering.MineOre mine, Point tile)
     {
         var brain = companion.Brain;
-        var chooser = brain.Chooser;
-        var chop = chooser.Actions.First(action => action.Name == "chop");
-        chooser.LastScores.Clear();
-        chooser.LastScores.Add(new(mine, .80f, .80f, Eligibility: live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable, EligibilityReason: "proven-pose"));
-        chooser.LastScores.Add(new(chop, .40f, 0f, Eligibility: live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved, EligibilityReason: "approach-undecided"));
-        typeof(live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser).GetProperty("LastNominations")!.SetValue(chooser, new[]
-        {
-            new live::AICompanion.Companion.Brain.Infrastructure.Selection.FamilyNomination(live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Gathering,
-                new live::AICompanion.Companion.Brain.Infrastructure.Selection.EvaluatedActivity(0, "mine", .80f, .80f, 1f, 1f, 1f, 1f, "")),
-        });
         var region = live::AICompanion.Companion.Brain.Infrastructure.Position.SuccessRegion.ToolStand(new Vector2(320, 320), tile, 100, 1);
         brain.Positioner.GetType().GetProperty("Region")!.SetValue(brain.Positioner, region);
         brain.ControlGrants.GetType().GetProperty("Last")!.SetValue(brain.ControlGrants,
             new live::AICompanion.Companion.Brain.Infrastructure.Grants.ActivityControlGrant(3, 100, 1, live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended,
                 "downed", "travel-recovery-clearance", default, default, live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Unavailable, null, Vector2.Zero, 1));
-        var recent = (System.Collections.IList)chooser.Activity.GetType().GetField("recent", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(chooser.Activity)!;
+        var owner = brain.Activity;
+        var recent = (System.Collections.IList)owner.GetType().GetField("recent", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(owner)!;
         recent.Add(new live::AICompanion.Companion.Brain.Activities.AttemptOutcome(7, 1, "mine", live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Gathering,
             90, 100, live::AICompanion.Companion.Brain.Activities.AttemptStatus.Complete, "tracked-vein-observed-clear", 3,
             live::AICompanion.Companion.Brain.Activities.AttemptAttribution.Companion));

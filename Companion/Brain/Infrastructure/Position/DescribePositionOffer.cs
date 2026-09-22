@@ -9,8 +9,8 @@ namespace AICompanion.Companion.Brain.Infrastructure.Position;
 /// found nothing. The distinction is the whole point of the three-valued offer: a stand the reach flood has
 /// not claimed yet is neither admitted nor refused, and reporting that as a proven impossibility is what let
 /// a hunt be vetoed by its own budget and the companion flip to keeping company on the tick the budget ran
-/// out. These strings are the vocabulary the resolver writes and the chooser reads; a reason not named here
-/// is a settled answer.
+/// out. These strings are the vocabulary the resolver writes and every consumer of an offer reads; a reason
+/// not named here is a settled answer.
 /// </summary>
 public static class PositionReasons
 {
@@ -29,6 +29,6 @@ public readonly record struct PositionOffer(Vector2? Destination, string Reason,
     string Candidates, int SourceTick)
 {
     /// <summary>Whether this offer's reason means the flood has not answered rather than that it answered.
-    /// Unanswered is never a proven negative: the chooser classifies it unresolved, so a later rescore can still settle it.</summary>
+    /// Unanswered is never a proven negative: a caller classifies it unresolved, so a later rescore can still settle it.</summary>
     public bool Undecided => PositionReasons.Undecided(Reason);
 }

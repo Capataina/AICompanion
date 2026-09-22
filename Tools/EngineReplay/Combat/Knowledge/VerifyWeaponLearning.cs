@@ -760,8 +760,8 @@ internal static class VerifyWeaponLearning
         L.Reset();
         Combat combat = scene.Companion.Combat;
         Player player = scene.Ctx.Player;
-        var fight = scene.Companion.Brain.Chooser.Actions.OfType<Fight>().Single();
-        scene.Companion.Brain.Chooser.Activity.Select(fight, scene.Ctx);
+        var fight = scene.Companion.Brain.Actions.OfType<Fight>().Single();
+        scene.Companion.Brain.Activity.Select(fight, scene.Ctx);
         T zombieThreat = scene.Threats[0];
 
         int Establish()

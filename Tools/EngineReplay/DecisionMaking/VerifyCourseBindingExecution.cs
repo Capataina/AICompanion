@@ -46,7 +46,7 @@ internal static class VerifyCourseBindingExecution
     private static void EveryPurposeHasAnExecutor()
     {
         var brain = VerifyCompanionLifecycle.Create().Brain;
-        HashSet<string> registered = brain.Chooser.Actions.Select(action => action.Name).ToHashSet(StringComparer.Ordinal);
+        HashSet<string> registered = brain.Actions.Select(action => action.Name).ToHashSet(StringComparer.Ordinal);
         Require(registered.Count > 0, "the chooser registered no activities, so this row proves nothing");
 
         foreach (string purpose in MintedPurposes)

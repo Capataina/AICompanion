@@ -11,8 +11,8 @@ using AICompanion.Companion.Brain.Infrastructure.Interactions;
 namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 
 /// <summary>
-/// The inspector's Execution evidence, built only from state the brain has already retained: the chooser's last family
-/// nominations and scored offers, the positioner's admitted success region, the last control grant, and the activity
+/// The inspector's Execution evidence, built only from state the brain has already retained: what the course thought
+/// each activity's work was worth, the positioner's admitted success region, the last control grant, and the activity
 /// owner's open attempt and latest conclusion. It calls no planner, positioner, aimer or reach test, so reading it can
 /// neither change a decision nor pay for a solve; and it is plain data, so the offscreen renderer checks it with no game.
 /// </summary>
@@ -27,8 +27,6 @@ public static class DescribeExecutionEvidence
     public static IReadOnlyList<Line> Of(Brain brain)
     {
         var lines = new List<Line>();
-        var chooser = brain.Chooser;
-
         // The course's worth per activity rather than the retired chooser's family nominations. This
         // section printed "no comparison has run yet" for whole sessions after `0bb2c8a`, and it was
         // telling the truth about `Chooser.LastScores` while being wrong about the companion, which had
@@ -72,7 +70,7 @@ public static class DescribeExecutionEvidence
         else lines.Add(new("no control has been granted yet"));
 
         lines.Add(new("Effects and how the attempt ended", Heading: true));
-        var owner = chooser.Activity;
+        var owner = brain.Activity;
         lines.Add(new(owner.AttemptOpen
             ? $"attempt {owner.AttemptId} open under {owner.Current?.Name ?? "-"} ({owner.Phase}), {owner.AttemptEffects} productive effect(s) so far"
             : $"no attempt open; {owner.Current?.Name ?? "no activity"} is {owner.Phase}"));

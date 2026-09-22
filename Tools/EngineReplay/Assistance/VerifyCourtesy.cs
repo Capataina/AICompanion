@@ -290,8 +290,8 @@ internal static class VerifyCourtesy
         companion.NPC.velocity = Vector2.Zero;
         Player.tileTargetX = Player.tileTargetY = 0;
         var brain = companion.Brain;
-        var company = brain.Chooser.Actions.OfType<KeepCompany>().Single();
-        brain.Chooser.Actions.RemoveAll(a => !ReferenceEquals(a, company));
+        var company = brain.Actions.OfType<KeepCompany>().Single();
+        brain.Actions.RemoveAll(a => !ReferenceEquals(a, company));
         // One tick first, so the activity is entered before the scene is read. Keeping company has no random stroll any more:
         // its local method is a seeded hover around the spot, so the reference scene is deterministic without holding anything.
         Step(companion);

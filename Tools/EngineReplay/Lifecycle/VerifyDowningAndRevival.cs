@@ -162,8 +162,8 @@ internal static class VerifyDowningAndRevival
             var p = brain.Presentation;
             throw new InvalidOperationException($"{error.Message} at engine tick {Main.GameUpdateCount}, downed {downedBefore}->{companion.IsDowned}: "
                 + $"presentation tick={p.Tick} activityId={p.ActivityId} family={p.Family} activity={p.Activity} phase={p.Phase} downed={p.Downed} recovering={p.Recovering}; "
-                + $"expected tick={Main.GameUpdateCount} activityId={brain.Chooser.Activity.Id} family={brain.Chooser.Current?.Family} activity={brain.Chooser.Current?.Name} "
-                + $"phase={brain.Chooser.Activity.Phase} downed={companion.IsDowned} recovering={brain.FollowRecovery.Active}");
+                + $"expected tick={Main.GameUpdateCount} activityId={brain.Activity.Id} family={brain.Activity.Current?.Family} activity={brain.Activity.Current?.Name} "
+                + $"phase={brain.Activity.Phase} downed={companion.IsDowned} recovering={brain.FollowRecovery.Active}");
         }
         VerifyResponsiveFollowing.AdvanceNative(companion);
     }
@@ -172,9 +172,9 @@ internal static class VerifyDowningAndRevival
     {
         var brain = companion.Brain;
         var p = brain.Presentation;
-        return p.Tick == Main.GameUpdateCount && p.ActivityId == brain.Chooser.Activity.Id
-            && p.Family == brain.Chooser.Current?.Family && p.Activity == brain.Chooser.Current?.Name
-            && p.Phase == brain.Chooser.Activity.Phase && p.Recovering == brain.FollowRecovery.Active;
+        return p.Tick == Main.GameUpdateCount && p.ActivityId == brain.Activity.Id
+            && p.Family == brain.Activity.Current?.Family && p.Activity == brain.Activity.Current?.Name
+            && p.Phase == brain.Activity.Phase && p.Recovering == brain.FollowRecovery.Active;
     }
 
     private static void Require(bool condition, string message)

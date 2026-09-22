@@ -136,14 +136,6 @@ public static class Weights
     public const float AttackPreventedHarmWeight = 2f;
     public const float AttackFinishingValue = 4f;
     public const double TotalPlanningMilliseconds = 12d;
-    // Each purpose family's share of that total for preparing its optional children. Three
-    // families at a third each would leave nothing for position and navigation on a worst tick, so
-    // the share is smaller. It bounds optional siblings only: the incumbent, non-excursion children
-    // and one optional child always prepare, and the incumbent keeps the whole total because its
-    // approach searches retain no progress. The 2026-09-13 brain-cost scene measured an incumbent
-    // mining approach recomputation consuming the full 12 ms; that cost was the approach query
-    // asking every pose, and asking nearest first brought the same scene's maximum to about 4 ms.
-    public const double FamilyPreparationMilliseconds = 3d;
     public const float ProtectionLeadTicks = 60f;
     public const float GuardReleasePressure = 0.08f;
     public const int GuardClearTicks = 90;
@@ -254,22 +246,15 @@ public static class Weights
     public const float ActivityContinuationFactor = 1.25f;
     public const float WorkSiteRadius = 160f;
     public const int WorkCollectionTicks = 600;
-    public const float InterruptibleActionTicks = 12f;
-    public const float FollowDuringUsefulWork = .2f;
 
-    // What "soon" means when jobs are compared by time. A job's worth is multiplied by window / (window + the ticks
-    // until it is done, travel included), so a job a whole window away is worth half of the same job at hand, a
-    // nearly finished job is worth nearly all of its value, and a long job is never zero. It is a half-life, not a
-    // cutoff. Five seconds because the owner's examples are about "the best thing to do in the next couple of
-    // seconds"; a longer window blurs the job on the way with the job across the room, a shorter one makes every job
-    // but the nearest nearly worthless.
-    public const float TaskWindowTicks = 300f;
-    // Which jobs are close enough in worth to be put in an order together: every job scoring at least this share
-    // below the best job is left out, because no order makes a clearly worse job the right first step.
-    public const float TaskOrderShare = .4f;
-    // The most jobs ordered together. 5! orders is 120 short sums on a rescore, and the board holds one job per
-    // activity, so five is every job activity the companion has.
-    public const int TaskOrderMaximum = 5;
+    // Six tunables stood here and in two other places and went with the family chooser on 22 September 2026
+    // (`AIC-419`): the per-family preparation share, the interruptible-action window, the discount on following
+    // while useful work exists, the task window a job's worth was divided by, and the share and count that decided
+    // which close jobs were ordered together. Each was a coefficient of a term the course does not have — it prices
+    // whole orders by their forecast consequences rather than multiplying per-activity factors — so none of them has
+    // a course reading to be retuned to, and leaving them here would have offered the next tuning session six dials
+    // wired to nothing. The properties two of them carried are in `Courses/CLAUDE.md`. `HorizonOverrunToZero` went
+    // with them from the combat block below.
     // The time to use a nearby site once there — a torch placed, a pot broken — which the shared executor adds to its
     // trip. Small on purpose: it only has to stop an interaction at the body's own feet reading as free.
     public const float NearbyInteractionTicks = 20f;
@@ -400,9 +385,6 @@ public static class Weights
 
     /// <summary>A plan whose stand takes longer than this to reach is an excursion and pays separation at the target; inside it the body is already there.</summary>
     public const float CombatLocalTripTicks = 120f;
-
-    /// <summary>How fast the horizon charge falls once an action would outlast the horizon, in ticks of overrun to zero.</summary>
-    public const float HorizonOverrunToZero = 240f;
 
     /// <summary>Distance band to the player when calm, in px: closer than Near or further than Far scores worse.</summary>
     public const float CalmBandNear = 96f;

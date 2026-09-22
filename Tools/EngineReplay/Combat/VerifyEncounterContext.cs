@@ -7,9 +7,6 @@ using Terraria.GameContent.Events;
 using Terraria.ID;
 using Encounter = live::AICompanion.Companion.Brain.Infrastructure.Observation.EncounterSense;
 using Threats = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense;
-using Evaluate = live::AICompanion.Companion.Brain.Infrastructure.Selection.EvaluatePreparedActivities;
-using Prepared = live::AICompanion.Companion.Brain.Infrastructure.Selection.PreparedActivity;
-using Comparison = live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityComparisonContext;
 using Eligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
 using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
@@ -61,7 +58,6 @@ internal static class VerifyEncounterContext
         try
         {
             TheObservationReadsNativeFactsAndFallsBackToSpawnPressure();
-            TheEvaluatorChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork();
             TheCourseChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork();
             TheLiveBrainStopsMiningOnlyWhereTheEventReachesIt();
         }
@@ -391,42 +387,6 @@ internal static class VerifyEncounterContext
         Console.WriteLine($"  encounter ceiling rows (cap {CaveCap} lowered to {LoweredCap}): before {beforeDrop}, after the drop {afterDrop}, past the ceiling {pastCeiling}, emptied {emptied}, new crowd {newCrowd}, companion only {companionOnly} (reach player {reachPlayer}, companion {reachCompanion})");
     }
 
-    private static void TheEvaluatorChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork()
-    {
-        var board = new[]
-        {
-            new Prepared(0, "mine", .8f, 60, IsExcursion: true, HasTarget: true, IsFollowing: false, IsIncumbent: false, Eligibility.Usable),
-            new Prepared(1, "hunt", .3f, 60, IsExcursion: true, HasTarget: true, IsFollowing: false, IsIncumbent: false, Eligibility.Usable, ServesEncounter: true),
-            new Prepared(2, "keep-company", .2f, 0, IsExcursion: false, HasTarget: false, IsFollowing: true, IsIncumbent: false, Eligibility.Usable),
-        };
-        // Named, because the context gains and loses parameters: written positionally, removing the reunion delay cost on
-        // 15 September 2026 slid this encounter into the task window and a one-tick window cut every task's worth to a sixtieth.
-        Comparison Context(float urgency, float encounter, bool stranded = false)
-            => new(ProtectionUrgency: urgency, Stranded: stranded, ThreatHorizonTicks: float.PositiveInfinity, InterruptibleTicks: 30,
-                HorizonOverrunTicks: 600, Commitment: 1, WithinActivityAllowance: false, FollowDuringUsefulWork: 1, EncounterIntensity: encounter);
-
-        var calm = Evaluate.Evaluate(board, Context(0, 0));
-        var full = Evaluate.Evaluate(board, Context(0, 1));
-        var half = Evaluate.Evaluate(board, Context(0, .5f));
-        var urgentOnly = Evaluate.Evaluate(board, Context(.6f, 0));
-        var both = Evaluate.Evaluate(board, Context(.6f, .6f));
-        var stranded = Evaluate.Evaluate(board, Context(0, 1, stranded: true));
-        var invalid = Evaluate.Evaluate(board, Context(0, 1.5f));
-
-        Require(calm[0].Final > calm[1].Final && calm[0].Final > calm[2].Final,
-            $"with no encounter the fixture must start with mining ahead, or the pair proves nothing; mine={calm[0].Final} hunt={calm[1].Final} keep={calm[2].Final}");
-        Require(full[0].Final == 0f && full[1].Final == calm[1].Final && full[2].Final == calm[2].Final,
-            $"a full encounter must remove mining's value and leave hunting and keeping company exactly as they were; mine={full[0].Final} hunt={full[1].Final}/{calm[1].Final} keep={full[2].Final}/{calm[2].Final}");
-        Require(MathF.Abs(half[0].Protection - .5f) < 1e-5f, $"a half-strength encounter halves optional work; protection={half[0].Protection}");
-        Require(MathF.Abs(both[0].Protection - urgentOnly[0].Protection) < 1e-5f && MathF.Abs(both[0].Protection - .4f) < 1e-5f,
-            $"urgency and an equal encounter are one danger read twice, so mining must pay 0.4 once, not 0.16; both={both[0].Protection} urgency-only={urgentOnly[0].Protection}");
-        Require(MathF.Abs(both[1].Protection - .4f) < 1e-5f,
-            $"combat still pays the player's urgency during an encounter, and only that; hunt protection={both[1].Protection}");
-        Require(stranded[0].Protection == 1f, $"a stranded companion's optional work is not charged for an encounter either; protection={stranded[0].Protection}");
-        Require(invalid[0].Error == "invalid-encounter", $"an intensity outside 0..1 is an adapter defect and must be refused; error='{invalid[0].Error}'");
-        Console.WriteLine($"  encounter evaluation rows: calm mine {calm[0].Final:0.###} hunt {calm[1].Final:0.###} keep {calm[2].Final:0.###}; full mine {full[0].Final:0.###} hunt {full[1].Final:0.###} keep {full[2].Final:0.###}; urgency+encounter protection {both[0].Protection:0.###}");
-    }
-
     /// <summary>
     /// The course's own relevance rule, read directly rather than through a whole brain, because the live
     /// scene below can only show that *something* charged the encounter and this says what and how much.
@@ -471,11 +431,12 @@ internal static class VerifyEncounterContext
         Main.bloodMoon = bloodMoon;
         Main.worldSurface = playerOnSurface ? 120 : 40;
         for (int t = 0; t < 3; t++) VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
-        // What the ore is worth is read from the course that decided, not from the family chooser's
-        // `LastScores`. The chooser is still compiled and its `Current` is still set — the tick selects
-        // the bound activity through it — but `Choose` no longer runs, so its score ledger is empty and
-        // this row read a valued job as worth zero. `(mine, 0, none)` was the course choosing mining
-        // correctly beside a ledger nobody fills.
+        // What the ore is worth is read from the course that decided. It read the family chooser's
+        // `LastScores` until 21 September 2026, and that ledger was empty from the tick switch on, so
+        // this row read a valued job as worth zero: `(mine, 0, none)` was the course choosing mining
+        // correctly beside a ledger nobody filled. The chooser itself was deleted on 22 September
+        // (`AIC-419`); what the tick still selects through is `OwnCurrentActivity`, which was never
+        // part of the decision.
         var course = ctx.Companion.Brain.Course;
         float mine = course.LastLeaders.TryGetValue("mine-target", out var leader) ? (float)leader.Total.Nominal : 0f;
         return (course.Last.Binding?.Opportunity.Purpose ?? course.Last.Activity,

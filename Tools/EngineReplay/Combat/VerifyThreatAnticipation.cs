@@ -160,7 +160,7 @@ internal static class VerifyThreatAnticipation
         Require(combat.ShotSolves(context, muzzle, target), "open fixture must initially have an attackable shot");
 
         var fight = new live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies();
-        companion.Brain.Chooser.Activity.Select(fight, context);
+        companion.Brain.Activity.Select(fight, context);
         Require(VerifyPreparedActivities.PrepareAndScore(fight, context) > 0f && fight.OfferedPlan != null,
             $"the attackable target must be offered a plan; reason={fight.EligibilityReason}");
         float estimate = combat.EstimateInterventionTicks(context);
