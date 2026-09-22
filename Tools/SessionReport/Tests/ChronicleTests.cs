@@ -708,12 +708,73 @@ public static class ChronicleTests
             Require(found.Length == 1, $"the census-against-binder check reported {found.Length} finding(s) rather than one per contradicting domain");
             Require(found[0].Severity == Severity.Definitive, $"a contradiction observed in one record was graded {found[0].Severity}");
             Require(found[0].Rows == 3, $"the finding counted {found[0].Rows} decision(s) rather than the three the fixture holds");
-            Require(found[0].Detail.Contains("1 of those decisions carried the admission and the refusal in one record", StringComparison.Ordinal),
+            Require(found[0].Detail.Contains("1 of those records carried the admission and the refusal in one record", StringComparison.Ordinal),
                 "the finding did not separate the observed contradiction from the ones read against a carried admission: " + found[0].Detail);
             Require(found[0].Detail.Contains("refused 36 order(s)", StringComparison.Ordinal),
                 "the finding lost the refusal total it is counting: " + found[0].Detail);
             Require(found[0].FirstTick == 100 && found[0].LastTick == 102, "the finding lost the span its decisions covered");
         });
+
+        // **The same contradiction with no decision carrying both halves is an inference, and the grade
+        // is the only thing that says so.** Definitive drives the process exit code and the sentence
+        // "something in this session is wrong by construction", and this check's whole design rests on
+        // the distinction: the admission is carried forward across a retained course because the
+        // producer's `Admitted` list persists, which is a reading of the producer rather than a record
+        // of the tick. A sentinel planted `bool observed = true` in place of the gate on 22 September
+        // 2026 and the suite stayed green at 55 groups, because every arm here held an observed record.
+        //
+        // The fixture also holds the second half: the admission is published on a tick no payload
+        // shares, which is what 230 of that capture's 468 admission ticks look like. It must still be
+        // carried, or nearly half the census the finding's numbers rest on is silently the previous one.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 101, ("target-capture-missing", 12)),
+            Refusal(3, 102, ("target-capture-missing", 12)),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Length == 1, $"the check reported {found.Length} finding(s) on a carried-only contradiction rather than one");
+            Require(found[0].Severity == Severity.Potential,
+                $"a contradiction no single record carries was graded {found[0].Severity} — every decision here was read against an "
+                + "admission carried forward from an earlier occurrence, so the finding is an inference and grading it Definitive "
+                + "asserts by construction what the record only implies");
+            Require(found[0].Detail.Contains("0 of those records carried the admission and the refusal in one record", StringComparison.Ordinal),
+                "the finding claimed an observed record on a fixture that holds none: " + found[0].Detail);
+            Require(found[0].Rows == 2, $"the carried-only finding counted {found[0].Rows} decision(s) rather than the two the fixture holds");
+        });
+
+        // **A retained course traces a record per tick, so records are not decisions.** Where the
+        // capture carries `choice_id` the finding counts identities and names the records beside them;
+        // the three records here are two decisions, and saying "3 decision(s)" is the inflation every
+        // hand reading of the 22 September 2026 capture inherited — its 842 combat records are 555
+        // decisions, and its 6,299 refusals are a tally republished rather than distinct orders.
+        {
+            string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+            try
+            {
+                File.WriteAllText(tsv, "# schema=0.44.0\ntick\tchoice_id\n100\t7\n101\t7\n102\t8\n");
+                File.WriteAllLines(events, new[]
+                {
+                    Marker(0, "session"),
+                    Admission(1, 100, ("combat", 3)),
+                    Refusal(2, 100, ("target-capture-missing", 12)),
+                    Refusal(3, 101, ("target-capture-missing", 12)),
+                    Refusal(4, 102, ("target-capture-missing", 12)),
+                    Marker(5, "session-end"),
+                });
+                Finding[] found = Run(Session.Load(tsv));
+                Require(found.Length == 1, $"the check reported {found.Length} finding(s) on the identity-keyed fixture rather than one");
+                Require(found[0].Detail.Contains("2 decision(s), traced over 3 record(s)", StringComparison.Ordinal),
+                    "the finding counted traced records as decisions — three records under two `choice_id` values are two decisions, and "
+                    + $"conflating them is how a republished refusal tally reads as fresh orders: {found[0].Detail}");
+                Require(found[0].Detail.Contains("as recorded", StringComparison.Ordinal)
+                    && found[0].Detail.Contains("upper bound on distinct orders", StringComparison.Ordinal),
+                    "the finding stated its refusal total without saying it counts refusals as traced, so a reader takes a republished "
+                    + $"tally for a count of distinct orders: {found[0].Detail}");
+            }
+            finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+        }
 
         // A census that admitted nothing usable is not contradicted by any number of refusals, which is
         // the whole load-bearing half: refusals alone are a search doing its job.

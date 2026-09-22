@@ -82,12 +82,24 @@ public sealed class ACensusAdmissionSurvivesItsBinder : ICheck, ICheckCoverage
             : $"course census admissions and refusal tallies (first written by schema {First})";
     }
 
-    /// <summary>One domain refused for one reason, over the whole session.</summary>
+    /// <summary>One domain refused for one reason, over the whole session.
+    ///
+    /// <para><b>Records and decisions are counted apart, because a retained course republishes.</b> The
+    /// producer traces a <c>course-decision</c> payload per tick while one decision is carried across
+    /// many, so 842 combat records of the 22 September 2026 capture are 555 decisions under the
+    /// <c>choice_id</c> identity the timeline and this report key on everywhere else, and the 6,299
+    /// refusals they carry are that decision's tally re-recorded rather than 6,299 distinct orders. The
+    /// first version of this check said "842 decision(s)" and "6,299 order(s)" flatly, which matched all
+    /// six hand readings of the capture and was inherited inflation in all seven.</para></summary>
     private sealed class Contradiction
     {
         public int ObservedDecisions, CarriedDecisions, MaximumUsable, Ambiguous;
         public long ObservedRefusals, CarriedRefusals;
         public long FirstTick = -1, LastTick = -1;
+
+        /// <summary>The distinct <c>choice_id</c> values behind those records, where the capture carries
+        /// the column. Empty means it does not, and the finding then counts records and says so.</summary>
+        public readonly HashSet<string> Identities = new(StringComparer.Ordinal);
     }
 
     public IEnumerable<Finding> Run(Session session)
@@ -106,12 +118,38 @@ public sealed class ACensusAdmissionSurvivesItsBinder : ICheck, ICheckCoverage
         }
         if (admissionsAt.Count == 0) yield break;
 
+        // **An admission is carried from the last occurrence at or before the decision, not only from
+        // one landing on its own tick.** The two producers keep different cadences: the `decision`
+        // occurrence is periodic and the payload is written when an outcome is traced, so on the
+        // 22 September 2026 capture 230 of the 468 admission ticks carry no payload at all. Reading the
+        // carry out of a per-tick lookup dropped every one of those and left the decisions after them
+        // reading an older admission — nearly half the census the finding's numbers are built on.
+        long[] admissionTicks = admissionsAt.Keys.OrderBy(t => t).ToArray();
+        int admissionAt = 0;
+
+        // The decision identity each tick's records belong to, so the finding can count decisions
+        // rather than traces. Below schema 0.43.0 `choice_id` is the retired family chooser's
+        // comparison identity and grouping on it would group a brain the capture did not run, so the
+        // map stays empty and the prose counts records instead — the same gate WriteCourseTimeline uses.
+        var identityAt = new Dictionary<long, string>();
+        if (CompletedTransferClaimsWereReceived.SchemaAtLeast(session, WriteCourseTimeline.First)
+            && session.Find("choice_id") is { } identities)
+            for (int i = 0; i < session.Count; i++)
+                if (identities.Text[i] is { Length: > 0 } value && value != "-" && value != "0")
+                    identityAt[session.Tick(i)] = value;
+
         var found = new Dictionary<(string Reason, string Domain), Contradiction>();
         Dictionary<string, (long Usable, string Reason)> carried = new(StringComparer.Ordinal);
-        foreach (CourseDecision decision in decisions.Decisions)
+        foreach (CourseDecision decision in decisions.Decisions.OrderBy(d => d.Tick))
         {
-            bool observedHere = admissionsAt.TryGetValue(decision.Tick, out var here);
-            if (observedHere) carried = here!;
+            while (admissionAt < admissionTicks.Length && admissionTicks[admissionAt] <= decision.Tick)
+                carried = admissionsAt[admissionTicks[admissionAt++]];
+            // Observed means the admission and the refusal are in one record of one tick; an admission
+            // consumed from an earlier tick is the inference, and the grade below is what says so. It is
+            // asked of the lookup rather than of the pointer because several decisions share a tick —
+            // 2,340 payloads over 1,364 ticks on that capture — and the pointer has already passed the
+            // admission by the second of them.
+            bool observedHere = admissionsAt.ContainsKey(decision.Tick);
             foreach ((string reason, long refused) in decision.Refusals)
             {
                 if (refused <= 0 || !DomainsBehind.TryGetValue(reason, out string[]? domains)) continue;
@@ -126,6 +164,7 @@ public sealed class ACensusAdmissionSurvivesItsBinder : ICheck, ICheckCoverage
                         found[(reason, domain)] = c = new Contradiction();
                     if (observedHere) { c.ObservedDecisions++; c.ObservedRefusals += refused; }
                     else { c.CarriedDecisions++; c.CarriedRefusals += refused; }
+                    if (identityAt.TryGetValue(decision.Tick, out string? identity)) c.Identities.Add(identity);
                     if (usableDomains > 1) c.Ambiguous++;
                     c.MaximumUsable = (int)Math.Max(c.MaximumUsable, admission.Usable);
                     if (c.FirstTick < 0) c.FirstTick = decision.Tick;
@@ -144,13 +183,22 @@ public sealed class ACensusAdmissionSurvivesItsBinder : ICheck, ICheckCoverage
             // A decision that carries both records is the contradiction observed; one read against a
             // carried admission is the same reading with an inference in it, and the grade follows.
             bool observed = c.ObservedDecisions > 0;
-            long decisionCount = c.ObservedDecisions + c.CarriedDecisions;
+            long recordCount = c.ObservedDecisions + c.CarriedDecisions;
             long refusalCount = c.ObservedRefusals + c.CarriedRefusals;
+            // A retained course traces a record per tick, so the records are not the decisions and the
+            // refusals they carry are one decision's tally re-recorded. Both are printed, named.
+            string counted = c.Identities.Count > 0
+                ? $"{c.Identities.Count:n0} decision(s), traced over {recordCount:n0} record(s),"
+                : $"{recordCount:n0} traced record(s) — the capture carries no usable `choice_id`, so these are "
+                  + "records rather than decisions and a retained course contributes one per tick —";
+            long decisionCount = c.Identities.Count > 0 ? c.Identities.Count : recordCount;
             yield return new Finding(observed ? Severity.Definitive : Severity.Potential, Name,
                 $"the {domain} census admitted work as usable and the same decision refused every order naming it with {reason}",
-                $"{decisionCount:n0} decision(s) between ticks {c.FirstTick:n0} and {c.LastTick:n0} refused "
-                    + $"{refusalCount:n0} order(s) for {reason} while the {domain} census read up to "
-                    + $"{c.MaximumUsable} usable. {c.ObservedDecisions:n0} of those decisions carried the "
+                $"{counted} between ticks {c.FirstTick:n0} and {c.LastTick:n0} refused "
+                    + $"{refusalCount:n0} order(s) as recorded for {reason} while the {domain} census read up to "
+                    + $"{c.MaximumUsable} usable — that order figure counts refusals as they were traced, so a "
+                    + "decision carried across ticks republishes its own tally and it is an upper bound on distinct "
+                    + $"orders rather than a count of them. {c.ObservedDecisions:n0} of those records carried the "
                     + "admission and the refusal in one record and are the observed contradiction; "
                     + $"{c.CarriedDecisions:n0} carried only the refusal and were read against the last "
                     + "`decision` occurrence before them, which is how the producer's own `Admitted` list "
@@ -183,7 +231,7 @@ public sealed class ACensusAdmissionSurvivesItsBinder : ICheck, ICheckCoverage
 
     private static string Attribution(string reason, string domain, Contradiction c)
         => c.Ambiguous == 0 ? ""
-            : $"On {c.Ambiguous:n0} of those decisions more than one domain behind `{reason}` was admitted usable at "
+            : $"On {c.Ambiguous:n0} of those records more than one domain behind `{reason}` was admitted usable at "
               + $"once, so the refusal tally cannot be attributed to {domain} alone on those — the reason names the "
               + "binder and not the site. The contradiction holds for each such domain and is reported for each. ";
 
