@@ -72,7 +72,51 @@ internal static class RunTheWorld
         int Gen2Collections,
         bool Fired,
         int HostilesAlive,
-        int DropsPresent);
+        int DropsPresent,
+        /// <summary>Whether the tick's bound activity was the fighting stance.</summary>
+        bool Fighting,
+        /// <summary>
+        /// Hostiles standing inside the player's own intent region — the space README says the
+        /// companion moves about with him, so a hostile in it is one that is already on somebody.
+        /// </summary>
+        int HostilesInRegion,
+        /// <summary>
+        /// Hostiles the threat sense forecasts reaching <em>the player</em> inside the harm horizon,
+        /// by its own <c>TicksToPlayer</c> and only where it believes the hostile can reach him.
+        /// </summary>
+        int HostilesArrivingAtPlayer,
+        /// <summary>
+        /// The same forecast about the companion, counted and reported but deliberately **not** part
+        /// of whether a fight is wanted. The reason is circularity rather than doctrine: the threat
+        /// sense's arrival is <c>Distance / ObservedSpeed</c>, so a hostile "reaching the companion in
+        /// ten seconds" is very often a fact about where the orb chose to fly rather than about
+        /// anything coming for anybody — and a denominator the companion can enlarge by wandering
+        /// toward hostiles is one it can also pass, because it is already fighting on those ticks.
+        /// Measured on the capture of 22 September: counting it made README want a fight on 1,115 of
+        /// 2,340 ticks against 138 without it, with **zero** hostiles ever inside the player's region.
+        /// A hostile genuinely on the companion is inside the player's region too, because the orb
+        /// lives in that region, so the case README means by "already on top of one of you" is kept
+        /// by the region test rather than lost.
+        /// </summary>
+        int HostilesArrivingAtCompanion,
+        /// <summary>The soonest arrival at the player the threat sense forecast this tick, or infinity when nothing is coming.</summary>
+        float SoonestArrivalTicks)
+    {
+        /// <summary>
+        /// Whether README's fight scenes want a fight on this tick.
+        ///
+        /// Two qualifiers, and both come out of the 2:00 scene rather than out of a distance. A
+        /// hostile inside the player's own region is one that is on the pair — the scene's "already
+        /// on top of one of you". A hostile the forecast has reaching the player soon is the bat that
+        /// "will be here in a second or two", and the horizon is wide enough to hold the slow heavy
+        /// thing "that will take five seconds to arrive". The scene's declined slime fails both, which
+        /// is the whole point: it "was never going to reach either of you".
+        ///
+        /// What neither qualifier holds is named where the horizon is declared, and the companion-side
+        /// arrival is excluded for the reason given on its own field.
+        /// </summary>
+        public bool AFightIsWanted => HostilesInRegion > 0 || HostilesArrivingAtPlayer > 0;
+    }
 
     internal sealed record Outcome(
         IReadOnlyList<Vector2> CompanionCentres,
@@ -198,6 +242,26 @@ internal static class RunTheWorld
 
     /// <summary>How close the zombie must be to count as on the player: five tiles, near enough that the danger sense cannot miss it and far enough that the window spans his approach and his passing.</summary>
     private const float OnPlayerPx = 80f;
+
+    /// <summary>
+    /// How soon a hostile has to be reaching a body for README's scenes to want it fought, in ticks.
+    ///
+    /// Ten seconds, and the number is README's rather than this file's. The 2:00 scene declines a
+    /// slime "eight hops from connecting" and wants the bat that "will be here in a second or two";
+    /// between them it names the case that sets the horizon — "a slow, heavy thing … something that
+    /// will take five seconds to arrive and an age to put down", which "matters more than the
+    /// hop-count suggests". Five seconds is therefore inside the wanted set by name, and ten is that
+    /// with headroom rather than a second rule.
+    ///
+    /// **Two things README wants fought sit outside this and outside the region test beside it**, and
+    /// they are the cost of using a horizon at all. A thing slower than ten seconds to arrive but "an
+    /// age to put down" is the same sentence's other half, and nothing here reads how long a fight
+    /// would be. And the receding slime of line 51 — declined while the player walks, wanted the
+    /// moment he "stops walking, turns to a tree and starts swinging", because then "the flight costs
+    /// nothing" — turns on the *player's* motion rather than the hostile's, which neither qualifier
+    /// looks at. So a row built on this under-counts in exactly those two scenes, and the rows say so.
+    /// </summary>
+    private const float HarmHorizonTicks = 600f;
 
     /// <summary>How many cumulative fired ticks retire the zombie: five arrows over several cooldown cycles, which proves the stance held the fight rather than firing once. Thirty was the first guess; the probe fired nine ticks in three hundred steps, the wooden bow's maximum rate, so thirty needs a thousand-tick slice for nothing the fifth shot does not prove.</summary>
     private const int FiredTicksToKill = 5;
@@ -327,12 +391,28 @@ internal static class RunTheWorld
                 usable += domainUsable;
                 unresolved += domainUnresolved;
             }
+            // What README's fight scenes would say about this tick, read off the brain's own senses
+            // rather than recomputed: the region is the one every "how far from the player" measure
+            // in the tree already reads, and the arrival forecast is the threat sense's own, with its
+            // own belief about whether the hostile can reach that body at all.
+            int inRegion = 0, atPlayer = 0, atCompanion = 0;
+            float soonest = float.PositiveInfinity;
+            foreach (var threat in brain.Senses.Threats.Threats)
+            {
+                if (threat.Npc is not { active: true } hostile || hostile.life <= 0) continue;
+                if (brain.Senses.Intent.Region.Contains(hostile.Center)) inRegion++;
+                if (threat.CanReachPlayer && threat.TicksToPlayer <= HarmHorizonTicks) atPlayer++;
+                if (threat.CanReachCompanion && threat.TicksToCompanion <= HarmHorizonTicks) atCompanion++;
+                if (threat.CanReachPlayer) soonest = MathF.Min(soonest, threat.TicksToPlayer);
+            }
+
             play.Add(new PlayTick(step.Tick, course.Last.Reason, course.Last.Activity,
                 course.Last.Binding is not null, course.Last.Settled, usable, unresolved,
                 course.LastRefusals.Values.Sum(), new Dictionary<string, int>(course.LastRefusals),
                 brain.DecideMs, brain.TotalMs, GC.CollectionCount(2),
                 companion.Combat.LastFireOutcome == "fired",
-                Actors?.HostilesAlive ?? 0, Actors?.DropsPresent ?? 0));
+                Actors?.HostilesAlive ?? 0, Actors?.DropsPresent ?? 0,
+                brain.LastAction?.Name == "combat", inRegion, atPlayer, atCompanion, soonest));
             // Asked after the tick's resolve, because the reach flood is advanced by the
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.

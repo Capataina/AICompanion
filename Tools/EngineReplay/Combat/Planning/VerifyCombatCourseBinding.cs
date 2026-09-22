@@ -96,6 +96,75 @@ internal static class VerifyCombatCourseBinding
         return 0;
     }
 
+    /// <summary>
+    /// Binding a fight claims the fight, not its first arrow.
+    ///
+    /// The course is charged the companionship gap of the whole excursion — out to the reunion at the
+    /// end of the fight — so if it is credited one use it is comparing a whole trip's cost against a
+    /// sixth of its benefit, and the empty course wins every time. Measured through the world run on the
+    /// play of 0.38.13 before the fix: a 45-life zombie with a six-use front totalling 48 damage priced
+    /// at useful 0.0083 against gap 0.0203, total −0.0120, held for 513 consecutive ticks with nothing
+    /// refused and a bow in hand.
+    ///
+    /// The scene is three uses against one 30-life target from one stand, firing 0, 30 and 80 ticks
+    /// apart and landing 10 ticks after each. Twelve plus twelve plus twelve over-kills, so the claim is
+    /// the life and no more, and the nominal tick is the damage-weighted mean of when that life is taken
+    /// rather than the first impact or the last. Every number here is chosen so that each wrong answer
+    /// is a different number: the first shot alone is 12 at tick 10, the front uncapped by what is there
+    /// to kill is 36, the last impact is 90, and the unweighted mean of the three impacts is 46.67
+    /// against the weighted 38, which is what makes the third shot being a partial hit observable.
+    /// </summary>
+    public static int TheBoundFightClaimsTheFrontRatherThanItsFirstShot()
+    {
+        var target = new CombatCourseFacts.Target(12, 3, 1, 30, 30, 64, 32, 0, 0);
+        var weapon = new CombatCourseFacts.Weapon(0, 9, 2, 20, 0, 10, 1, 8, 5);
+        CombatCourseFacts.Use Shot(string id, int fireTick, float damage)
+            => new(id, 7, 0, 0, 12, 3, 0, 9, 2, 32, 32, 64, 32, 1, 0, fireTick, 20, damage, 10);
+        var shots = new[] { Shot("plan:7/segment:0/use:0", 100, 12), Shot("plan:7/segment:0/use:1", 130, 12),
+            Shot("plan:7/segment:0/use:2", 180, 12) };
+        DecisionFact Fact(FactKey key, long version, object value, double amount = 0)
+            => new(key, version, new FactValue(amount, Text: JsonSerializer.Serialize(value)), FactEvidence.Observed);
+        var facts = new[]
+        {
+            Fact(CombatCourseFacts.TargetKey(12, 3), 3, target, 30),
+            Fact(CombatCourseFacts.WeaponKey(0), 9, weapon),
+            new DecisionFact(CombatCourseFacts.ManaCapacityKey(), 1, new FactValue(30), FactEvidence.Observed),
+            Fact(ReadCourseTravel.Key(new CoursePoint(32, 32), default, new CoursePoint(32, 32)), 1,
+                new CapturedCourseTravel(new CoursePoint(32, 32), default, new CoursePoint(32, 32), new CoursePoint(3, 1), 0,
+                    OpportunityAdmission.KnownUsable, "local", Array.Empty<CoursePoint>(), 1,
+                    new[] { new TimedCoursePose(0, new(32, 32), new(3, 1)) }))
+        }.Concat(shots.Select(shot => Fact(CombatCourseFacts.UseKey(shot.Id), 7, shot)));
+        var snapshot = new DecisionFactSnapshot(46, 8, 15, 1, 0, facts);
+        var slice = new CombatOpportunitySource().Continue(snapshot, new DecisionWorkCursor(),
+            new DecisionWorkBudget(double.PositiveInfinity, 8, () => 0, 1));
+        Require(slice.Examined.Count == 1,
+            $"premise: three uses against one target are one opportunity, not {slice.Examined.Count}");
+        var bound = new BindOpportunity(new IOpportunityBinder[] { new CombatOpportunityBinder() })
+            .Bind(slice.Examined[0], new ProjectedCourseState(new CoursePoint(32, 32)), snapshot,
+                new DecisionWorkCursor(), new DecisionWorkBudget(double.PositiveInfinity, 8, () => 0, 1));
+        Require(bound.Binding != null, $"premise: the front must bind at all; {bound.Reason}");
+        PredictedEffect effect = bound.Binding!.Effects.Single();
+        Require(effect.Amount == 30,
+            $"binding this fight claims {effect.Amount} damage where the front takes the target's whole "
+            + $"30 life: 12 is the first shot alone, which is what the course was charged a whole "
+            + $"excursion's companionship gap against, and 36 is the front uncapped by what is there to kill");
+        // 12 at 10, 12 at 40, 6 at 90 — the third shot is capped to the life that is left.
+        Require(Math.Abs(effect.NominalTick - 38) < 1e-6,
+            $"the claimed damage is timed at {effect.NominalTick} rather than the damage-weighted mean 38 "
+            + $"of when it lands: 10 prices a long fight as instant, 90 discounts the opening shot as hard "
+            + $"as the closing one, and 46.67 is the mean of the three impacts with no weight on the third "
+            + $"being a partial hit");
+        Require(effect.EarliestTick == 10 && effect.LatestTick == 90,
+            $"the interval reads {effect.EarliestTick}..{effect.LatestTick} rather than the first impact 10 "
+            + $"to the last 90, so it does not say when this damage begins or when it is complete");
+        Require(effect.Evidence == EstimateStatus.Nominal,
+            "claiming the whole front must not claim bounds it does not have; the evidence stays nominal");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"  a bound fight claims {effect.Amount} of 30 life at a weighted mean tick "
+            + $"{effect.NominalTick} over {effect.EarliestTick}..{effect.LatestTick}, against the 12 at tick 10 "
+            + "one use alone would have claimed");
+        return 0;
+    }
+
     private static void Require(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
