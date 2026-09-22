@@ -64,6 +64,18 @@ For a **commitment** the front is deliberately unbounded, and the consequence is
 
 Why it had to exist is a defect that lived one layer up and killed this stance forty times a second. The tick selects the decision's activity; a decision in flight used to answer "keep the player company"; selecting that exits combat; `Exit` releases the committed plan with `activity-exited`; the course's accepted use is then absent, so the course is released; releasing it starts a decision. Measured in the play of 0.38.13 as 212 attempts at a median of one tick, 181 `replaced-before-attacking`, 211 plans invalidated `activity-exited`, and twenty shots in a minute. The property worth keeping out of it, because the mechanism will come back wearing a different activity: **a fallback the tick reaches for while the planner is still thinking is not neutral — it is a selection, and selection tears down whatever was running.**
 
+**It still fires twice over the 22 September capture's replay, and neither firing is the loop.** The decision audit's `activity-exited-during-decision` tripwire counted two on that run (four on main's tree, a difference nobody has attributed), and reading both out of the recording names two different paths, neither of which is a tick tearing down a live fight:
+
+```
+tick 1537   collect -> keep-company    the collect attempt concluded on that tick; collection has no
+                                       continuation to offer, because a continuation is combat's alone
+tick 2021   combat  -> keep-company    the committed plan was invalidated the same tick with
+                                       `invalid=target-gone-unplanned`, so there was no committed plan
+                                       left for `Continuation` to hand back
+```
+
+The first is the design rather than a gap: combat is the only domain whose next move is already standing in a committed plan, and a tile job's next move is a course step that arrives when the decision settles, so an unsettled tick while collection holds the body legitimately falls to companionship. The second is a fight that ended on its own — the target left — and a tick that then had nothing to continue. **What root 2 closed was the reverse causality**, the tick's own fallback killing a plan that was still good, and the tripwire cannot tell the two apart because it watches the activity name rather than what released the plan. The discriminator, for whoever sharpens it: the loop's signature is a committed plan released with `activity-exited` on a tick whose decision was unsettled, which the combat-plan stream already records; an exit preceded by any other release reason is the world moving on.
+
 `Tools/EngineReplay/DecisionMaking/VerifyADecisionInFlightKeepsTheFight.cs` is the guard, and the way it forces the state is worth knowing before writing another row like it. The suite lifts every millisecond allowance, so a decision cannot be made to span ticks by a clock; it takes an operation cap, `Brain.PlanningOperationAllowance`. The window is narrow because every activity's `Prepare` spends the same allowance before the decision does — measured 22 September 2026, at a hundred operations combat offers no plan at all and at four thousand every search finishes, so the fixture measures the cap rather than hard-coding one.
 
 ## A bound fight is credited and charged over the same span, which took two changes rather than one

@@ -402,6 +402,9 @@ internal static class RunTheWorld
             centres.Add(companion.NPC.Center);
             var brain = companion.Brain;
             var course = brain.Course;
+            if (CountTheFrozenObservationByKind.Wanted && course.Facts is { } observed)
+                CountTheFrozenObservationByKind.Write(step.Tick, observed,
+                    brain.Senses.Intent.Region.Heading.ToTileCoordinates());
             int usable = 0, unresolved = 0;
             foreach ((string _, int domainUsable, int domainUnresolved, int _, string _) in course.Admitted)
             {
