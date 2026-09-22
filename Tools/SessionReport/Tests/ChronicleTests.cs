@@ -72,6 +72,7 @@ public static class ChronicleTests
             CourseReaderRejectsMixedAndDigestOnlySnapshots();
             CourseDecisionsAreReadCheckedAndNarrated();
             ACensusAdmissionMustSurviveItsOwnBinder();
+            ASyntheticCaptureIsNotReadAsPlay();
             TheGuideQuotesTheSchemaConstantItDocuments();
             TheAuditsOwnWiringIsWitnessedByTheCapture();
             TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
@@ -348,6 +349,74 @@ public static class ChronicleTests
     /// counted apart; a domain admitted with nothing usable is not a contradiction however many orders
     /// were refused; and a refusal reason no binder in the table owns is not attributed to anything.</para>
     /// </summary>
+    /// <summary>
+    /// A capture nobody played is not read as play.
+    ///
+    /// <para><c>Tools/WorldRun</c> drives the mod's own recorder, so a world run writes a capture in
+    /// exactly the format a playtest writes — every column, every occurrence, a normal closure — and
+    /// nothing in the rows tells the two apart. The preamble's <c>synthetic=</c> line is the only thing
+    /// that does, and a reader ignoring it reports "0m 38s of play" about a session nobody played and
+    /// pins before-numbers against a replay of the very capture they were taken from.</para>
+    ///
+    /// <para>The producer name is read as written rather than matched against <c>world-run</c>, so a
+    /// second harness writing a different producer is refused as play too. The arm below uses one.</para>
+    /// </summary>
+    private static void ASyntheticCaptureIsNotReadAsPlay()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            string Describe(string preamble)
+            {
+                File.WriteAllText(file, preamble + "tick\taction\n1\tkeep-company\n600\tkeep-company\n");
+                return DescribeSession.Of(Session.Load(file));
+            }
+
+            string played = Describe("# schema=0.45.0\n");
+            Require(played.Contains("of play at sixty a tick", StringComparison.Ordinal) && !played.Contains("synthetic", StringComparison.Ordinal),
+                "an ordinary capture must still read as play: " + played);
+
+            string replayed = Describe("# schema=0.45.0\n# synthetic=world-run;source-capture=2026-09-22_10-05-56-125;note=nobody played this\n");
+            Require(!replayed.Contains("of play at sixty a tick", StringComparison.Ordinal),
+                "a synthetic capture still claimed its ticks were play: " + replayed);
+            Require(replayed.Contains("synthetic world-run replaying 2026-09-22_10-05-56-125", StringComparison.Ordinal),
+                "a synthetic capture did not name what it is a replay of: " + replayed);
+            Require(replayed.Contains("of replayed ticks at sixty a tick, not of play", StringComparison.Ordinal),
+                "the span was dropped rather than restated as what it is: " + replayed);
+
+            // A harness that is not the world run must be refused as play just as hard, so the marker is
+            // read for whatever producer it names rather than matched against one.
+            var other = DescribeSession.Synthetic(new Dictionary<string, string>(StringComparer.Ordinal)
+                { ["synthetic"] = "some-other-harness;source-capture=elsewhere" });
+            Require(other is { Producer: "some-other-harness", SourceCapture: "elsewhere" },
+                "a synthetic marker naming a producer this reader has not heard of was not read");
+            Require(DescribeSession.Synthetic(new Dictionary<string, string>(StringComparer.Ordinal)) is null,
+                "a capture with no synthetic marker was read as synthetic");
+            // A marker with no source named is still a refusal; the source is what is unknown, not the fact.
+            Require(DescribeSession.Synthetic(new Dictionary<string, string>(StringComparer.Ordinal)
+                { ["synthetic"] = "world-run" }) is { SourceCapture: "unnamed" },
+                "a synthetic marker with no source capture was treated as absent rather than as an unnamed source");
+
+            // **The marker the world run actually writes, verbatim, because the first version of this
+            // parser was wrong on it and right on every fixture.** The note runs to the end of the line
+            // and has a semicolon inside it, so a reader splitting the whole value on `;` and calling
+            // any segment without an `=` the producer reports "  it is the world run replaying the
+            // source capture's player track, hostiles and drops" as the name of the harness — which is
+            // what the report printed the first time it met a real one.
+            var real = DescribeSession.Synthetic(new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["synthetic"] = "world-run;source-capture=2026-09-22_10-05-56-125;note=nobody played this; "
+                    + "it is the world run replaying the source capture's player track, hostiles and drops",
+            });
+            Require(real is { Producer: "world-run", SourceCapture: "2026-09-22_10-05-56-125" },
+                $"the marker the world run actually writes was misparsed: producer '{real?.Producer}', source '{real?.SourceCapture}'");
+            Require(real!.Note.StartsWith("nobody played this;", StringComparison.Ordinal)
+                    && real.Note.EndsWith("hostiles and drops", StringComparison.Ordinal),
+                $"the note was cut at its own semicolon rather than read to the end of the line: '{real.Note}'");
+        }
+        finally { File.Delete(file); }
+    }
+
     private static void ACensusAdmissionMustSurviveItsOwnBinder()
     {
         string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));

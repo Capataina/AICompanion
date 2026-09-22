@@ -132,6 +132,16 @@ A capture's provenance and closure are read at schema 0.28.0. Lines beginning `#
 
 Recording cost and loss are read at schema 0.29.0. The summary's `recording` line gives the distribution of `record_ms` over the rows that carry one, with the floor-of-rank percentile MeasureBrainCost prints, and the last row's written, dropped, coalesced and evicted totals; a `retention` line repeats the capture's retention statement; the HTML coverage line carries the same recording statement. `NoOccurrenceWasDropped`, registered beside the closure check, reports any dropped occurrence as Potential and names the tick the drops began, because the sidecar cannot record its own loss and every event-based check after that tick has measured nothing. An older capture skips it by naming the missing column and states its cost as unrecorded, never as zero.
 
+## A capture nobody played is refused as play, and only a preamble line separates the two
+
+`../WorldRun` drives the mod's own recorder, so a world run writes a capture in exactly the format a playtest writes: every column, every occurrence, a normal closure, the same schema. **Nothing in the rows tells them apart** — the player track is a recorded one replayed, the hostiles are staged from the source capture's own events, and the recorder cannot see the difference. The preamble's `# synthetic=world-run;source-capture=<stamp>;note=…` line is the only thing that can, and it is written before the header goes out.
+
+Two things happen when it is there. The summary opens with a `synthetic` line naming the producer and the capture it replays, and says that no reading of the numbers below is evidence about a play; and the span stops being described as play — the same figure reads "0m 38s of replayed ticks at sixty a tick, not of play" rather than "0m 38s of play". Everything else still runs, deliberately: a world run is a legitimate thing to read a report about, and the report's job is to say *what* it is reading rather than to refuse.
+
+What does stop is the play-measure pins. Those are before-numbers about one human session, and a world run reproduces a track rather than a play, so `Tests/PlayMeasureTests.cs` files a `skipped` row naming the producer and the source capture. That is the same rule the absent-capture and old-schema branches follow, applied to the case that looks healthiest: pointed at a world run of the very capture the pins were taken from, the measures would produce a full set of confident numbers about the harness.
+
+**The marker's note runs to the end of the line and has semicolons inside it**, and a reader that splits the whole value on `;` and calls any segment without an `=` the producer reports half that sentence as the name of the harness — which this reader did the first time it met a real marker rather than a fixture. The producer is the first segment; the note is everything after `note=`, unsplit. The producer is also read as written rather than matched against `world-run`, so a second harness writing a different name is refused as play too.
+
 ## Damage reduces coverage; only records that disagree are contradictions
 
 A real capture arrives damaged in five ways, and each has one correct reading:
