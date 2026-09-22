@@ -51,9 +51,10 @@ public static class CircleContact
         // slope or half shape, which no shape compare can see, so the world's own flag settles that.
         //
         // The shape clause exists so the ruling cannot be lost through a world that reports a platform
-        // without the flag. Neither world in this tree produces that pair — `GameTileWorld.Shape`
-        // returns Platform only where `PassThrough` is true, and `TextTileWorld` maps '=' to Platform
-        // with PassThrough true — so the clause changes no behaviour today. It is here because the
+        // without the flag. No world in this tree produces that pair — `GameTileWorld.Shape` returns
+        // Platform only where `PassThrough` is true, `TextTileWorld` maps '=' to Platform with
+        // PassThrough true, and the capture decorator forwards both answers to what it wraps — so the
+        // clause changes no behaviour today. It is here because the
         // combination is representable through `ITileWorld` and is already named elsewhere in the tree
         // (the recorder writes "solid-platform" for exactly it), and a body that collides with a
         // platform is the ruling silently reversed by a world nobody was looking at.

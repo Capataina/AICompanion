@@ -27,10 +27,11 @@ using AICompanion.Companion.Brain.Infrastructure.Movement;
 /// drew what the reading described — one wall from ceiling to floor with the box's far third behind it — and
 /// the walk handled it perfectly: 101 % coverage of the reachable width and a longest wall-hug of seven ticks.
 /// The real geometry is not a wall but a pocket. A five-wide pillar runs from the ceiling down to a chamber
-/// roof; west of it the rock closes in overhead into a wedge that opens westward as it descends; the tile
-/// directly below the body is solid, the tiles directly east are the pillar, and the only way out is west
-/// along two rows and then down and round. A synthetic wall could not have produced it, and no amount of
-/// retuning a synthetic wall would have.</para>
+/// roof; west of it the rock closes in overhead into a wedge that opens westward as it descends; the tiles
+/// directly east are the pillar, the floor is two rows under the body rather than directly beneath it —
+/// (3483,356) is air and (3483,357) is the first solid row, so the body's underside sits about a tile above
+/// the rock it was pinned against — and the only way out is west along two rows and then down and round. A
+/// synthetic wall could not have produced it, and no amount of retuning a synthetic wall would have.</para>
 ///
 /// <para>The player is not simulated: the box is held where the capture had it, which is the harder case and
 /// the one the capture ran — the player stood still from tick 2,103 to the end and the pin outlived him

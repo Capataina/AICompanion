@@ -92,6 +92,105 @@ internal static class VerifyTheParkIsAboutThePlayer
         return 0;
     }
 
+    /// <summary>
+    /// The band is a live dial and this is the scene that reads it. In an ordinary room the tied ring of
+    /// saturated corners lies entirely above the band point, so every value of the band picks the ring's
+    /// lowest corner and the number itself is invisible: raising it from three tiles to thirty moved the
+    /// park by one tile and reddened nothing (measured by a sentinel on 22 September 2026). A dial no row
+    /// can move is a dial nobody can change safely.
+    ///
+    /// <para>So this scene is a chimney of constant width standing on the floor he is on: every height in
+    /// it is exactly as clear as every other, the tie therefore runs from below the band point to the top
+    /// of the region, and the band alone says where in that column the companion waits. A scene of two
+    /// discrete shelves was tried first and could not be built honestly — the band point is three tiles
+    /// over his head, and any chamber tall enough to hold a well-cleared corner that close to him is a
+    /// chamber he is standing inside.</para>
+    ///
+    /// <para>What is asserted is the outcome rather than the rule: the companion waits two to five tiles
+    /// over his head, which is README's "band of air a few tiles above your head" in numbers. Every value
+    /// of the constant maps to a different height in this column, so the row reads the dial rather than
+    /// the sign of it — at thirty tiles the park climbs to the top of the region and the row goes red with
+    /// the height it chose.</para>
+    /// </summary>
+    public static int BandDecidesWhereInAColumnHeWaits()
+    {
+        var companion = AChimneyWhereEveryHeightTies(out Player player);
+        Vector2 park = Park(companion, player, new Vector2(PlayerColumn * 16f, 58 * 16f), out string reason);
+
+        float head = player.Center.Y - (player.Bottom.Y - player.Center.Y);
+        var region = companion.Brain.Senses.Intent.Region;
+        // The tied column, measured rather than assumed: its lowest and highest corner are what say the
+        // choice of height was open in both directions.
+        float best = float.MinValue, lowest = float.MinValue, highest = float.MaxValue;
+        Point from = CornerGraph.NearestCorner(region.Centre - region.HalfSize);
+        Point to = CornerGraph.NearestCorner(region.Centre + region.HalfSize);
+        var tied = new List<float>();
+        for (int x = from.X; x <= to.X; x++)
+            for (int y = from.Y; y <= to.Y; y++)
+            {
+                var corner = new Point(x, y);
+                if (!CornerGraph.Usable(MovementQueries.World, corner)) continue;
+                float clearance = ClearanceField.Shared.AtCorner(MovementQueries.World, corner);
+                if (clearance > best + 0.05f) { best = clearance; tied.Clear(); }
+                if (clearance >= best - 0.05f) tied.Add(CornerGraph.ToWorld(corner).Y);
+            }
+        foreach (float y in tied) { lowest = MathF.Max(lowest, y); highest = MathF.Min(highest, y); }
+
+        // The premise, and it is the whole reason this scene exists: the column has to offer the companion a
+        // tied height *outside* the band this row asserts as well as one inside it. Without that the
+        // assertion passes on geometry and the constant is invisible again, which is exactly the state the
+        // ordinary room was in — there every tied corner was one tile from every other, so a band of three
+        // tiles and a band of thirty chose places a tile apart and nothing could tell them apart.
+        float lowTiles = (head - lowest) / 16f, highTiles = (head - highest) / 16f;
+        Require(tied.Count > 0 && lowTiles >= 2f && lowTiles <= 5f && highTiles > 5f,
+            $"the premise: the tied column must offer a height inside the two-to-five-tile band and one above it; the best clearance "
+            + $"was {best:0.00} tiles over {tied.Count} corner(s) spanning {lowTiles:0.0} to {highTiles:0.0} tiles over his head "
+            + $"(y {highest:0.0}..{lowest:0.0}), region y {region.Centre.Y - region.HalfSize.Y:0.0}..{region.Centre.Y + region.HalfSize.Y:0.0}");
+
+        float tilesOverHead = (head - park.Y) / 16f;
+        Require(tilesOverHead >= 2f && tilesOverHead <= 5f,
+            $"in a column where every height is equally clear, the companion waits a few tiles over his head rather than at either end of it: "
+            + $"it chose y={park.Y:0.0} ({reason}), {tilesOverHead:0.0} tiles over his head at {head:0.0}, in a tied column running "
+            + $"{(head - lowest) / 16f:0.0} to {(head - highest) / 16f:0.0} tiles over it at {best:0.00} tiles of clearance. "
+            + "This row is where the band constant is read: a band nobody can move is a band nobody can change safely.");
+
+        EmitLedgerRows.Detail($"park band: a tied column of {tied.Count} corners at {best:0.00} tiles of clearance running "
+            + $"{(head - lowest) / 16f:0.0} to {(head - highest) / 16f:0.0} tiles over his head; the park took {tilesOverHead:0.0} tiles over it at {park}, reason {reason}");
+        return 0;
+    }
+
+    /// <summary>A chimney of constant width standing on the floor the player stands on, so every height inside it
+    /// carries the same clearance and the tie the band breaks runs from under his head to the top of the region.
+    /// Wide enough that the walls never decide, and the only solid thing inside the region is the floor.</summary>
+    private static CompanionNPC AChimneyWhereEveryHeightTies(out Player player)
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.tileSolid[TileID.Dirt] = true;
+        for (int x = 28; x <= 72; x++)
+            for (int y = 24; y <= 64; y++)
+            {
+                Tile tile = Main.tile[x, y];
+                tile.HasTile = true;
+                tile.TileType = TileID.Dirt;
+            }
+        for (int x = PlayerColumn - 6; x <= PlayerColumn + 6; x++)
+            for (int y = 26; y < FloorRow; y++)
+            {
+                Tile carved = Main.tile[x, y];
+                carved.HasTile = false;
+            }
+
+        player = Main.player[0];
+        player.dead = false;
+        player.active = true;
+        player.statLife = player.statLifeMax2 = 100;
+        player.Bottom = new Vector2(PlayerColumn * 16f, FloorRow * 16f);
+        player.velocity = Vector2.Zero;
+        companion.NPC.active = true;
+        MovementQueries.Hazards = Array.Empty<Rectangle>();
+        return companion;
+    }
+
     /// <summary>Put the body somewhere and resolve `WithPlayer` until the rescore cadence has settled on an answer.</summary>
     private static Vector2 Park(CompanionNPC companion, Player player, Vector2 body, out string reason)
     {

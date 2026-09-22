@@ -57,6 +57,12 @@ if (args.Length == 1 && args[0] == "--self-test")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the accompanying walk draws no leg below the floor its caller names, which in the game is the top of his head",
             VerifyAccompanyStaysAboveHisHead.Run,
             killedBy: "a tour drawing its legs from the whole box, whose lower part is the player's legs and the ground he stands on, so the companion keeps diving at his feet")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "a leg drawn from the whole box while the player travels stays inside his box",
+            VerifyTheWideLegUnderATravellingPlayer.Run,
+            killedBy: "a wide leg whose widened bounds and the leg they belong to come apart, so the walk is clamped against one part of the box while aiming at another")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "the tour's redraw under a footprint the player never lifts costs the same work every tick",
+            VerifyTheEscapeCostsTheSameEveryTick.Run,
+            killedBy: "a redraw whose per-tick work grows with how long the player holds the block, which is the half of that cost the code rather than the player decides")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the body flies toward a goal while its search runs, and a finished search is not run again for an unchanged goal",
             VerifyNavigatorKeepsMoving.Run,
             killedBy: "a navigator that hovers until a search returns, restarts a search that hit its node limit or proved an absence, or keeps a proven absence to itself instead of handing the goal back")

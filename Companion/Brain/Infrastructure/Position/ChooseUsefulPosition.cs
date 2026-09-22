@@ -17,8 +17,11 @@ namespace AICompanion.Companion.Brain.Infrastructure.Position;
 /// <summary>
 /// Turns a position request into a point for the orb to hover at by scoring candidate spots.
 /// Candidates are the usable corner nodes of the free-space graph around the request's anchor —
-/// the same nodes the route search plans over, so a spot chosen here is one a route can end on —
-/// under a ceiling above the player's feet; each scores on distance band to the player (tight
+/// the same nodes the route search plans over, so a spot chosen here is one a route can end on.
+/// There is no ceiling over them: a hover ceiling above the player's feet was described here and in
+/// this folder's guide long after the value that expressed it stopped being read by anything, and the
+/// orb's height is decided by the intent region it must sit inside and by the park's own band rather
+/// than by a lid. Each candidate scores on distance band to the player (tight
 /// under threat), sight line to the player, line of fire to the target through the simulator, danger
 /// from predicted threat paths, clearance from the walls and height beside the player, with the
 /// weights the request kind sets. Re-scored every few ticks so the companion does not twitch
