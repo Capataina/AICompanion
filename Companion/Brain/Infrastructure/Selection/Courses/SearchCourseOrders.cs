@@ -53,16 +53,21 @@ public sealed class SearchCourseOrders
     /// order is the discriminator because the first step is the only part the tick performs: two orders
     /// that start the same way are one answer to that question however they differ afterwards.
     ///
-    /// It is kept through the search rather than reconstructed at the end, because the search discards
-    /// every order it does not keep as it goes. The cost is one best-per-first-step entry, bounded by the
-    /// candidate count, and a scan over those entries on each priced order.
+    /// The best-per-first-step table is kept through the search, because the search discards every order
+    /// it does not keep as it goes; **the runner-up itself is picked from that table on first read and
+    /// cached until the next priced order**, so the cost of the column is one table entry per distinct
+    /// first step and one scan per *decision* rather than one per order. It used to scan on every priced
+    /// order, which was the same answer computed k times for k orders and thrown away k−1 times.
     ///
     /// Null when the search priced fewer than two distinct first steps, which is a real answer and not a
     /// missing one: a decision with one order on the board has no alternative and should not be recorded
     /// as though its alternative was unreadable.
     /// </summary>
-    public CourseProjection? RunnerUp { get; private set; }
-    public CourseValue? RunnerUpValue { get; private set; }
+    public CourseProjection? RunnerUp { get { SettleRunnerUp(); return runnerUp; } }
+    public CourseValue? RunnerUpValue { get { SettleRunnerUp(); return runnerUpValue; } }
+    private CourseProjection? runnerUp;
+    private CourseValue? runnerUpValue;
+    private bool runnerUpSettled = true;
 
     /// <summary>The best priced order for each distinct first step, which is what the runner-up is chosen
     /// from. The empty order sits beside the dictionary rather than in it — a dictionary refuses a null
@@ -141,7 +146,8 @@ public sealed class SearchCourseOrders
         DepthTruncated = usable.Length > MaxDepth;
         orders = Enumerate(usable, retained, MaxDepth).GetEnumerator();
         pendingOrder = null; Best = null; BestValue = null; Exhausted = false;
-        RunnerUp = null; RunnerUpValue = null; bestFirstStep = null; byFirstStep.Clear(); idleOrder = null;
+        runnerUp = null; runnerUpValue = null; runnerUpSettled = true;
+        bestFirstStep = null; byFirstStep.Clear(); idleOrder = null;
         EvaluatedOrders = RejectedOrders = 0;
         refusals.Clear();
         leaders.Clear();
@@ -195,33 +201,38 @@ public sealed class SearchCourseOrders
                     idleOrder = (result.Projection, value);
                 if (BestValue == null || CompareCourseOutcomes.NominalOrder(value, BestValue, episode.Encounter) > 0)
                 { Best = result.Projection; BestValue = value; bestFirstStep = first; }
-                RetainRunnerUp();
+                runnerUpSettled = false;
             }
             pendingOrder = null;
         }
     }
 
-    /// <summary>Pick the runner-up afresh from the best-per-first-step table. Recomputed rather than
-    /// carried forward because the winner can change under the search, and a runner-up maintained
-    /// incrementally against a moving winner is the order that used to be second rather than the one that
-    /// is second now — which is the wrong answer in exactly the case a reader opens the column for.</summary>
-    private void RetainRunnerUp()
+    /// <summary>Pick the runner-up afresh from the best-per-first-step table, once per read rather than
+    /// once per priced order. Recomputed from the table rather than carried forward because the winner
+    /// can change under the search, and a runner-up maintained incrementally against a moving winner is
+    /// the order that used to be second rather than the one that is second now — which is the wrong
+    /// answer in exactly the case a reader opens the column for. Pricing an order therefore only marks
+    /// this unsettled; the scan happens when somebody asks, and every answer between two priced orders
+    /// is the same answer.</summary>
+    private void SettleRunnerUp()
     {
-        RunnerUp = null; RunnerUpValue = null;
+        if (runnerUpSettled) return;
+        runnerUp = null; runnerUpValue = null;
         foreach (var entry in byFirstStep)
         {
             if (bestFirstStep is { } winner && entry.Key.Equals(winner)) continue;
             Offer(entry.Value.Projection, entry.Value.Value);
         }
         if (bestFirstStep != null && idleOrder is { } idle) Offer(idle.Projection, idle.Value);
+        runnerUpSettled = true;
     }
 
     private void Offer(CourseProjection projection, CourseValue value)
     {
-        if (RunnerUpValue != null
-            && CompareCourseOutcomes.NominalOrder(value, RunnerUpValue, episode!.Encounter) <= 0) return;
-        RunnerUp = projection;
-        RunnerUpValue = value;
+        if (runnerUpValue != null
+            && CompareCourseOutcomes.NominalOrder(value, runnerUpValue, episode!.Encounter) <= 0) return;
+        runnerUp = projection;
+        runnerUpValue = value;
     }
 
     private static IEnumerable<OpportunityKey[]> Enumerate(Opportunity[] opportunities,
