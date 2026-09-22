@@ -147,13 +147,32 @@ public sealed class AssistanceOpportunityBinder : IOpportunityBinder
         return new(binding, OpportunityAdmission.KnownUsable, "assistance-site-bound", false);
     }
 
+    /// <summary>How many sites this domain's sweep found and did not publish, read off the coverage
+    /// fact's own text. Zero when the census does not rank, which is every domain but lighting today, so
+    /// the refusal name below is unchanged for them without anyone having to list which.</summary>
+    private int WithheldSites(DecisionFactSnapshot facts)
+    {
+        if (!facts.TryRead(new(Domain.Replace("-target", "-coverage", StringComparison.Ordinal), "native-census"),
+            out DecisionFact coverage)) return 0;
+        foreach (string part in (coverage.Value.Text ?? "").Split(';'))
+            if (part.StartsWith("withheld=", StringComparison.Ordinal)
+                && int.TryParse(part["withheld=".Length..], out int count)) return count;
+        return 0;
+    }
+
     public BindingValidation ValidateNextUse(StepBinding binding, DecisionFactSnapshot facts)
     {
         if (binding.WorldEpoch != facts.WorldEpoch || binding.Opportunity.Domain != Domain)
             return new(OpportunityAdmission.KnownUnusable, "assistance-epoch-or-domain-changed", true);
         if (!facts.TryRead(new(Domain, binding.Opportunity.Target, binding.Opportunity.Generation), out var fact)
             || fact.Evidence != FactEvidence.Observed)
-            return new(OpportunityAdmission.Unresolved, "assistance-target-not-observed", true);
+            // Absence has meant one thing here since the census stopped publishing walls — "swept, and
+            // there is nothing at that tile" — and a bounded census gives it a second meaning. The
+            // admission is `Unresolved` either way, which is already the honest answer; what the name
+            // adds is which unanswered question it is, because a reader chasing "the site my course was
+            // bound to vanished" needs to know whether the world changed or the ranking did.
+            return new(OpportunityAdmission.Unresolved,
+                WithheldSites(facts) > 0 ? "assistance-target-not-yet-ranked" : "assistance-target-not-observed", true);
         var site = JsonSerializer.Deserialize<AssistanceOpportunityFact>(fact.Value.Text);
         if (site == null || site.Admission != "usable" || site.Amount <= 0)
             return new(OpportunityAdmission.KnownUnusable, "assistance-target-no-longer-usable", true);

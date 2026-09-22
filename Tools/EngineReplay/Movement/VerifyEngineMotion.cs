@@ -85,6 +85,7 @@ internal static class VerifyEngineMotion
         ("an enemy's observed motion is forecast from what it actually did", VerifyObservedMotion.Run),
         ("the god's-eye occurrence stream records what it claims", VerifyGodsEyeEvents.Run),
         ("a decision that contradicts itself is named while it happens", VerifyDecisionTripwires.Run),
+        ("a census over a moving window publishes its best sites and counts what it withheld", VerifyTheCensusPublishesItsBestSites.Run),
         ("the whole update is measured and its draws are counted apart from it", VerifyFrameLedger.Run),
         ("a capture states the configuration it ran under and the course order it took", VerifyCaptureHonesty.Run),
         ("retained courses compare conserved futures and publish complete repairs", VerifyCourseCore.Run),
