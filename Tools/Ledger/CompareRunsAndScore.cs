@@ -82,7 +82,11 @@ public readonly record struct NoiseBand(bool Known, double Mean, double HalfWidt
 /// play measures make it concrete rather than hypothetical — <c>Telemetry/</c> is gitignored, so
 /// every fresh checkout skips them, and the diff said "unchanged".
 /// </summary>
-public enum Change { NewRed, Fixed, Gone, StoppedReporting, NowReporting, New, Flaky, MeasureDrift, Unchanged }
+/// <see cref="Sampled"/> is <see cref="MeasureDrift"/> for a measure the producer declared a sample
+/// of. The delta is printed with the same arithmetic; what it loses is the word "drift", because a
+/// run that keeps the wall clock or stages a live scene answers a slightly different number every
+/// time and reporting that as a move makes every run of the suite look like a regression.
+public enum Change { NewRed, Fixed, Gone, StoppedReporting, NowReporting, New, Flaky, MeasureDrift, Sampled, Unchanged }
 
 public sealed record CaseChange(Change Change, string Key, string Before, string After, string Detail);
 
@@ -184,7 +188,15 @@ public static class Scoreboard
         };
         if (Math.Abs(nowValue - wasValue) < 1e-9)
             return new CaseChange(Change.Unchanged, key, Format(wasValue, unit), Format(nowValue, unit), "");
-        return new CaseChange(Change.MeasureDrift, key, Format(wasValue, unit), Format(nowValue, unit), $"{way}; {reading}");
+        // A producer that declared the row a sample has said the number is one draw rather than a
+        // property of the tree, so the delta is real arithmetic about two draws and is not evidence
+        // that anything changed. It still prints — suppressing it would hide the one number a
+        // reader could use — and the band still prints beside it, because repeats of one commit are
+        // the only thing here that can bound a sample.
+        bool sampled = now[0].Tags?.Contains(EmitLedgerRows.SampledTag) ?? false;
+        return new CaseChange(sampled ? Change.Sampled : Change.MeasureDrift, key,
+            Format(wasValue, unit), Format(nowValue, unit),
+            sampled ? $"{way} on this draw; a sample, so this is not drift; {reading}" : $"{way}; {reading}");
     }
 
     /// <summary>The mean of whatever numbers a case's rows actually carry, or null where none does.</summary>
@@ -256,7 +268,7 @@ public static class Scoreboard
             var changes = Compare(before, after, beforeRepeats);
             stoppedReporting = changes.Count(c => c.Change == Change.StoppedReporting);
             gone = changes.Count(c => c.Change == Change.Gone);
-            foreach (Change kind in new[] { Change.NewRed, Change.StoppedReporting, Change.Gone, Change.Flaky, Change.Fixed, Change.MeasureDrift, Change.NowReporting, Change.New })
+            foreach (Change kind in new[] { Change.NewRed, Change.StoppedReporting, Change.Gone, Change.Flaky, Change.Fixed, Change.MeasureDrift, Change.Sampled, Change.NowReporting, Change.New })
             {
                 var group = changes.Where(c => c.Change == kind).ToArray();
                 if (group.Length == 0) continue;
@@ -335,6 +347,7 @@ public static class Scoreboard
         Change.NowReporting => "now reporting — skipped at the baseline",
         Change.New => "new",
         Change.MeasureDrift => "measures that moved",
+        Change.Sampled => "sampled measures — a second draw, not drift",
         _ => "unchanged",
     };
 }

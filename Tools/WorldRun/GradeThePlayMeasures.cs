@@ -71,7 +71,7 @@ internal static class GradeThePlayMeasures
     };
 
     /// <summary>
-    /// How many ticks must admit usable work before a verdict about doing that work means anything.
+    /// How many ticks must admit usable work before the refusal verdict means anything.
     ///
     /// The same 180 as <see cref="StepWithinTicks"/>, and the reuse is the point: a second constant
     /// here would be a second number to keep honest about one idea, which is the reason that one is
@@ -82,8 +82,21 @@ internal static class GradeThePlayMeasures
     /// </summary>
     private const int AdmittingTicksFloor = StepWithinTicks;
 
+    /// <summary>
+    /// How many ticks must want a fight before the step verdict means anything.
+    ///
+    /// The same constant again, and it is doing a harder job here. On the capture of 22 September the
+    /// census admits usable work on about 1,790 of 2,340 ticks and README's scenes want a fight on
+    /// about 138 of them, so this floor is *below* the qualifying count rather than ten times under
+    /// it. That is the honest position: a run whose wanted-fight count is this low is a run whose
+    /// verdict rests on a hundred-odd ticks, and the row prints the count so a reader can see how
+    /// thin the ground under it is. A second, larger number here would be inventing a sample size
+    /// nobody measured.
+    /// </summary>
+    private const int WantedFightTicksFloor = StepWithinTicks;
+
     private const string RefusalVerdict = "no order is refused for a target its own observation admitted";
-    private const string StepVerdict = "work the census admits becomes a bound step within three seconds";
+    private const string StepVerdict = "a fight README wants, within ten seconds or inside his region, becomes a bound step within three seconds";
 
     public static int Grade(string suite, ReadRecordedRoute.Route route, RunTheWorld.Outcome run,
         StageRecordedActors stage, ReadRecordedActors.Cast cast, string preferences)
@@ -117,25 +130,118 @@ internal static class GradeThePlayMeasures
             : null;
 
         int admitting = play.Count(t => t.UsableAdmitted > 0);
-        if (cannotGrade == null && admitting < AdmittingTicksFloor)
-            cannotGrade = string.Create(CultureInfo.InvariantCulture,
+        string? refusalCannotGrade = cannotGrade ?? (admitting >= AdmittingTicksFloor ? null
+            : string.Create(CultureInfo.InvariantCulture,
                 $"the census admitted usable work on only {admitting} of {play.Count} ticks, under the floor of {AdmittingTicksFloor}; "
-                + $"below it these verdicts pass because there was nothing to do rather than because the brain did it — a window from tick 1,700 "
-                + $"of the 22 September capture admits on zero ticks and used to pass both. Widen the window or check that the scene was staged");
+                + $"below it this verdict passes because there was nothing to refuse rather than because the brain refused nothing — a window from tick 1,700 "
+                + $"of the 22 September capture admits on 7 ticks and used to pass. Widen the window or check that the scene was staged"));
 
-        if (cannotGrade != null)
+        // The step verdict counts a different denominator from the refusal verdict and therefore has
+        // its own floor. What changed on 22 September, after lane C measured the capture: of its
+        // 4,583 hostile-ticks, 3,997 are hostiles README's own 2:00 scene says to decline — a median
+        // of 1,665 px from the player, receding, out of the bow's reach, the flight to them ending
+        // with the companion stranded — so "some domain admitted usable work" counted as work the
+        // product says not to do, and a verdict over it was grading the brain against the wrong wish.
+        int wanted = play.Count(t => t.AFightIsWanted);
+        string? stepCannotGrade = cannotGrade ?? (wanted >= WantedFightTicksFloor ? null
+            : string.Create(CultureInfo.InvariantCulture,
+                $"README's scenes want a fight on only {wanted} of {play.Count} ticks — no hostile inside the player's region, none forecast to reach the player within ten seconds — "
+                + $"under the floor of {WantedFightTicksFloor}; below it this verdict passes because there was no fight to take rather than because the companion took one"));
+
+        int failures = 0;
+        if (refusalCannotGrade != null) EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, RefusalVerdict, refusalCannotGrade);
+        else failures += NoRefusalContradictsItsOwnCensus(suite, play, scene);
+        if (stepCannotGrade != null) EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, StepVerdict, stepCannotGrade);
+        else failures += AWantedFightIsBegun(suite, play, scene);
+        failures += TheAuditRanOnTheseDecisions(suite, run, play.Count, scene);
+        if (play.Count > 0) Measures(suite, play, route, stage, cast, shortScene);
+        return failures;
+    }
+
+    /// <summary>
+    /// Whether the decision audit was wired to anything on the run these rows grade.
+    ///
+    /// Every other row here grades what the brain did; this one grades whether the thing that checks
+    /// the brain's own contracts was plugged in while it did it, and it exists because both ways that
+    /// wiring fails are silent. <c>AuditDecisionContracts.Audit</c> hangs off
+    /// <c>RecordCourseTrace.Record</c> and takes its inputs from a source that
+    /// <c>ReadLiveCourseForAudit.Install</c> hands it out of the recorder's <c>Load</c>: lose the hook
+    /// and every decision is recorded with nothing audited, and skip the install and every decision is
+    /// audited against no inputs, which silently reduces six contracts to the two transitions that
+    /// read the payload alone. Neither shows up as a violation, because the contracts that would have
+    /// fired were never asked.
+    ///
+    /// **This run was in the second state until 22 September 2026, and nothing here noticed.**
+    /// `AttachTheRecorder.Open` called <c>OnWorldLoad</c> and never <c>Load</c>, and
+    /// `AttachCompanion` left the body out of <c>Main.npc</c>, so <c>CompanionNPC.Instance</c> — which
+    /// is how the source reaches the course — found nothing. The soak lane measured the capture this
+    /// very command writes: <c>decisions-audited=600;audit-observations-read=0</c>. Both halves are
+    /// fixed and this row is the thing that stops either coming back, because a replay grading a brain
+    /// whose contracts nobody audited is a green run that checked less than it says.
+    ///
+    /// The two conditions are the session reader's own, deliberately, so the headless row and
+    /// <c>CheckTheDecisionAudit</c> cannot drift into disagreeing about one wiring. Equality is **not**
+    /// the test and would be wrong: the observation is read once per decision ordinal and a carried
+    /// course repeats its ordinal on every tick it holds the body, so a healthy run reads fewer
+    /// observations than it audits. The ratio is emitted as a measure beside this.
+    /// </summary>
+    private static int TheAuditRanOnTheseDecisions(string suite, RunTheWorld.Outcome run, int ticks, string scene)
+    {
+        const string name = "the decision audit was wired to the run these rows grade";
+        long audited = run.DecisionsAudited, read = run.AuditObservationsRead;
+        string counts = string.Create(CultureInfo.InvariantCulture,
+            $"{audited} decision(s) audited and {read} frozen observation(s) read over {ticks} ticks");
+
+        if (ticks == 0)
         {
-            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, RefusalVerdict, cannotGrade);
-            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, StepVerdict, cannotGrade);
-            if (play.Count > 0) Measures(suite, play, route, stage, cast, shortScene);
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name, "the run produced no ticks, so there was nothing for the audit to be wired to");
+            return 0;
+        }
+        if (!AttachTheRecorder.Attached)
+        {
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name,
+                "this run was asked for with --no-recorder, and the audit's source is installed by the recorder's own Load exactly as it is in play, "
+                + "so the audit is unwired by the caller's choice rather than by a defect. Run without that flag to grade the wiring");
             return 0;
         }
 
-        int failures = 0;
-        failures += NoRefusalContradictsItsOwnCensus(suite, play, scene);
-        failures += WorkAdmittedIsWorkBegun(suite, play, scene);
-        Measures(suite, play, route, stage, cast, shortScene);
-        return failures;
+        // The audit's own findings, emitted whatever the verdict below decides, because a run whose
+        // wiring is broken should still show its two surviving transitions rather than a blank.
+        string[] sampled = { SampleTag };
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "frozen observations read per decision audited",
+            audited == 0 ? 0 : (double)read / audited, "observations", "up", "production-clock", sampled,
+            message: $"{read} of {audited}; under one by the ordinal rule, because a carried course repeats its observation ordinal and the source is "
+                + $"invoked once per decision rather than once per tick; {scene}");
+        foreach (var kind in run.ContractViolations.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal))
+            EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, $"contract violations of kind {kind.Key}", kind.Value,
+                "violations", "down", "production-clock", sampled,
+                message: "counted by the audit whether or not the recorder's coalescing kept it; a kind with no row here fired zero times on this run, "
+                    + $"which means something only while the verdict beside it passes; {scene}");
+        if (audited == 0)
+        {
+            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
+                $"{counts} — the audit saw none of them. It is called from RecordCourseTrace.Record, so a count of zero beside a run "
+                + $"that decided every tick means that call is gone or never reached, not that the decisions were clean. Every contract in every row here measured nothing; {scene}",
+                mode: "production-clock");
+            return 1;
+        }
+        if (read == 0)
+        {
+            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
+                $"{counts} — the audit ran on every decision and never once read the observation behind it. ReadLiveCourseForAudit.Install hands the audit "
+                + "its source from the recorder's Load, and the source reaches the course through CompanionNPC.Instance, which scans Main.ActiveNPCs; with "
+                + "either missing, the four contracts that read the census and the target facts cannot fire at all and only the two transitions that read the "
+                + $"payload alone survive, so this run looks healthier than a wired one rather than worse; {scene}",
+                mode: "production-clock");
+            return 1;
+        }
+        EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, name,
+            $"{counts}; fewer read than audited is the ordinal rule rather than a fault — the observation is read once per decision and a carried course "
+            + $"repeats its ordinal on every tick it holds the body; {scene}",
+            mode: "production-clock",
+            killedBy: "asserting the two counts equal, which reddens on every carried course; or reading them out of the written capture, which would make the row "
+                + "unaskable under --no-recorder and would grade the recorder's file rather than the run");
+        return 0;
     }
 
     /// <summary>
@@ -222,43 +328,67 @@ internal static class GradeThePlayMeasures
     }
 
     /// <summary>
-    /// Whether work the brain admitted ever became work the body did, inside three seconds.
+    /// Whether a fight README's scenes want ever became work the body did, inside three seconds.
     ///
-    /// The measured quantity is the longest unbroken run of ticks on which some domain admitted
-    /// usable work and the course bound no step. A decision spans ticks by design and a course
-    /// legitimately holds no step while one is in flight, so a short run is the brain working; a run
-    /// that outlasts the window combat is already given to take the body is the companion doing
-    /// nothing while something was there to do.
+    /// The measured quantity is the longest unbroken run of ticks on which a fight is wanted and the
+    /// course bound no step. A decision spans ticks by design and a course legitimately holds no step
+    /// while one is in flight, so a short run is the brain working; a run that outlasts the window
+    /// combat is already given to take the body is the companion doing nothing while something it
+    /// should have fought was on its way.
+    ///
+    /// **The denominator was "some domain admitted usable work" until 22 September 2026 and that was
+    /// grading against the wrong wish.** Lane C measured the capture: 3,997 of its 4,583 hostile-ticks
+    /// are hostiles README tells the companion to decline, at a median 1,665 px, so a row over
+    /// admitted work counted work the product says not to do. Under the new denominator the same
+    /// capture reads about 138 wanted ticks rather than 1,790, which is the number the verdict should
+    /// always have rested on.
+    ///
+    /// What it still does not hold is named at <c>RunTheWorld.HarmHorizonTicks</c>: a thing slower
+    /// than the horizon but "an age to put down", and the receding slime of README line 51 that
+    /// becomes worth killing when the *player* stops. Both are under-counts, so this row will pass
+    /// on a run that neglected either, and that is stated rather than papered over.
     /// </summary>
-    private static int WorkAdmittedIsWorkBegun(string suite, IReadOnlyList<RunTheWorld.PlayTick> play, string scene)
+    private static int AWantedFightIsBegun(string suite, IReadOnlyList<RunTheWorld.PlayTick> play, string scene)
     {
         int longest = 0, longestFrom = -1, current = 0, currentFrom = -1;
+        int wanted = 0, wantedWithStep = 0, inRegion = 0, arriving = 0;
+        int nearTheOrbOnly = play.Count(t => !t.AFightIsWanted && t.HostilesArrivingAtCompanion > 0);
         foreach (RunTheWorld.PlayTick tick in play)
         {
-            if (tick.UsableAdmitted > 0 && !tick.HasStep)
-            {
-                if (current == 0) currentFrom = tick.Tick;
-                current++;
-                if (current > longest) { longest = current; longestFrom = currentFrom; }
-            }
-            else current = 0;
+            if (!tick.AFightIsWanted) { current = 0; continue; }
+            wanted++;
+            if (tick.HostilesInRegion > 0) inRegion++;
+            if (tick.HostilesArrivingAtPlayer > 0) arriving++;
+            if (tick.HasStep) { wantedWithStep++; current = 0; continue; }
+            if (current == 0) currentFrom = tick.Tick;
+            current++;
+            if (current > longest) { longest = current; longestFrom = currentFrom; }
         }
 
         const string name = StepVerdict;
+        string qualified = string.Create(CultureInfo.InvariantCulture,
+            $"README wanted a fight on {wanted} of {play.Count} ticks — {inRegion} with a hostile inside the player's own intent region, {arriving} with one the threat sense forecast reaching the player within ten seconds — and a step was bound on {wantedWithStep} of them. ");
+        string excluded = string.Create(CultureInfo.InvariantCulture,
+            $"A further {nearTheOrbOnly} ticks had a hostile within ten seconds of the companion and of nothing else, and are deliberately not counted: ");
+        string denominator = qualified + excluded
+            + "that forecast is distance over observed speed, so it is mostly a fact about where the orb flew, and a denominator the companion can enlarge by wandering at hostiles is one it can also pass";
         string detail = longest == 0
-            ? "every tick that admitted usable work also carried a bound step"
+            ? "every wanted-fight tick carried a bound step"
             : string.Create(CultureInfo.InvariantCulture,
-                $"the longest stretch with usable work admitted and no step bound is {longest} ticks from recorded tick {longestFrom}");
+                $"the longest stretch with a wanted fight and no step bound is {longest} ticks from recorded tick {longestFrom}");
+        string blind = "the denominator misses two things README wants fought and nothing here measures: a thing slower than ten seconds to arrive but an age to put down, "
+            + "and the receding hostile of README line 51 that becomes worth killing when the player stops walking and starts working";
         if (longest < StepWithinTicks)
         {
             EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, name,
-                $"{detail}, inside the stated {StepWithinTicks}; {scene}",
+                $"{detail}, inside the stated {StepWithinTicks}; {denominator}; {blind}; {scene}",
                 mode: "production-clock",
-                killedBy: "counting only the published-course reason and not the ticks a decision spans, which would hide a brain that decides forever");
+                killedBy: "counting every tick the census admitted usable work, which on this capture is 1,790 rather than 138 and is mostly hostiles README says to decline; "
+                    + "or counting only the published-course reason and not the ticks a decision spans, which would hide a brain that decides forever");
             return 0;
         }
         EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
-            $"{detail}, past the stated {StepWithinTicks}; {scene}",
+            $"{detail}, past the stated {StepWithinTicks}; {denominator}; {blind}; {scene}",
             mode: "production-clock");
         return 1;
     }
@@ -274,14 +404,14 @@ internal static class GradeThePlayMeasures
     /// **Every one of them is a sample rather than a value**, and each says so in a tag, because
     /// this run keeps the game's own wall clock and therefore does not repeat itself: measured over
     /// five whole-capture runs at one commit, the shares move three to four points and the
-    /// second-generation collection count ran 12, 13 and 38. The ledger has no notion of a per-row
-    /// tolerance to declare that with — <c>CompareRunsAndScore.Drift</c> calls any difference above
-    /// 1e-9 a drift, and its only softening is a noise band built from three or more *repeat runs at
-    /// the baseline commit* — so the tag is a label for a reader rather than something the scoreboard
-    /// acts on, and every one of these will appear under "measures that moved" on every run until
-    /// somebody either teaches the ledger tolerance or runs this suite three times per commit.
+    /// second-generation collection count ran 12, 13 and 38. The tag is the ledger's own
+    /// <c>EmitLedgerRows.SampledTag</c> and not a spelling of this file's, because the scoreboard reads
+    /// that constant to print a sampled case under its own heading rather than as drift: a string of
+    /// our own here filed fourteen "measures that moved" on every run, which is what the tag was
+    /// meant to stop. The tag carries no tolerance, by the ledger guide's ruling; the only bound on a
+    /// sample is still the noise band from three or more repeat runs at the baseline commit.
     /// </summary>
-    private const string SampleTag = "sampled-under-the-production-clock";
+    private const string SampleTag = EmitLedgerRows.SampledTag;
 
     private static void Measures(string suite, IReadOnlyList<RunTheWorld.PlayTick> play, ReadRecordedRoute.Route route,
         StageRecordedActors stage, ReadRecordedActors.Cast cast, string scene)
@@ -328,18 +458,56 @@ internal static class GradeThePlayMeasures
                 + "and it is the mechanism the capture named for its worst frames rather than a figure attributable to one component; "
                 + "the widest sample of any row here — 12, 13 and 38 over runs of one commit; " + scene);
 
-        // The silence, which stopped being a verdict on 22 September 2026. Its predicate was
-        // `fired > 0` over the whole post-kill window, so it read green at one fired tick in five
-        // hundred as readily as at fifty — a measure wearing a verdict's clothes, and the share was
-        // always the row carrying the meaning. It is the share alone now, and nothing here invents
-        // a firing rate to hold it against: what a companion in a fight ought to fire is the weapon's
-        // own cooldown times the ticks it was engaged, which is a quantity no row in this file has.
-        var afterTheKill = play.Where(t => t.Tick > cast.LastCompanionKillTick && t.HostilesAlive > 0).ToList();
-        if (cast.LastCompanionKillTick >= 0 && afterTheKill.Count > 0)
-            Share("share of ticks after the last recorded kill that fired", afterTheKill.Count(t => t.Fired), afterTheKill.Count, "up",
-                "the denominator is the ticks after the recording's last companion kill with a hostile still standing, "
-                + "which in the capture this was built from is the 524-tick stretch the companion spent doing nothing and fired on none of; "
-                + "zero here is the play's own symptom reproduced");
+        // The silence, twice corrected. It stopped being a verdict on 22 September 2026 because its
+        // predicate was `fired > 0` over the whole post-kill window, so it read green at one fired
+        // tick in five hundred as readily as at fifty. Its *denominator* was wrong the same day for
+        // the same reason the step verdict's was: "a hostile still standing" counts the 1,665-px
+        // median hostile README tells the companion to decline, so a zero here was never the symptom
+        // the row is named for. It is qualified now, and where the window holds no wanted fight the
+        // row says that rather than printing a share of something nobody wanted.
+        const string silence = "share of ticks after the last recorded kill that fired while README wanted a fight";
+        var afterTheKill = play.Where(t => t.Tick > cast.LastCompanionKillTick).ToList();
+        var wantedAfterTheKill = afterTheKill.Where(t => t.AFightIsWanted).ToList();
+        if (cast.LastCompanionKillTick < 0 || afterTheKill.Count == 0)
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, silence,
+                $"{Path.GetFileName(cast.EventsPath)} credits the companion no kill this run replayed past, so there is no moment for the hands to have fallen silent after");
+        else if (wantedAfterTheKill.Count == 0)
+        {
+            string window = string.Create(CultureInfo.InvariantCulture,
+                $"none of the {afterTheKill.Count} ticks after the recorded last kill at {cast.LastCompanionKillTick} holds a fight README wants — no hostile inside the player's region and none forecast to reach him within ten seconds");
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, silence,
+                $"{window}, so a share of them would be a share of a silence nobody asked to be broken. "
+                + "This is what the capture itself reads: its 524-tick tail is hostiles the 2:00 scene declines");
+        }
+        else
+            Share(silence, wantedAfterTheKill.Count(t => t.Fired), wantedAfterTheKill.Count, "up",
+                "the denominator is the ticks after the recording's last companion kill on which README wants a fight, rather than every tick with a hostile standing, "
+                + "because the capture's own tail is hostiles the 2:00 scene tells the companion to decline");
+
+        // Where in the horizon the capture actually sits, and it is here because the horizon is a
+        // hedge rather than a measured line. Measured 22 September 2026 on this capture: at a
+        // ten-second horizon README wants a fight on 757 of 2,340 ticks, and at five seconds — README
+        // line 41's own figure for the slow heavy thing — on **zero**. That is a cliff rather than a
+        // gradient, so every wanted tick here rests on the second half of the horizon, and a reader
+        // who does not know that would read the verdict as being about hostiles near the player. This
+        // row is what makes the cliff visible in the ledger rather than only in a folder guide.
+        double[] soonest = play.Select(t => (double)t.SoonestArrivalTicks).Where(double.IsFinite).OrderBy(v => v).ToArray();
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "soonest forecast arrival at the player, p50",
+            soonest.Length == 0 ? -1 : Percentile(soonest, 0.50), "ticks", "down", "production-clock", sampled,
+            message: $"over the {soonest.Length} ticks on which the threat sense believed any hostile could reach him at all, out of {play.Count}; "
+                + "the ten-second horizon the verdict uses is 600 of these, and this says how much of the capture sits near that line rather than well inside it; " + scene);
+
+        // The residual, and the only row here that says what is still wrong rather than what is not.
+        // Lane C's reading of the capture: of the ticks README wants a fight, combat is already
+        // retained on about two-thirds and the decision is merely unsettled on the rest, and on none
+        // of them is a wanted fight priced and beaten by something else. That last clause is why this
+        // is a measure and not a verdict — an unsettled decision on a tick a fight is wanted is the
+        // brain still deciding, which is legal, and only its size says whether it is a problem.
+        int wantedTicks = play.Count(t => t.AFightIsWanted);
+        if (wantedTicks > 0)
+            Share("share of wanted-fight ticks the companion was not fighting on", play.Count(t => t.AFightIsWanted && !t.Fighting), wantedTicks, "down",
+                "the honest residual: README wants a fight and the stance does not have the body. A decision in flight is counted here, because from outside "
+                + "a brain still deciding and a brain that declined look the same, and the size of this is what says which it was");
 
         TheSceneAgainstTheRecording(suite, play, route, stage, cast, scene, sampled);
 

@@ -211,9 +211,11 @@ record_exit "world-run" "$world_run_combat_status"
 # The route is pinned rather than newest, for the combat variant's reason and one of its own. The
 # rows are about a specific defect on a specific scene, so a discovered route would make the same
 # case name mean a different morning; and the capture has to carry an events sidecar, which is what
-# the hostiles and drops are read from. It plays the whole capture rather than a slice, because the
-# defect it reproduces takes about fourteen seconds of play to arrive and no slice reaches it: the
-# refusals begin at tick 827 of 2,340. One pass rather than two, which is what keeps it to about
+# the hostiles and drops are read from. It plays the whole capture rather than a slice, and a slice
+# is not an option rather than merely being weaker: the defect it was built for arrived fourteen
+# seconds in, at tick 827 of 2,340, and both verdicts decline a window that holds under 180 ticks of
+# their own denominator, which every slice of this capture does. One pass rather than two, which is
+# what keeps it to about
 # half a minute — the determinism row belongs to the runs above, under the lifted allowances where
 # two passes are comparable at all.
 world_run_play_route="${AIC_WORLD_RUN_PLAY_ROUTE:-Telemetry/2026-09-22_10-05-56-125.tsv}"

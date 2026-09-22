@@ -181,7 +181,7 @@ sh Tools/backfill-capture.sh <capture>      a recording as a ledger run under th
 
 A red is a stop whatever the reruns show: a case that fails once and then passes four times prints `FLAKY` with its interval and the run still exits 1, because the fail row is a row.
 
-Read a playtest with `dotnet run --project Tools/SessionReport -- Telemetry`; replay and world-window procedures live in their respective tool folders. `Telemetry/` is gitignored, so a fresh clone has nothing to read until a playtest writes one.
+Read a playtest with `sh Tools/build.sh session-report` then `dotnet Tools/SessionReport/bin/Debug/net8.0/SessionReport.dll Telemetry` — never `dotnet run --project`, which fails on this machine with "an error occurred trying to start process" because `Directory.Build.rsp` turns apphost generation off for `dotnet build` only and `dotnet run`'s launch honours command-line properties alone; replay and world-window procedures live in their respective tool folders. `Telemetry/` is gitignored, so a fresh clone has nothing to read until a playtest writes one.
 
 ## Traps
 
