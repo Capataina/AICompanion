@@ -391,7 +391,21 @@ public sealed class BrainTelemetry : ModSystem
         GodsEyeEvents.Close();
         try
         {
-            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions}");
+            // A session that recorded no row at all still says what it ran under. The line is written
+            // from the first row because that is the first moment the character's saved preferences
+            // exist; a capture with no rows never reached it, and before this it closed carrying no
+            // `# config=` line of any kind — which reads as a capture from before 0.28.0 rather than as
+            // a session that opened and recorded nothing. The value is read now rather than at world
+            // entry for the same reason the row's is, so it is the preferences as they stand.
+            if (!headerWritten)
+                QueueDiagnosticRecords.TryEnqueueTsv($"# config={RecordedConfiguration.Current().Describe()}");
+            // `decisions-audited` and `audit-observations-read` are the capture's own witnesses to the
+            // audit's two wirings, and they are here rather than in the header because the header is
+            // written on the first row, before any decision has been made. A reader grades them against
+            // the count of `course-decision` occurrences: decisions with nothing audited is the hook
+            // gone from `RecordCourseTrace.Record`, and decisions audited with nothing read is
+            // `ReadLiveCourseForAudit.Install` never having run. Both are silent in play otherwise.
+            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead}");
             diagnosticWriter.Stop(TimeSpan.FromMilliseconds(100), reason, rowsWritten);
         }
         catch (Exception e)

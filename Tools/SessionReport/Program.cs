@@ -77,6 +77,7 @@ public static class Program
         // threshold. The recording side ran ahead of the reading side for the whole migration, so until
         // this landed the companion could write a typed course trace that nothing read back.
         new EveryCourseDecisionAccountsForItsOwnSearch(),
+        new TheDecisionAuditRanOnTheDecisionsTheCaptureHolds(),
         new BeingUnableToReachHimGetsNoticed(),
         new FollowingMakesRouteProgress(),
         new ArrivalDoesNotStrandFollowing(),

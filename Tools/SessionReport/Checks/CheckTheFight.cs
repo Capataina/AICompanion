@@ -735,7 +735,12 @@ public sealed class CombatHeldTargetsItsBinderCouldNotSee : ICheck
             int level = body.LastIndexOf(':', counts - 1);
             if (level <= 0) return false;
             if (body[..level].Length == 0) return false;
-            if (body[(level + 1)..counts] is not ("Unresolved" or "Missing" or "Modelled" or "absent" or "no-snapshot")) return false;
+            // The four the producer can write: the three `FactEvidence` members short of Observed, and
+            // the audit's own `absent` for a domain whose snapshot holds no fact of that kind at all.
+            // A fifth level this list once carried, `no-snapshot`, was written by nothing — an accepted
+            // value no producer emits widens the predicate against a string that can only arrive from a
+            // corrupt cell, which is the opposite of what a whitelist is for.
+            if (body[(level + 1)..counts] is not ("Unresolved" or "Missing" or "Modelled" or "absent")) return false;
             string[] counted = body[(counts + 1)..].Split('/');
             if (counted.Length != 2 || !int.TryParse(counted[0], out int observed) || observed < 0
                 || !int.TryParse(counted[1], out int total) || total < 0) return false;

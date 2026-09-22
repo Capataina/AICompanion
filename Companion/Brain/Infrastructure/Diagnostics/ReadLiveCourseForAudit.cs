@@ -24,6 +24,14 @@ namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 /// through one reader rather than reaching for a static itself, which is why
 /// <see cref="ReadCourseWorthPerActivity"/> exists beside it. And it is the seam a fixture replaces
 /// to drive one decision with no world at all.
+///
+/// <b>Nothing headless can prove this file is installed.</b> It is not on EngineReplay's compile list
+/// — that is the point of it — and every fixture hands the audit a source of its own, so a tree where
+/// <see cref="Install"/> is never called compiles and passes every row. The witness is the capture:
+/// with no source the audit counts every decision and reads no observation, and
+/// <c>AuditDecisionContracts.ObservationsRead</c> rides out on the closing line beside
+/// <c>Audited</c> for the session reader to grade. Anything that moves the install call moves that
+/// check's subject with it.
 /// </summary>
 public static class ReadLiveCourseForAudit
 {

@@ -63,6 +63,16 @@ public sealed record DecisionInputs(IReadOnlyList<CensusAdmission> Admitted, IRe
 /// <c>CompanionNPC.Instance.Brain.Course</c> here would drag the whole decision tree across that
 /// boundary. <see cref="Source"/> is installed once by <c>ReadLiveCourseForAudit</c> on the mod side,
 /// which is also the seam a fixture uses to drive one decision without a world.
+///
+/// <b>What witnesses the wiring, and what cannot.</b> The seam has two halves and they fail
+/// separately. The hook — this being called from <c>RecordCourseTrace.Record</c> at all — is held by
+/// `the recorder's own seam drives the audit end to end`, which installs a source and goes in through
+/// `Record`, and is the only row here that does: every other row calls <see cref="Audit"/> directly,
+/// so for a while removing the hook left all of them green. The *installer* cannot be witnessed
+/// headlessly at all, because <c>ReadLiveCourseForAudit</c> is not on EngineReplay's compile list and
+/// a fixture supplies the source itself; what witnesses it is the capture, through
+/// <see cref="Audited"/> and <see cref="ObservationsRead"/> on the closing line and the session
+/// reader's check over them.
 /// </summary>
 public static class AuditDecisionContracts
 {
@@ -111,9 +121,11 @@ public static class AuditDecisionContracts
     /// because an age computed from a partly forgotten map is worse than an unknown one.</summary>
     private const int EvidenceMemory = 4096;
 
-    /// <summary>Where a decision's census and target facts come from. Installed once on the mod side;
-    /// a fixture replaces it to drive one decision with no world, and the seam is itself proved by a
-    /// row that runs the whole brain and counts the audits that reached this file.</summary>
+    /// <summary>Where a decision's census and target facts come from. Installed once on the mod side by
+    /// <c>ReadLiveCourseForAudit</c>, which no headless row can exercise, because that file is not on
+    /// EngineReplay's compile list and every fixture installs a source of its own. A session whose
+    /// installer never ran is therefore witnessed by the capture rather than by a row: it audits every
+    /// decision and reads no observation, which is <see cref="ObservationsRead"/> at zero.</summary>
     public static Func<DecisionInputs?>? Source;
 
     private static readonly Dictionary<string, long> lastObserved = new(StringComparer.Ordinal);
@@ -139,10 +151,23 @@ public static class AuditDecisionContracts
     public static string LastTargetEvidence { get; private set; } = "";
     public static string LastTargetEvidenceAge { get; private set; } = "";
 
-    /// <summary>How many decisions have reached this audit in the session. It is the seam's own
-    /// witness: an end-to-end row drives the real brain and requires one audit per recorded decision,
-    /// so removing the hook in <see cref="RecordCourseTrace"/> reddens it rather than going quiet.</summary>
+    /// <summary>
+    /// How many decisions have reached this audit in the session, and how many of those read a frozen
+    /// observation through <see cref="Source"/>. Both ride out on the capture's closing line, because
+    /// they are the only witnesses to two wirings that fail *silently* in play and that no headless row
+    /// can see: the hook gone from <see cref="RecordCourseTrace.Record"/> leaves decisions recorded and
+    /// nothing audited, and <c>ReadLiveCourseForAudit.Install</c> never running leaves every decision
+    /// audited against no inputs, which quietly reduces six contracts to two.
+    ///
+    /// The second is not the first with a smaller number: <see cref="Audited"/> counts at the top of
+    /// the audit, before the source is consulted at all, so a session with a null source reports every
+    /// decision audited and zero read. A reader that only had the first count would read a broken
+    /// installer as a healthy session with nothing to report, which is this folder's own trap.
+    /// </summary>
     public static long Audited { get; private set; }
+
+    /// <inheritdoc cref="Audited"/>
+    public static long ObservationsRead { get; private set; }
 
     /// <summary>Violations counted this session, by kind, whether or not each was written. The
     /// fixtures assert on this rather than on what the coalescing happened to keep.</summary>
@@ -169,7 +194,7 @@ public static class AuditDecisionContracts
         lastActivity = "";
         lastDecisionTick = long.MinValue;
         LastTargetEvidence = LastTargetEvidenceAge = "";
-        Audited = 0;
+        Audited = ObservationsRead = 0;
     }
 
     /// <summary>
@@ -247,6 +272,7 @@ public static class AuditDecisionContracts
         DecisionInputs? read = source?.Invoke();
         if (read == null) return Array.Empty<KeyValuePair<string, CourseTraceValue>>();
         DecisionInputs inputs = read;
+        ObservationsRead++;
         RememberObservedFacts(inputs.Targets, tick);
         // Parsed here rather than above for the same reason: the refusal tally is a dictionary per
         // call and no transition contract reads it, so a carried tick allocates nothing at all.

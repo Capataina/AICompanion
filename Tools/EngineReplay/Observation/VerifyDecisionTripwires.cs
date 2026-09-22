@@ -39,6 +39,7 @@ internal static class VerifyDecisionTripwires
         failed += RunOneRow.Case("a tick carrying a course reads the observation nowhere and allocates nothing", ACarriedTickReadsNothingAndAllocatesNothing, Family);
         failed += RunOneRow.Case("a refused target's evidence and its age ride on the decision", RefusedTargetEvidenceRidesOnTheDecision, Family);
         failed += RunOneRow.Case("a contradiction held for hundreds of ticks is counted in full and written a handful of times", AHeldContradictionIsCountedInFullAndCoalesced, Family);
+        failed += RunOneRow.Case("the recorder's own seam drives the audit end to end", TheRecorderSeamDrivesTheAuditEndToEnd, Family);
         failed += RunOneRow.Case("the refusal strings the contracts read are still the ones the binders emit", TheRefusalStringsStillMatchTheirProducers, Family);
         return failed;
     }
@@ -418,6 +419,77 @@ internal static class VerifyDecisionTripwires
             $"a violation record must name its numbers and the observation it describes; first={Payload(contradiction[0], "detail")}");
         Require(records.Any(r => Payload(r, "violation") == "empty-course-beside-usable-work"),
             "the same scene publishes an empty course beside that usable work, and both contracts must reach the sidecar");
+    }
+
+    // ── the seam itself ───────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The one row that drives the hook rather than the audit, and the reason it exists is that every
+    /// other row here calls <c>AuditDecisionContracts.Audit</c> directly. `ReadLiveCourseForAudit` is
+    /// not on EngineReplay's compile list — it names `Selection/`, which is the whole reason the audit
+    /// takes a delegate — so headlessly the source is null and the real seam is exercised by nothing:
+    /// deleting the `Observe` call from <see cref="RecordCourseTrace.Record"/> left every row green.
+    ///
+    /// So this one installs a source and goes in through `Record`, which is the call the brain makes,
+    /// and reads what came out of the sidecar. It also drives the recording gate from the other side:
+    /// with the stream closed the same call must audit nothing at all.
+    /// </summary>
+    private static void TheRecorderSeamDrivesTheAuditEndToEnd()
+    {
+        string stem = Path.Combine(Path.GetTempPath(), $"aic-seam-{Guid.NewGuid():N}");
+        string tsv = stem + ".tsv", events = stem + ".jsonl";
+        var records = new List<JsonElement>();
+        Func<DecisionInputs?>? installed = AuditDecisionContracts.Source;
+        try
+        {
+            AuditDecisionContracts.Source = () =>
+                Inputs(Admitted(("combat", 3)), Target("combat-target", "8000001", observed: false));
+            File.WriteAllText(tsv, "");
+            using (FlushDiagnosticRecords writer = FlushDiagnosticRecords.Start(tsv, events))
+            {
+                GodsEyeEvents.Open(events);
+                AuditDecisionContracts.Reset();
+                RecordCourseTrace.Record(CourseTracePhase.Brain, Context(100, 1),
+                    Decision("published-course-holds-no-step", "keep-company", settled: true, steps: 0, facts: 60,
+                        ("target-capture-missing", 12)));
+                writer.FlushForReader(TimeSpan.FromSeconds(5));
+                writer.Stop(TimeSpan.FromSeconds(5), "fixture-close");
+            }
+            foreach (string line in File.ReadAllLines(events))
+            {
+                if (line.Length == 0 || line[0] != '{') continue;
+                records.Add(JsonDocument.Parse(line).RootElement);
+            }
+        }
+        finally
+        {
+            GodsEyeEvents.Close();
+            AuditDecisionContracts.Source = installed;
+            if (File.Exists(tsv)) File.Delete(tsv);
+            if (File.Exists(events)) File.Delete(events);
+        }
+
+        Require(AuditDecisionContracts.Audited == 1,
+            $"one decision through the recorder's own seam must reach the audit; audited={AuditDecisionContracts.Audited}");
+        Require(records.Any(r => r.TryGetProperty("payload_kind", out JsonElement kind)
+                && kind.GetString() == "contract-violation"),
+            "a decision recorded through RecordCourseTrace.Record must reach the sidecar audited; no"
+                + " contract-violation record was written, which is what removing the hook looks like");
+        JsonElement decision = records.First(r => r.TryGetProperty("payload_kind", out JsonElement kind)
+            && kind.GetString() == "course-decision");
+        Require(Payload(decision, "target-evidence").Contains("combat=combat-target", StringComparison.Ordinal),
+            $"the evidence the audit appends must ride on the recorded decision itself;"
+                + $" target-evidence='{Payload(decision, "target-evidence")}'");
+
+        // The other side of the gate: recording off, and the same call audits nothing. The stream is
+        // closed at this point, so `GodsEyeEvents.Active` is false and `Record` must not even reach
+        // the audit — which is what keeps the delegate hop off a session with the recorder disabled.
+        AuditDecisionContracts.Reset();
+        RecordCourseTrace.Record(CourseTracePhase.Brain, Context(101, 2),
+            Decision("published-course-holds-no-step", "keep-company", settled: true, steps: 0, facts: 60,
+                ("target-capture-missing", 12)));
+        Require(AuditDecisionContracts.Audited == 0,
+            $"a decision recorded with the stream closed must not be audited; audited={AuditDecisionContracts.Audited}");
     }
 
     // ── the producer pin ──────────────────────────────────────────────────────────────────────────

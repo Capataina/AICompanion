@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 
 namespace AICompanion.Tools.SessionReport;
@@ -68,6 +69,8 @@ public static class ChronicleTests
             CourseSnapshotRequiresActualValuesAndMatchingDigests();
             CourseReaderRejectsMixedAndDigestOnlySnapshots();
             CourseDecisionsAreReadCheckedAndNarrated();
+            TheGuideQuotesTheSchemaConstantItDocuments();
+            TheAuditsOwnWiringIsWitnessedByTheCapture();
             TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
@@ -191,6 +194,109 @@ public static class ChronicleTests
                 "the producer's own frame budget moved away from the engine's timestep, so this reader's share means something else");
         }
         finally { File.Delete(file); }
+    }
+
+    /// <summary>
+    /// The two wirings of the decision audit that fail silently in play, read back off a capture's own
+    /// closing line.
+    ///
+    /// <para>Neither can be caught by a headless row, because headlessly the source is installed by the
+    /// fixture and the hook is driven directly. What a capture can say is how many decisions reached
+    /// the audit and how many of those read a frozen observation, and the two failures are exactly the
+    /// two zeroes: decisions recorded with nothing audited is the hook gone from
+    /// <c>RecordCourseTrace.Record</c>, and everything audited with nothing read is
+    /// <c>ReadLiveCourseForAudit.Install</c> never having run. The third case here is the one the check
+    /// is worth nothing without — a wired session says nothing at all.</para>
+    /// </summary>
+    /// <summary>
+    /// The Diagnostics guide's "the capture schema is X" sentence against the constant it describes.
+    ///
+    /// <para>That sentence went stale across a version bump and a reviewer found it, which is the same
+    /// failure this whole folder is careful about in the other direction: a number in prose that no
+    /// instrument checks is a claim, and every version bump is an invitation for it to drift. The
+    /// guide's own text says the constant is the only authority; this makes that enforceable rather
+    /// than advisory, so the next bump reddens here instead of shipping a lie in the file a stranger
+    /// reads first.</para>
+    /// </summary>
+    private static void TheGuideQuotesTheSchemaConstantItDocuments()
+    {
+        string recorder = Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
+        string guide = Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "CLAUDE.md");
+        var constant = Regex.Match(File.ReadAllText(recorder), @"Schema\s*=\s*""(?<v>\d+\.\d+\.\d+)""");
+        Require(constant.Success, $"no Schema constant found in {recorder}, so the guide has nothing to be checked against");
+        var quoted = Regex.Match(File.ReadAllText(guide), @"The capture schema is \*\*(?<v>\d+\.\d+\.\d+)\*\*");
+        Require(quoted.Success, $"{guide} no longer states the capture schema in the shape this row reads");
+        Require(quoted.Groups["v"].Value == constant.Groups["v"].Value,
+            $"the guide says the capture schema is {quoted.Groups["v"].Value} and the recorder's constant is"
+                + $" {constant.Groups["v"].Value}; the constant is the authority and the sentence is wrong");
+    }
+
+    private static void TheAuditsOwnWiringIsWitnessedByTheCapture()
+    {
+        object Field(string kind, string text) => new { Kind = kind, Text = text };
+        string Decision(int seq, long tick) => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d,
+            kind = "course-course-decision", subject = 0, related = "", label = "", channel = "",
+            pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f, expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+            payload_kind = ReadCourseDecisions.Kind, payload_version = 1, phase = "brain",
+            observation_ordinal = 1L, receipt_watermark = 0L,
+            payload = new { Kind = ReadCourseDecisions.Kind, Version = 1, Fields = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["reason"] = Field("text", "course-published"),
+                ["activity"] = Field("text", "keep-company"),
+                ["settled"] = Field("flag", "true"),
+                ["purpose"] = Field("text", ""),
+                ["steps"] = Field("integer", "0"),
+                ["orders-priced"] = Field("integer", "1"),
+                ["orders-refused"] = Field("integer", "0"),
+                ["search-exhausted"] = Field("flag", "true"),
+                ["release-reason"] = Field("text", ""),
+                ["facts"] = Field("integer", "7"),
+            } } });
+        string Marker(int seq, string kind) => JsonSerializer.Serialize(new { v = 1, seq, tick = 0, wall_elapsed_ms = 0d,
+            kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+            expected_x = 0f, expected_y = 0f, amount = 0, detail = "" });
+
+        var check = new TheDecisionAuditRanOnTheDecisionsTheCaptureHolds();
+        void Drive(string name, string schema, string closing, bool frameColumn, Action<Session> assert)
+        {
+            string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+            try
+            {
+                string header = frameColumn ? "tick\tframe_ms\n1\t25.00\n" : "tick\n1\n";
+                File.WriteAllText(tsv, $"# schema={schema}\n{header}{closing}");
+                File.WriteAllLines(events, new[] { Marker(0, "session"), Decision(1, 1), Decision(2, 2), Marker(3, "session-end") });
+                assert(Session.Load(tsv));
+            }
+            finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+        }
+
+        Drive("hook gone", "0.45.0", "# closing=world-unload;rows=1;decisions-audited=0;audit-observations-read=0\n", true, session =>
+        {
+            Finding[] findings = check.Run(session).ToArray();
+            Require(check.Missing(session) == null, $"a 0.45.0 capture with both counts must be gradeable; {check.Missing(session)}");
+            Require(findings.Length == 1 && findings[0].Severity == Severity.Definitive
+                    && findings[0].Detail.Contains("RecordCourseTrace.Record", StringComparison.Ordinal),
+                $"two recorded decisions and nothing audited must name the hook; got {findings.Length} finding(s)");
+        });
+
+        Drive("source never installed", "0.45.0", "# closing=world-unload;rows=1;decisions-audited=2;audit-observations-read=0\n", true, session =>
+        {
+            Finding[] findings = check.Run(session).ToArray();
+            Require(findings.Length == 1 && findings[0].Detail.Contains("ReadLiveCourseForAudit.Install", StringComparison.Ordinal),
+                $"everything audited and nothing read must name the installer rather than the hook; got {findings.Length} finding(s)");
+        });
+
+        Drive("wired", "0.45.0", "# closing=world-unload;rows=1;decisions-audited=2;audit-observations-read=2\n", true, session =>
+            Require(check.Run(session).ToArray().Length == 0, "a wired session must produce no finding at all"));
+
+        // An older capture's trailer carries neither count, and reading a missing count as zero would
+        // report every capture written before 0.45.0 as an audit that never ran. It skips by name.
+        Drive("older capture", "0.44.0", "# closing=world-unload;rows=1\n", false, session =>
+        {
+            Require(check.Missing(session) != null,
+                "a capture whose recorder never wrote the counts must skip by name rather than read their absence as zero");
+            Require(check.Run(session).ToArray().Length == 0, "a skipped check must still produce nothing when asked");
+        });
     }
 
     private static void CourseDecisionsAreReadCheckedAndNarrated()
@@ -948,9 +1054,33 @@ public static class ChronicleTests
                 "one observed domain beside an unobserved one must not read as every target unobserved");
 
             foreach (string quiet in new[] { "", "-", "Unresolved", "combat=", "combat=k:Unresolved",
-                         "combat=k:Unresolved:0/3|", "combat=k:Unresolved:x/3", "7:12:0:0:weapon=1:outside-reach" })
+                         "combat=k:Unresolved:0/3|", "combat=k:Unresolved:x/3", "7:12:0:0:weapon=1:outside-reach",
+                         // An evidence level no producer writes. It was on the accepted list once, which
+                         // widened the predicate against a string that can only come from a corrupt cell.
+                         "combat=combat-target:8000001:0:no-snapshot:0/3" })
                 Require(Read(quiet).Length == 0,
                     $"a dash, an absence or a shape this producer does not write must be refused rather than matched: '{quiet}'");
+
+            // The levels the producer can write, pinned from the producer rather than from this list:
+            // every `FactEvidence` member short of Observed, plus the audit's own `absent`.
+            foreach (string level in new[] { "Unresolved", "Missing", "Modelled", "absent" })
+                Require(Read($"combat=combat-target:8000001:0:{level}:0/3").Length == 1,
+                    $"a level the audit writes must be read as unobserved evidence: '{level}'");
+            // `FactEvidence` lives in `Selection/`, which SessionReport does not compile, so the members
+            // are read out of the producer's own source. A member added there and not here would make
+            // this predicate silently refuse a real recording, which is the same class of failure as an
+            // accepted value nobody writes and is why both directions are pinned.
+            string dependencies = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure",
+                "Selection", "Courses", "TrackCourseDependencies.cs"));
+            var declaration = Regex.Match(dependencies, @"enum FactEvidence\s*\{(?<members>[^}]*)\}");
+            Require(declaration.Success, "FactEvidence is no longer declared where this row reads it from");
+            foreach (string member in declaration.Groups["members"].Value.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string level = member.Trim();
+                if (level.Length == 0 || level == "Observed") continue;
+                Require(Read($"combat=combat-target:8000001:0:{level}:0/3").Length == 1,
+                    $"the producer writes an evidence level this check refuses: '{level}'");
+            }
 
             Require(Read(unseen, fire: "fired").Length == 0 && Read(unseen, fire: "cooldown").Length == 0,
                 "a fight that is firing or reloading is a fight working");
