@@ -90,7 +90,6 @@ if (args.Contains("--attack-planning"))
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;
 if (args.Contains("--light-senses")) return VerifyLightAndReachSenses.Run() == 0 ? 0 : 1;
 if (args.Contains("--torch-rule")) return VerifyTorchPlacementRule.Run() == 0 ? 0 : 1;
-if (args.Contains("--candidate-funnel")) return VerifyCandidateFunnel.Run() == 0 ? 0 : 1;
 if (args.Contains("--doors")) return VerifyDoorPassage.Run() == 0 ? 0 : 1;
 if (args.Contains("--courtesy")) return VerifyCourtesy.Run() == 0 ? 0 : 1;
 if (args.Contains("--render-ui")) return RenderNativeInterface.Run(root);

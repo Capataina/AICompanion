@@ -103,9 +103,6 @@ internal static class MeasureCombatCost
             Sample("navigate", brain.NavigateMs);
             Sample("finalise (incl. hands)", brain.FinaliseMs);
             Sample("brain total", brain.TotalMs);
-            if (brain.ChoiceEvaluated)
-                foreach (var family in brain.Chooser.Queries.LastFamilies)
-                    if (family.Family.ToString() == "Combat") Sample("prepare Combat", family.Milliseconds);
             Sample("AI total", ai);
         }
         }

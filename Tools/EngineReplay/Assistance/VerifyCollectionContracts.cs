@@ -211,17 +211,19 @@ internal static class VerifyCollectionContracts
             if (landedBy < 0 && falling.All(drop => !LootIsInWorld(drop) || drop.Bottom.Y >= landing)) landedBy = tick;
             if (tick == farAppears) far = Drop(ItemID.CopperOre, 5, new Vector2(12 * 16 + 8, 60 * 16), Slot + 4);
             VerifyOreWork.AdvanceBrain(ctx);
-            if (brain.ChoiceEvaluated)
-                foreach (var family in brain.Chooser.Queries.LastFamilies)
-                    if (family.Family.ToString() == "NearbyAssistance") nearby.Add((family.Milliseconds, tick));
+            // The whole decision, which is what the tick actually spends here. This sampled the family
+            // chooser's NearbyAssistance preparation share until 22 September 2026, and that scheduler had
+            // been unreached since `0bb2c8a`, so every figure in the line below was taken from an empty
+            // list and the line never printed at all.
+            nearby.Add((brain.DecideMs, tick));
             if (far != null && farOffered < 0 && ReferenceEquals(collect.ActivityIdentity, far)) farOffered = tick;
         }
         if (warmUp || nearby.Count == 0) return;
         var sorted = nearby.Select(sample => sample.Ms).OrderBy(v => v).ToList();
         string costliest = string.Join(", ", nearby.OrderByDescending(sample => sample.Ms).Take(3).Select(sample => $"{sample.Ms:0.000}@{sample.Tick}"));
         Console.WriteLine($"collection cost, four drops falling {(pit ? "into a sealed pit" : "onto the open floor")} then a reachable drop at tick {farAppears} (300 ticks, production allowances, drops settled by tick {landedBy}): "
-            + $"nearby-assistance prepare p50 {sorted[sorted.Count / 2]:0.000} p95 {sorted[(int)(sorted.Count * .95)]:0.000} max {sorted[^1]:0.000} ms, costliest {costliest}, "
-            + $"{sorted.Count(v => v >= 0.5)} of {sorted.Count} evaluated ticks at or over 0.5 ms; farther drop first offered at tick {(farOffered < 0 ? "never" : farOffered.ToString())}");
+            + $"decide p50 {sorted[sorted.Count / 2]:0.000} p95 {sorted[(int)(sorted.Count * .95)]:0.000} max {sorted[^1]:0.000} ms, costliest {costliest}, "
+            + $"{sorted.Count(v => v >= 0.5)} of {sorted.Count} ticks at or over 0.5 ms; farther drop first offered at tick {(farOffered < 0 ? "never" : farOffered.ToString())}");
     }
 
     /// <summary>

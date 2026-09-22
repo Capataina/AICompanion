@@ -29,9 +29,18 @@ internal static class VerifyCompanionActivities
             DangerIsChargedOnceToTheActorItThreatens();
             ConsecutiveJobsEarnTheirOwnAllowance();
             ActivityOwnershipSurvivesInterruption();
-            InvalidCandidatesCannotBecomeTheFallback();
-            InvalidatedCandidatesAreReconsideredWithoutDiscovery();
-            ReplacedMiningMaterialYieldsToAPreparedSibling();
+            // Four rows went with the family chooser on 22 September 2026 (`AIC-419`), each driving
+            // `Chooser.Choose` on a stage the course does not have. `AFamilyAllowanceDefersSiblingsFairly`
+            // was the per-family preparation share, its rotation and its deferral reporting; discovery is
+            // sliced per domain against the frozen observation now and `--retained-course-budget` owns
+            // what a cut allowance may and may not do. `InvalidCandidatesCannotBecomeTheFallback` asserted
+            // that an all-zero board activates nobody; an empty course is legal, winning and *is*
+            // companionship, which `VerifyCourseBindingExecution` holds. The two invalidation rows —
+            // a candidate whose target changed identity, generation, slot, type or material between
+            // preparation and activation — are the admission-evidence class, and the course answers it
+            // one layer earlier by re-reading each candidate's own `AdmissionEvidence` against the current
+            // observation before serving it, which `VerifyAdmittedOpportunitiesBind` holds on the scene
+            // the 22 September play ended in.
             StallsSurviveBehaviourChanges();
             ComfortableFollowingHasNoRegroupPressure();
             RemoteJobReleasesAndDiscoversNearbyOre();
@@ -41,7 +50,6 @@ internal static class VerifyCompanionActivities
             DoorsKeepTheWholeBedroomProtected();
             TorchPlacementNeverUsesUpATorch();
             AmbientFallbackDoesNotInventSamples();
-            AFamilyAllowanceDefersSiblingsFairly();
             TorchRecommendationsPreserveThePlayersCursor();
             Console.WriteLine("companion activities: resource/follow competition, actor-specific danger charged once, remote job release, actual swing reach, bed protection and native torch inventory contracts pass");
             return 0;
@@ -107,56 +115,6 @@ internal static class VerifyCompanionActivities
     /// The combat probe wins the first two comparisons so the incumbent is outside the gathering
     /// family whose rotation is under test.
     /// </summary>
-    private static void AFamilyAllowanceDefersSiblingsFairly()
-    {
-        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-        var chooser = ctx.Companion.Brain.Chooser;
-        var gathering = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Gathering;
-        var deferredOffer = live::AICompanion.Companion.Brain.Activities.OfferEligibility.Deferred;
-        var first = new ActivityProbe { Target = ctx.Player.Bottom, Value = .4f, Purpose = gathering };
-        var second = new ActivityProbe { Target = ctx.Player.Bottom, Value = .9f, Purpose = gathering };
-        var combat = new ActivityProbe { Target = ctx.Player.Bottom, Value = .95f, Purpose = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Combat };
-        var company = new ActivityProbe { Target = ctx.Player.Bottom, Value = .1f, Excursion = false };
-        chooser.Actions.Clear();
-        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Activities.CompanionAction[] { first, second, combat, company });
-        chooser.FamilyPreparationMilliseconds = 0;
-
-        var chosen = chooser.Choose(ctx);
-        Require(first.Preparations == 1 && second.Preparations == 0 && combat.Preparations == 1 && company.Preparations == 1,
-            $"a spent share must defer the second optional sibling only; first={first.Preparations} second={second.Preparations} combat={combat.Preparations} company={company.Preparations}");
-        Require(chooser.LastScores.Single(s => ReferenceEquals(s.Action, second)) is { Final: 0, Raw: 0 } row && row.Eligibility == deferredOffer,
-            "a deferred child must be reported as deferred with no value, not as an absent opportunity");
-        Require(chooser.Queries.LastFamilies.Single(f => f.Family == gathering) is { Prepared: 1, Deferred: 1 },
-            "the family summary must count what was prepared and what was deferred");
-        Require(ReferenceEquals(chosen, combat), "the fixture's incumbent must sit outside the rotating family");
-
-        chooser.Choose(ctx);
-        Require(first.Preparations == 1 && second.Preparations == 1 && company.Preparations == 2 && combat.Preparations == 2,
-            $"the next comparison must start from the deferred sibling while non-excursion and incumbent children still prepare; first={first.Preparations} second={second.Preparations}");
-
-        combat.Value = 0;
-        chosen = chooser.Choose(ctx);
-        Require(first.Preparations == 2 && second.Preparations == 1 && ReferenceEquals(chosen, first),
-            $"a deferred sibling's retained higher value must not win; chosen={chosen?.Name} first={first.Preparations} second={second.Preparations}");
-
-        // Two fresh optional siblings with no incumbent among them: a zero share defers one, and
-        // lifting wall-clock allowances must prepare both, so offline determinism never starves a family.
-        var left = new ActivityProbe { Target = ctx.Player.Bottom, Value = .3f, Purpose = gathering };
-        var right = new ActivityProbe { Target = ctx.Player.Bottom, Value = .2f, Purpose = gathering };
-        chooser.Actions.Clear();
-        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Activities.CompanionAction[] { left, right, company });
-        chooser.Choose(ctx);
-        Require(left.Preparations + right.Preparations == 1, "the counter-case must defer one sibling under a zero share");
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
-        try
-        {
-            chooser.Choose(ctx);
-            Require(left.Preparations + right.Preparations == 3 && chooser.Queries.LastFamilies.All(f => f.Deferred == 0),
-                "with wall-clock allowances lifted no sibling may be deferred");
-        }
-        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
-    }
-
     private static void ActivityOwnershipSurvivesInterruption()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
@@ -184,89 +142,6 @@ internal static class VerifyCompanionActivities
         owner.Select(null, ctx);
         Require(owner.Id == 0 && owner.Current == null && activity.Exits == releases && !activity.HasActivityAllowance,
             "abandoning a suspended activity must clear ownership without releasing its method twice");
-    }
-
-    private static void InvalidCandidatesCannotBecomeTheFallback()
-    {
-        var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
-        var chooser = ctx.Companion.Brain.Chooser;
-        var invalid = new ActivityProbe { Target = ctx.Player.Bottom, Value = float.NaN };
-        chooser.Actions.Clear(); chooser.Actions.Add(invalid);
-        Require(chooser.Choose(ctx) == null && invalid.Entries == 0,
-            "an invalid last candidate must not be activated through the all-zero fallback");
-        Require(chooser.LastScores.Single().Error == "invalid-raw-value", "the rejected input must retain its diagnostic reason");
-        invalid.Value = 0;
-        Require(chooser.Choose(ctx) == null && invalid.Entries == 0
-            && chooser.LastNominations.All(n => n.Activity == null),
-            "zero-value children must leave all families empty rather than activate the last registered behaviour");
-        chooser.Actions.Clear();
-        Require(chooser.Choose(ctx) == null, "an empty board must produce no activity rather than indexing a missing fallback");
-    }
-
-    private static void InvalidatedCandidatesAreReconsideredWithoutDiscovery()
-    {
-        foreach (string invalidation in new[] { "identity", "enemy", "generation", "item", "item-type", "item-slot", "all" })
-        {
-            var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-            var first = new ActivityProbe { Target = ctx.Player.Bottom, Value = 2 };
-            if (invalidation is "enemy" or "generation") first.Identity = new NPC { active = true, life = 10, whoAmI = 12 };
-            Item previous = Main.item[5];
-            if (invalidation is "item" or "item-type" or "item-slot")
-                first.Identity = Main.item[5] = new Item { active = true, stack = 1, type = ItemID.CopperOre, whoAmI = 5 };
-            var second = new ActivityProbe { Target = ctx.Player.Bottom, Value = 1 };
-            // Families prepare in enum order, so the invalidated candidate sits in the family that
-            // prepares first and the invalidating sibling in a later one; within one family the
-            // registration order is the rotation's starting order.
-            if (invalidation != "identity") first.Purpose = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Combat;
-            if (invalidation == "all") second.Identity = new Item { active = false, stack = 0 };
-            second.DuringPreparation = () =>
-            {
-                if (first.Identity is NPC npc)
-                {
-                    if (invalidation == "generation") live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Spawn(npc);
-                    else npc.active = false;
-                }
-                else if (first.Identity is Item item)
-                {
-                    if (invalidation == "item-slot") Main.item[5] = new Item { active = true, stack = 1, type = item.type, whoAmI = 5 };
-                    else if (invalidation == "item-type") item.type = ItemID.IronOre;
-                    else item.stack = 0;
-                }
-                else first.Identity = new object();
-            };
-            var chooser = ctx.Companion.Brain.Chooser;
-            chooser.Actions.Clear(); chooser.Actions.Add(first); chooser.Actions.Add(second);
-            Require(ReferenceEquals(chooser.Choose(ctx), invalidation == "all" ? null : second)
-                && first.Entries == 0 && second.Entries == (invalidation == "all" ? 0 : 1),
-                "an invalidated nomination must yield to its prepared sibling: " + invalidation);
-            Require(first.Preparations == 1 && second.Preparations == 1,
-                "activation reconsideration must not repeat discovery: " + invalidation);
-            Require(chooser.LastScores[0].Raw == 2 && chooser.LastScores[0].Final == 0
-                && chooser.LastScores[0].Error.StartsWith("prepared-"),
-                "the rejected nomination must retain its original value and explicit cause: " + invalidation);
-            if (invalidation == "item-slot") Require(chooser.LastScores[0].Error == "prepared-item-slot-replaced",
-                "replacement must name its availability failure rather than devalue the activity's usefulness");
-            Main.item[5] = previous;
-        }
-    }
-
-    private static void ReplacedMiningMaterialYieldsToAPreparedSibling()
-    {
-        Point point = new(25, 89);
-        var (mine, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, point);
-        var sibling = new ActivityProbe { Target = ctx.Player.Bottom, Value = .01f };
-        sibling.DuringPreparation = () =>
-        {
-            Tile tile = Main.tile[point.X, point.Y];
-            tile.TileType = TileID.Tin;
-        };
-        var chooser = ctx.Companion.Brain.Chooser;
-        chooser.Actions.Clear(); chooser.Actions.Add(mine); chooser.Actions.Add(sibling);
-        Require(ReferenceEquals(chooser.Choose(ctx), sibling) && sibling.Preparations == 1 && sibling.Entries == 1,
-            "changed mining material must yield to an already prepared sibling without another discovery pass");
-        Require(chooser.LastScores[0].Raw > 0 && chooser.LastScores[0].Final == 0
-            && chooser.LastScores[0].Error == "prepared-tile-material-changed",
-            "the invalid mining offer must retain its usefulness and name material replacement as the rejection");
     }
 
     private static void ContinuingTargetsKeepTheirIdentity()

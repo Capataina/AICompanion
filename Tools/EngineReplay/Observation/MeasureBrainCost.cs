@@ -135,12 +135,6 @@ internal static class MeasureBrainCost
             Sample("AI outside brain (incl. recording)", Math.Max(0, ai - brain.TotalMs));
             // The recorder's own measurement of the same call, so the outside-brain figure can be split into recording and the rest.
             if (recording && !double.IsNaN(BrainTelemetry.LastRecordMilliseconds)) Sample("recording (BrainTelemetry.Record)", BrainTelemetry.LastRecordMilliseconds);
-            if (brain.ChoiceEvaluated)
-                foreach (var family in brain.Chooser.Queries.LastFamilies)
-                {
-                    Sample($"prepare {family.Family}", family.Milliseconds);
-                    Sample($"deferred {family.Family} (count)", family.Deferred);
-                }
             Sample("AI total", ai);
         }
         if (recording) recorder.OnWorldUnload();

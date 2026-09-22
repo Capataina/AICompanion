@@ -252,7 +252,7 @@ internal static class VerifyOreWork
         // judgement for play, so its selection is printed rather than required; its charge must still grow with
         // the route home, because any departure scales the route by the same factor.
         float[] speeds = { 0f, 1.5f, 4f };
-        var seen = new Dictionary<(float Speed, bool FarRoute, bool NearlyDone), (string Selected, float Mine, float Delay, float Return, float Route)>();
+        var seen = new Dictionary<(float Speed, bool FarRoute, bool NearlyDone), (float Delay, float Return, float Route)>();
         // Route floods advance under millisecond slices; every edge on the mound runs a body simulation,
         // so a wall-clock slice would decide how far the route home is priced. Lifting the allowances
         // keeps each flood's work count as the only bound.
@@ -320,30 +320,33 @@ internal static class VerifyOreWork
                     Require(ctx.Companion.Miner.Swing(ore, pick), "paired completion fixture needs a native hit");
                     for (int tick = 0; tick < pick.useTime; tick++) ctx.Companion.Miner.Tick();
                 }
-            var selected = brain.Chooser.Choose(ctx);
-            var mine = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
-            seen[(speed, farRoute, nearlyDone)] = (selected?.Name ?? "none", mine.Final, brain.Chooser.Reunion.DelayCostPerTick, brain.Chooser.EstimatedReturnTicks,
+            // The observation alone, since 22 September 2026. This called `Chooser.Choose` and read the
+            // activity it picked and mining's final score beside these three numbers; the chooser went
+            // with `AIC-419`, and what it was choosing between has been the course's job since `0bb2c8a`.
+            // The three numbers are not the chooser's and did not go with it: `ObserveCompanionship` runs
+            // on every brain tick and the recorder writes all three as columns, so this row is still the
+            // only witness that the return estimate reads the *priced route home* rather than a straight
+            // line — the defect that reached six other call sites, which the folder guide carries.
+            brain.Chooser.ObserveCompanionship(ctx);
+            seen[(speed, farRoute, nearlyDone)] = (brain.Chooser.Reunion.DelayCostPerTick, brain.Chooser.EstimatedReturnTicks,
                 brain.Positioner.EstimatedTravelTicks(from, to) ?? -1f);
         }
         }
         finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = lifted; }
         string ledger = string.Join("; ", seen.Select(s =>
             $"{(s.Key.Speed == 0 ? "stationary" : $"departing {s.Key.Speed}px")}/{(s.Key.FarRoute ? "far-route" : "near-route")}/{(s.Key.NearlyDone ? "one-hit" : "fresh")}: "
-            + $"{s.Value.Selected} mine={s.Value.Mine:0.000} delay={s.Value.Delay:0.00000} return={s.Value.Return:0} route={s.Value.Route:0}"));
+            + $"delay={s.Value.Delay:0.00000} return={s.Value.Return:0} route={s.Value.Route:0}"));
         foreach (bool nearlyDone in new[] { false, true })
         {
-            Require(seen[(0f, false, nearlyDone)].Selected == "mine",
-                $"a calm player is met by quick justified work; {ledger}");
-            // The chooser reads the larger of the straight-line estimate and the route, so a near route
-            // shorter than the straight line shows only the straight line; the guard is that the far route
-            // is strictly longer in what the chooser read, not a margin chosen before seeing that floor.
+            // The observation takes the larger of the straight-line estimate and the priced route, so a near
+            // route shorter than the straight line shows only the straight line; the guard is that the far
+            // route is strictly longer in what it read, not a margin chosen before seeing that floor.
             foreach (float speed in speeds)
                 Require(seen[(speed, true, nearlyDone)].Return > seen[(speed, false, nearlyDone)].Return
                     && (speed == 0f || seen[(speed, true, nearlyDone)].Route > seen[(speed, false, nearlyDone)].Route),
                     $"the far way up must lengthen the priced route home, or the pairs compare nothing; speed={speed}; {ledger}");
             foreach (float speed in speeds.Where(s => s > 0f))
-                Require(seen[(speed, true, nearlyDone)].Delay > seen[(speed, false, nearlyDone)].Delay
-                    && seen[(speed, true, nearlyDone)].Mine < seen[(speed, false, nearlyDone)].Mine,
+                Require(seen[(speed, true, nearlyDone)].Delay > seen[(speed, false, nearlyDone)].Delay,
                     $"a departing player's reunion charge grows with the route home; speed={speed}; {ledger}");
             Require(MathF.Abs(seen[(0f, true, nearlyDone)].Delay - seen[(0f, false, nearlyDone)].Delay) < 1e-6f,
                 $"a stationary player's route home is not charged to optional work; {ledger}");
@@ -1529,7 +1532,7 @@ internal static class VerifyOreWork
         Require(run.Broken, $"reopening one face must let the same ore be mined; feet={ctx.Npc.Center} status={mine.Status} "
             + $"offer={mine.Eligibility}/{mine.EligibilityReason} action={ctx.Companion.Brain.LastAction?.Name} approach-now={approachNow}@{standNow} "
             + $"in-reach-now={FindToolAccess.InReach(ctx.Npc.Center, ore)} mineable={ctx.Companion.Miner.CanMine(ore, TileMiner.PickaxeFor(ctx.Player).pick)} "
-            + $"standable(23,59)={standableBeside} families={string.Join(";", ctx.Companion.Brain.Chooser.Queries.LastFamilies)}");
+            + $"standable(23,59)={standableBeside} decision={ctx.Companion.Brain.Course.Last.Reason}");
         Require(seal.Skip(1).All(p => Main.tile[p.X, p.Y].HasTile), "the rest of the player's wall must stay as the player built it");
     }
 

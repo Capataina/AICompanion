@@ -81,11 +81,15 @@ internal static class VerifyCombatActivity
             companion.NPC.Bottom = heldBottom;
             companion.NPC.velocity = Vector2.Zero;
             if (tick < 30) continue;
-            if (companion.Brain.Chooser.Current?.Name == "combat") combatWins++;
-            foreach (var score in companion.Brain.Chooser.LastScores)
+            if (companion.Brain.Chooser.Activity.Current?.Name == "combat") combatWins++;
+            // The course's worth per activity, through the one reader every surface shares. This read
+            // `Chooser.LastScores` until the chooser was deleted on 22 September 2026, and that list has
+            // been empty on every tick since `0bb2c8a`, so the four numbers in this line were the literal
+            // zero the whole time. They are diagnostic either way — the row's verdict is `combatWins`.
+            foreach (var worth in live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReadCourseWorthPerActivity.Of(companion.Brain))
             {
-                if (score.Action.Name == "combat") combatFinal = score.Final;
-                if (score.Action.Name == "keep-company") { companyFinal = score.Final; companyRaw = score.Raw; companyEligibility = $"{score.Eligibility}/{score.EligibilityReason}"; }
+                if (worth.Action.Name == "combat") combatFinal = worth.Final;
+                if (worth.Action.Name == "keep-company") { companyFinal = worth.Final; companyRaw = worth.Raw; companyEligibility = $"{worth.Offer}/{worth.OfferReason}"; }
             }
             if (combatAction.OfferedPlan != null)
             {

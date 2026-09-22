@@ -149,7 +149,10 @@ public sealed class BrainOverlay : ModSystem
         int rows = page == 2 ? VisibleExecutionLines(panel) : VisibleRows(panel);
         int count = page switch
         {
-            1 => CompanionNPC.Instance?.Brain.Chooser.LastScores.Count ?? 0,
+            // The same source the Decisions page draws from. It counted `Chooser.LastScores` until the
+            // chooser was deleted, which had been zero on every tick since `0bb2c8a` — so the panel drew
+            // course rows and the wheel could not scroll past the first screenful of them.
+            1 => CompanionNPC.Instance is { } deciding ? ReadCourseWorthPerActivity.Of(deciding.Brain).Count : 0,
             2 => CompanionNPC.Instance is { } shown ? DescribeExecutionEvidence.Of(shown.Brain).Count : 0,
             _ => labels.Length,
         };

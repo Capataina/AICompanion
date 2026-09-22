@@ -1,28 +1,28 @@
 # Gathering fixtures — ore, trees, and who is credited for the work
 
-Eight files. Most of them drive the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention. `VerifyRouteHomeFromEitherEnd` drives no work at all: it builds the route-home scene and reads `Chooser.RouteDetour` — a static geometry helper that survives the chooser's retirement — from beside the ore and from beside the player, because the separation cost a job pays is decided from wherever the body happens to be when the job is chosen.
+Seven files. Most of them drive the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention.
 
-**Which brain a row drives is the first thing to establish before reading its verdict.** Since `0bb2c8a` the live tick asks a course, and this folder is mid-migration by design rather than by neglect:
+**Which brain a row drives is the first thing to establish before reading its verdict, and since 22 September 2026 there is only one.** `AIC-419` deleted the family chooser, and with it the three rows here that were the reason it could not be deleted:
 
 ```
 drives the course                       VerifyOreWork's departure row, VerifyTreeOpportunityCapture,
                                         VerifyGatheringOpportunityDiscovery, VerifyGatheringCourseBindings
-drives the retired Chooser, on purpose  VerifyOreWork's ReunionChargeReadsDepartureAndTheRouteHome;
-                                        VerifyGatheringCooperation's W04 (the chopping departure twin,
-                                        waiting on AIC-450) and its retained-vein-versus-tree row
-drives an activity or a tool directly   VerifyMiningList, VerifyWorkAccounting — neither calls a chooser,
-                                        a course or a whole tick; they drive mining's own job and the
-                                        native tool and read what the world lost
-neither — one geometry helper           VerifyRouteHomeFromEitherEnd, on Chooser.RouteDetour
+drives an observation, not a decision   VerifyOreWork's ReunionChargeReadsDepartureAndTheRouteHome, which
+                                        now calls ObserveCompanionship and reads the three numbers the
+                                        recorder writes, in place of Chooser.Choose and mining's score
+drives an activity or a tool directly   VerifyMiningList, VerifyWorkAccounting — neither calls a course
+                                        or a whole tick; they drive mining's own job and the native tool
+                                        and read what the world lost
+deleted with the chooser                VerifyGatheringCooperation's W04 and G02, and the whole of
+                                        VerifyRouteHomeFromEitherEnd
 ```
 
-A row left on `Chooser.Choose` is a row whose subject has not been adjudicated yet, not a row nobody updated; `AIC-419` cannot delete `Choose` while any of them drive it.
+`VerifyRouteHomeFromEitherEnd` read `Chooser.RouteDetour` from beside the ore and from beside the player, because the separation cost a job paid was decided from wherever the body happened to be when the job was chosen. The course has no such helper and no such cost: an unresolved route is a typed unresolved answer rather than a number a caller reconstructs, which is the property `VerifyCompanionshipForecast`'s `G15 companionship requires timed travel and actual arrival evidence` holds — a leg with no timed travel refuses the forecast with `timed-travel-evidence-unresolved` instead of costing zero. `../../../Companion/Brain/Infrastructure/Selection/Courses/CLAUDE.md` carries the property with both of the chooser's arms beside it.
 
 ```
 Gathering/
 ├─ CLAUDE.md
 ├─ VerifyOreWork.cs              ore jobs end to end: approach, reach, seals, attribution, departure
-├─ VerifyRouteHomeFromEitherEnd.cs the route home a job pays for, read from beside the ore and from beside the player
 ├─ VerifyMiningList.cs           the list's known ores, marks and mode, and mining refusing what it leaves
 ├─ VerifyGatheringOpportunityDiscovery.cs frozen source contracts and sliced native ore progress/removal capture
 ├─ VerifyTreeOpportunityCapture.cs sliced trunk deduplication, native axe progress, policy changes, missing coverage,
@@ -120,7 +120,11 @@ A bed placed after the approach — for both tools, while walking and after the 
 
 An ore the pick cannot damage must never be struck while the brain fells the usable tree beside it. A retained mining job must leave a new tree prepared and valued on the same board, and must lose to it once the vein is worth nothing. Mining and chopping forecasts, less their native remaining work, must equal the walk in pixels over travel speed. **Trees within ten tiles of the world edge are never searched**, so tree scenes sit inside that margin.
 
-**Two of its rows are deliberately on the retired chooser and each is blocked on a different thing.** `W04` is the chopping twin of the departure question above and stays there until `AIC-450` answers whether a job worth a negative number should still beat idling. `G02` is a real and unexplained course finding filed as `AIC-449` with its measurements: a trunk created mid-session is published by the census as `usable / observed-native-tree`, is present in the live snapshot, is examined by its own source every slice — and never appears in `Course.Admitted` or `LastLeaders` across two hundred consecutive decisions. Porting `G02` by relaxing its premise to "the course priced something" would make it green on zeroes, which is the one outcome worse than the red. Both keep `AIC-419` blocked.
+**Two of its rows were on the retired chooser and both went with it on 22 September 2026**, which is what unblocked `AIC-419`. Neither question went with them.
+
+`W04` was the chopping twin of the departure question above, and the mining twin is already on the course and still asserts the remaining-work gradient with the equality assertion that replaced it, so the *property* keeps a witness. What `W04` alone was waiting on is `AIC-450` — whether a job priced at a negative worth should still beat idling — and that is a product question about the course, unanswerable by a fixture driving a chooser.
+
+`G02` asserted that a retained vein does not reserve its *family* for itself, and a family nomination stage is exactly what the course does not have, so there was nothing to port the sentence onto. The finding it had turned into is unchanged and still open: `AIC-449`, a trunk created mid-session published by the census as `usable / observed-native-tree`, present in the live snapshot, examined by its own source every slice, and never appearing in `Course.Admitted` or `LastLeaders` across two hundred consecutive decisions. Relaxing its premise to "the course priced something" would have made it green on zeroes, which is the one outcome worse than a red; a course-side witness belongs in `../DecisionMaking/VerifyAdmittedOpportunitiesBind.cs`, beside the rest of the admission class, and writing one is work for whoever closes `AIC-449`.
 
 **The player's own preferences were the one process-wide static the per-case reset did not restore, and it decided this file's verdicts.** `CompanionPreferences.Current` carries seven fields any case can write — both work policies, combat, pot breaking, torch placement, the distance mode and the mining list. `VerifyOreWork.SetUp` sets the mining policy and never the chopping one, so its sealed-tree row read whichever chopping policy the process happened to hold: alone it found the Opportunistic default and passed, and inside the suite it found a Disabled or Mimic policy left by a cooperation row here, took an early return above the reach block, and reported that unchanged retained work re-searches its reach every scoring tick — **false in both directions**, since the branch was never reached at all rather than reached too often, and the row could not say so because it asserted a bare equality with no number in its message. The reset installs a fresh instance now rather than an explicit list of assignments, because every default lives on the property initialisers and a list drifts from what the game starts with. Two lessons ride with it: setting the missing policy in that one row would have repaired one reader and left every other reader of those seven fields with the same order dependence, unannounced; and a row asserting a bare equality cannot distinguish a branch that ran wrongly from a branch that never ran, so it carries its number — 81 after 20 preparations, where anything below 20 would be the search genuinely re-running.
 
@@ -143,6 +147,8 @@ That the brain can *create* access it does not have, that a chosen work position
 **A row that stands early in an abort-on-first-failure file is a row that decides what the rest of the file is allowed to report.** That is why a red waiting on somebody's decision is moved to the end and a red clearing this afternoon is left where it is, and it is why a red count falling by one while a new name appears is the normal shape of progress here rather than a regression. Say which it is when reporting.
 
 **`ore work breaks ore without excavating ordinary terrain` is one of the two rows in the whole suite that flake on harness cost rather than on code**, failing 5 of 12 whole-suite runs of 21 September against 3 of 3 passing standalone. `../../CLAUDE.md`'s trap section carries the measurement and what it does and does not settle; the practical consequence here is that a lone red on this row is more likely the harness than your change, and a single green whole-suite run is weak evidence the other way.
+
+**That row lost half its subject on 22 September 2026 and kept the half it was named for.** It called `Chooser.Choose` and read the chosen activity and mining's final score beside the three numbers; the chooser went with `AIC-419` and what it was choosing between has been the course's job since `0bb2c8a`, so the `a calm player is met by quick justified work` assertion and the `mine` column went with it. The three numbers did not: `ObserveCompanionship` runs on every brain tick, the recorder writes all three as columns, and this is still the only witness that the return estimate reads the priced route home rather than a straight line. The row drives that observation directly now.
 
 **`ReunionChargeReadsDepartureAndTheRouteHome` is green on its original assertion, because the one separation cost reads the route home.** From `920b2e0`, when every job began paying one separation cost measured from the player's region, it was red and left red on purpose: the delay it prints grew with the route (0.01760 near against 0.02053 far at 1.5 px a tick, 0.05356 against 0.06144 at 4) but mining's worth was identical on both routes (0.453 and 0.453, and 0.329 and 0.329), because the separation read the straight line and the charge that read the route had been removed as a second price for the same separation. Restating the row would have deleted the only witness of the property it names, so it waited for the owner, who ruled on 15 September 2026 that the one cost reads the route home. The separation's distance now adds the reach flood's detour from the stand to the player (`../../../Companion/Brain/Infrastructure/Selection/CLAUDE.md` owns how), and on 15 September 2026 mining read 0.255 near against 0.116 far at 1.5 px a tick, and 0.124 against 0.000 at 4, where the far route hands the choice to keeping company. With the detour multiplied by zero the row went red again at 1.5 px a tick with 0.453 on both routes. The name still describes the mechanism — departure scales the charge and the route home lengthens it — so it was not renamed.
 

@@ -706,17 +706,15 @@ internal static class VerifyLightAndReachSenses
             GiveTorches(ctx);
             var brain = ctx.Companion.Brain;
             brain.Chooser.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
-            double decideMax = 0, prepareMax = 0, decideTotal = 0;
+            double decideMax = 0, decideTotal = 0;
             for (int tick = 0; tick < 600; tick++)
             {
                 VerifyOreWork.AdvanceBrain(ctx);
                 decideMax = Math.Max(decideMax, brain.DecideMs);
                 decideTotal += brain.DecideMs;
-                foreach (var family in brain.Chooser.Queries.LastFamilies)
-                    if (family.Family.ToString() == "NearbyAssistance") prepareMax = Math.Max(prepareMax, family.Milliseconds);
             }
-            Console.WriteLine($"        dark floor under production allowances: decide max {decideMax:0.000} ms, mean {decideTotal / 600:0.000} ms, "
-                + $"NearbyAssistance preparation max {prepareMax:0.000} ms over 600 ticks (this machine)");
+            Console.WriteLine($"        dark floor under production allowances: decide max {decideMax:0.000} ms, mean {decideTotal / 600:0.000} ms "
+                + "over 600 ticks (this machine)");
             // A pass line, because the regression this exists to catch was found by a person reading a printed
             // number and would have shipped otherwise. The ceiling is the tick's own planning allowance with
             // room for the measurement and for a cold run's JIT, not a record of today's figure: the property
