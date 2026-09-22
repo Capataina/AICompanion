@@ -102,6 +102,10 @@ internal static class VerifyEngineMotion
         ("a non-empty course is priced end to end from the tick it starts at", VerifyWholeCoursePricing.Run),
         ("a bound course step names the activity that performs it and the place it happens", VerifyCourseBindingExecution.Run),
         ("an opportunity the census admits usable is one the binder can still read", VerifyAdmittedOpportunitiesBind.Run),
+        // Reads no live Terraria at all — it builds a fact snapshot and binds it — so it is safe anywhere
+        // in this table, and it is here rather than only behind `--retained-course-combat` because the
+        // pricing it guards is what the whole-suite run would otherwise never exercise.
+        ("binding a fight claims the front rather than its first shot", VerifyCombatCourseBinding.TheBoundFightClaimsTheFrontRatherThanItsFirstShot),
         ("a decision that spans ticks keeps the fight the body is already in", VerifyADecisionInFlightKeepsTheFight.Run),
         ("what one decision costs to assemble and to carry", VerifyWhatEachDecisionCosts.Run),
         ("the search keeps the best order the winner beat", VerifyTheSearchRetainsItsRunnerUp.Run),
