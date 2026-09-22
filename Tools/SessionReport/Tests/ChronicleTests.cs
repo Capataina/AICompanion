@@ -2693,8 +2693,14 @@ public static class ChronicleTests
                 var (findings, skipped, _) = Program.Evaluate(session);
                 string html = Path.Combine(Path.GetTempPath(), $"aic-damaged-{Guid.NewGuid():N}.html"); files.Add(html);
                 WritePlaytestHtml.Write(html, new[] { tsv });
+                // Every reader the ordinary report prints, including the two pages added on 22 September
+                // 2026: a page that throws on a cut row takes the whole report down with it, and a
+                // damaged capture is the ordinary case rather than the exotic one. The parity table is
+                // pointed at the repository's own README, which is what a run from the root sees.
                 string text = DescribeSession.Of(session) + DescribeGodsEyeEvents.Of(tsv, true) + JoinAttemptEvidence.Describe(tsv, session, true)
-                    + Chronicle.Of(session, true) + MultiRunReport.Of(new[] { tsv });
+                    + Chronicle.Of(session, true) + MultiRunReport.Of(new[] { tsv })
+                    + WriteCourseTimeline.Of(session, true)
+                    + WriteBehaviourParity.Of(session, findings, skipped);
                 return (findings.ToArray(), skipped, text);
             }
             void NoContradiction(string variant, Finding[] findings)
