@@ -71,19 +71,29 @@ if (args.Length == 1 && args[0] == "--self-test")
             killedBy: "a conclusion compared against last tick's goal rather than the goal it concluded about, an edit that no longer invalidates a proven absence, a settled-short answer inferred from a missing conclusion, or a settled-short answer never kept")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the corpus mirror is exact",
             VerifyMirrorExactness.Run,
-            killedBy: "a reflection about the wrong column, an unpadded short row, or a dropped glyph flip");
+            killedBy: "a reflection about the wrong column, an unpadded short row, or a dropped glyph flip")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "a cut scenario says in its own header why its window was cut, without moving what the header already meant",
+            VerifyTheCutReasonRidesInTheHeader.Run,
+            killedBy: "a reason written ahead of the provenance instead of after it, so free text holding the word goal is read as the goal");
 
 if (args.Length >= 3 && args[0] == "--extract-scenario" && int.TryParse(args[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int tick))
 {
     int width = 64, height = 40;
+    string? reason = null;
     for (int i = 3; i + 1 < args.Length; i++)
+    {
         if (args[i] == "--size" && args[i + 1].Split('x') is [var sw, var sh] && int.TryParse(sw, out int swi) && int.TryParse(sh, out int shi))
         { width = swi; height = shi; }
-    ExtractScenarioFromCapture.Extract cut = ExtractScenarioFromCapture.Run(args[1], tick, width, height, null, Console.WriteLine);
+        // Why this window was worth cutting, carried into the fixture's own header. A committed
+        // scenario outlives its session and the file is all a later reader has, so a reason recorded
+        // only in a folder guide is the half that goes stale.
+        if (args[i] == "--reason") reason = args[i + 1];
+    }
+    ExtractScenarioFromCapture.Extract cut = ExtractScenarioFromCapture.Run(args[1], tick, width, height, null, Console.WriteLine, reason);
     Console.WriteLine($"extracted {cut.Path}");
     return 0;
 }
 
 Console.WriteLine("usage: dotnet run --project Tools/NavReplay -- --self-test");
-Console.WriteLine("       dotnet run --project Tools/NavReplay -- --extract-scenario <capture.tsv> <tick> [--size WxH]");
+Console.WriteLine("       dotnet run --project Tools/NavReplay -- --extract-scenario <capture.tsv> <tick> [--size WxH] [--reason \"<why this window>\"]");
 return 2;

@@ -3,8 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 
@@ -23,9 +21,6 @@ public enum FactEvidence { Observed, Modelled, Unresolved, Missing }
 public readonly record struct FactValue(double Amount = 0, double X = 0, double Y = 0, string Text = "");
 public sealed record DecisionFact
 {
-    private string? canonical;
-    private string? digest;
-
     public DecisionFact(FactKey key, long version, FactValue value, FactEvidence evidence)
     {
         Key = key; Version = version; Value = value; Evidence = evidence;
@@ -36,34 +31,23 @@ public sealed record DecisionFact
     public FactEvidence Evidence { get; }
 
     /// <summary>
-    /// The fact serialised in one deterministic form, and its hash — both computed on first use rather
-    /// than at construction, because most facts in a snapshot are never asked for either.
+    /// Whether two facts about the same key carry the same observation.
     ///
-    /// They used to be computed in the constructor, which charged every observation a JSON serialise and
-    /// a SHA-256 for every fact it carried whether or not anything read one. In the play of 0.38.13 the
-    /// frozen observation reached 1,603 facts at about thirty-eight decisions a second, and the session
-    /// ran 813 gen-0, 357 gen-1 and 50 gen-2 collections in a minute with the allocation rate roughly
-    /// doubling as the fact count grew — 29 of the 37 worst frames coincided with a gen-2 collection, at
-    /// 45 to 70 ms of brain each. A digest nobody reads is the purest form of that cost.
+    /// **This is the only equality a fact has, since 22 September 2026, and what it replaced is worth
+    /// knowing before anyone adds another.** A fact used to carry a canonical JSON form and a SHA-256 of
+    /// it, computed in the constructor, so every observation paid a serialise and a hash for every fact
+    /// it held whether or not anything ever compared one — 1,387 bytes a fact against the 112 the fields
+    /// cost, at 1,603 facts and about thirty-eight decisions a second in the play of 0.38.13, whose
+    /// session ran 813 gen-0, 357 gen-1 and 50 gen-2 collections in a minute with 29 of the 37 worst
+    /// frames coinciding with a gen-2 collection at 45 to 70 ms of brain each. Making the pair lazy
+    /// recovered three-quarters of that and no more, because every tracked read still took the digest to
+    /// record it; the pair then had no production caller at all and was deleted.
     ///
-    /// The fields are immutable, so a value computed twice is the same value and there is no lock here
-    /// deliberately: the worst a race can do is compute an identical string twice, and the brain is
-    /// single-threaded anyway.
-    ///
-    /// **Nothing in production asks for either of these any more**, since <see cref="FactRead"/> stopped
-    /// recording a hash on 22 September 2026. They survive for a recorded capture read back in another
-    /// process, which cannot compare fields it did not store; being lazy, an unread digest costs nothing,
-    /// which is what makes keeping them cheaper than deleting and reinstating them.
+    /// A field comparison is not an approximation of the hash it replaced — it is strictly stronger,
+    /// because the hash was a hash of exactly these three fields and a hash can collide. A cross-process
+    /// token for a *recorded* capture, which cannot compare fields it did not store, is a separate need
+    /// with its own home in <c>CaptureDecisionSnapshot.Digest(string)</c>, over the stored value text.
     /// </summary>
-    public string CanonicalValue
-        => canonical ??= System.Text.Json.JsonSerializer.Serialize(new { Key, Version, Value, Evidence });
-    public string Digest
-        => digest ??= Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalValue)));
-
-    /// <summary>Whether two facts about the same key carry the same observation, without asking either
-    /// for its digest. The digest is a hash of exactly these three fields, so this is what a digest
-    /// comparison was approximating and is strictly stronger than it — a hash can collide and a field
-    /// comparison cannot.</summary>
     public bool SameObservationAs(DecisionFact other)
         => Version == other.Version && Evidence == other.Evidence && Value.Equals(other.Value);
 }

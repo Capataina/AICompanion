@@ -33,31 +33,39 @@ internal static class VerifyTheCensusFrontIsCurrent
     {
         int red = 0;
         red += Row("a hostile that arrives after the search is still minted a use", ANewHostileIsPublished);
+        red += Row("a hostile flickering in and out of the set cannot buy a search a tick", ChurnIsRateLimited);
         return red;
     }
 
     /// <summary>
-    /// The row puts back the world it built, and that is *not* enough — which is the part worth knowing.
+    /// The row puts back the world it built, and that is not enough, and **this case is not the carrier
+    /// of the in-suite red it was once filed against.**
     ///
-    /// Registered eighth in the default table, this case turned three `VerifyAttackPlanning` scenes and
-    /// `VerifyTravelEpisodes` red in-suite while all four passed standalone; `company fights from inside
-    /// the predicted region` reported a committed stand at x 660 against a region centred on x 917.
-    /// Skipping this row's body turned the same thirty-three-case subset green with nothing else changed,
-    /// which attributes it here. Putting back everything the row reaches did not clear it: the npc and
-    /// item slots, every projectile, the mining policy and the player's pose are all restored below and
-    /// the four stayed red. That is consistent rather than puzzling, because `VerifyCompanionLifecycle
-    /// .Create` already rebuilds every `Main.npc`, `Main.projectile` and `Main.item` slot and re-seeds the
-    /// gear at the next case, so the world was never the carrier — the residue is a process static
-    /// `ResetProcessState.BeforeCase` does not restore, and this row is merely the first case with a
-    /// footprint wide enough to expose it. The restores stay because each is correct on its own terms.
-    /// Naming that static belongs to the reset and the case is registered last until it is.
+    /// What was observed is that registering it eighth in the default table coincided with three
+    /// `VerifyAttackPlanning` scenes and `VerifyTravelEpisodes` going red in-suite while all four passed
+    /// standalone, and that skipping this row's body turned that subset green. The conclusion drawn from
+    /// that — a residue this row leaks, wide enough to reach its neighbours — was wrong in both of its
+    /// load-bearing halves, and a review on 22 September 2026 showed why: this case runs *after* the
+    /// journey row rather than before it, so it cannot be that row's cause at all, and one brain tick of
+    /// `an opportunity the census admits usable is one the binder can still read` reddens `a spread
+    /// weapon closes at full life` on an otherwise pristine tree. The class is therefore a process static
+    /// written by the non-combat half of a single brain tick, and it belongs to whatever
+    /// `ResetProcessState.BeforeCase` does not restore rather than to anything this file does. A separate
+    /// harness lane owns naming it; the case stays registered last because the ordering costs nothing and
+    /// the cause is still open, not because that position is evidence of anything.
+    ///
+    /// What remains here is the scene teardown, which is correct on its own terms. The mining policy was
+    /// saved and restored alongside it and is gone: `WorkPolicies.Mining` proxies
+    /// `CompanionPreferences.Current`, which `BeforeCase` replaces wholesale with a fresh instance, so
+    /// reading it before the row and writing it after moved nothing — a restore that cannot fail is
+    /// indistinguishable from one that is not needed, and leaving it standing reads as evidence that the
+    /// policy was a suspect somebody eliminated.
     /// </summary>
     private static int Row(string name, Action test)
     {
-        WorkPolicy policy = WorkPolicies.Mining;
         try { test(); Console.WriteLine("  GREEN " + name); return 0; }
         catch (Exception error) { Console.WriteLine("  RED " + name + ": " + error.Message); return 1; }
-        finally { ClearTheScene(); WorkPolicies.Mining = policy; }
+        finally { ClearTheScene(); }
     }
 
     private static void ANewHostileIsPublished()
@@ -139,6 +147,63 @@ internal static class VerifyTheCensusFrontIsCurrent
             + $"after an arrival ({before} before npc{NewHostile} arrived), in {searchesAfterArrival} search(es) "
             + $"over sixty ticks; after a departure, {after.Count} of {LiveHostiles()} present in "
             + $"{searchesAfterDeparture} search(es), slots [{string.Join(",", after.OrderBy(s => s))}]");
+    }
+
+    /// <summary>
+    /// The other side of the row above: making the front current must not cost a search a frame.
+    ///
+    /// The gate re-searches when the admissible set changes, and a hostile sitting on the admission
+    /// boundary changes it on every tick — a review measured sixty searches over sixty ticks against zero
+    /// over sixty quiet ones, which is one full `SearchAttackPlans.Search` per frame against a 12 ms
+    /// decide allowance. The scene reproduces that directly by taking a hostile out of the world and
+    /// putting it back on alternate ticks, which is the cheapest thing that changes the set without
+    /// changing anything else about it.
+    ///
+    /// The pass line is stated as a rate rather than a count, and the bound is the interval the gate
+    /// declares rather than a number written here twice: sixty ticks of alternation can force at most one
+    /// search every ten, so anything above eight is the limit not holding. It is deliberately loose at the
+    /// top, because the row is about the *class* — a search a tick — and pinning it to exactly six would
+    /// go red on a scene where the planner happens to widen the front for its own reasons.
+    /// </summary>
+    private static void ChurnIsRateLimited()
+    {
+        ActionContext ctx = FloorWhereCollectingWins();
+        Brain brain = ctx.Companion.Brain;
+        FightEnemies fight = brain.Actions.OfType<FightEnemies>().Single();
+        for (int tick = 0; tick < 120; tick++) Tick(ctx);
+        Require(fight.OfferedPlan != null,
+            $"premise: combat must be holding a prepared plan, or there is no gate to churn against; "
+            + $"offer={fight.Eligibility}/{fight.EligibilityReason}");
+
+        // The quiet control first, because "few searches" means nothing without knowing the gate would
+        // otherwise be silent: a quiet stretch must force none at all.
+        int quiet = 0;
+        for (int tick = 0; tick < 60; tick++) { Tick(ctx); if (fight.OfferedFrontSize > 1) quiet++; }
+        Require(quiet == 0,
+            $"premise: a quiet sixty ticks forced {quiet} search(es), so this scene cannot tell churn's "
+            + "cost from the planner's ordinary behaviour");
+
+        Spawn(NewHostile, new Vector2(24 * 16, 60 * 16));
+        int churned = 0, cut = 0;
+        for (int tick = 0; tick < 60; tick++)
+        {
+            bool present = tick % 2 == 0;
+            Main.npc[NewHostile].active = present;
+            Main.npc[NewHostile].life = present ? Main.npc[NewHostile].lifeMax : 0;
+            Tick(ctx);
+            if (fight.OfferedFrontSize > 1) churned++;
+            if (fight.OfferedCut) cut++;
+        }
+        Require(churned <= 8,
+            $"a hostile entering and leaving the set on alternate ticks forced {churned} searches over "
+            + "sixty ticks, so the gate is unbounded and a body on the admission boundary spends the whole "
+            + "planning allowance re-searching the same fight");
+        Require(cut >= 1,
+            "no tick published a cut front, so a suppressed search is being published as a current one — "
+            + "the rate limit is only honest while the front it holds back says it is not finished");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"  churn cost: {churned} search(es) over sixty ticks "
+            + $"of a hostile entering and leaving the set each tick, against {quiet} over sixty quiet ticks; "
+            + $"{cut} of the sixty published a cut front");
     }
 
     /// <summary>Every distinct hostile the frozen observation currently carries a priced use for. This is

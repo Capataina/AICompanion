@@ -25,6 +25,19 @@ namespace AICompanion.Tools.SessionReport;
 /// row therefore restates its comparison's label and offers together. The check judges each
 /// comparison once, on its fresh row where one was captured, and counts its retained rows as one
 /// contradiction rather than one per row.
+///
+/// <para><b>Schema 0.44.0 repointed the column this check is entirely about, and the paragraph above
+/// describes the producer that no longer writes it.</b> <c>&lt;activity&gt;_offer</c> is the course's
+/// own three-valued census admission now, not the chooser's eligibility, and
+/// <c>ReadCourseWorthPerActivity</c> writes the literal <c>not-compared</c> for any activity the course
+/// mints no domain for — which keeping company always is, because an empty course <em>is</em>
+/// companionship, and which any domain is on a decision whose census carried no entry for it. So on a
+/// 0.44.0 capture <c>not-compared</c> beside a selected activity is the honest reading and not a
+/// contradiction: the 22 September 2026 capture produced 875 Definitive findings from this one rule,
+/// every one of them keeping company reading the word its producer is documented to write. What stays
+/// a contradiction at that schema is a selected activity whose own domain census read
+/// <c>KnownUnusable</c> or <c>NoOpportunity</c> — the course binding a step in a domain it had itself
+/// proved unusable — and that is the form the check keeps.</para>
 /// </summary>
 public sealed class SelectedActivitiesHadAnEligibleOffer : ICheck, ICheckCoverage
 {
@@ -35,8 +48,13 @@ public sealed class SelectedActivitiesHadAnEligibleOffer : ICheck, ICheckCoverag
         => session.Names.Any(name => name.EndsWith("_offer", StringComparison.Ordinal)) ? null
             : "<activity>_offer eligibility columns (first written by schema 0.20.0)";
 
+    /// <summary>The schema at which <c>&lt;activity&gt;_offer</c> stopped being the chooser's eligibility
+    /// and became the course's census admission, which is what makes <c>not-compared</c> honest.</summary>
+    internal static readonly Version CourseAdmission = new(0, 44, 0);
+
     public IEnumerable<Finding> Run(Session s)
     {
+        bool course = CompletedTransferClaimsWereReceived.SchemaAtLeast(s, CourseAdmission);
         Column action = s["action"], choice = s["choice_id"], fresh = s["choice_fresh"];
         for (int start = 0, end; start < s.Count; start = end + 1)
         {
@@ -61,9 +79,17 @@ public sealed class SelectedActivitiesHadAnEligibleOffer : ICheck, ICheckCoverag
             int colon = cell.IndexOf(':');
             string eligibility = colon < 0 ? cell : cell[..colon];
             if (eligibility is "Usable" or "Unresolved") continue;
+            // From 0.44.0 the column is the course's census admission and `not-compared` means the
+            // course minted no domain for this activity on this decision — which keeping company always
+            // is. Exempting it here rather than skipping the whole check keeps the two readings that are
+            // still contradictions at that schema.
+            if (course && eligibility == "not-compared") continue;
             yield return new Finding(Severity.Definitive, Name, $"the selected {selected} carried a {eligibility} offer",
-                $"{where}, selected {selected} while its own offer column read '{cell}'. Only a usable or unresolved offer may carry the positive value selection requires, so this selection contradicts its recorded offer. The label and offers are retained together from one comparison, so the retained rows restate this one contradiction.",
-                s.Tick(start), s.Tick(end), end - start + 1);
+                course
+                    ? $"{where}, selected {selected} while its own course census admission read '{cell}'. Since schema {CourseAdmission} that column is the course's three-valued census admission, so a bound step in a domain the same decision's census proved unusable is the census and the binding disagreeing. `not-compared` is exempt at this schema and is not this finding: it means the course minted no domain for the activity, which keeping company always is."
+                    : $"{where}, selected {selected} while its own offer column read '{cell}'. Only a usable or unresolved offer may carry the positive value selection requires, so this selection contradicts its recorded offer. The label and offers are retained together from one comparison, so the retained rows restate this one contradiction.",
+                s.Tick(start), s.Tick(end), end - start + 1,
+                $"the selected {selected} carried a {eligibility} offer");
         }
     }
 }
@@ -75,11 +101,28 @@ public sealed class SelectedActivitiesHadAnEligibleOffer : ICheck, ICheckCoverag
 /// different actions are a label that moved without a decision. A respawned brain restarts its
 /// identities, which changes the id and ends the run. EngineReplay fixtures call Select directly and
 /// are not playtest recordings.
+///
+/// <para><b>Schema 0.43.0 gave <c>choice_id</c> to the course, and that retires the guarantee rather
+/// than weakening it.</b> The column reads <c>DecideCourseEachTick.DecisionId</c> now and advances once
+/// per decision *reached*, while the tick's activity is the bound step's or the fallback the tick takes
+/// while a decision is in flight — so a retained course carried across an activity change is legal by
+/// construction, and the rule above has nothing left to contradict. A capture at that schema or later
+/// is skipped by name, and <see cref="TheBoundActivityHoldsWhileOneDecisionRuns"/> asks the course's own
+/// version of the question. Skipping rather than deleting is deliberate: every capture on disk older
+/// than 21 September 2026 carries the chooser's identity and this rule still grades it.</para>
 /// </summary>
-public sealed class ARetainedChoiceKeepsItsSelection : ICheck
+public sealed class ARetainedChoiceKeepsItsSelection : ICheck, ICheckCoverage
 {
     public string Name => "does a selection change only with a new comparison";
     public string[] Needs => new[] { "action", "choice_id" };
+
+    /// <summary>The schema at which <c>choice_id</c> stopped being the chooser's comparison identity.</summary>
+    internal static readonly Version CourseDecisionIdentity = new(0, 43, 0);
+
+    public string? Missing(Session session)
+        => CompletedTransferClaimsWereReceived.SchemaAtLeast(session, CourseDecisionIdentity)
+            ? $"comparison identity the family chooser advanced: from schema {CourseDecisionIdentity} `choice_id` is the course's decision identity, which a changing activity does not contradict"
+            : null;
 
     public IEnumerable<Finding> Run(Session s)
     {
@@ -89,8 +132,73 @@ public sealed class ARetainedChoiceKeepsItsSelection : ICheck
             if (choice.Text[i] != choice.Text[i - 1] || action.Text[i] == action.Text[i - 1]) continue;
             yield return new Finding(Severity.Definitive, Name, $"the selected activity changed from {action.Text[i - 1]} to {action.Text[i]} without a new comparison",
                 $"Ticks {s.Tick(i - 1):n0} and {s.Tick(i):n0} both carry comparison {choice.Text[i]}. The current activity is replaced only by a completed comparison, which also advances this identity, so one of the two rows describes a decision that did not happen.",
-                s.Tick(i - 1), s.Tick(i), 2);
+                s.Tick(i - 1), s.Tick(i), 2, "the selected activity changed without a new comparison");
         }
+    }
+}
+
+/// <summary>
+/// The course's own version of the question above, and a different question rather than the same one
+/// renamed. Since schema 0.43.0 <c>choice_id</c> advances once per decision *reached*, so consecutive
+/// rows sharing it are one decision — which may be a published course being carried, or a decision that
+/// has not settled yet. The activity may legitimately change across the first. It should not change
+/// across the second, and when it does the change is the loop the 22 September 2026 capture recorded:
+/// a decision in flight selects keeping company, which exits combat, which releases its committed plan
+/// with <c>activity-exited</c>, which makes the course's accepted use absent, which releases the course
+/// and starts another decision that has not settled either.
+///
+/// <para><b>It is Potential and not Definitive, because the record cannot separate the two cases on its
+/// own.</b> A row carries the decision identity and the activity and does not carry whether that
+/// decision was settled; the settled flag lives on the <c>course-decision</c> occurrence. So this counts
+/// the transitions and names what would settle it — on a schema 0.45.0 capture the recorder's own
+/// <c>activity-exited-during-decision</c> contract violation answers the same question from the
+/// producer's side, keyed on the transition into an unsettled decision, and the two agreeing is what
+/// turns this count into an observation.</para>
+///
+/// <para>One finding for the whole session rather than one per transition. The 22 September capture
+/// holds 214 of them and each says the same thing; the report's fold would collapse them anyway, and a
+/// check that knows it is counting a session-wide pattern should say so in its own numbers.</para>
+/// </summary>
+public sealed class TheBoundActivityHoldsWhileOneDecisionRuns : ICheck, ICheckCoverage
+{
+    public string Name => "did the bound activity hold while one decision ran";
+    public string[] Needs => new[] { "action", "choice_id" };
+
+    public string? Missing(Session session)
+        => CompletedTransferClaimsWereReceived.SchemaAtLeast(session, ARetainedChoiceKeepsItsSelection.CourseDecisionIdentity)
+            ? null
+            : $"course decision identity in `choice_id` (first written by schema {ARetainedChoiceKeepsItsSelection.CourseDecisionIdentity}); before it the column is the family chooser's comparison identity";
+
+    public IEnumerable<Finding> Run(Session s)
+    {
+        Column action = s["action"], choice = s["choice_id"];
+        var transitions = new Dictionary<string, int>(StringComparer.Ordinal);
+        int count = 0, first = -1, last = -1;
+        for (int i = 1; i < s.Count; i++)
+        {
+            if (choice.Text[i] != choice.Text[i - 1] || action.Text[i] == action.Text[i - 1]) continue;
+            string move = $"{action.Text[i - 1]}→{action.Text[i]}";
+            transitions[move] = transitions.TryGetValue(move, out int n) ? n + 1 : 1;
+            count++;
+            if (first < 0) first = s.Tick(i - 1);
+            last = s.Tick(i);
+        }
+        if (count == 0) yield break;
+
+        string split = string.Join(", ", transitions.OrderByDescending(p => p.Value).Select(p => $"{p.Key} {p.Value:n0}×"));
+        yield return new Finding(Severity.Potential, Name,
+            $"the bound activity changed {count:n0} time(s) inside a decision identity that did not advance",
+            $"Ticks {first:n0}..{last:n0}; the split is {split}. Since schema "
+                + $"{ARetainedChoiceKeepsItsSelection.CourseDecisionIdentity} `choice_id` advances once per decision reached, "
+                + "so two consecutive rows sharing it are one decision — a published course being carried, where an activity "
+                + "change is legal, or a decision that has not settled, where it is the flicker loop: the deciding tick selects "
+                + "keeping company, combat exits, its plan releases with activity-exited, the course's accepted use goes absent "
+                + "and the course releases into another unsettled decision. The row cannot tell those two apart, which is why "
+                + "this is Potential and carries no threshold. What would settle it: the `course-decision` occurrence's settled "
+                + "flag on each of these ticks, and on a schema 0.45.0 capture the recorder's own "
+                + "`activity-exited-during-decision` contract violation, which keys on the transition into an unsettled decision "
+                + "and answers this from the producer's side.",
+            first, last, count);
     }
 }
 

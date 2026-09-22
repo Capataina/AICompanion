@@ -7,7 +7,6 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using PlayerIntentRegion = live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion;
 using PlayerIntentRegions = live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegions;
-using ObserveForecastErrors = live::AICompanion.Companion.Brain.Infrastructure.Observation.ObserveForecastErrors;
 using Receipts = live::AICompanion.Companion.Brain.Infrastructure.Observation.CollectNativeEffectReceipts;
 using Attribution = live::AICompanion.Companion.Brain.Infrastructure.Observation.NativeEffectAttribution;
 using ObserveCapabilities = live::AICompanion.Companion.Brain.Infrastructure.Observation.ObserveDecisionCapabilities;
@@ -49,19 +48,11 @@ internal static class VerifyRetainedCourseObservation
         Require(regions.GapBeyondContinuation(new Vector2(0, 20)) == 10f,
             "continuation gap must be the nearest union member's gap");
 
-        var residuals = new ObserveForecastErrors();
-        var key = new ObserveForecastErrors.Key(3, 7, 2, 4);
-        residuals.Issue(key, new Vector2(20, 20), 10);
-        Require(!residuals.Observe(3, 7, 2, 4, new Vector2(24, 17), 14, new Vector2(-100, -100), new Vector2(100, 100)),
-            "ordinary correction must remain in its motion episode");
-        var summary = residuals.Get(key);
-        Require(summary.Covered && summary.Samples == 1 && summary.Minimum == new Vector2(4, -3),
-            "residual coverage must retain the measured generation/model/age error");
-        Require(!residuals.Get(new ObserveForecastErrors.Key(3, 7, 2, 5)).Covered,
-            "an unissued or evicted age must remain unknown rather than zero error");
-
+        // The residual and player-motion-evidence rows that stood here went with the two classes they
+        // were the only caller of. Neither had a production caller at all, so both rows proved that a
+        // component nothing in the game runs behaves as written; what the tree needs when the plan's
+        // forecast-error step is reached is named in `Observation/CLAUDE.md`'s planned work.
         CapabilityFacts(Require);
-        MotionFacts(Require);
 
         Receipts.ResetWorld();
         long firstPre = Receipts.BeginSyntheticStrike(9, 3, 41, Attribution.CompanionProjectile);
@@ -126,30 +117,6 @@ internal static class VerifyRetainedCourseObservation
 
         Console.WriteLine($"retained-course observation facts: {(failures == 0 ? "all checks passed" : failures + " failures")}");
         return failures;
-    }
-
-    private static void MotionFacts(Action<bool, string> require)
-    {
-        var player = new live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerSense();
-        var capture = new live::AICompanion.Companion.Brain.Infrastructure.Observation.ObservePlayerMotionEvidence();
-        player.Activity.Observe(Vector2.Zero, Vector2.Zero, false, false, 0);
-        capture.Observe(player, 0);
-        for (int tick = 1; tick <= 8; tick++)
-        {
-            float x = tick % 2 == 0 ? 0 : 2;
-            var velocity = new Vector2(tick % 2 == 0 ? -2 : 2, 0);
-            player.Activity.Observe(new Vector2(x, 0), velocity, false, false, (ulong)tick);
-            var motion = capture.Observe(player, tick);
-            require(motion.Episode == 0 && !motion.Discontinuous,
-                "ordinary left/right weaving must not retire the observed motion episode");
-            if (tick == 8)
-                require(motion.NetDisplacement == 0 && motion.PathLength == 16 && motion.Coherence == 0,
-                    "motion facts must retain actual traversed path separately from net movement and discounted intent");
-        }
-        player.Activity.Observe(new Vector2(1000, 0), Vector2.Zero, false, false, 9);
-        var jumped = capture.Observe(player, 9);
-        require(jumped.Discontinuous && jumped.Episode == 1 && jumped.PathLength == 0,
-            "an untraversed native position correction must invalidate the old motion episode without adding fictional path");
     }
 
     private static void CapabilityFacts(Action<bool, string> require)

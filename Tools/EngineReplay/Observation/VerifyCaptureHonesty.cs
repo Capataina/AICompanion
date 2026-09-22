@@ -54,8 +54,7 @@ internal static class VerifyCaptureHonesty
         WorkPolicy chopping = preferences.Chopping;
         var ctx = VerifyCollectionContracts.SetUpFloor();
         var recorder = new BrainTelemetry();
-        VerifyObservationLifecycle.Attach(recorder);
-        recorder.OnWorldLoad();
+        OpenTheRecorderOnACompanion.Open(recorder, ctx.Companion);
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try

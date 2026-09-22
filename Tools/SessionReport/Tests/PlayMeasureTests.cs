@@ -153,6 +153,22 @@ public static class PlayMeasureTests
             return 1;
         }
 
+        // A capture nobody played cannot carry a before-number about play, and it is the same shape of
+        // danger as an old one: `Tools/WorldRun` drives the mod's real recorder, so a world run's
+        // capture has every column a playtest's has and would run every measure to the end. The numbers
+        // it produced would be the harness's — of a replayed track, against staged hostiles, under
+        // whatever the run's own settings were — presented as a reading of a session. The preamble
+        // marker is the only thing that separates them.
+        if (DescribeSession.Synthetic(session.Metadata) is { } synthetic)
+        {
+            string reason = $"the capture at {Path.GetFileName(path)} is synthetic: {synthetic.Producer} replaying {synthetic.SourceCapture}. "
+                + "These pins are before-numbers about a human session, and a world run reproduces a track rather than a play, so its numbers "
+                + "would be the harness's own measured against a person's";
+            Console.WriteLine($"play measures: SKIPPED — {reason}. The measures are unverified against real play in this checkout.");
+            EmitLedgerRows.Skipped(Instrument, Suite, CaseName, reason);
+            return 0;
+        }
+
         // A capture older than the orb's row is the dangerous case rather than the missing one. Every
         // column a surviving measure names still exists in it, so it would run to the end and produce
         // a full set of confident numbers — about a body the game does not have. It is named as a skip

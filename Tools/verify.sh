@@ -244,6 +244,22 @@ for scenario in Tools/Scenarios/extracted-2026-09-14_19-55-52-468-tick-7224.txt 
   record_exit "world-run" "$scenario_status"
 done
 
+# The soak's short form: the whole brain run for two minutes of play behind a seeded bot player, in the
+# same world, sampled once per decision. It is here because nothing else in this script runs the brain
+# long enough to see a slow climb — every fixture is seconds and the longest recording this machine holds
+# is six minutes — and the play of 22 September grew its frozen observation from 150 facts to 1,603 over
+# thirty-three seconds. Two minutes is what this script can carry; the hour-long form is a command
+# somebody runs on purpose before a package, and `Tools/WorldRun/CLAUDE.md` carries it. The seed is fixed
+# so the same two minutes are compared from run to run; a machine with no .wld files its own skip.
+soak_log=$(mktemp)
+dotnet run --project Tools/WorldRun -- \
+  --soak --world="$world_run_world" --seed=1 --ticks=7200 --suite="soak seed 1" >"$soak_log" 2>&1
+soak_status=$?
+grep -E '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|SOAK|CAST) ' "$soak_log"
+[ $soak_status -ne 0 ] && cat "$soak_log"
+rm -f "$soak_log"
+record_exit "world-run" "$soak_status"
+
 # Rerunning a red is how one observation becomes a claim about a rate. A case that fails once and
 # passes once at the same commit is flaky by observation rather than by suspicion, which is the
 # only definition a ledger can supply — and the arithmetic for how many runs a claim needs is in

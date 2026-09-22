@@ -53,7 +53,7 @@ internal static class VerifyObservationLifecycle
 
     private static void VerifyOneCompleteSample()
     {
-        var recorder = new BrainTelemetry(); Attach(recorder);
+        var recorder = new BrainTelemetry();
         var companion = VerifyCompanionLifecycle.Create();
         // This is a new observation scenario. Native world callbacks reset and age
         // tool contacts; otherwise a prior fixture's ore hit lasts forever here.
@@ -68,7 +68,7 @@ internal static class VerifyObservationLifecycle
             companion.Brain.Senses.Player.Update(Main.LocalPlayer, companion.NPC);
             workClock.PostUpdateEverything();
         }
-        recorder.OnWorldLoad();
+        OpenTheRecorderOnACompanion.Open(recorder, companion);
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion); recorder.OnWorldUnload();
@@ -144,8 +144,8 @@ internal static class VerifyObservationLifecycle
         mine.Execute(ctx);
         var conclusion = mine.LastConclusion ?? throw new InvalidOperationException("revocation omitted the job conclusion");
         Require(conclusion is { Present: 1, ObservedClear: false }, "revocation must preserve remaining world work");
-        var recorder = new BrainTelemetry(); Attach(recorder);
-        recorder.OnWorldLoad();
+        var recorder = new BrainTelemetry();
+        OpenTheRecorderOnACompanion.Open(recorder, ctx.Companion);
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
@@ -170,12 +170,12 @@ internal static class VerifyObservationLifecycle
 
     private static void VerifyRecoveryDoesNotRefreshTheChoice()
     {
-        var recorder = new BrainTelemetry(); Attach(recorder);
+        var recorder = new BrainTelemetry();
         var companion = VerifyCompanionLifecycle.Create();
         // The lifecycle helper starts with a dead player. This scenario needs useful ordinary
         // work before recovery; otherwise there is no activity for recovery to suspend.
         Main.LocalPlayer.dead = false;
-        recorder.OnWorldLoad();
+        OpenTheRecorderOnACompanion.Open(recorder, companion);
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
@@ -346,8 +346,8 @@ internal static class VerifyObservationLifecycle
             TileID.Copper, new Microsoft.Xna.Framework.Point(25, 89));
         var companion = context.Companion;
         companion.Brain.Actions.Clear();
-        var recorder = new BrainTelemetry(); Attach(recorder);
-        recorder.OnWorldLoad();
+        var recorder = new BrainTelemetry();
+        OpenTheRecorderOnACompanion.Open(recorder, companion);
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         // Liquid under the body is poured before the first recorded tick. The motor's `ReadLiquid` decides the liquid from the
         // circle's own contact inside `Commit`, at the end of a tick, so the first tick discovers it and the second is the first
@@ -415,8 +415,9 @@ internal static class VerifyObservationLifecycle
     private static void VerifyZeroTickLifecycleMetadata()
     {
         var recorder = new BrainTelemetry();
-        Attach(recorder);
-        recorder.OnWorldLoad();
+        OpenTheRecorderOnACompanion.OpenWithNoCompanion(recorder,
+            "this row is about the world-entry metadata of a session with zero ticks in it, so there is no "
+            + "decision for the audit to read and no body for it to be read from");
         string folder = BrainTelemetry.Folder;
         string tsv = Directory.GetFiles(folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         // No Record call occurs before this check: the world-entry metadata must survive an
@@ -482,14 +483,19 @@ internal static class VerifyObservationLifecycle
     {
         var config = new live::AICompanion.Companion.DiagnosticsConfiguration.CompanionDiagnosticsConfig();
         ContentInstance.Register(config);
-        var recorder = new BrainTelemetry(); Attach(recorder);
+        var recorder = new BrainTelemetry();
         config.RecordTelemetry = false;
         config.OnChanged();
         int before = Directory.GetFiles(BrainTelemetry.Folder).Length;
-        recorder.OnWorldLoad();
+        // Twice through the seam rather than once, because the switch is the subject: the first open must
+        // create nothing and the second must create a session, and both are the recorder's own file
+        // lifecycle with no tick behind them.
+        OpenTheRecorderOnACompanion.OpenWithNoCompanion(recorder,
+            "this row is about whether the switch opens a file at all; it drives no tick, so no decision "
+            + "reaches the audit and no body is needed for one");
         Require(Directory.GetFiles(BrainTelemetry.Folder).Length == before, "recording disabled must create no session files");
         config.RecordTelemetry = true;
-        recorder.OnWorldLoad();
+        OpenTheRecorderOnACompanion.OpenWithNoCompanion(recorder, "as above, with the switch on");
         string newest = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         var subject = new NPC { whoAmI = 77, type = NPCID.BlueSlime, width = 20, height = 20, noGravity = true, noTileCollide = true };
         live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Observe(subject);
@@ -528,14 +534,11 @@ internal static class VerifyObservationLifecycle
         }
     }
 
-    internal static void Attach(BrainTelemetry recorder)
-    {
-        var mod = ModContent.GetInstance<live::AICompanion.AICompanion>() ?? new live::AICompanion.AICompanion();
-        typeof(Mod).GetProperty("Logger")!.SetValue(mod, log4net.LogManager.GetLogger(typeof(VerifyObservationLifecycle)));
-        if (ModContent.GetInstance<live::AICompanion.AICompanion>() == null) ContentInstance.Register(mod);
-        if (ModContent.GetInstance<BrainTelemetry>() == null) ContentInstance.Register(recorder);
-        typeof(ModType).GetProperty("Mod")!.SetValue(recorder, mod);
-    }
+    // `Attach` lived here and every recorded fixture in the suite called it. It is gone rather than kept
+    // as a delegation, because what it did was the half of opening a recorder that a fixture could get
+    // right while still leaving the audit unable to read a body — eleven sites did exactly that.
+    // `OpenTheRecorderOnACompanion` is the whole of it now, and a file constructing a recorder without
+    // naming it is a red row rather than a second silent instance.
 
     private static void Require(bool condition, string message)
     {

@@ -153,8 +153,131 @@ internal static class GradeThePlayMeasures
         else failures += NoRefusalContradictsItsOwnCensus(suite, play, scene);
         if (stepCannotGrade != null) EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, StepVerdict, stepCannotGrade);
         else failures += AWantedFightIsBegun(suite, play, scene);
+        failures += TheAuditRanOnTheseDecisions(suite, run, play.Count, scene);
+        failures += TheObservationsFloorDoesNotClimb(suite, play, scene);
         if (play.Count > 0) Measures(suite, play, route, stage, cast, shortScene);
         return failures;
+    }
+
+    /// <summary>
+    /// The growth verdict, over the decisions this replay actually made.
+    ///
+    /// The rule is <see cref="RunTheSoak.GradeTheFactFloor"/>'s and is not restated here, deliberately:
+    /// the soak and this run differ in their scene and in nothing else that the verdict reads, and two
+    /// copies of a pair of thresholds is how one of them gets tuned to whichever run somebody was looking
+    /// at. What this adds is the scene that matters. The soak drives a seeded bot over the surface and its
+    /// census peaks at about 170 facts; this drives the capture that leaked, and with the audit wired the
+    /// same tree fired <c>fact-count-above-bound</c> on 646 of 2,340 decisions. Length was never the
+    /// variable — the play's climb from 150 to 1,603 facts happened in thirty-three seconds — so the
+    /// instrument that holds the leaking scene is the one that should carry this verdict.
+    ///
+    /// **This row is expected red on main until the brain fix lands**, the way the refusal and step
+    /// verdicts beside it already are: it measures a defect this suite exists to hold, and a green here
+    /// before the fix would mean the sampling stopped rather than that the growth stopped.
+    ///
+    /// Sampled where the decision ordinal advances rather than per tick, because a carried course holds
+    /// one frozen observation across every tick it owns the body, and counting its facts once per tick
+    /// would weight a long-held decision by how long it was held.
+    /// </summary>
+    private static int TheObservationsFloorDoesNotClimb(string suite, IReadOnlyList<RunTheWorld.PlayTick> play, string scene)
+    {
+        var facts = new List<int>();
+        long last = long.MinValue;
+        foreach (var tick in play)
+        {
+            if (tick.DecisionId == last) continue;
+            last = tick.DecisionId;
+            facts.Add(tick.Facts);
+        }
+        return RunTheSoak.GradeTheFactFloor(suite,
+            "the frozen observation's floor does not climb across the replayed capture",
+            facts, play.Count, scene, new[] { SampleTag }, mode: "production-clock");
+    }
+
+    /// <summary>
+    /// Whether the decision audit was wired to anything on the run these rows grade.
+    ///
+    /// Every other row here grades what the brain did; this one grades whether the thing that checks
+    /// the brain's own contracts was plugged in while it did it, and it exists because both ways that
+    /// wiring fails are silent. <c>AuditDecisionContracts.Audit</c> hangs off
+    /// <c>RecordCourseTrace.Record</c> and takes its inputs from a source that
+    /// <c>ReadLiveCourseForAudit.Install</c> hands it out of the recorder's <c>Load</c>: lose the hook
+    /// and every decision is recorded with nothing audited, and skip the install and every decision is
+    /// audited against no inputs, which silently reduces six contracts to the two transitions that
+    /// read the payload alone. Neither shows up as a violation, because the contracts that would have
+    /// fired were never asked.
+    ///
+    /// **This run was in the second state until 22 September 2026, and nothing here noticed.**
+    /// `AttachTheRecorder.Open` called <c>OnWorldLoad</c> and never <c>Load</c>, and
+    /// `AttachCompanion` left the body out of <c>Main.npc</c>, so <c>CompanionNPC.Instance</c> — which
+    /// is how the source reaches the course — found nothing. The soak lane measured the capture this
+    /// very command writes: <c>decisions-audited=600;audit-observations-read=0</c>. Both halves are
+    /// fixed and this row is the thing that stops either coming back, because a replay grading a brain
+    /// whose contracts nobody audited is a green run that checked less than it says.
+    ///
+    /// The two conditions are the session reader's own, deliberately, so the headless row and
+    /// <c>CheckTheDecisionAudit</c> cannot drift into disagreeing about one wiring. Equality is **not**
+    /// the test and would be wrong: the observation is read once per decision ordinal and a carried
+    /// course repeats its ordinal on every tick it holds the body, so a healthy run reads fewer
+    /// observations than it audits. The ratio is emitted as a measure beside this.
+    /// </summary>
+    private static int TheAuditRanOnTheseDecisions(string suite, RunTheWorld.Outcome run, int ticks, string scene)
+    {
+        const string name = "the decision audit was wired to the run these rows grade";
+        long audited = run.DecisionsAudited, read = run.AuditObservationsRead;
+        string counts = string.Create(CultureInfo.InvariantCulture,
+            $"{audited} decision(s) audited and {read} frozen observation(s) read over {ticks} ticks");
+
+        if (ticks == 0)
+        {
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name, "the run produced no ticks, so there was nothing for the audit to be wired to");
+            return 0;
+        }
+        if (!AttachTheRecorder.Attached)
+        {
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name,
+                "this run was asked for with --no-recorder, and the audit's source is installed by the recorder's own Load exactly as it is in play, "
+                + "so the audit is unwired by the caller's choice rather than by a defect. Run without that flag to grade the wiring");
+            return 0;
+        }
+
+        // The audit's own findings, emitted whatever the verdict below decides, because a run whose
+        // wiring is broken should still show its two surviving transitions rather than a blank.
+        string[] sampled = { SampleTag };
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "frozen observations read per decision audited",
+            audited == 0 ? 0 : (double)read / audited, "observations", "up", "production-clock", sampled,
+            message: $"{read} of {audited}; under one by the ordinal rule, because a carried course repeats its observation ordinal and the source is "
+                + $"invoked once per decision rather than once per tick; {scene}");
+        foreach (var kind in run.ContractViolations.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal))
+            EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, $"contract violations of kind {kind.Key}", kind.Value,
+                "violations", "down", "production-clock", sampled,
+                message: "counted by the audit whether or not the recorder's coalescing kept it; a kind with no row here fired zero times on this run, "
+                    + $"which means something only while the verdict beside it passes; {scene}");
+        if (audited == 0)
+        {
+            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
+                $"{counts} — the audit saw none of them. It is called from RecordCourseTrace.Record, so a count of zero beside a run "
+                + $"that decided every tick means that call is gone or never reached, not that the decisions were clean. Every contract in every row here measured nothing; {scene}",
+                mode: "production-clock");
+            return 1;
+        }
+        if (read == 0)
+        {
+            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
+                $"{counts} — the audit ran on every decision and never once read the observation behind it. ReadLiveCourseForAudit.Install hands the audit "
+                + "its source from the recorder's Load, and the source reaches the course through CompanionNPC.Instance, which scans Main.ActiveNPCs; with "
+                + "either missing, the four contracts that read the census and the target facts cannot fire at all and only the two transitions that read the "
+                + $"payload alone survive, so this run looks healthier than a wired one rather than worse; {scene}",
+                mode: "production-clock");
+            return 1;
+        }
+        EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, name,
+            $"{counts}; fewer read than audited is the ordinal rule rather than a fault — the observation is read once per decision and a carried course "
+            + $"repeats its ordinal on every tick it holds the body; {scene}",
+            mode: "production-clock",
+            killedBy: "asserting the two counts equal, which reddens on every carried course; or reading them out of the written capture, which would make the row "
+                + "unaskable under --no-recorder and would grade the recorder's file rather than the run");
+        return 0;
     }
 
     /// <summary>
@@ -317,14 +440,14 @@ internal static class GradeThePlayMeasures
     /// **Every one of them is a sample rather than a value**, and each says so in a tag, because
     /// this run keeps the game's own wall clock and therefore does not repeat itself: measured over
     /// five whole-capture runs at one commit, the shares move three to four points and the
-    /// second-generation collection count ran 12, 13 and 38. The ledger has no notion of a per-row
-    /// tolerance to declare that with — <c>CompareRunsAndScore.Drift</c> calls any difference above
-    /// 1e-9 a drift, and its only softening is a noise band built from three or more *repeat runs at
-    /// the baseline commit* — so the tag is a label for a reader rather than something the scoreboard
-    /// acts on, and every one of these will appear under "measures that moved" on every run until
-    /// somebody either teaches the ledger tolerance or runs this suite three times per commit.
+    /// second-generation collection count ran 12, 13 and 38. The tag is the ledger's own
+    /// <c>EmitLedgerRows.SampledTag</c> and not a spelling of this file's, because the scoreboard reads
+    /// that constant to print a sampled case under its own heading rather than as drift: a string of
+    /// our own here filed fourteen "measures that moved" on every run, which is what the tag was
+    /// meant to stop. The tag carries no tolerance, by the ledger guide's ruling; the only bound on a
+    /// sample is still the noise band from three or more repeat runs at the baseline commit.
     /// </summary>
-    private const string SampleTag = "sampled-under-the-production-clock";
+    private const string SampleTag = EmitLedgerRows.SampledTag;
 
     private static void Measures(string suite, IReadOnlyList<RunTheWorld.PlayTick> play, ReadRecordedRoute.Route route,
         StageRecordedActors stage, ReadRecordedActors.Cast cast, string scene)

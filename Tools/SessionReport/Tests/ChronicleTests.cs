@@ -43,6 +43,8 @@ public static class ChronicleTests
             DowningDoesNotProveAvoidability();
             ASelectedActivityMustHaveCarriedAnEligibleOffer();
             ASelectionChangesOnlyWithANewComparison();
+            FindingsFoldToOneLinePerClassCarryingItsCount();
+            TheCourseErasChecksReplaceTheChoosersAtTheirSchema();
             AttemptEvidenceJoinsByIdentityAndDisagreementsAreDefinitive();
             ACompletedTransferClaimNeedsItsReceivedQuantity();
             AClaimedArrivalMustLieInsideItsSuccessRegion();
@@ -69,6 +71,10 @@ public static class ChronicleTests
             CourseSnapshotRequiresActualValuesAndMatchingDigests();
             CourseReaderRejectsMixedAndDigestOnlySnapshots();
             CourseDecisionsAreReadCheckedAndNarrated();
+            ACensusAdmissionMustSurviveItsOwnBinder();
+            ASyntheticCaptureIsNotReadAsPlay();
+            TheCourseTimelineIsOneRowPerDecisionAndFoldsWhatRepeats();
+            TheBehaviourParityTableStillNamesRealBehavioursAndRealFixtures();
             TheGuideQuotesTheSchemaConstantItDocuments();
             TheAuditsOwnWiringIsWitnessedByTheCapture();
             TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
@@ -184,6 +190,57 @@ public static class ChronicleTests
             Require(Math.Abs(Value("brain-share") - 90.0) < 0.5, $"brain-share={Value("brain-share")}");
             Require(Math.Abs(Value("inspector-share") - 11.0) < 0.5, $"inspector-share={Value("inspector-share")}");
 
+            // **The brain column is read one row back, and a fixture with a constant brain cost cannot
+            // tell.** `frame_ms` is anchored at PostUpdateEverything, so a row written inside update N
+            // carries the interval that closed at the end of update N−1 and the brain cost inside it is
+            // the *previous* row's — which is exactly what `FrameCost.RemainderMilliseconds` is handed
+            // when the producer computes `engine_ms`. Every fixture above holds brain_ms at 9.00, so
+            // both phases give the same share and the reader summed this row's brain against the
+            // previous update's interval for as long as it existed. This one alternates 20 and 2 with a
+            // 25 ms interval, over three rows whose first is unmeasured:
+            //
+            //   row 0   frame -1   brain 20      excluded: no interval
+            //   row 1   frame 25   brain  2      its interval covers update 0, whose brain was 20
+            //   row 2   frame 25   brain  2      its interval covers update 1, whose brain was  2
+            //
+            // The right phase sums 22 over a 50 ms interval and reads 44%; the row's own brain sums 4
+            // and reads 8%. Nothing else in the file separates those two numbers.
+            var phased = new StringBuilder("# schema=0.45.0\n"
+                + "tick\twall_elapsed_ms\tframe_ms\tdraws\toverlay_ms\tinspector_ms\tengine_ms\tbrain_ms\trecord_ms\n"
+                + "0\t0.00\t-1.00\t1\t0.00\t0.00\t0.00\t20.00\t0.00\n"
+                + "1\t25.00\t25.00\t1\t0.00\t0.00\t5.00\t2.00\t0.00\n"
+                + "2\t50.00\t25.00\t1\t0.00\t0.00\t23.00\t2.00\t0.00\n");
+            File.WriteAllText(file, phased.ToString());
+            var phasedRows = new MeasureTheFrame().Rows(Session.Load(file)).ToList();
+            double Phased(string name) => phasedRows.Single(r => r.Case == "frame/" + name).Value ?? -1;
+            Require(Math.Abs(Phased("brain-share") - 44.0) < 0.01,
+                $"the brain share must be taken from the row before each interval, which is 44% here; reading the row's own gives 8%. brain-share={Phased("brain-share"):0.00}");
+            // The same phase in the check's own split, which is a second copy of the arithmetic.
+            Finding[] phasedFinding = new TheFrameFitsTheEnginesTimestep().Run(Session.Load(file)).ToArray();
+            Require(phasedFinding.Length == 1 && phasedFinding[0].Detail.Contains("brain 11.00 ms a frame (44.0%)", StringComparison.Ordinal),
+                $"the check's split must read the same phase as the measure: {(phasedFinding.Length == 0 ? "no finding" : phasedFinding[0].Detail)}");
+
+            // **The predecessor is the previous update, not the previous line of the file.** The two
+            // are the same until a row is dropped, and then the shift reads a brain cost belonging to
+            // an update two or more ticks back while the arithmetic still looks fine. The fixture above
+            // with its middle row removed is the whole test: ticks 0 and 2 survive, row 2's interval
+            // covers update 1 whose cost is not in the file, and attributing row 0's brain of 20 to it
+            // would read 80% of 25 ms. With the gap excluded there is no attributable pair at all, so
+            // the share is 0 over an empty set rather than a confident wrong number.
+            File.WriteAllText(file, "# schema=0.45.0\n"
+                + "tick\twall_elapsed_ms\tframe_ms\tdraws\toverlay_ms\tinspector_ms\tengine_ms\tbrain_ms\trecord_ms\n"
+                + "0\t0.00\t-1.00\t1\t0.00\t0.00\t0.00\t20.00\t0.00\n"
+                + "2\t25.00\t25.00\t1\t0.00\t0.00\t5.00\t2.00\t0.00\n");
+            var gapped = new MeasureTheFrame().Rows(Session.Load(file)).ToList();
+            double Gapped(string name) => gapped.Single(r => r.Case == "frame/" + name).Value ?? -1;
+            Require(Gapped("brain-share") == 0,
+                "a row whose own predecessor update is missing from the file was still attributed a brain cost — the shift reads the "
+                + $"previous *line*, which across a dropped tick belongs to another update entirely. brain-share={Gapped("brain-share"):0.00}");
+            string gappedNote = gapped.Single(r => r.Case == "frame/brain-share").Message;
+            Require(gappedNote.Contains("0 of 1 measured row(s)", StringComparison.Ordinal),
+                "the share's own sentence must say how many pairs the gap cost, or a zero share reads as a brain that cost nothing: "
+                + gappedNote);
+
             // The producer pin. The five columns are written by a file this project does not compile,
             // so a rename there leaves every row above passing against a capture nobody writes.
             string recorder = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
@@ -229,6 +286,23 @@ public static class ChronicleTests
         Require(quoted.Groups["v"].Value == constant.Groups["v"].Value,
             $"the guide says the capture schema is {quoted.Groups["v"].Value} and the recorder's constant is"
                 + $" {constant.Groups["v"].Value}; the constant is the authority and the sentence is wrong");
+
+        // **A guide may not quote this tool's coverage line, because both of its numbers move under it
+        // and neither moves for a reason that guide is about.** The denominator changes with every
+        // check the tool gains and the numerator with every schema a capture predates, so the sentence
+        // is stale by the next lane and reads as authority while it lies. Two were, and neither was
+        // caught by reading: `Tools/SessionReport/CLAUDE.md` said a capture printed "40 of 45 checks
+        // ran" where the same change's own reader printed 41 of 46, and said another printed "32 of 32"
+        // where it prints 35 of 46 — the second wrong for long enough that nobody knows when. The
+        // figure is printed at the top of every run, so the guide points at the run.
+        foreach (string file in Directory.EnumerateFiles(Path.Combine("Tools", "SessionReport"), "CLAUDE.md", SearchOption.AllDirectories))
+        {
+            var coverage = Regex.Match(File.ReadAllText(file), @"\d+ of \d+ checks? ran");
+            Require(!coverage.Success,
+                $"{file} quotes this tool's own coverage line as '{coverage.Value}'. Both of its numbers move — the denominator with "
+                + "every check added, the numerator with every schema a capture predates — so a quoted figure is a claim that goes stale "
+                + "silently. Describe which checks skip and why, and let the reader print the count.");
+        }
     }
 
     private static void TheAuditsOwnWiringIsWitnessedByTheCapture()
@@ -297,6 +371,552 @@ public static class ChronicleTests
                 "a capture whose recorder never wrote the counts must skip by name rather than read their absence as zero");
             Require(check.Run(session).ToArray().Length == 0, "a skipped check must still produce nothing when asked");
         });
+    }
+
+    /// <summary>
+    /// The contradiction six independent readings of the 22 September 2026 capture each found by hand
+    /// and no check asked for: a domain the census admitted usable whose every order the same decision
+    /// refused for want of an observed target.
+    ///
+    /// <para>Two things are pinned rather than asserted, because a check whose literals drift reports a
+    /// clean run for ever. The two refusal strings are read out of the binders that write them, and the
+    /// domain sets are read out of the recorder's own <c>RefusalFor</c>, which is the same mapping in
+    /// the other direction — so a rename in either file reddens this before it silences the check.</para>
+    ///
+    /// <para>The rest of the group is the join, and every arm is a way the join can be wrong: an
+    /// admission and a refusal in one record is the observed contradiction and is Definitive; an
+    /// admission carried forward to a later decision is the same reading with an inference in it and is
+    /// counted apart; a domain admitted with nothing usable is not a contradiction however many orders
+    /// were refused; and a refusal reason no binder in the table owns is not attributed to anything.</para>
+    /// </summary>
+    /// <summary>
+    /// A capture nobody played is not read as play.
+    ///
+    /// <para><c>Tools/WorldRun</c> drives the mod's own recorder, so a world run writes a capture in
+    /// exactly the format a playtest writes — every column, every occurrence, a normal closure — and
+    /// nothing in the rows tells the two apart. The preamble's <c>synthetic=</c> line is the only thing
+    /// that does, and a reader ignoring it reports "0m 38s of play" about a session nobody played and
+    /// pins before-numbers against a replay of the very capture they were taken from.</para>
+    ///
+    /// <para>The producer name is read as written rather than matched against <c>world-run</c>, so a
+    /// second harness writing a different producer is refused as play too. The arm below uses one.</para>
+    /// </summary>
+    /// <summary>
+    /// The decision table: one row per decision, folded where consecutive decisions say the same thing,
+    /// with the census, the ordered course and the cost joined to each.
+    ///
+    /// <para>Its two joins are what the arms below exist for, and both were wrong in the first version.
+    /// <b>A decision's payload is not on its own `choice_tick`</b>: `choice_id` advances on the tick a
+    /// decision is reached and the payload is written when an outcome is traced, which on the 22
+    /// September 2026 capture puts 2,340 payloads on 1,364 ticks and the decision reached at tick 5 at
+    /// tick 6 — a lookup keyed on the decision tick missed about half of them and printed dashes where
+    /// the numbers belong. And <b>a decision that traced no payload is not a difference</b>: treating
+    /// that absence as a distinguishing value split the table into a hundred runs, a third of them one
+    /// undescribed decision each, which is the per-tick log the page exists to replace.</para>
+    /// </summary>
+    /// <summary>
+    /// The behaviour parity table's two claims about things outside this folder, each pinned against
+    /// the file that owns it.
+    ///
+    /// <para>The table maps every row of the README's Behaviour By Behaviour specification to the
+    /// fixture cases that grade it headlessly. Both halves of that mapping can rot without a symptom:
+    /// a renamed behaviour row leaves a mapping pointing at nothing, and a renamed fixture case leaves
+    /// a row claiming coverage that no instrument provides. Neither would change a single number in a
+    /// report, which is exactly the failure a coverage table exists to prevent and would therefore
+    /// commit itself.</para>
+    ///
+    /// <para>The check side needs no pin: the mapping names check <em>types</em>, so renaming a check
+    /// class is a compile error here.</para>
+    /// </summary>
+    private static void TheBehaviourParityTableStillNamesRealBehavioursAndRealFixtures()
+    {
+        string readme = File.ReadAllText("README.md");
+        var specified = WriteBehaviourParity.BehavioursIn(readme);
+        Require(specified.Count >= 30,
+            $"the README's Behaviour By Behaviour table parsed as {specified.Count} row(s); it held 32 on 22 September 2026, so either the parse broke or the specification shrank");
+        foreach (string mapped in WriteBehaviourParity.MappedBehaviours)
+            Require(specified.Contains(mapped, StringComparer.Ordinal),
+                $"the parity table maps '{mapped}', which the README's specification no longer names — the row was renamed or removed and the mapping points at nothing");
+
+        // Every case name the table claims must be a case some instrument registers. The registration
+        // tables are literals in source, so the pin is a substring search across the instruments rather
+        // than a run of them: a run would need the suite, and a name that no longer registers is a
+        // claim about coverage rather than about a failure.
+        //
+        // **This tool's own tree is excluded, and leaving it in made the pin useless.** The parity
+        // table's literals live under `Tools/SessionReport/Write/`, so a search across all of `Tools/`
+        // finds every name in the table's own source and passes whatever the instruments register — a
+        // mutation inventing the case "gathering beside the player is cooperative rather than competing
+        // xx" was green. A pin that includes the thing being pinned is asserting that a file contains
+        // its own contents.
+        string reader = "Tools" + Path.DirectorySeparatorChar + "SessionReport" + Path.DirectorySeparatorChar;
+        string sources = string.Concat(Directory.EnumerateFiles("Tools", "*.cs", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !p.Contains(reader, StringComparison.Ordinal))
+            .Select(File.ReadAllText));
+        foreach (string fixture in WriteBehaviourParity.NamedFixtures)
+            Require(sources.Contains("\"" + fixture + "\"", StringComparison.Ordinal),
+                $"the parity table names the fixture case '{fixture}', which no instrument under Tools/ registers any more — the row claims coverage nothing provides");
+
+        // **A check that ran and found nothing is three answers and only one of them is agreement.**
+        // Before the row's witness existed this table said the play agreed with Self-preservation on a
+        // session holding zero damage events and zero downings, and said the same of Recovering when it
+        // cannot follow and Breaking containers — thirteen agreements that were a function of which
+        // checks ran rather than of the play, identical on a capture four days older. Each arm below
+        // drives the real page over a one-behaviour specification, varying only the witness's own
+        // evidence, because a fixture that holds the witness constant cannot tell the three apart.
+        string spec = Path.GetTempFileName();
+        try
+        {
+            void Parity(string behaviour, string columns, string rows, string expected, string why)
+            {
+                File.WriteAllText(spec, $"# Behaviour By Behaviour\n\n| **{behaviour}** — the gloss the parse discards |\n");
+                string tsv = Path.GetTempFileName();
+                try
+                {
+                    File.WriteAllText(tsv, $"# schema=0.44.0\ntick\t{columns}\n{rows}");
+                    string page = WriteBehaviourParity.Of(Session.Load(tsv), Array.Empty<Finding>(),
+                        Array.Empty<(string, string)>(), spec);
+                    string row = page.Split('\n').FirstOrDefault(l => l.Contains(behaviour, StringComparison.Ordinal)
+                        && l.StartsWith("  ", StringComparison.Ordinal)) ?? "";
+                    Require(row.TrimEnd().EndsWith(expected, StringComparison.Ordinal),
+                        $"'{behaviour}' read as something other than '{expected}' — {why}: '{row.Trim()}'");
+                }
+                finally { File.Delete(tsv); }
+            }
+
+            Parity("Self-preservation", "npc_hit", "1\t\n2\t\n", "not exercised",
+                "its checks ran and found nothing on a session in which the companion was never hit, and a session with nothing to grade "
+                + "is not a session the play agreed with");
+            Parity("Self-preservation", "npc_hit", "1\t\n2\tzombie\n", "play agrees",
+                "its checks ran silent on a session that does hold the behaviour, which is the one case the word `agrees` is earned by");
+            // A behaviour whose row declares no witness stays in the third value rather than being
+            // promoted, which is what makes declaring one worth doing.
+            Parity("Finding a route", "npc_hit", "1\t\n2\t\n", "silent",
+                "no witness is declared for it, so nothing in the capture says whether the behaviour occurred and the row must not claim "
+                + "either that it did or that it did not");
+        }
+        finally { File.Delete(spec); }
+    }
+
+    private static void TheCourseTimelineIsOneRowPerDecisionAndFoldsWhatRepeats()
+    {
+        object Field(string kind, string text) => new { Kind = kind, Text = text };
+        string Marker(int seq, string kind) => JsonSerializer.Serialize(new { v = 1, seq, tick = 0, wall_elapsed_ms = 0d,
+            kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+            expected_x = 0f, expected_y = 0f, amount = 0, detail = "" });
+        // **`settled` and `release` vary together here because the producer never writes them on one
+        // record.** `DecideCourseEachTick` traces a release on the tick after publication and that
+        // record is unsettled, while the settled record holds the numbers; on the 22 September 2026
+        // capture the two are disjoint over all 2,340 payloads. A fixture that wrote every payload
+        // settled with an empty release — which all four in this file did — cannot tell a reader that
+        // picks the right record from one that prints a dash on every row of the table, and the second
+        // is what shipped.
+        string Payload(int seq, long tick, string activity, long steps, long priced, long refused,
+            bool settled = true, string release = "")
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "course-course-decision",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+                payload_kind = ReadCourseDecisions.Kind, payload_version = 1, phase = "brain",
+                observation_ordinal = tick, receipt_watermark = 0L,
+                payload = new { Kind = ReadCourseDecisions.Kind, Version = 1, Fields = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["reason"] = Field("text", "course-published"),
+                    ["activity"] = Field("text", activity),
+                    ["settled"] = Field("flag", settled ? "true" : "false"),
+                    ["purpose"] = Field("text", activity),
+                    ["steps"] = Field("integer", steps.ToString(CultureInfo.InvariantCulture)),
+                    ["orders-priced"] = Field("integer", priced.ToString(CultureInfo.InvariantCulture)),
+                    ["orders-refused"] = Field("integer", refused.ToString(CultureInfo.InvariantCulture)),
+                    ["search-exhausted"] = Field("flag", "true"),
+                    ["release-reason"] = Field("text", release),
+                    ["facts"] = Field("integer", "7"),
+                } } });
+        string Admission(int seq, long tick, long combat)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "decision",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0,
+                detail = $"scores=;{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}combat=usable:{combat},unknown:0,unusable:0,reason:-;" });
+
+        string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+        try
+        {
+            // Ten ticks, six decisions, and every rule the fold has.
+            //   1–3  decision 1, retained; its numbers are traced at tick 2 rather than at its own
+            //        choice_tick of 1, and its release at tick 3 on an unsettled record
+            //   4    decision 2, tracing nothing at all
+            //   5–6  decision 3, saying what decision 1 said, but under a census that has moved
+            //   7    decision 4, identical to 3 and tracing no release
+            //   8–9  decision 5, identical again, releasing `next-use-invalid:…`
+            //   10   decision 6, identical again, releasing `course-complete`
+            // So 1 and 2 fold; 3, 4 and 5 fold because a span that traced no release is not a decision
+            // that was not released; and 6 splits off 5 because two reasons that are both there and
+            // differ are a difference. Three rows.
+            var rows = new StringBuilder("# schema=0.44.0\n"
+                + "tick\tchoice_id\tchoice_tick\taction\tdecide_ms\ttask_order\ttask_order_runner_up\n"
+                + "1\t1\t1\tcombat\t4.00\t-\t-\n"
+                + "2\t1\t1\tcombat\t6.00\t-\t-\n"
+                + "3\t1\t1\tcombat\t5.00\t-\t-\n"
+                + "4\t2\t4\tcombat\t9.00\t-\t-\n"
+                + "5\t3\t5\tcombat\t7.00\t-\t-\n"
+                + "6\t3\t5\tcombat\t7.00\t-\t-\n"
+                + "7\t4\t7\tcombat\t7.00\t-\t-\n"
+                + "8\t5\t8\tcombat\t7.00\t-\t-\n"
+                + "9\t5\t8\tcombat\t7.00\t-\t-\n"
+                + "10\t6\t10\tcombat\t7.00\t-\t-\n");
+            File.WriteAllText(tsv, rows.ToString());
+            File.WriteAllLines(events, new[]
+            {
+                Marker(0, "session"),
+                Admission(1, 1, 3),
+                Payload(2, 2, "combat", 2, 7, 6),
+                Payload(3, 3, "combat", 2, 7, 6, settled: false, release: "course-complete"),
+                Admission(4, 5, 1),
+                Payload(5, 5, "combat", 2, 7, 6),
+                Payload(6, 7, "combat", 2, 7, 6),
+                Payload(7, 8, "combat", 2, 7, 6),
+                Payload(8, 8, "combat", 2, 7, 6, settled: false, release: "next-use-invalid:accepted-use-not-present"),
+                Payload(9, 10, "combat", 2, 7, 6),
+                Payload(10, 10, "combat", 2, 7, 6, settled: false, release: "course-complete"),
+                Marker(11, "session-end"),
+            });
+
+            string page = WriteCourseTimeline.Of(Session.Load(tsv), fullTimeline: true);
+            Require(page.Contains("6 decision(s) over 10 tick(s)", StringComparison.Ordinal),
+                "the page did not count decisions by their identity rather than by ticks: " + page);
+            // The payload traced at tick 2 belongs to the decision reached at tick 1, and finding it is
+            // what puts numbers rather than dashes on the row. Asserted before the undescribed count,
+            // because a join keyed on the decision tick moves both and only this one names the cause.
+            string[] lines = page.Split('\n');
+            string opening = lines.FirstOrDefault(l => l.StartsWith("  1", StringComparison.Ordinal)
+                && (l.Length > 3 && (l[3] == '–' || l[3] == ' '))) ?? "";
+            Require(opening.Contains("7/6", StringComparison.Ordinal),
+                "the row opening at tick 1 carries no numbers, so the payload traced inside that decision's span was not joined to it — "
+                + $"a join keyed on `choice_tick` finds nothing at tick 1, because the trace landed at tick 2: '{opening.Trim()}'");
+            // The numbers and the release come off different records of the same span, and a reader that
+            // takes both from the settled one prints a dash here while the producer wrote a reason.
+            Require(opening.Contains("course-complete@3", StringComparison.Ordinal),
+                "the row opening at tick 1 carries no release reason, so the released column was read off the settled record — "
+                + $"the settled record is the one with the numbers and the release rides on the unsettled one: '{opening.Trim()}'");
+            string middle = lines.FirstOrDefault(l => l.StartsWith("  5", StringComparison.Ordinal)) ?? "";
+            Require(middle.Contains("next-use-invalid:accepted-use-not-present@8", StringComparison.Ordinal),
+                "the run opening at tick 5 lost the release its third decision traced — a run whose representative traced no release must "
+                + $"take the one a later member did, or the reason is dropped from the page entirely: '{middle.Trim()}'");
+            Require(page.Contains("1 decision(s) traced no payload of their own", StringComparison.Ordinal),
+                "a decision with no traced payload was not reported as undescribed, or more of them were undescribed than the fixture holds: " + page);
+            Require(page.Contains("combat=3", StringComparison.Ordinal) && page.Contains("combat=1", StringComparison.Ordinal),
+                "the census admission standing when each decision ran was not carried onto its row: " + page);
+            int dataRows = lines.Count(line => line.Length > 2 && line.StartsWith("  ", StringComparison.Ordinal)
+                && char.IsAsciiDigit(line[2]));
+            Require(dataRows == 3, $"the table printed {dataRows} data row(s) rather than three — the undescribed decision must fold into the "
+                + "run it sits in, the census moving must split one, a decision that traced no release must fold with one that did, and two "
+                + $"releases that are both there and differ must split: {page}");
+
+            // A capture whose `choice_id` is the family chooser's declines by name rather than drawing a
+            // table of a brain it did not run.
+            File.WriteAllText(tsv, rows.ToString().Replace("# schema=0.44.0", "# schema=0.42.0", StringComparison.Ordinal));
+            string older = WriteCourseTimeline.Of(Session.Load(tsv), fullTimeline: true);
+            Require(older.Contains("unavailable", StringComparison.Ordinal) && older.Contains("0.43.0", StringComparison.Ordinal),
+                "a capture from before the course owned `choice_id` was drawn as a course timeline: " + older);
+        }
+        finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+    }
+
+    private static void ASyntheticCaptureIsNotReadAsPlay()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            string Describe(string preamble)
+            {
+                File.WriteAllText(file, preamble + "tick\taction\n1\tkeep-company\n600\tkeep-company\n");
+                return DescribeSession.Of(Session.Load(file));
+            }
+
+            string played = Describe("# schema=0.45.0\n");
+            Require(played.Contains("of play at sixty a tick", StringComparison.Ordinal) && !played.Contains("synthetic", StringComparison.Ordinal),
+                "an ordinary capture must still read as play: " + played);
+
+            string replayed = Describe("# schema=0.45.0\n# synthetic=world-run;source-capture=2026-09-22_10-05-56-125;note=nobody played this\n");
+            Require(!replayed.Contains("of play at sixty a tick", StringComparison.Ordinal),
+                "a synthetic capture still claimed its ticks were play: " + replayed);
+            Require(replayed.Contains("synthetic world-run replaying 2026-09-22_10-05-56-125", StringComparison.Ordinal),
+                "a synthetic capture did not name what it is a replay of: " + replayed);
+            Require(replayed.Contains("of replayed ticks at sixty a tick, not of play", StringComparison.Ordinal),
+                "the span was dropped rather than restated as what it is: " + replayed);
+
+            // A harness that is not the world run must be refused as play just as hard, so the marker is
+            // read for whatever producer it names rather than matched against one.
+            var other = DescribeSession.Synthetic(new Dictionary<string, string>(StringComparer.Ordinal)
+                { ["synthetic"] = "some-other-harness;source-capture=elsewhere" });
+            Require(other is { Producer: "some-other-harness", SourceCapture: "elsewhere" },
+                "a synthetic marker naming a producer this reader has not heard of was not read");
+            Require(DescribeSession.Synthetic(new Dictionary<string, string>(StringComparer.Ordinal)) is null,
+                "a capture with no synthetic marker was read as synthetic");
+            // A marker with no source named is still a refusal; the source is what is unknown, not the fact.
+            Require(DescribeSession.Synthetic(new Dictionary<string, string>(StringComparer.Ordinal)
+                { ["synthetic"] = "world-run" }) is { SourceCapture: "unnamed" },
+                "a synthetic marker with no source capture was treated as absent rather than as an unnamed source");
+
+            // **The marker the world run actually writes, verbatim, because the first version of this
+            // parser was wrong on it and right on every fixture.** The note runs to the end of the line
+            // and has a semicolon inside it, so a reader splitting the whole value on `;` and calling
+            // any segment without an `=` the producer reports "  it is the world run replaying the
+            // source capture's player track, hostiles and drops" as the name of the harness — which is
+            // what the report printed the first time it met a real one.
+            var real = DescribeSession.Synthetic(new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["synthetic"] = "world-run;source-capture=2026-09-22_10-05-56-125;note=nobody played this; "
+                    + "it is the world run replaying the source capture's player track, hostiles and drops",
+            });
+            Require(real is { Producer: "world-run", SourceCapture: "2026-09-22_10-05-56-125" },
+                $"the marker the world run actually writes was misparsed: producer '{real?.Producer}', source '{real?.SourceCapture}'");
+            Require(real!.Note.StartsWith("nobody played this;", StringComparison.Ordinal)
+                    && real.Note.EndsWith("hostiles and drops", StringComparison.Ordinal),
+                $"the note was cut at its own semicolon rather than read to the end of the line: '{real.Note}'");
+        }
+        finally { File.Delete(file); }
+    }
+
+    private static void ACensusAdmissionMustSurviveItsOwnBinder()
+    {
+        string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));
+        string combat = Source("Companion", "Brain", "Activities", "Combat", "CombatCourseOpportunity.cs");
+        string assistance = Source("Companion", "Brain", "Infrastructure", "Selection", "Opportunities", "BindAssistanceOpportunity.cs");
+        string audit = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "AuditDecisionContracts.cs");
+        string recorder = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
+
+        Require(combat.Contains("\"target-capture-missing\"", StringComparison.Ordinal),
+            "combat no longer refuses `target-capture-missing`; the census-against-binder check is reading a string nobody writes");
+        Require(assistance.Contains("Refuse(\"assistance-target-unresolved\")", StringComparison.Ordinal),
+            "the assistance binder no longer refuses `assistance-target-unresolved`; the census-against-binder check is reading a string nobody writes");
+        foreach (string domain in ACensusAdmissionSurvivesItsBinder.DomainsBehind["assistance-target-unresolved"])
+            Require(audit.Contains($"\"{domain}\"", StringComparison.Ordinal) && assistance.Contains($"\"{domain}\"", StringComparison.Ordinal),
+                $"the assistance domain '{domain}' is named by neither the binder nor the recorder's own refusal map; the reader's table has drifted from the producer's");
+        Require(audit.Contains("\"combat\" => CombatNotObserved", StringComparison.Ordinal),
+            "the recorder's own refusal map no longer sends the combat domain to combat's refusal; the reader's table mirrors that map and has drifted from it");
+        Require(recorder.Contains(ACensusAdmissionSurvivesItsBinder.AdmittedPrefix, StringComparison.Ordinal),
+            $"the recorder no longer writes `{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}`, which is the only place a census admission reaches a capture");
+        Require(audit.Contains($"\"{ACensusAdmissionSurvivesItsBinder.TripwireViolation}\"", StringComparison.Ordinal),
+            $"the recorder's own tripwire kind `{ACensusAdmissionSurvivesItsBinder.TripwireViolation}` is gone; the cross-check reads a record nobody writes");
+
+        object Field(string kind, string text) => new { Kind = kind, Text = text };
+        string Marker(int seq, string kind) => JsonSerializer.Serialize(new { v = 1, seq, tick = 0, wall_elapsed_ms = 0d,
+            kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+            expected_x = 0f, expected_y = 0f, amount = 0, detail = "" });
+
+        // The `decision` occurrence's detail, in the producer's own shape: the admission entry's values
+        // are comma-separated key:value pairs inside a semicolon-separated field, which is why the check
+        // parses them itself rather than through ReadGodsEyeEvents.Field.
+        string Admission(int seq, long tick, params (string Domain, long Usable)[] domains)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "decision",
+                subject = 0, related = "", label = "keep-company", channel = "WithPlayer", pos_x = 0f, pos_y = 0f,
+                vel_x = 0f, vel_y = 0f, expected_x = 0f, expected_y = 0f, amount = 0,
+                detail = "scores=;" + string.Concat(domains.Select(d =>
+                    $"{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}{d.Domain}=usable:{d.Usable},unknown:0,unusable:0,reason:-;")) });
+
+        string Refusal(int seq, long tick, params (string Reason, long Count)[] refusals)
+        {
+            var fields = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["reason"] = Field("text", "published-course-holds-no-step"),
+                ["activity"] = Field("text", "keep-company"),
+                ["settled"] = Field("flag", "true"),
+                ["purpose"] = Field("text", ""),
+                ["steps"] = Field("integer", "0"),
+                ["orders-priced"] = Field("integer", "1"),
+                ["orders-refused"] = Field("integer", refusals.Sum(r => r.Count).ToString(CultureInfo.InvariantCulture)),
+                ["search-exhausted"] = Field("flag", "true"),
+                ["release-reason"] = Field("text", ""),
+                ["facts"] = Field("integer", "7"),
+            };
+            foreach ((string reason, long count) in refusals)
+                fields[ReadCourseDecisions.RefusalPrefix + reason] = Field("integer", count.ToString(CultureInfo.InvariantCulture));
+            return JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "course-course-decision",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+                payload_kind = ReadCourseDecisions.Kind, payload_version = 1, phase = "brain",
+                observation_ordinal = tick, receipt_watermark = 0L,
+                payload = new { Kind = ReadCourseDecisions.Kind, Version = 1, Fields = fields } });
+        }
+
+        string Violation(int seq, long tick, string signature)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "course-contract-violation",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+                payload_kind = "contract-violation", payload_version = 1, phase = "brain",
+                observation_ordinal = tick, receipt_watermark = 0L,
+                payload = new { Kind = "contract-violation", Version = 1, Fields = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["violation"] = Field("text", ACensusAdmissionSurvivesItsBinder.TripwireViolation),
+                    ["detail"] = Field("text", "the census admitted and the binder refused"),
+                    ["signature"] = Field("text", signature),
+                } } });
+
+        void Drive(string schema, string[] records, Action<Session> assert)
+        {
+            string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+            try
+            {
+                File.WriteAllText(tsv, $"# schema={schema}\ntick\n1\n# end=fixture;rows=1\n");
+                var lines = new List<string> { Marker(0, "session") };
+                lines.AddRange(records);
+                lines.Add(Marker(records.Length + 1, "session-end"));
+                File.WriteAllLines(events, lines);
+                assert(Session.Load(tsv));
+            }
+            finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+        }
+
+        Finding[] Run(Session session) => new ACensusAdmissionSurvivesItsBinder().Run(session).ToArray();
+
+        // One decision carrying both halves, then two carrying only the refusal against the admission
+        // carried forward. The Definitive grade is earned by the first; the other two are the inference
+        // and must be counted apart rather than folded into it.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 100, ("target-capture-missing", 12)),
+            Refusal(3, 101, ("target-capture-missing", 12)),
+            Refusal(4, 102, ("target-capture-missing", 12)),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Length == 1, $"the census-against-binder check reported {found.Length} finding(s) rather than one per contradicting domain");
+            Require(found[0].Severity == Severity.Definitive, $"a contradiction observed in one record was graded {found[0].Severity}");
+            Require(found[0].Rows == 3, $"the finding counted {found[0].Rows} decision(s) rather than the three the fixture holds");
+            Require(found[0].Detail.Contains("1 of those records carried the admission and the refusal in one record", StringComparison.Ordinal),
+                "the finding did not separate the observed contradiction from the ones read against a carried admission: " + found[0].Detail);
+            Require(found[0].Detail.Contains("refused 36 order(s)", StringComparison.Ordinal),
+                "the finding lost the refusal total it is counting: " + found[0].Detail);
+            Require(found[0].FirstTick == 100 && found[0].LastTick == 102, "the finding lost the span its decisions covered");
+        });
+
+        // **The same contradiction with no decision carrying both halves is an inference, and the grade
+        // is the only thing that says so.** Definitive drives the process exit code and the sentence
+        // "something in this session is wrong by construction", and this check's whole design rests on
+        // the distinction: the admission is carried forward across a retained course because the
+        // producer's `Admitted` list persists, which is a reading of the producer rather than a record
+        // of the tick. A sentinel planted `bool observed = true` in place of the gate on 22 September
+        // 2026 and the suite stayed green at 55 groups, because every arm here held an observed record.
+        //
+        // The fixture also holds the second half: the admission is published on a tick no payload
+        // shares, which is what 230 of that capture's 468 admission ticks look like. It must still be
+        // carried, or nearly half the census the finding's numbers rest on is silently the previous one.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 101, ("target-capture-missing", 12)),
+            Refusal(3, 102, ("target-capture-missing", 12)),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Length == 1, $"the check reported {found.Length} finding(s) on a carried-only contradiction rather than one");
+            Require(found[0].Severity == Severity.Potential,
+                $"a contradiction no single record carries was graded {found[0].Severity} — every decision here was read against an "
+                + "admission carried forward from an earlier occurrence, so the finding is an inference and grading it Definitive "
+                + "asserts by construction what the record only implies");
+            Require(found[0].Detail.Contains("0 of those records carried the admission and the refusal in one record", StringComparison.Ordinal),
+                "the finding claimed an observed record on a fixture that holds none: " + found[0].Detail);
+            Require(found[0].Rows == 2, $"the carried-only finding counted {found[0].Rows} decision(s) rather than the two the fixture holds");
+        });
+
+        // **A retained course traces a record per tick, so records are not decisions.** Where the
+        // capture carries `choice_id` the finding counts identities and names the records beside them;
+        // the three records here are two decisions, and saying "3 decision(s)" is the inflation every
+        // hand reading of the 22 September 2026 capture inherited — its 842 combat records are 555
+        // decisions, and its 6,299 refusals are a tally republished rather than distinct orders.
+        {
+            string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+            try
+            {
+                File.WriteAllText(tsv, "# schema=0.44.0\ntick\tchoice_id\n100\t7\n101\t7\n102\t8\n");
+                File.WriteAllLines(events, new[]
+                {
+                    Marker(0, "session"),
+                    Admission(1, 100, ("combat", 3)),
+                    Refusal(2, 100, ("target-capture-missing", 12)),
+                    Refusal(3, 101, ("target-capture-missing", 12)),
+                    Refusal(4, 102, ("target-capture-missing", 12)),
+                    Marker(5, "session-end"),
+                });
+                Finding[] found = Run(Session.Load(tsv));
+                Require(found.Length == 1, $"the check reported {found.Length} finding(s) on the identity-keyed fixture rather than one");
+                Require(found[0].Detail.Contains("2 decision(s), traced over 3 record(s)", StringComparison.Ordinal),
+                    "the finding counted traced records as decisions — three records under two `choice_id` values are two decisions, and "
+                    + $"conflating them is how a republished refusal tally reads as fresh orders: {found[0].Detail}");
+                Require(found[0].Detail.Contains("as recorded", StringComparison.Ordinal)
+                    && found[0].Detail.Contains("upper bound on distinct orders", StringComparison.Ordinal),
+                    "the finding stated its refusal total without saying it counts refusals as traced, so a reader takes a republished "
+                    + $"tally for a count of distinct orders: {found[0].Detail}");
+            }
+            finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+        }
+
+        // A census that admitted nothing usable is not contradicted by any number of refusals, which is
+        // the whole load-bearing half: refusals alone are a search doing its job.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("combat", 0)),
+            Refusal(2, 100, ("target-capture-missing", 12)),
+        }, session => Require(Run(session).Length == 0,
+            "a domain admitted with nothing usable was reported as contradicting its binder"));
+
+        // A refusal no binder in the table owns is attributed to nothing.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 100, ("budget-cut", 12)),
+        }, session => Require(Run(session).Length == 0,
+            "a refusal reason outside the reader's own binder table was attributed to a domain anyway"));
+
+        // Two assistance domains usable at once: the reason names the binder, not the site, so the
+        // refusal cannot be attributed to one of them and the finding has to say so.
+        Drive("0.44.0", new[]
+        {
+            Admission(1, 100, ("collect-target", 4), ("light-target", 2)),
+            Refusal(2, 100, ("assistance-target-unresolved", 16)),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Length == 2, $"two usable assistance domains behind one refusal produced {found.Length} finding(s) rather than one each");
+            Require(found.All(f => f.Detail.Contains("cannot be attributed to", StringComparison.Ordinal)),
+                "an unattributable refusal was reported as if it named its domain");
+        });
+
+        // The recorder's own tripwire, from the other side of the decision: agreement is stated, and a
+        // domain it fired on that this reader found nothing in is its own finding.
+        Drive("0.45.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 100, ("target-capture-missing", 12)),
+            Violation(3, 100, "combat:target-capture-missing:Unresolved"),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Length == 1 && found[0].Detail.Contains("the two instruments agree", StringComparison.Ordinal),
+                "the reader did not state its agreement with the recorder's own tripwire: " + string.Join(" | ", found.Select(f => f.Title)));
+        });
+        Drive("0.45.0", new[]
+        {
+            Admission(1, 100, ("combat", 3)),
+            Refusal(2, 100, ("target-capture-missing", 12)),
+            Violation(3, 100, "collect-target:assistance-target-unresolved:Unresolved"),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Require(found.Any(f => f.Title.Contains("tripwire named", StringComparison.Ordinal)),
+                "the tripwire naming a domain this reader found nothing in was not reported as the instruments disagreeing");
+            Require(found.Any(f => f.Detail.Contains("did **not** fire for combat", StringComparison.Ordinal)),
+                "a finding whose domain the tripwire never named claimed corroboration it does not have");
+        });
+
+        // A capture older than the two fields skips by name through the runner rather than reading a
+        // clean run, and the runner is what has to skip it.
+        Drive("0.41.0", new[] { Admission(1, 100, ("combat", 3)), Refusal(2, 100, ("target-capture-missing", 12)) },
+            session => Require(Program.Evaluate(session).Skipped.Any(s => s.Name == new ACensusAdmissionSurvivesItsBinder().Name),
+                "a capture from before the census admissions existed was graded rather than skipped by name"));
     }
 
     private static void CourseDecisionsAreReadCheckedAndNarrated()
@@ -1381,6 +2001,60 @@ public static class ChronicleTests
         finally { foreach (string file in files) File.Delete(file); }
     }
 
+    /// <summary>
+    /// The report prints one line per class of finding with its count, never one per occurrence.
+    ///
+    /// <para>The 22 September 2026 capture closed on "1089 definitive issue(s)" under a header reading
+    /// "DEFINITIVE ISSUES (8)": the header counted folded lines and the closing line counted raw
+    /// findings, and the eight real findings of that session were underneath 1,089 repetitions of two.
+    /// The three arms here are the three ways that can go wrong — a class not folding, a class folding
+    /// that should not, and one check's many classes flooding the report — and the fourth asserts that
+    /// the count a folded line carries is the occurrence count rather than the line count.</para>
+    /// </summary>
+    private static void FindingsFoldToOneLinePerClassCarryingItsCount()
+    {
+        Finding One(string check, string title, int tick, string? cls = null)
+            => new(Severity.Definitive, check, title, "detail", tick, tick, 1, cls);
+
+        var repeated = Enumerable.Range(1, 300).Select(t => One("one check", "the same contradiction", t)).ToArray();
+        var folded = Program.Fold(repeated);
+        Require(folded.Count == 1, $"300 occurrences of one class printed {folded.Count} line(s) rather than one");
+        Require(folded[0].Rows == 300, $"the folded line carried {folded[0].Rows} row(s) rather than the 300 it folded");
+        Require(folded[0].FirstTick == 1 && folded[0].LastTick == 300, "the folded line lost the span its occurrences covered");
+        Require(folded[0].Title.Contains("300×", StringComparison.Ordinal), "the folded line's title does not carry its count");
+
+        // Two findings of one check whose titles differ only in a number are one class and must not be
+        // folded at two, because two paragraphs of real numbers beat one paragraph of a count.
+        var pair = Program.Fold(new[]
+        {
+            One("one check", "projectile type 1 lands a median 21 updates late", 5),
+            One("one check", "projectile type 3 lands a median 12 updates late", 9),
+        });
+        Require(pair.Count == 2, $"two occurrences of one class folded into {pair.Count} line(s) rather than staying two");
+
+        // Digits are masked, so a class differing only in its numbers folds; a name is not a digit, so a
+        // class differing in a word does not.
+        Require(Program.ClassOf(One("c", "525 ticks with nothing fired", 1)) == Program.ClassOf(One("c", "238 ticks with nothing fired", 1)),
+            "two findings differing only in a count were read as two classes");
+        Require(Program.ClassOf(One("c", "the selected combat carried a Deferred offer", 1)) != Program.ClassOf(One("c", "the selected collect carried a Deferred offer", 1)),
+            "two findings differing in an activity name were read as one class");
+
+        // A declared class overrides the title, which is how a check that fires per tick folds even
+        // when its title carries the identity that changed.
+        Require(Program.Fold(new[] { One("c", "from combat to keep-company", 1, "the activity changed"),
+                                     One("c", "from collect to keep-company", 2, "the activity changed"),
+                                     One("c", "from mine to keep-company", 3, "the activity changed"),
+                                     One("c", "from chop to keep-company", 4, "the activity changed") }).Count == 1,
+            "four occurrences sharing a declared class did not fold to one line");
+
+        // Ten genuinely different classes from one check are capped, so no check can flood the report.
+        var many = Enumerable.Range(1, 10).SelectMany(n => Enumerable.Range(0, 4)
+            .Select(k => One("one check", $"class {(char)('a' + n)} fired", n * 10 + k))).ToArray();
+        var capped = Program.Fold(many);
+        Require(capped.Count == 7, $"ten classes from one check printed {capped.Count} line(s) rather than six and a tail");
+        Require(capped.Sum(f => f.Rows) == 40, "the capped report lost occurrences rather than counting them");
+    }
+
     private static void ASelectionChangesOnlyWithANewComparison()
     {
         string file = Path.GetTempFileName();
@@ -1396,6 +2070,80 @@ public static class ChronicleTests
                 "a label that changed under one comparison identity was not reported");
             Require(Read("0\t-\t0\n1\tmine\t1\n2\thunt\t2\n").Length == 0, "a label changed by a new comparison was reported");
             Require(Read("1\tmine\t5\n2\t-\t0\n3\t-\t0\n").Length == 0, "a respawned brain restarting its identities was reported");
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>
+    /// The two checks whose producer the course brain replaced, graded by the schema the capture
+    /// declares rather than by the column names, which did not move.
+    ///
+    /// <para>Both rules restate the family chooser's guarantees, and both were still Definitive on the
+    /// 22 September 2026 capture: 875 findings that a selected keep-company carried a
+    /// <c>not-compared</c> offer, and 214 that an activity changed under one comparison identity. Since
+    /// schema 0.44.0 <c>&lt;activity&gt;_offer</c> is the course's census admission and
+    /// <c>ReadCourseWorthPerActivity</c> writes <c>not-compared</c> for an activity the course mints no
+    /// domain for; since 0.43.0 <c>choice_id</c> is the course's decision identity, which a changing
+    /// activity does not contradict. Neither column changed name or position, so the schema line is the
+    /// only witness there is and every arm below turns on it.</para>
+    ///
+    /// <para>The skip arms go through <see cref="Program.Evaluate"/> rather than asking the check,
+    /// because asking the check proves nothing about the runner — the same reason the revived combat
+    /// check's own coverage arm does.</para>
+    /// </summary>
+    private static void TheCourseErasChecksReplaceTheChoosersAtTheirSchema()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            Session Load(string schema, string rows)
+            {
+                File.WriteAllText(file,
+                    $"# schema={schema}\n# text_columns=action,keep-company_offer,combat_offer\n"
+                    + "tick\taction\tchoice_id\tchoice_fresh\tkeep-company_offer\tcombat_offer\n" + rows);
+                return Session.Load(file);
+            }
+
+            // Keeping company selected while its own offer reads the word the course writes for an
+            // activity it mints no domain for.
+            const string companyRows = "1\tkeep-company\t7\t1\tnot-compared\tUsable:-\n2\tkeep-company\t7\t0\tnot-compared\tUsable:-\n";
+            var offer = new SelectedActivitiesHadAnEligibleOffer();
+            Require(offer.Run(Load("0.43.0", companyRows)).Count() == 1,
+                "a not-compared offer under the chooser's own schema was not reported");
+            Require(!offer.Run(Load("0.44.0", companyRows)).Any(),
+                "a not-compared offer was still a contradiction on a capture whose offer column is the course's census admission");
+
+            // What stays a contradiction at that schema: a bound step in a domain the same decision's
+            // census had itself proved unusable.
+            Finding[] unusable = offer.Run(Load("0.44.0",
+                "1\tcombat\t7\t1\tnot-compared\tKnownUnusable:no-admissible-target\n")).ToArray();
+            Require(unusable.Length == 1 && unusable[0].Severity == Severity.Definitive,
+                "a selected activity whose own census read KnownUnusable was not reported on a course capture");
+
+            // The activity changing inside one identity: the chooser's rule on an older capture, the
+            // course's on a newer one, and the runner is what decides which.
+            const string flickerRows = "1\tcombat\t7\t1\tnot-compared\tUsable:-\n2\tkeep-company\t7\t0\tnot-compared\tUsable:-\n"
+                + "3\tcombat\t7\t0\tnot-compared\tUsable:-\n4\tkeep-company\t7\t0\tnot-compared\tUsable:-\n";
+            string Chooser = new ARetainedChoiceKeepsItsSelection().Name, Course = new TheBoundActivityHoldsWhileOneDecisionRuns().Name;
+
+            var older = Program.Evaluate(Load("0.42.0", flickerRows));
+            Require(older.Skipped.Any(s => s.Name == Course) && !older.Skipped.Any(s => s.Name == Chooser),
+                "on a chooser-era capture the course rule ran and the chooser rule was skipped, which is backwards");
+            Require(older.Findings.Count(f => f.Check == Chooser && f.Severity == Severity.Definitive) == 3,
+                "the chooser rule did not report each label move on a capture it still grades");
+
+            var newer = Program.Evaluate(Load("0.44.0", flickerRows));
+            Require(newer.Skipped.Any(s => s.Name == Chooser) && !newer.Skipped.Any(s => s.Name == Course),
+                "on a course-era capture the chooser rule was not skipped by name, or the course rule did not run");
+            Finding[] bound = newer.Findings.Where(f => f.Check == Course).ToArray();
+            Require(bound.Length == 1, $"the course rule reported {bound.Length} finding(s) rather than one for the whole session");
+            Require(bound[0].Rows == 3, $"the course rule counted {bound[0].Rows} transition(s) rather than the three the fixture holds");
+            Require(bound[0].Severity == Severity.Potential,
+                $"the course rule graded the change {bound[0].Severity} — the row cannot say whether the decision was settled, so it is not a contradiction");
+            Require(bound[0].Detail.Contains("combat→keep-company 2×", StringComparison.Ordinal),
+                "the course rule did not name which activity change it counted");
+            Require(!newer.Findings.Any(f => f.Check == Chooser),
+                "a skipped check still contributed findings");
         }
         finally { File.Delete(file); }
     }
@@ -2117,8 +2865,14 @@ public static class ChronicleTests
                 var (findings, skipped, _) = Program.Evaluate(session);
                 string html = Path.Combine(Path.GetTempPath(), $"aic-damaged-{Guid.NewGuid():N}.html"); files.Add(html);
                 WritePlaytestHtml.Write(html, new[] { tsv });
+                // Every reader the ordinary report prints, including the two pages added on 22 September
+                // 2026: a page that throws on a cut row takes the whole report down with it, and a
+                // damaged capture is the ordinary case rather than the exotic one. The parity table is
+                // pointed at the repository's own README, which is what a run from the root sees.
                 string text = DescribeSession.Of(session) + DescribeGodsEyeEvents.Of(tsv, true) + JoinAttemptEvidence.Describe(tsv, session, true)
-                    + Chronicle.Of(session, true) + MultiRunReport.Of(new[] { tsv });
+                    + Chronicle.Of(session, true) + MultiRunReport.Of(new[] { tsv })
+                    + WriteCourseTimeline.Of(session, true)
+                    + WriteBehaviourParity.Of(session, findings, skipped);
                 return (findings.ToArray(), skipped, text);
             }
             void NoContradiction(string variant, Finding[] findings)

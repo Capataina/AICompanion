@@ -103,6 +103,21 @@ public static class EmitLedgerRows
     public const string ProductionAllowancesTag = "production-allowances";
 
     /// <summary>
+    /// A measure whose value is one draw from a distribution rather than a property of the tree:
+    /// a run that keeps the wall clock, a play-measures run over a live-staged scene, anything
+    /// whose number would differ on a second run of the same commit. The scoreboard prints such a
+    /// measure's delta and does not call it drift, because a difference between two samples is not
+    /// evidence that anything moved.
+    ///
+    /// It carries no number on purpose. A tolerance would be a pass line, and a measure graded
+    /// against a threshold nobody declared is exactly what this schema refuses — so the tag says
+    /// which question the delta cannot answer, and leaves the answering to whoever declares a
+    /// pass line in the plan. The noise band from repeats is still computed and still printed,
+    /// because repeats of one commit are the honest way to bound a sample and a tag is not.
+    /// </summary>
+    public const string SampledTag = "sampled";
+
+    /// <summary>
     /// What an instrument does to the process before each case: put every static a case can reach
     /// back to a known state, and set the wall-clock allowances for the regime this case asked for
     /// (the argument is true where the case keeps the production allowances).
