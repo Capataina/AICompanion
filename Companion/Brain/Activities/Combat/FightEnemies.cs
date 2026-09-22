@@ -116,18 +116,23 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// <c>activity-exited</c>, 483 course releases <c>next-use-invalid:accepted-use-not-present</c>, and
     /// twenty shots in a minute.
     ///
-    /// The committed plan comes first because it is the thing the body is already performing and its
-    /// stand was priced by a decision that finished. The offered plan is second and is the opener the
-    /// plan's own sentence asks for — a mechanically available shot established before deeper search,
-    /// which the <c>G04 retained opener</c> row proves combat produces even under a cut. Null when
-    /// neither exists, and the caller then keeps the player company, which is the honest answer when
-    /// there is nothing to continue.
+    /// **Only a committed plan continues, never a prepared offer**, and that narrowing is the rule rather
+    /// than a conservative reading of it: a decision in flight may continue a fight the body is already
+    /// committed to and may never start one. An offer is a shot nobody took, so continuing it would
+    /// select combat on tick N for a fight no course ever chose; <see cref="Prepare"/> computes
+    /// <c>running</c> before selection, so tick N+1's preparation would then <c>CommitAndRecord</c> that
+    /// plan, and the moment the decision settled on anything else the commitment would be released
+    /// <c>activity-exited</c> — the same loop this property exists to close, re-entered from the other
+    /// end. The offered branch was written first and removed by review on 22 September 2026; it was also
+    /// unreachable, with no scene in the suite able to enter it (instrumented over the whole default
+    /// table: unsettled ticks 0, opener fired 0). Null when nothing is committed, and the caller then
+    /// keeps the player company, which is the honest answer when there is nothing to continue.
     /// </summary>
     public PositionRequest? Continuation
     {
         get
         {
-            AttackPlan? plan = combat?.Planner.Committed ?? OfferedPlan;
+            AttackPlan? plan = combat?.Planner.Committed;
             if (plan == null || plan.Segments.Length == 0) return null;
             return new PositionRequest(RequestKind.FireFrom, plan.Current(PlanTick).Stand.Stand, PlanTarget(plan));
         }

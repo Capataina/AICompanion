@@ -506,10 +506,15 @@ public sealed class DecideCourseEachTick
     /// effect that never arrived would be distinguishable afterwards, and that distinction lives in what
     /// gets written here.
     ///
-    /// The fields are chosen so the four states that look identical from outside can be told apart, and
-    /// all four ask the body to keep the player company: the course is running, the course found nothing
-    /// worth doing, the brain has not finished deciding, and a proposal was refused publication. The
-    /// reason separates them; the order counts and refusal tally say what the search did to get there.
+    /// The fields are chosen so the four unpublished states that look identical from outside can be told
+    /// apart: the course is running, the course found nothing worth doing, the brain has not finished
+    /// deciding, and a proposal was refused publication. Three of the four ask the body to keep the
+    /// player company. **The deciding state no longer always does**, since 22 September 2026: it asks
+    /// combat for a continuation first and carries that plan's own stand when one exists, because
+    /// selecting companionship mid-decision exits a running fight and releases its committed plan. So a
+    /// reader distinguishing these states by the *request* will merge deciding with combat on exactly
+    /// the ticks that matter; the reason string is what separates them, and the order counts and refusal
+    /// tally say what the search did to get there.
     /// </summary>
     private CourseDecision Trace(CourseDecision decision)
     {
