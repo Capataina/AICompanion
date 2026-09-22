@@ -4,18 +4,25 @@ This is instrument 3 of the God's View plan. The other two ask whether one mecha
 
 **What it exists for is the player moving.** A fixture rebuilds a scene and holds the player still at one position, so a decision that depended on the player travelling — a reunion, an overtaking flight, a follow that gave up — cannot be reproduced there at all. Here the player is placed at the position *and velocity* the recording holds for each tick, which is the whole difference. The velocity is not redundancy: following reads the player's predicted feet from velocity rather than from the gap between two observed positions, so a player moved by position alone reads as somebody standing still in a new place every tick, and every follow decision downstream is made against a player who never travels.
 
+**Since 22 September 2026 the world the player moves through has the recording's own things in it**, and that is the second difference. Until then every recorded journey was replayed through an empty world — no hostile, no drop, this process's own settings — so not one combat decision and not one collection decision reproduced here, whatever the session held, and the only fight the instrument could ask about was a frozen zombie it staged for itself. The play-measures run places what the events sidecar names, at the ticks it names them, under the settings the capture recorded, with the game's own millisecond allowances left standing; it is a separate command from the two runs above and the rest of this file says why each of those three is necessary.
+
 ```
 WorldRun/
 ├─ CLAUDE.md                    this guide
 ├─ WorldRun.csproj              the mod under the `live` alias, plus the ledger's row writer as a source file
 ├─ Program.cs                   library resolution and the save-path redirect, before anything touches Main
-├─ WorldRunEntry.cs             the flag table, the skip paths, and what one run prints
+├─ WorldRunEntry.cs             the flag table, the skip paths, the play-measures command, and what one run prints
 ├─ LoadTheSavedWorld.cs         a real .wld into Main.tile, without the loader machinery
-├─ PrepareTheHeadlessEngine.cs  tile tables, loader hooks, the light engine, the companion, the reset
-├─ ReadRecordedRoute.cs         a capture read as a player track and two declared kits
-├─ RunTheWorld.cs               the tick loop, and what it records about every tick
+├─ PrepareTheHeadlessEngine.cs  tile tables, loader hooks, entity and string tables, the light engine, the companion, the mod instance, the reset
+├─ ReadRecordedRoute.cs         a capture read as a player track, two declared kits, and the header's settings line
+├─ ReadRecordedActors.cs        the same capture's events sidecar read as a cast: hostiles, drops, settings, the last credited kill
+├─ StageRecordedActors.cs       that cast put into the world and taken out of it, and how a placed hostile moves
+├─ ApplyTheRecordedPreferences.cs  the companion's settings taken from the session rather than from this process
+├─ AttachTheRecorder.cs         the mod's own recorder, writing a capture marked synthetic where no reader of real ones looks
+├─ RunTheWorld.cs               the tick loop, what it records about every tick, and the per-tick decision record the play measures read
 ├─ RunTheScenario.cs            a committed scenario window played in its world: the grid checked against the tiles, the orb flown to a standing player
 ├─ ScoreTheRun.cs               determinism, the recorded comparison, the checkpoint matrix
+├─ GradeThePlayMeasures.cs      three verdicts and twelve measures over one production-clock pass
 └─ ExploreWithoutTheTrack.cs    Go-Explore over body poses, with the reach sense as the progress score
 ```
 
@@ -26,6 +33,47 @@ The player is placed from the recording. The world clock advances, because the b
 The planner claim is asked *after* the tick rather than before, because the reach flood is advanced by the positioner's resolve rather than by the senses' own update, so asking first reads the previous tick's region under the previous tick's rules.
 
 **The tick's engine half is the position update alone, not `NPC.UpdateNPC`.** A full engine update would run the NPC's AI a second time, applying the same controls twice; and there is no collision half to run, because the orb's contact is the mod's own and has already run inside the motor. The one thing the engine does to the orb's velocity before adding it is zero a horizontal component under a two-hundredth of a pixel, and `AdvanceTheNativeBody` reproduces that snap, because a harness half that omits it drifts from the live body by a sub-pixel a tick and a determinism trace compared against a capture would carry the drift. That is the property the walker's world run never had — its engine half was the game's collision, a second body the motor's prediction had to be measured against — and it is why a divergence here is a divergence in the brain rather than in a physics the brain did not write.
+
+## The recorded scene: what is placed, what is held, and what nobody can place
+
+Three things come out of the events sidecar beside a capture, and each is placed only because an occurrence names it. Nothing is inferred: a zombie drops loot in the real game every time, and a drop invented from a death would be a heuristic running underneath the thing being measured, so a drop exists here only where a collection funnel or a pickup saw one.
+
+```
+hostiles     every `npc-spawn` that is not the companion, at its own tick, in its own engine slot,
+             at the centre and life it recorded; retired at the `npc-death` that names it
+drops        every `candidate-funnel` labelled `collect`, whose entries are
+             `item<slot>:<type>@<tileX>,<tileY>[stack=N]`, plus every `pickup`, which is both a
+             retirement and a sighting of its own with the item's exact centre
+settings     the `configuration` occurrence's own preference set, which outranks the header
+```
+
+**The slot is kept rather than reassigned.** `NPC.NewNPC` takes the lowest free slot, and the brain and the recorder both key an actor on its slot, so a reader comparing this run against the capture that produced it would be comparing two different numbering schemes. A slot the session reused — and the capture of 22 September uses slot 5 three times — falls out of the same rule, because the first occupant's recorded death has already passed when the second spawns.
+
+**A drop's identity is one occupancy of a slot by a type, not the pair itself.** The pair alone is wrong and it is wrong in the direction that loses the drops that matter: generation cannot do the cutting, because `RecordItemSpawn` is what advances an item's generation and it did not run for every drop in that capture, so slot 1 carried generation 1 through two different items — and grouping without cutting at the pickups merged the drop still lying on the floor at the end into one collected three hundred ticks earlier. The tail's only nameable drop vanished, silently, into a `TakenTick` in the past. So the sightings of one slot-and-type are cut into episodes at the pickups between them.
+
+**A drop from a funnel is within eight pixels and one from a pickup is exact**, because the funnel writes the item's tile and the pickup writes its centre. The row says which.
+
+**The recording is the authority on presence and the engine is the authority only on motion.** A placed actor is held at its recorded life and for its recorded lifetime, against two things the engine would otherwise do to it. A surface zombie in daylight sets its own `timeLeft` to ten and leaves — measured here, every placed zombie gone exactly ten ticks after it was placed — because the saved world's clock is not one of the fields `LoadTheSavedWorld` carries, so this host runs at whatever time of day `Main`'s static initialiser left. And a staged actor that dies inside the engine reaches `NPC.NPCLoot_DropItems`, which reads the item drop database this host deliberately does not build. Letting the engine decide presence would replay a scene the session never had, and it would do it silently, because a despawned hostile and a hostile the brain never noticed look identical in every row.
+
+**Native motion is the game's own `NPC.UpdateNPC`, and one actor that throws retires alone.** The alternative — the whole run falling back to a synthetic walk — was tried and is worse: on the whole-capture replay exactly one actor threw, a firefly that sets its own life to minus one in daylight, and switching the run because of it replaced the game's AI for six other hostiles with a straight line. The retirement is counted and the first one's top stack frames travel in every row, so it is a number rather than a silence. `--hostile-motion=synthetic` is the manual escape and every row taken under it says the word.
+
+**Two things about the scene are honestly poorer than the play, and both are in the rows.** The mod's hostile-targeting hook is not dispatched in this host — the loader hook arrays are swept empty except the four tile-edit announcements — so hostiles aim at the replayed player rather than at the companion. And the sidecar names fewer drops than the session's own `loot` column counted: on the capture of 22 September it names one drop still lying on the floor at the end against a column reading three, because a drop that lay there all session without a funnel change or a pickup is in the count and nowhere else. The shortfall is its own measure row rather than prose, so a scene that is thinner than the play it reproduces cannot read as an equal one.
+
+**The settings come from the occurrence and not from the header, and the two disagree.** The capture of 22 September declares `chopping=Opportunistic` in its header and `chopping=Mimic` in the occurrence its first tick wrote, and every census line of that session reads `mimic-awaiting-player-tree-contact`, which is Mimic. The first replay took this process's default and spent the tail of the run chopping trees the play never touched: two of its three verdict rows passed, and they passed because the companion had a whole job the session did not give it. The disagreement is reported in every row rather than resolved silently, because a header that lies is a recorder defect somebody should fix.
+
+## What a host with no game startup was still missing, found by having a drop to pick up
+
+The three classes of headless absence below were each found by a behaviour reaching them. Staging drops reached four more in one evening, all on the path `CompanionNPC.CollectTouchedItems → CompanionInventory.Collect → Player.GetItem`, and they are listed together because the lesson is the path rather than any one of them: **a behaviour this instrument had never performed is a stretch of the engine nobody here has ever run.**
+
+```
+Main.popupText              walked and dereferenced unguarded by PopupText.NewText
+Main.showItemText           left on, that walk measures text with fonts nothing here loads
+Lang.prefix, Lang._*Cache   Item.AffixName reads Lang.prefix[0] before deciding there is no prefix
+Main.recipe, guideItem, …   Player.GetItem ends in Recipe.FindRecipes, which is the screen's list
+ModContent.GetInstance<AICompanion>()   the coin pickup logs one line per coin through it
+```
+
+Two of those are closed by construction rather than by name, for the reason the loader hook sweep is: every static `LocalizedText[]` on `Lang` is filled rather than the three that were met, and every entity array is walked and any null slot named. The rest are one line each with the reason at the line. The mod instance is registered rather than handed around, because production reaches for it by type; it is also what gives the recorder somewhere to log, and log4net is configured to the console at `Warn`, because `BrainTelemetry.OnWorldLoad` catches everything it throws and writes the reason to `Mod.Logger.Error` — with no appender, a recorder that could not open is a capture with no rows and no explanation anywhere.
 
 ## The world source
 
@@ -107,6 +155,42 @@ One number in the same run is worth keeping for a different reason: the body sto
 
 `--scenario=<file>` plays a committed window from `Tools/Scenarios/` instead of a recorded route: the world is loaded, the header's `player` tile puts the player standing still on it, the header's `orb x,y` places the companion, and the brain runs for a fixed number of ticks with the light engine driven. Before the loop the window's grid is compared with the world tile for tile, solid against air, because the grid is the recording's picture of the ground and the run uses the world's, and a divergence between them is a fact about the terrain that the reach row must not be charged for. The rows are the agreement count, the ticks until the orb first came within following's vertical comfort of the player and until it first entered his region, with the closest distance and the minimum wall clearance it flew at, and the pass line: the orb reaches the player from where the recording left it, judged as its centre inside the player's region by the region's own geometry, entered at some tick and held on at least a quarter of the run, because a window that starts the orb close under the region is grazed on the way out by an orb that never rejoins. A second pass line, that the orb never touched water or lava, went on 15 September 2026 when every liquid became air to the orb. Reaching was once judged as coming within following's vertical comfort of his feet, which held while keeping company flew to a spot beside him; an orb that moves about the whole region is with him anywhere inside it, and on the water pocket after main's lanes merged it was inside the region on most of its ticks while never passing that close to his feet, so the distance stays a measure and stopped being the pass line. `sh Tools/verify.sh` plays the two windows from the last walker play this way, the statue ledge and the water pocket, and a rerun of a red scenario row is by hand with the same flags, because `--rerun-red` dispatches through the recorded route's command.
 
+## The play measures, and why they are a third command rather than more rows on the first
+
+`--play-measures` reproduces the morning of 22 September 2026: one minute in world Lilalio in which the companion, with five to seven hostiles in reach and three drops on the floor, did nothing whatever for the last 524 ticks. Every decision of that stretch printed the contradiction side by side — the domain census admitting three combat and four collection opportunities as *usable*, the order search refusing all twenty-eight orders built from them with twelve `target-capture-missing` and sixteen `assistance-target-unresolved`, and the empty order the only thing left to price. Both refusal strings are one predicate in source: the target fact's evidence is not `Observed`.
+
+It is its own command for three reasons and each of them would break a row if it were folded into the runs above. **The clock**: those runs lift the planning allowances so two passes are comparable at all, and this one keeps them, because the brain a player met was one being cut by its deadline and a run given all the time it wants grades a brain nobody has played. **The pass count**: one, not two, which is what keeps a whole capture to about half a minute. **The scene**: the hostiles, the drops and the recorded settings, none of which the other two runs want.
+
+Three of its rows are verdicts and the rest are measures, and the split is a judgement about what can be wrong rather than about what is easy to assert.
+
+```
+verdict   no order is refused for a target its own observation admitted
+          the conjunction is the point: a refusal alone is ordinary, a census admitting usable work
+          alone is ordinary, and the two inside one frozen observation say two readers of one store
+          disagreed. There is no scene in which that is correct, so it is a pass line
+
+verdict   work the census admits becomes a bound step within three seconds
+          the longest unbroken run of ticks with usable work admitted and no step bound. 180 ticks,
+          and deliberately the same 180 ScoreTheRun already gives combat to take the body once a
+          hostile stands beside the route — the two are one question from opposite sides, and a
+          second number would be two pass lines drifting apart about one behaviour
+
+verdict   the hands fire again after the last recorded kill while hostiles stand
+          the window opens at the tick the recording last credited the companion a kill, which is
+          the moment the play's companion stopped fighting and never started again. It is a floor —
+          one shot in five hundred ticks satisfies it — so the share that fired is a measure beside it
+
+measure   the empty-course share, the admitted-and-stepless share, orders refused per tick and by
+          reason, decide and whole-brain cost at p50 and p99, second-generation collections, the
+          share of post-kill ticks that fired, and the drops this schema could not name
+```
+
+**A scene with nothing in it passes all three verdicts, so it skips them instead.** A capture whose events sidecar is missing replays the player's track through an empty world, and the sidecar is the half of the input easiest to lose because `Telemetry/` is gitignored and a capture is often copied as one file. With no hostile and no drop named, the three verdicts are skipped with that reason and the measures still run.
+
+**What the reproduction actually reproduces, measured at `013aa03`** on the whole capture, one pass, machine otherwise building: the refusal contradiction, fully and in the right place — 1,191 of 2,340 ticks, first at recorded tick 827 against the play's 829, and the only two refusal reasons in the whole run are the play's two. The stall, as a class but not in the play's place — the longest stepless stretch is 627 ticks from tick 866 where the play's was 524 from tick 1,817, so the row is red for the right property at the wrong moment, because the run diverges from the recording long before the tail. The silence, not at all: the run fires three ticks in the 524 after the recorded last kill, 0.57%, where the play fired none, so that verdict is green and its share measure is the honest reading of it.
+
+**None of the three has been seen green for a good reason yet, and the two-sided evidence is thin.** Each has been observed both ways on this tree, but the greens are all thin scenes: a 300-tick window from tick 1,700 passes the first two because its census admits almost nothing, which is the vacuous pass the empty-scene skip now catches for the empty case and does not catch for a merely poor one. A mutation proving the first row goes green when the defect is fixed needs the brain change itself, which lives outside this folder.
+
 ## Running it
 
 ```
@@ -116,7 +200,14 @@ dotnet run --project Tools/WorldRun -- --route=Telemetry/<stamp>.tsv --world=<pa
                                        [--passes=N]
 dotnet run --project Tools/WorldRun -- --scenario=Tools/Scenarios/<window>.txt --world=<path>.wld
                                        [--ticks=N] [--suite=<name>] [--no-light]
+dotnet run --project Tools/WorldRun -- --route=<capture.tsv> --world=<path>.wld --play-measures
+                                       [--ticks=0] [--print-play] [--record-to=<dir>] [--no-recorder]
+                                       [--hostile-motion=native|synthetic]
 ```
+
+**`--print-play` is the first thing to reach for when a play-measures row disagrees with the capture it was built from**, because a share is a summary and the question a red raises is always which ticks and what stood in the world while they happened — and a thin scene and a fixed brain produce the same number. It prints one line a tick: the course's reason, whether a step was bound, what the census admitted, what the search refused and why, how many hostiles and drops stood there, and what the decision cost.
+
+**`dotnet run --project Tools/WorldRun` fails on this tree with "No such file or directory"**, because the apphost is not built. Run the assembly: `dotnet Tools/WorldRun/bin/Debug/net8.0/WorldRun.dll -- …` with `DYLD_LIBRARY_PATH` at tModLoader's `Libraries/Native/OSX`. `Tools/verify.sh` uses the project form and works there, so this bites a hand run rather than the suite.
 
 **`--passes=N` is the diagnostic to reach for the moment two passes disagree**, and it answers the one question that decides where to look. If passes two and three are identical to each other and only the first differs, the cause is a one-time cold-pass effect — something lazily built, mutated once or warmed during the first run — and the search is for what the first pass does that no later pass repeats. If all of them differ, it is state that keeps growing. The row itself is still the first two passes, because that is what the plan asks of it.
 
@@ -134,8 +225,11 @@ Both inputs live outside the repository — `Telemetry/` is gitignored and a `.w
 - **A run that loads a world is heavy and says so.** The read itself is under a second, but the tilemap for a 6400x1800 world is a large allocation and the process holds it for the whole run.
 - **Timings from here are comparable only to others taken the same way**, which is the suite's standing rule: the per-tick cost varies several-fold across windows of the same capture, because it is dominated by how much route searching the window provokes.
 - **The census counts for the whole process**, so it is reset at the start of every pass. A report read after two passes without that reset is both passes summed.
-- **No recorder is attached and none is started.** A world run reports through ledger rows; a recorder left running would drop a synthetic session into `Telemetry/` beside the real captures, and nothing in the file would tell a later reader that nobody ever played it.
+- **A recorder runs on the play-measures command only, and its capture is quarantined twice over.** The reason the first eight months of this folder attached none was right — a synthetic session dropped into `Telemetry/` beside the real ones, with nothing in the file saying nobody played it, is a trap for every later reader — and the conclusion was one step too strong. Both halves are answered instead: the capture lands under a directory this run names (`--record-to=`, defaulting to a temporary one) which is outside the repository and outside the folder `SessionReport`, `CombatAudit` and `backfill-capture.sh` scan, *and* its header carries `synthetic=world-run;source-capture=<stamp>`. The marker goes in through the recorder's own metadata enqueue by reflection, and a missing enqueue is a refusal rather than a warning, because an unmarked synthetic capture is the whole hazard.
+- **A recorder attached too early writes a header and no rows, and says nothing about it.** `BrainTelemetry.OnWorldLoad` catches everything it throws and closes, so a failed open is a file of five header lines ending `recorder-initialization-failed` rather than an exception the caller sees. Its metadata reads the player's mount for the capabilities line, so opening before `AttachCompanion` builds `Main.player[0]` fails exactly that way — which is why the attach runs from `RunTheWorld.AfterTheCompanionIsAttached` rather than from the entry point, and why it checks afterwards that a recording is actually running. **The field to check is `diagnosticWriter` and not `writer`**: a *successful* open reserves the file through `writer`, hands the path to `FlushDiagnosticRecords.Start` and then disposes and nulls `writer` itself, so a check on that one refuses every healthy recorder there is.
 - **`Tools/verify.sh --rerun-red` reruns a recorded-route row through the route command, so a red scenario row reruns as a skip.** Rerun a scenario by hand with `--scenario=<file> --world=<wld>` and `--suite` unchanged.
 - **The recorded-route verdict from a window in the middle of a walker capture is a verdict about the walker's player track under the orb's brain.** From tick 5300 of the 20:00 capture the orb missed one of three checkpoints inside 300 ticks; the default slice from tick 1 reached all twenty in the body lane's worktree and missed four on the first merged tree of 15 September 2026, whose commit body carries the control. Neither is a regression or a pass line until an orb capture exists.
-- **Two things the plan names are not built here, and their absence is silent rather than loud.** The world source is the saved world only: the captured-terrain-windows fallback, for a capture whose world file is gone, files a skip instead — reasonable while the file exists, and it means a machine without the `.wld` gets no coverage rather than reduced coverage. And no hostile is placed from the capture on an ordinary run, so no combat decision reproduces there: every row of it describes a companion travelling in an empty world, whatever the recording held. The `--combat` variant is the exception rather than the fix: it stages its own frozen zombie at the player's recorded feet thirty steps ahead and retires it after five fired ticks, so its three rows grade the companion's decisions around a fight — winning, firing, rejoining — and never its lethality, which no headless tool simulates.
+- **The recorded route and the combat variant still run in an empty world, and only the play-measures command does not.** Placing the capture's hostiles and drops is `--play-measures`; the two runs above are unchanged and every row of theirs still describes a companion travelling past nothing, whatever the recording held. That is deliberate rather than pending: those rows are taken with the allowances lifted so two passes can be compared, and a scene full of actors under a lifted clock is a third regime nobody would be able to read a number in. The `--combat` variant stays what it was — its own frozen zombie at the player's recorded feet thirty steps ahead, retired after five fired ticks — so its three rows grade the companion's decisions around a fight and never its lethality, which no headless tool simulates.
+- **The world source is the saved world only**: the captured-terrain-windows fallback, for a capture whose world file is gone, files a skip instead — reasonable while the file exists, and it means a machine without the `.wld` gets no coverage rather than reduced coverage.
+- **The saved world is the state at the end of the session, and a play-measures run diverges from its recording long before the tail.** Both matter more here than on the rows above, because these rows are about a specific moment: the terrain the run reads is the terrain after everything the player mined during the capture, and the run's own companion makes different choices from the first hundred ticks on. So a row that reproduces a defect reproduces the *property* and usually not its place in the recording — the stall the play showed at tick 1,817 comes back at tick 866 here — and a row quoting a tick number is quoting this run's, never the play's.
 - **The companion-attach and engine-advance helpers are a second copy of `EngineReplay`'s.** The two projects do not reference one another and the plan's kit is meant to own these once; until it does, a change to how a fixture builds a companion does not reach this folder. The reset between passes mirrors `EngineReplay`'s `BeforeCase` by hand: the movement statics, the weapon knowledge, the firing ledgers, the experience credit, and the NPC and projectile slots switched off. The knowledge half arrived with the combat variant, whose first probe disagreed with itself at step 30 on fired-vs-cooldown at the same position — the second pass aiming with the first pass's learning.

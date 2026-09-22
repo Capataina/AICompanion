@@ -48,6 +48,32 @@ internal static class RunTheWorld
         /// <summary>How many ticks read fired, cumulative, which is what retires the zombie at five.</summary>
         int FiredTicks);
 
+    /// <summary>
+    /// One tick, as the play measures read it: what the course decided, what its discovery admitted,
+    /// what its ordering refused, what the tick cost, and what stood in the world while it happened.
+    ///
+    /// It is a plain record rather than a reach back into the brain because the grading is done
+    /// after the run, and a scorer that read live brain state would be reading the last tick's
+    /// answer for every row. Everything on it is public brain surface sampled at the one moment it
+    /// means what the row says it means.
+    /// </summary>
+    internal readonly record struct PlayTick(
+        int Tick,
+        string Reason,
+        string Activity,
+        bool HasStep,
+        bool Settled,
+        int UsableAdmitted,
+        int UnresolvedAdmitted,
+        int Refused,
+        IReadOnlyDictionary<string, int> Refusals,
+        double DecideMs,
+        double BrainMs,
+        int Gen2Collections,
+        bool Fired,
+        int HostilesAlive,
+        int DropsPresent);
+
     internal sealed record Outcome(
         IReadOnlyList<Vector2> CompanionCentres,
         IReadOnlyList<string> Trace,
@@ -89,7 +115,9 @@ internal static class RunTheWorld
         /// <summary>Ticks the reach flood read complete.</summary>
         int TicksReachComplete,
         /// <summary>The combat variant's fight record, or null on an ordinary run, which places no zombie.</summary>
-        FightTrace? Fight)
+        FightTrace? Fight,
+        /// <summary>One entry per tick for the play measures, always filled: the cost of keeping it is a struct a tick.</summary>
+        IReadOnlyList<PlayTick> Play)
     {
         /// <summary>
         /// One number standing for the whole run's decisions and positions, so two runs can be
@@ -131,6 +159,37 @@ internal static class RunTheWorld
     /// </summary>
     public static bool CombatVariant { get; set; } = false;
 
+    /// <summary>
+    /// The recording's own hostiles and drops, staged at their recorded ticks, or null for the
+    /// empty-world run every row before 2026-09-22 was taken in.
+    /// </summary>
+    public static StageRecordedActors? Actors { get; set; }
+
+    /// <summary>
+    /// Whether this run keeps the game's own millisecond allowances instead of lifting them.
+    ///
+    /// Every other row here lifts them, because a determinism or divergence comparison under a wall
+    /// clock is comparing two afternoons. The play measures are the exception and it is the whole
+    /// point of them: what a player met was a brain being cut by its deadline, so a run that gave
+    /// the brain all the time it wanted would be grading a brain nobody has ever played. A row taken
+    /// this way says <c>production-clock</c> in its mode and is comparable only to another taken the
+    /// same way.
+    /// </summary>
+    public static bool ProductionClock { get; set; } = false;
+
+    /// <summary>
+    /// Something to do once the companion exists and before the first tick.
+    ///
+    /// It exists for the recorder and the ordering is the whole reason. Attaching a recorder needs
+    /// a world *and* a player: its metadata reads the player's mount, wings and boots for the
+    /// capabilities line, and <c>Main.player[0]</c> is not built until <c>AttachCompanion</c> runs
+    /// inside this loop. Opening the recorder before that reads a null player, and the recorder
+    /// catches its own failure and closes — so the run produces a capture that is five header lines,
+    /// zero rows and <c>end=recorder-initialization-failed</c>, which looks from outside like a
+    /// recorder that was never asked for.
+    /// </summary>
+    public static Action? AfterTheCompanionIsAttached { get; set; }
+
     /// <summary>Which Main.npc slot the combat variant's zombie stands in. The companion is not in the array, so no slot collides.</summary>
     private const int ZombieSlot = 50;
 
@@ -150,7 +209,7 @@ internal static class RunTheWorld
         // machine is doing, and a run compared against another run under them is comparing two
         // afternoons. The fixtures that test the deadline itself are the exception, and this is not
         // one of them.
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = !ProductionClock;
         try
         {
             return PlayWithPlanningUnbounded(route, worldSource, seed);
@@ -182,6 +241,7 @@ internal static class RunTheWorld
 
         Player player = Main.player[0];
         if (DriveLight) PrepareTheHeadlessEngine.WarmTheLightEngine(player.Bottom.ToTileCoordinates(), LightHalfWidth, LightHalfHeight);
+        AfterTheCompanionIsAttached?.Invoke();
 
         // The combat variant's zombie, placed where the player will stand and retired by the
         // instrument. Re-placed every pass: the slot persists across passes in-process, and a pass
@@ -197,6 +257,8 @@ internal static class RunTheWorld
             zombie.whoAmI = ZombieSlot;
         }
 
+        Actors?.Reset();
+        var play = new List<PlayTick>(route.Count);
         var centres = new List<Vector2>(route.Count);
         var trace = new List<string>(route.Count);
         var claims = new List<live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict>(route.Count);
@@ -220,6 +282,14 @@ internal static class RunTheWorld
             player.Bottom = step.PlayerFeet;
             player.velocity = step.PlayerVelocity;
             player.dead = false;
+            // The recorded life, placed rather than simulated, for the same reason the velocity is.
+            // A staged hostile that reaches the replayed player takes his life down every tick and
+            // would kill him inside a few hundred ticks, and a dead player is a player the senses
+            // stop treating as somebody to keep company with — a difference this instrument would
+            // have introduced, not one the recording held.
+            if (step.PlayerLife > 0) player.statLife = step.PlayerLife;
+
+            Actors?.BeforeTheBrain(step.Tick);
 
             PrepareTheHeadlessEngine.AdvanceTheWorldClock();
             if (DriveLight) PrepareTheHeadlessEngine.DriveLightOnce(player.Bottom.ToTileCoordinates(), LightHalfWidth, LightHalfHeight);
@@ -243,8 +313,26 @@ internal static class RunTheWorld
                     + $"player at {player.Bottom.X:0},{player.Bottom.Y:0}", failure);
             }
 
+            // After the companion's own tick, because the engine updates NPCs in slot order and the
+            // companion is an early slot: the brain therefore decides against where each hostile was
+            // at the end of the previous tick, which is what it does in the game.
+            Actors?.AfterTheBrain(step.Tick, player);
+
             centres.Add(companion.NPC.Center);
             var brain = companion.Brain;
+            var course = brain.Course;
+            int usable = 0, unresolved = 0;
+            foreach ((string _, int domainUsable, int domainUnresolved, int _, string _) in course.Admitted)
+            {
+                usable += domainUsable;
+                unresolved += domainUnresolved;
+            }
+            play.Add(new PlayTick(step.Tick, course.Last.Reason, course.Last.Activity,
+                course.Last.Binding is not null, course.Last.Settled, usable, unresolved,
+                course.LastRefusals.Values.Sum(), new Dictionary<string, int>(course.LastRefusals),
+                brain.DecideMs, brain.TotalMs, GC.CollectionCount(2),
+                companion.Combat.LastFireOutcome == "fired",
+                Actors?.HostilesAlive ?? 0, Actors?.DropsPresent ?? 0));
             // Asked after the tick's resolve, because the reach flood is advanced by the
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.
@@ -295,6 +383,6 @@ internal static class RunTheWorld
             : new FightTrace(combatCurrent, fire, threatened, killStep, firedTicks);
         return new Outcome(centres, trace, claims, inside, connected, route.Count, clock.Elapsed.TotalSeconds, worldSource,
             light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer,
-            ticksOutsideKnownRadius, ticksReachComplete, fight);
+            ticksOutsideKnownRadius, ticksReachComplete, fight, play);
     }
 }

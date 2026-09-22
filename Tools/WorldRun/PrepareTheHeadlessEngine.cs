@@ -84,6 +84,13 @@ internal static class PrepareTheHeadlessEngine
         // Every slot taken, so a native strike's damage popup finds none free and returns rather
         // than measuring text with fonts nothing here loads.
         for (int i = 0; i < Main.combatText.Length; i++) Main.combatText[i] = new CombatText { active = true };
+        // The eighth of the class, found on 22 September 2026 when a world run first had a drop to
+        // pick up: a collected item reaches `Player.GetItem` → `PopupText.NewText`, which walks
+        // `Main.popupText` and dereferences every slot unguarded. The item popup is switched off
+        // below, which is what actually keeps that path out of a headless run, so this fill is the
+        // belt rather than the braces — and it stays, because the slot dereference is a property of
+        // the array and the switch is a property of one caller.
+        for (int i = 0; i < Main.popupText.Length; i++) Main.popupText[i] = new PopupText { active = true };
         // All 256 players exist because Player.FindClosest walks the whole array and reads .active
         // off every element, which WorldGen.KillTile_DropBait reaches on any tile break that could
         // drop bait — slot zero is then replaced by the stand-in the caller builds. These are a
@@ -95,17 +102,124 @@ internal static class PrepareTheHeadlessEngine
         foreach ((string name, System.Collections.IList slots) in new (string, System.Collections.IList)[]
                  { ("npc", Main.npc), ("projectile", Main.projectile), ("item", Main.item),
                    ("dust", Main.dust), ("gore", Main.gore), ("combatText", Main.combatText),
-                   ("player", Main.player) })
+                   ("popupText", Main.popupText), ("player", Main.player) })
             for (int i = 0; i < slots.Count; i++)
                 if (slots[i] == null)
                     throw new InvalidOperationException($"Main.{name}[{i}] is null after the headless fill; "
                         + "the engine dereferences these slots without a guard, so a run would throw from inside a game path");
     }
 
+    /// <summary>
+    /// Every string table localisation would have filled, filled with empty text.
+    ///
+    /// Nothing in this host loads localisation, so every entry of every one of <see cref="Lang"/>'s
+    /// tables is null — and the engine reaches them from places that have nothing whatever to do
+    /// with text. A collected item goes <c>Player.GetItem</c> → <c>PopupText.NewText</c> →
+    /// <c>Item.AffixName</c>, which dereferences <c>Lang.prefix[0]</c> before it can decide the item
+    /// has no prefix; a recorded row naming a hostile reads <c>NPC.TypeName</c> out of the NPC name
+    /// cache; the terrain reader writes a loading line into <c>Lang.gen</c>. Each is a null
+    /// dereference from inside a game path, hundreds of ticks into a run, the first time a behaviour
+    /// reaches it — and this one was met three times in a row on 22 September 2026, at the first
+    /// tick a world run ever had a drop to pick up, once per table.
+    ///
+    /// So it is closed by construction rather than by name, the way the loader hook arrays are:
+    /// every static <c>LocalizedText[]</c> on <see cref="Lang"/> is swept, because reasoning about
+    /// which table the engine touches is what failed all three times. It refuses if it found no
+    /// table at all, because a sweep that matched nothing looks exactly like one that worked.
+    ///
+    /// Empty text rather than invented words, for the reason the generation strings already use it:
+    /// none of it is ever shown, and a made-up name in a crash dump or a capture reads as the
+    /// game's own.
+    /// </summary>
+    private static void FillEveryStringTableLocalisationWouldHave()
+    {
+        int tables = 0;
+        foreach (FieldInfo field in typeof(Lang).GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (field.FieldType != typeof(Terraria.Localization.LocalizedText[])) continue;
+            if (field.GetValue(null) is not Terraria.Localization.LocalizedText[] table) continue;
+            tables++;
+            for (int i = 0; i < table.Length; i++)
+                table[i] ??= Terraria.Localization.LocalizedText.Empty;
+        }
+        if (tables == 0)
+            throw new MissingFieldException("Lang holds no LocalizedText[] table; a collected item or a recorded hostile would throw from inside a game path");
+    }
+
+    private static live::AICompanion.AICompanion? theMod;
+
+    /// <summary>
+    /// The one mod instance this host pretends to have, with somewhere to log.
+    ///
+    /// The loader builds and registers it in a launched game; nothing here does, so
+    /// <c>ModContent.GetInstance&lt;AICompanion&gt;()</c> answers null and every production line that
+    /// logs through it throws. That is not a rare path: the companion's own coin pickup logs one
+    /// line per coin, so the first coin a world run ever collected — on 22 September 2026 — threw
+    /// from inside the inventory rather than from any game code. Registered rather than handed
+    /// around, because the production code reaches for it by type and cannot be given one.
+    ///
+    /// Its <c>Load</c> is deliberately not called: this host does its own wiring, and the mod's
+    /// <c>Load</c> would rebind the tile world the run has already bound to the loaded tiles.
+    /// </summary>
+    public static live::AICompanion.AICompanion TheMod
+    {
+        get
+        {
+            if (theMod != null) return theMod;
+            // Warnings and errors to the console, nothing quieter. The mod's own failure paths
+            // report through this logger and nothing else — `BrainTelemetry.OnWorldLoad` catches
+            // everything it throws and writes the reason to `Mod.Logger.Error` — so an unconfigured
+            // logger turns a recorder that could not open into a capture with no rows and no
+            // explanation anywhere. Warn rather than Info because the companion logs a line per coin
+            // it picks up, and a whole capture's worth of those would bury the run's own output.
+            log4net.Config.BasicConfigurator.Configure();
+            ((log4net.Repository.Hierarchy.Hierarchy)log4net.LogManager.GetRepository()).Root.Level = log4net.Core.Level.Warn;
+            theMod = new live::AICompanion.AICompanion();
+            (typeof(Mod).GetProperty("Logger", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?? throw new MissingMemberException("Mod.Logger is gone; every production line that logs would throw"))
+                .SetValue(theMod, log4net.LogManager.GetLogger(typeof(PrepareTheHeadlessEngine)));
+            if (ModContent.GetInstance<live::AICompanion.AICompanion>() == null)
+                ContentInstance.Register(theMod);
+            return theMod;
+        }
+    }
+
+    /// <summary>
+    /// The crafting tables, because collecting an item recomputes what the player could make.
+    ///
+    /// <c>Player.GetItem</c> ends in <c>Recipe.FindRecipes</c>, which is the screen's list of
+    /// available recipes and has nothing to do with the companion — but it clears
+    /// <c>Main.availableRecipe</c>, reads <c>Main.guideItem</c> and walks <c>Main.recipe</c>, all of
+    /// which <c>Main.Initialize</c> builds and nothing here runs. The recipe array is filled with
+    /// one recipe making nothing, which is the loop's own stopping condition, so the walk ends at
+    /// its first entry rather than being suppressed by a flag somebody would later have to explain.
+    /// </summary>
+    private static void FillTheCraftingTablesACollectedItemRecomputes()
+    {
+        Main.guideItem ??= new Item();
+        Main.reforgeItem ??= new Item();
+        Main.mouseItem ??= new Item();
+        Main.availableRecipe ??= new int[Terraria.Recipe.maxRecipes];
+        Main.availableRecipeY ??= new float[Terraria.Recipe.maxRecipes];
+        Main.recipe ??= new Terraria.Recipe[Terraria.Recipe.maxRecipes];
+        for (int i = 0; i < Main.recipe.Length; i++)
+            Main.recipe[i] ??= (Terraria.Recipe)Activator.CreateInstance(typeof(Terraria.Recipe),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, new object?[] { null }, null)!;
+    }
+
     public static CompanionNPC AttachCompanion(Vector2 centre, Vector2 playerFeet)
     {
         Main.myPlayer = 0;
+        // The floating "Copper Coin (14)" a player sees over a pickup. It is the game's own option,
+        // off here because there is no screen to draw it on, and switching it off is what keeps
+        // `PopupText.NewText` — which measures the text with fonts nothing here loads — out of every
+        // collection the companion makes. Left on, the first pickup of a world run throws from
+        // inside `FontAssets.MouseText`, which is where three of 22 September's four crashes landed.
+        Main.showItemText = false;
         FillEveryEntitySlotTheEngineDereferences();
+        FillEveryStringTableLocalisationWouldHave();
+        FillTheCraftingTablesACollectedItemRecomputes();
+        _ = TheMod;
         foreach (int item in new[] { ItemID.WoodenBow, ItemID.WoodenArrow, ItemID.ThrowingKnife, ItemID.CopperPickaxe, ItemID.CopperAxe,
             ItemID.CopperBroadsword, ItemID.WandofSparking, ItemID.FlintlockPistol, ItemID.MusketBall, ItemID.WoodYoyo, ItemID.GoldPickaxe })
         {
