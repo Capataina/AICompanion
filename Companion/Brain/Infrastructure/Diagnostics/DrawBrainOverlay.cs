@@ -216,14 +216,26 @@ public sealed class BrainOverlay : ModSystem
     public static Rectangle ExecutionLineBounds(Rectangle panel, int line) => new(panel.X + 12, panel.Y + 132 + line * 18, panel.Width - 24, 16);
     public override void PostDrawInterface(SpriteBatch sb)
     {
+        // The draw is counted before anything can return, because the count is what separates an update
+        // the engine ran to catch up — no draw between it and the next — from a slow frame, and that
+        // distinction has to hold in a session with the inspector switched off as much as in one with
+        // it on. Counting it inside the overlay's own branch would make frames a second unmeasurable
+        // on exactly the sessions that are not being watched.
+        FrameCost.CountDraw();
         if (!CompanionDiagnosticsConfig.Current.EnableBrainInspector || Main.gameMenu) return;
         var companion = CompanionNPC.Instance;
-        if (ShowWorld && companion != null && !companion.IsDowned)
-        {
-            DrawWorld(sb, companion);
-            if (ShowCost) DrawCost(sb);
-        }
-        if (Enabled) DrawMenu(sb, companion);
+        // Both sections are timed into the frame ledger, which is the only place the half of the frame
+        // outside the brain becomes attributable: the 22 September capture ran the inspector for its
+        // whole session with no column saying what that cost.
+        using (FrameCost.TimeOverlay())
+            if (ShowWorld && companion != null && !companion.IsDowned)
+            {
+                DrawWorld(sb, companion);
+                if (ShowCost) DrawCost(sb);
+            }
+        if (Enabled)
+            using (FrameCost.TimeInspector())
+                DrawMenu(sb, companion);
     }
     private static void DrawMenu(SpriteBatch sb, CompanionNPC? companion)
     {

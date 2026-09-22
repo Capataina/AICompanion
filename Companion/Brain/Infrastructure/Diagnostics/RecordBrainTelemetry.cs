@@ -177,6 +177,20 @@ public sealed class BrainTelemetry : ModSystem
     // Rows this session has written, which the end marker states so a reader can tell a file that lost rows from one
     // that never had them.
     private static int rowsWritten;
+    /// <summary>The brain cost of the row before this one. The frame ledger's remainder subtracts it
+    /// rather than this row's, because an interval closed at the top of update N spans update N−1 —
+    /// the same reason `record_ms` is already the previous row's.</summary>
+    private static double lastBrainMs;
+    // One `frame-overrun` occurrence per window rather than per overrunning frame. On the 22 September
+    // capture 84% of frames exceeded the budget, so an occurrence each would be two thousand records
+    // saying one thing; the window carries how many there were and the worst one's whole split, which
+    // is what a reader of a hitch actually opens. The share across the session is read off the
+    // `frame_ms` column instead, where every row has one.
+    private const int OverrunWindowTicks = 30;
+    private static ulong overrunWindowOpenedAt;
+    private static int overrunsInWindow;
+    private static double worstFrameInWindow;
+    private static string worstFrameSplit = "";
     private static RecordedConfiguration recordedConfiguration;
     /// <summary>The revision and tree state AICompanion.csproj's StampSourceRevision target stamped into this assembly,
     /// read once; "unknown" when that build could not ask git.</summary>
@@ -258,6 +272,12 @@ public sealed class BrainTelemetry : ModSystem
             firstUpdateRecorded = false;
             ScenarioCapture.Reset();
             AuditDecisionContracts.Reset();
+            FrameCost.Reset();
+            lastBrainMs = 0;
+            overrunWindowOpenedAt = Main.GameUpdateCount;
+            overrunsInWindow = 0;
+            worstFrameInWindow = 0;
+            worstFrameSplit = "";
             TravelEpisodes.Reset();
             BehaviourCensus.Reset();
             SessionMap.Reset();
@@ -408,6 +428,36 @@ public sealed class BrainTelemetry : ModSystem
                 // replace the evidence from the first one.
             }
         }
+    }
+
+    /// <summary>
+    /// Keeps the frame-overrun window, and writes it when it closes.
+    ///
+    /// An overrun is an interval past one frame at sixty a second, which is a fact of the engine's
+    /// fixed timestep rather than a threshold anybody chose. The window is what keeps a session whose
+    /// every frame overruns from filling the sidecar with two thousand records saying one thing, and
+    /// it carries both halves of what a reader needs: how many frames in the window overran, and the
+    /// whole split of the worst of them, so a hitch can be attributed without opening the row.
+    /// </summary>
+    private static void ObserveFrameOverrun(double frameMs, double remainder, NPC npc)
+    {
+        if (frameMs > FrameCost.FrameMilliseconds)
+        {
+            overrunsInWindow++;
+            if (frameMs > worstFrameInWindow)
+            {
+                worstFrameInWindow = frameMs;
+                worstFrameSplit = FormattableString.Invariant(
+                    $"brain={lastBrainMs:0.00};record={(double.IsNaN(lastRecordMs) ? 0d : lastRecordMs):0.00};overlay={FrameCost.OverlayMilliseconds:0.00};inspector={FrameCost.InspectorMilliseconds:0.00};engine={remainder:0.00};draws={FrameCost.Draws}");
+            }
+        }
+        if (Main.GameUpdateCount - overrunWindowOpenedAt < OverrunWindowTicks) return;
+        if (overrunsInWindow > 0)
+            GodsEyeEvents.RecordFrameOverrun(npc, overrunsInWindow, OverrunWindowTicks, worstFrameInWindow, worstFrameSplit);
+        overrunWindowOpenedAt = Main.GameUpdateCount;
+        overrunsInWindow = 0;
+        worstFrameInWindow = 0;
+        worstFrameSplit = "";
     }
 
     private static void WriteMetadata()
@@ -897,6 +947,16 @@ public sealed class BrainTelemetry : ModSystem
             // lookahead tick at which the job's own flight met a hit (-1 for never), which candidate a bent tick flew, and how
             // many candidates each refusal removed. `evade_reason` and `evade_choice` are textual and declared in the preamble.
             h.Append("\tevade_reason\tevade_hit_tick\tevade_choice\tevade_refused_nowhere\tevade_refused_danger");
+            // Schema 0.45.0's frame ledger, appended at the end so every column before it keeps its index.
+            // `frame_ms` is update-to-update and **an update is not a frame** — the engine catches up by
+            // running two updates with no draw between them — so `draws` carries how many draws the
+            // interval held and frames a second is derived from that rather than from the interval.
+            // `overlay_ms` and `inspector_ms` are the two sections of this mod's own drawing, timed on the
+            // ledger's own clock; `engine_ms` is what is left of the interval after the *previous* row's
+            // brain, this row's `record_ms` (which is also the previous row's cost) and the two draw
+            // sections, all of which are that same update's. The interval a row can see closed at the
+            // end of the update before it, so `frame_ms` describes the update before the row's own.
+            h.Append("\tframe_ms\tdraws\toverlay_ms\tinspector_ms\tengine_ms");
             QueueDiagnosticRecords.TryEnqueueTsv(h.ToString());
             headerWritten = true;
         }
@@ -1305,6 +1365,18 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(!evade.Bent ? "-" : evade.Choice switch { EvadeChoice.Stop => "stop", EvadeChoice.JobHeading => "job-heading", _ => "heading" })
             .Append('\t').Append(evade.RefusedNowhere)
             .Append('\t').Append(evade.RefusedDanger);
+
+        // Schema 0.45.0: the whole update, and the parts of it this mod can account for. Written last in
+        // the row and read in the same order the header declares them.
+        double frameMs = FrameCost.IntervalMilliseconds;
+        double remainder = FrameCost.RemainderMilliseconds(lastBrainMs, lastRecordMs);
+        sb.Append('\t').Append(frameMs < 0 ? "-1.00" : frameMs.ToString("0.00", CultureInfo.InvariantCulture))
+            .Append('\t').Append(FrameCost.Draws)
+            .Append('\t').Append(FrameCost.OverlayMilliseconds.ToString("0.00", CultureInfo.InvariantCulture))
+            .Append('\t').Append(FrameCost.InspectorMilliseconds.ToString("0.00", CultureInfo.InvariantCulture))
+            .Append('\t').Append(remainder < 0 && frameMs < 0 ? "-1.00" : remainder.ToString("0.00", CultureInfo.InvariantCulture));
+        ObserveFrameOverrun(frameMs, remainder, npc);
+        lastBrainMs = brain.TotalMs;
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

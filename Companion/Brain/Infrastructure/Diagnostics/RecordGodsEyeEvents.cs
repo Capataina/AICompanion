@@ -82,6 +82,26 @@ public static class GodsEyeEvents
             total, $"counts={summary};entries={entries}");
     }
 
+    /// <summary>
+    /// One window of frames that took longer than the engine's own fixed timestep, with the worst
+    /// one's whole split beside it.
+    ///
+    /// It is a window rather than a frame because a session in trouble overruns on most of its frames
+    /// — 84% of them on the 22 September 2026 capture — and an occurrence each would be two thousand
+    /// records carrying one fact. The share across a session is read off the `frame_ms` column, where
+    /// every row has one; this is what a reader opens when they want a hitch attributed. The amount is
+    /// the count of overruns and the channel is the window they fell in, so a reader can take a rate
+    /// without reconstructing the cadence.
+    /// </summary>
+    public static void RecordFrameOverrun(NPC companion, int overruns, int windowTicks, double worstMilliseconds, string split)
+    {
+        if (!Accepting()) return;
+        Write("frame-overrun", Stable(npcGenerations, companion.whoAmI), "",
+            worstMilliseconds.ToString("0.00", CultureInfo.InvariantCulture),
+            windowTicks.ToString(CultureInfo.InvariantCulture), companion.Center, Vector2.Zero, Vector2.Zero,
+            overruns, FormattableString.Invariant($"worst-frame-ms={worstMilliseconds:0.00};window-ticks={windowTicks};overruns={overruns};{split}"));
+    }
+
     public static void RecordWorldInteraction(NPC companion, Point tile, string operation, string detail)
         => Write("world-interaction", companion.whoAmI, "", operation, "", companion.Bottom, Vector2.Zero,
             tile.ToWorldCoordinates(), 0, detail);

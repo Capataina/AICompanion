@@ -68,6 +68,7 @@ public static class ChronicleTests
             CourseSnapshotRequiresActualValuesAndMatchingDigests();
             CourseReaderRejectsMixedAndDigestOnlySnapshots();
             CourseDecisionsAreReadCheckedAndNarrated();
+            TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
             Console.WriteLine($"Chronicle self-tests passed ({Ran.Count} assertion groups).{DeclaredButSilent()}");
@@ -103,6 +104,95 @@ public static class ChronicleTests
     /// nothing — and the measure is read for its own arithmetic, so a share whose denominator was the
     /// wrong set would show up here rather than in a report about a real play.</para>
     /// </summary>
+    /// <summary>
+    /// Schema 0.45.0's frame ledger, read end to end: the measure's arithmetic, the check's threshold
+    /// and the one distinction the whole column set exists to preserve.
+    ///
+    /// <para><b>An update is not a frame.</b> The engine runs a fixed timestep and catches up by
+    /// running two updates back to back with no draw between them, so a session's frames a second and
+    /// its updates a second are two different numbers and only the first is what a player sees. A
+    /// reader that derived "frames per second" from the interval would report the catch-up update as a
+    /// fast frame and the whole capture as healthier than it was, which is why the producer counts
+    /// draws at the draw callback and why the row below sets half its updates to zero draws and
+    /// requires the two figures to differ.</para>
+    ///
+    /// <para>Every other assertion here is a pair, because a check that fires on everything is worth
+    /// no more than one that fires on nothing: the threshold is asked of a capture above it and a
+    /// capture below it, and the unmeasured first interval is asked for as an exclusion rather than as
+    /// a fast frame.</para>
+    /// </summary>
+    private static void TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            // One row per update. `frame` of -1 is the producer's "no previous update to measure from".
+            Session Capture(Func<int, (double Frame, int Draws)> shape, int rows = 400)
+            {
+                var trace = new StringBuilder("# schema=0.45.0\n"
+                    + "tick\twall_elapsed_ms\tframe_ms\tdraws\toverlay_ms\tinspector_ms\tengine_ms\tbrain_ms\trecord_ms\n");
+                double wall = 0;
+                for (int tick = 0; tick < rows; tick++)
+                {
+                    (double frame, int draws) = shape(tick);
+                    wall += frame < 0 ? 0 : frame;
+                    trace.Append(FormattableString.Invariant(
+                        $"{tick}\t{wall:0.00}\t{frame:0.00}\t{draws}\t0.40\t1.10\t{Math.Max(0d, frame - 11.5):0.00}\t9.00\t1.00\n"));
+                }
+                File.WriteAllText(file, trace.ToString());
+                return Session.Load(file);
+            }
+
+            // Above the threshold: every interval overruns, so the check fires once, as Potential, with
+            // the split in its detail rather than only the share.
+            Finding[] slow = new TheFrameFitsTheEnginesTimestep().Run(Capture(_ => (25.0, 1))).ToArray();
+            Require(slow.Length == 1 && slow[0].Severity == Severity.Potential,
+                "a capture whose every interval overruns must report exactly one potential finding");
+            Require(slow[0].Detail.Contains("brain 9.00 ms a frame", StringComparison.Ordinal)
+                    && slow[0].Detail.Contains("inspector 1.10 ms a frame", StringComparison.Ordinal)
+                    && slow[0].Detail.Contains("engine ", StringComparison.Ordinal),
+                $"the finding must carry the split beside the share, not the share alone: {slow[0].Detail}");
+            Require(slow[0].Detail.Contains("25%", StringComparison.Ordinal),
+                "the finding must state the threshold it was judged against so it can be argued with");
+
+            // Below it: a capture comfortably inside the timestep says nothing at all.
+            Require(new TheFrameFitsTheEnginesTimestep().Run(Capture(_ => (10.0, 1))).ToArray().Length == 0,
+                "a capture inside the engine's own timestep must produce no finding");
+
+            // The unmeasured first interval is excluded, not counted as the fastest frame in the file.
+            // With every other row at 25 ms the share is 100%, and a -1 counted as a frame would be 99.7%.
+            Finding[] withUnmeasured = new TheFrameFitsTheEnginesTimestep()
+                .Run(Capture(tick => (tick == 0 ? -1.0 : 25.0, 1))).ToArray();
+            Require(withUnmeasured.Length == 1 && withUnmeasured[0].Title.Contains("100.0%", StringComparison.Ordinal),
+                $"an unmeasured interval must be excluded rather than counted as a fast frame: {(withUnmeasured.Length == 0 ? "no finding" : withUnmeasured[0].Title)}");
+
+            // The measure, and the distinction the columns exist for. Half the updates carry no draw,
+            // which is the engine catching up, so frames a second must come out below updates a second.
+            Session mixed = Capture(tick => (10.0, tick % 2 == 0 ? 1 : 0));
+            var rows = new MeasureTheFrame().Rows(mixed).ToList();
+            double Value(string name) => rows.Single(r => r.Case == "frame/" + name).Value ?? -1;
+            Require(Math.Abs(Value("updates-per-second") - 2.0 * Value("frames-per-second")) < 0.5,
+                $"half the updates carrying no draw must halve frames a second against updates a second;"
+                + $" updates={Value("updates-per-second"):0.0} frames={Value("frames-per-second"):0.0}");
+            Require(Value("overrun-share") == 0, $"a 10 ms interval is inside the budget; overrun-share={Value("overrun-share")}");
+            Require(Math.Abs(Value("median-ms") - 10.0) < 0.01, $"the median interval must be the one written; median={Value("median-ms")}");
+            // 9.00 brain of a 10.00 interval is 90%, and the shares are taken over the summed interval
+            // rather than as a mean of per-row shares, which would weight a catch-up update like a hitch.
+            Require(Math.Abs(Value("brain-share") - 90.0) < 0.5, $"brain-share={Value("brain-share")}");
+            Require(Math.Abs(Value("inspector-share") - 11.0) < 0.5, $"inspector-share={Value("inspector-share")}");
+
+            // The producer pin. The five columns are written by a file this project does not compile,
+            // so a rename there leaves every row above passing against a capture nobody writes.
+            string recorder = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
+            Require(recorder.Contains("\\tframe_ms\\tdraws\\toverlay_ms\\tinspector_ms\\tengine_ms", StringComparison.Ordinal),
+                "the recorder no longer writes the frame ledger's five columns in the order this reader names them");
+            string ledger = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "MeasureFrameCost.cs"));
+            Require(ledger.Contains("FrameMilliseconds = 1000d / 60d", StringComparison.Ordinal),
+                "the producer's own frame budget moved away from the engine's timestep, so this reader's share means something else");
+        }
+        finally { File.Delete(file); }
+    }
+
     private static void CourseDecisionsAreReadCheckedAndNarrated()
     {
         // The producer's own shape, from `CourseTracePayload`: a kind, a version and a field map whose
