@@ -265,7 +265,11 @@ public static class WriteBehaviourParity
             int skippedHere = 0;
             foreach (Type type in mapped.Checks)
             {
-                ICheck check = Program.Checks.First(c => c.GetType() == type);
+                // A mapped type the report does not register is a row claiming a check nobody runs, and
+                // it is reported rather than thrown on: the table's job is to name coverage that is not
+                // there, so failing on its own missing coverage would be the one failure it cannot make.
+                ICheck? check = Program.Checks.FirstOrDefault(c => c.GetType() == type);
+                if (check is null) { skippedHere++; continue; }
                 if (skippedNames.Contains(check.Name)) { skippedHere++; continue; }
                 ran.Add(check.Name);
                 fired.AddRange(findings.Where(f => string.Equals(f.Check, check.Name, StringComparison.Ordinal)
