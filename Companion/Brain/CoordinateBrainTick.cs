@@ -246,16 +246,30 @@ public sealed class Brain
         // the snapshot captures for it. Preparing combat unconditionally is the cost of letting the
         // course *choose* to fight rather than letting combat choose for itself: a shot the course never
         // saw is a shot it cannot weigh against mining the vein beside it.
-        // Every activity prepares, exactly as the family chooser prepared them, and the reason is that
-        // preparation is not part of choosing — it is how an activity works out what it would do, which
-        // its own `Execute` then needs to have a target at all. Wiring the course to prepare only combat
-        // left the other five unprepared, and the symptom was a lighting trip reporting
+        // Preparation is not part of choosing — it is how an activity works out what it would do, which
+        // its own `Execute` then needs in order to have a target at all. Wiring the course to prepare only
+        // combat left the other five unprepared, and the symptom was a lighting trip reporting
         // `offer=NoOpportunity/not-prepared` while keeping company executed instead: the course had named
         // lighting, and lighting had nothing to light because nobody had asked it to look.
         //
         // Combat is the one that must prepare before the decision rather than after it, because its
         // opportunities are a tactical search rather than a world scan and the course cannot weigh a shot
         // it never saw. The rest are prepared here too so that a chosen activity is always ready to act.
+        //
+        // **Narrowing this list was built, measured and taken out again on 22 September 2026, and what it
+        // cost is a property rather than a number.** The plan's section 6 names the blanket as the family
+        // chooser's cost model surviving inside the course brain's tick, and narrowing it to combat, the
+        // activity holding the body and whatever the course still names took a retained tick from six
+        // preparations to 2.05 on the ore-seam scene. It also turned `D4 Mimic after Disabled reads no
+        // stale player hit` red with `NoOpportunity/no-admissible-tree`, because **an activity's offer is
+        // refreshed by nothing but its own preparation**: chopping had answered under a disabled policy,
+        // the policy was switched on, and nothing asked chopping to look again, so its offer described a
+        // world that no longer existed. A rotation re-preparing every skipped activity once per turn of
+        // the list did not save it either — the switch is read on the tick after it happens, so any
+        // staleness bound above zero is too old. The honest form of section 6 is the one it actually
+        // writes: the narrowing *moves into discovery*, where the censuses are already sliced and
+        // budgeted against the frozen observation, rather than being skipped on the tick. That is a
+        // design change rather than a condition on this loop, and it stays with the plan.
         foreach (CompanionAction candidate in Chooser.Actions) candidate.Prepare(ctx);
         CourseDecision decision = Course.Decide(ctx, companion.Combat, Fighting?.LastSearch,
             LimitPlanningWork.Current);

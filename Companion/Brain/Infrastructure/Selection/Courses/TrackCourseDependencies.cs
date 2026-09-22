@@ -23,18 +23,46 @@ public enum FactEvidence { Observed, Modelled, Unresolved, Missing }
 public readonly record struct FactValue(double Amount = 0, double X = 0, double Y = 0, string Text = "");
 public sealed record DecisionFact
 {
+    private string? canonical;
+    private string? digest;
+
     public DecisionFact(FactKey key, long version, FactValue value, FactEvidence evidence)
     {
         Key = key; Version = version; Value = value; Evidence = evidence;
-        CanonicalValue = System.Text.Json.JsonSerializer.Serialize(new { Key, Version, Value, Evidence });
-        Digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalValue)));
     }
     public FactKey Key { get; }
     public long Version { get; }
     public FactValue Value { get; }
     public FactEvidence Evidence { get; }
-    public string CanonicalValue { get; }
-    public string Digest { get; }
+
+    /// <summary>
+    /// The fact serialised in one deterministic form, and its hash — both computed on first use rather
+    /// than at construction, because most facts in a snapshot are never asked for either.
+    ///
+    /// They used to be computed in the constructor, which charged every observation a JSON serialise and
+    /// a SHA-256 for every fact it carried whether or not anything read one. In the play of 0.38.13 the
+    /// frozen observation reached 1,603 facts at about thirty-eight decisions a second, and the session
+    /// ran 813 gen-0, 357 gen-1 and 50 gen-2 collections in a minute with the allocation rate roughly
+    /// doubling as the fact count grew — 29 of the 37 worst frames coincided with a gen-2 collection, at
+    /// 45 to 70 ms of brain each. A digest nobody reads is the purest form of that cost.
+    ///
+    /// The fields are immutable, so a value computed twice is the same value and there is no lock here
+    /// deliberately: the worst a race can do is compute an identical string twice, and the brain is
+    /// single-threaded anyway — the diagnostics worker reads <see cref="FactRead"/>, which already holds
+    /// its string, and never touches a fact.
+    /// </summary>
+    public string CanonicalValue
+        => canonical ??= System.Text.Json.JsonSerializer.Serialize(new { Key, Version, Value, Evidence });
+    public string Digest
+        => digest ??= Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalValue)));
+
+    /// <summary>Whether two facts about the same key carry the same observation, without asking either
+    /// for its digest. The digest is a hash of exactly these three fields, so this is what a digest
+    /// comparison was approximating and is strictly stronger than it — a hash can collide and a field
+    /// comparison cannot. Callers comparing a live fact against a recorded <see cref="FactRead"/> still
+    /// use the digest, because a recorded read is all the string they have.</summary>
+    public bool SameObservationAs(DecisionFact other)
+        => Version == other.Version && Evidence == other.Evidence && Value.Equals(other.Value);
 }
 public readonly record struct FactRead(FactKey Key, long Version, string Digest, FactEvidence Evidence);
 
@@ -68,7 +96,10 @@ public sealed class DecisionFactSnapshot
         => Id == previous.Id && WorldEpoch == previous.WorldEpoch && Tick == previous.Tick
             && ObservationOrdinal == previous.ObservationOrdinal && ReceiptWatermark == previous.ReceiptWatermark
             && facts.Count > previous.facts.Count
-            && previous.facts.All(pair => facts.TryGetValue(pair.Key, out var current) && current.Digest == pair.Value.Digest)
+            // Field-for-field rather than digest-for-digest, so admitting one model answer does not
+            // digest the whole catalogue: with 1,600 facts and a travel query on most bindings, that was
+            // a SHA-256 per fact per answer.
+            && previous.facts.All(pair => facts.TryGetValue(pair.Key, out var current) && current.SameObservationAs(pair.Value))
             && facts.Values.Where(fact => !previous.facts.ContainsKey(fact.Key))
                 .All(fact => fact.Evidence is FactEvidence.Modelled or FactEvidence.Unresolved);
 }
