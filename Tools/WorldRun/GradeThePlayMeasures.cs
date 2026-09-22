@@ -153,8 +153,95 @@ internal static class GradeThePlayMeasures
         else failures += NoRefusalContradictsItsOwnCensus(suite, play, scene);
         if (stepCannotGrade != null) EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, StepVerdict, stepCannotGrade);
         else failures += AWantedFightIsBegun(suite, play, scene);
+        failures += TheAuditRanOnTheseDecisions(suite, run, play.Count, scene);
         if (play.Count > 0) Measures(suite, play, route, stage, cast, shortScene);
         return failures;
+    }
+
+    /// <summary>
+    /// Whether the decision audit was wired to anything on the run these rows grade.
+    ///
+    /// Every other row here grades what the brain did; this one grades whether the thing that checks
+    /// the brain's own contracts was plugged in while it did it, and it exists because both ways that
+    /// wiring fails are silent. <c>AuditDecisionContracts.Audit</c> hangs off
+    /// <c>RecordCourseTrace.Record</c> and takes its inputs from a source that
+    /// <c>ReadLiveCourseForAudit.Install</c> hands it out of the recorder's <c>Load</c>: lose the hook
+    /// and every decision is recorded with nothing audited, and skip the install and every decision is
+    /// audited against no inputs, which silently reduces six contracts to the two transitions that
+    /// read the payload alone. Neither shows up as a violation, because the contracts that would have
+    /// fired were never asked.
+    ///
+    /// **This run was in the second state until 22 September 2026, and nothing here noticed.**
+    /// `AttachTheRecorder.Open` called <c>OnWorldLoad</c> and never <c>Load</c>, and
+    /// `AttachCompanion` left the body out of <c>Main.npc</c>, so <c>CompanionNPC.Instance</c> — which
+    /// is how the source reaches the course — found nothing. The soak lane measured the capture this
+    /// very command writes: <c>decisions-audited=600;audit-observations-read=0</c>. Both halves are
+    /// fixed and this row is the thing that stops either coming back, because a replay grading a brain
+    /// whose contracts nobody audited is a green run that checked less than it says.
+    ///
+    /// The two conditions are the session reader's own, deliberately, so the headless row and
+    /// <c>CheckTheDecisionAudit</c> cannot drift into disagreeing about one wiring. Equality is **not**
+    /// the test and would be wrong: the observation is read once per decision ordinal and a carried
+    /// course repeats its ordinal on every tick it holds the body, so a healthy run reads fewer
+    /// observations than it audits. The ratio is emitted as a measure beside this.
+    /// </summary>
+    private static int TheAuditRanOnTheseDecisions(string suite, RunTheWorld.Outcome run, int ticks, string scene)
+    {
+        const string name = "the decision audit was wired to the run these rows grade";
+        long audited = run.DecisionsAudited, read = run.AuditObservationsRead;
+        string counts = string.Create(CultureInfo.InvariantCulture,
+            $"{audited} decision(s) audited and {read} frozen observation(s) read over {ticks} ticks");
+
+        if (ticks == 0)
+        {
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name, "the run produced no ticks, so there was nothing for the audit to be wired to");
+            return 0;
+        }
+        if (!AttachTheRecorder.Attached)
+        {
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name,
+                "this run was asked for with --no-recorder, and the audit's source is installed by the recorder's own Load exactly as it is in play, "
+                + "so the audit is unwired by the caller's choice rather than by a defect. Run without that flag to grade the wiring");
+            return 0;
+        }
+
+        // The audit's own findings, emitted whatever the verdict below decides, because a run whose
+        // wiring is broken should still show its two surviving transitions rather than a blank.
+        string[] sampled = { SampleTag };
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "frozen observations read per decision audited",
+            audited == 0 ? 0 : (double)read / audited, "observations", "up", "production-clock", sampled,
+            message: $"{read} of {audited}; under one by the ordinal rule, because a carried course repeats its observation ordinal and the source is "
+                + $"invoked once per decision rather than once per tick; {scene}");
+        foreach (var kind in run.ContractViolations.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal))
+            EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, $"contract violations of kind {kind.Key}", kind.Value,
+                "violations", "down", "production-clock", sampled,
+                message: "counted by the audit whether or not the recorder's coalescing kept it; a kind with no row here fired zero times on this run, "
+                    + $"which means something only while the verdict beside it passes; {scene}");
+        if (audited == 0)
+        {
+            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
+                $"{counts} — the audit saw none of them. It is called from RecordCourseTrace.Record, so a count of zero beside a run "
+                + $"that decided every tick means that call is gone or never reached, not that the decisions were clean. Every contract in every row here measured nothing; {scene}",
+                mode: "production-clock");
+            return 1;
+        }
+        if (read == 0)
+        {
+            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
+                $"{counts} — the audit ran on every decision and never once read the observation behind it. ReadLiveCourseForAudit.Install hands the audit "
+                + "its source from the recorder's Load, and the source reaches the course through CompanionNPC.Instance, which scans Main.ActiveNPCs; with "
+                + "either missing, the four contracts that read the census and the target facts cannot fire at all and only the two transitions that read the "
+                + $"payload alone survive, so this run looks healthier than a wired one rather than worse; {scene}",
+                mode: "production-clock");
+            return 1;
+        }
+        EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, name,
+            $"{counts}; fewer read than audited is the ordinal rule rather than a fault — the observation is read once per decision and a carried course "
+            + $"repeats its ordinal on every tick it holds the body; {scene}",
+            mode: "production-clock",
+            killedBy: "asserting the two counts equal, which reddens on every carried course; or reading them out of the written capture, which would make the row "
+                + "unaskable under --no-recorder and would grade the recorder's file rather than the run");
+        return 0;
     }
 
     /// <summary>
