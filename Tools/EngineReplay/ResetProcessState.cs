@@ -86,6 +86,72 @@ internal static class ResetProcessState
     /// </summary>
     internal static void BeforeCase(bool keepProductionAllowances)
     {
+        // The enemy boxes the tick published, which only a case that runs a whole `Brain.Tick` writes and
+        // which no case that drives a search directly ever writes at all. `CoordinateBrainTick` fills them
+        // from the frozen observation's threats before it chooses, so the last tick-running case leaves its
+        // own hostiles standing as obstacles for every later case — and combat's HereAndCompany generator
+        // and the company park both walk toward higher *enemy* clearance through them
+        // (`ClearanceHeat.PreferClearer(..., enemiesOnly: true)`), so a scene that never spawned those
+        // hostiles still has its firing stands moved by them.
+        //
+        // Found on 22 September 2026 by `a spread weapon closes at full life and holds range at low life`,
+        // which is green alone and red immediately after one tick of `an opportunity the census admits
+        // usable is one the binder can still read`: the wounded stand went from 592 px to 96 px, so the row
+        // read a shotgun closing at low life. It is one tick rather than an accumulation because the field
+        // is overwritten per tick, and the diff is entirely in the stands — the region, the player, the
+        // body, the threat list and the predicted-harm field over the whole floor are byte-identical
+        // between the two runs, and the four company stands at 596/476/592/603 px become two at 413/606.
+        //
+        // `Main.GameUpdateCount` is the decoy on this one and was measured and rejected: it is 0 alone and
+        // 1,000 after that case (nothing restores it), it was the *only* other difference the instrumented
+        // run showed, and restoring it to 0 here left the pair red byte for byte. It is deliberately not
+        // reset: a case that needs consecutive observations sets it itself through
+        // `VerifyObservedMotion.SetTick`, and resetting it would hand every static that stamps a tick —
+        // the travel observer, the decision audit, the home protector, the simulation caches — a future
+        // timestamp on the next case.
+        //
+        // Five NavReplay fixtures and three here already clear this field in their own setup, which is the
+        // per-fixture repair this reset exists to replace. `Tools/NavReplay/Program.cs`'s inline reset does
+        // not clear it and the same class is open in the portable tier.
+        MovementQueries.Hazards = Array.Empty<Microsoft.Xna.Framework.Rectangle>();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.Hazards =
+            Array.Empty<Microsoft.Xna.Framework.Rectangle>();
+
+        // The player's diagnostics switches, which are a registered singleton exactly the way the
+        // preferences below are, and which decide whether a recorder records at all:
+        // `BrainTelemetry.Record` closes the session on the first tick it reads `RecordTelemetry` false.
+        // A fixture that turns recording on for its own scene and hands the switch back *off* in its
+        // `finally` rather than back to what it found therefore silences every later case's recorder —
+        // `VerifyCombatPurpose.TheRecordCarriesPursuitAimAndHitApart` does exactly that, and it registers
+        // the instance if none exists, so before it there is nothing registered and `Current` falls back
+        // to the class defaults, which record.
+        //
+        // Found on 22 September 2026 as the second carrier of `a whole journey is recorded against its
+        // proven ticks`, the row `ff30166` half-fixed. Minimal reproduction, on a tree already carrying
+        // the hazard restore above: `sh Tools/run-case.sh "a capture states the configuration|combat keeps
+        // its purpose|a whole journey is recorded"` is red with an empty episode list, and every two-case
+        // subset of it is green. The body travels identically in both — 30 of 30 ticks owned by `travel`
+        // with the navigator executable, and the same centre to four decimal places — so nothing about
+        // the companion changed; what changed is that the recorder wrote 8 rows and 27 occurrences instead
+        // of 732 and 299, and `Current.RecordTelemetry` reads false at tick 30 against a header written
+        // from the first row saying `record_telemetry=true`.
+        //
+        // A fresh instance is the source of the values rather than literals here, for the same reason
+        // `CompanionPreferences` is replaced wholesale below: every default lives on the property
+        // initialisers, so a list of literals would drift from what the game starts with while looking
+        // maintained. The instance itself cannot be replaced — `ContentInstance.Register` is one-shot per
+        // type and registering a second makes `ModContent.GetInstance` return null — so the fields are
+        // written onto whatever is registered. `OnChanged()` is deliberately not called: its only work is
+        // the two switch-*off* paths, and both values here are on.
+        var diagnostics = Terraria.ModLoader.ModContent
+            .GetInstance<live::AICompanion.Companion.DiagnosticsConfiguration.CompanionDiagnosticsConfig>();
+        if (diagnostics != null)
+        {
+            var fresh = new live::AICompanion.Companion.DiagnosticsConfiguration.CompanionDiagnosticsConfig();
+            diagnostics.RecordTelemetry = fresh.RecordTelemetry;
+            diagnostics.EnableBrainInspector = fresh.EnableBrainInspector;
+        }
+
         // The allowance is *installed* here, not merely cleared. Combat's tactical work and the aimer
         // borrow `LimitPlanningWork.Current`, which throws when nothing is standing; in production the
         // brain tick always has one open around every one of those calls, so a reset that only ended
