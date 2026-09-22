@@ -83,12 +83,17 @@ public static class EmitLedgerRows
     /// <see cref="Selected"/> before running anything, so --case and --rerun-red reach every
     /// instrument through one mechanism rather than through a flag each tool parses its own way.
     /// Matching is substring and case-insensitive, because the case names are the sentences the
-    /// fixtures already print and retyping one exactly is not a thing a person will do.
+    /// fixtures already print and retyping one exactly is not a thing a person will do. Several
+    /// fragments separated by <c>|</c> select a case matching any of them, in the suite's own order,
+    /// which is how a case that only goes red after a particular neighbour is bisected: run the pair,
+    /// then the pair with the other neighbour, without driving the whole suite each time.
     /// </summary>
     public static string? CaseFilter => Environment.GetEnvironmentVariable("AIC_LEDGER_CASE") is { Length: > 0 } name ? name : null;
 
     public static bool Selected(string name)
-        => CaseFilter is not { } filter || name.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        => CaseFilter is not { } filter
+           || filter.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// A case that must keep the production wall-clock allowances in force, because the allowance is
