@@ -35,6 +35,7 @@ internal static class VerifyDecisionTripwires
         int failed = 0;
         failed += RunOneRow.Case("a census admission its own binder refused is named", ACensusAdmissionRefusedByItsOwnBinderIsNamed, Family);
         failed += RunOneRow.Case("an empty course beside usable work is named only when every refusal is not-observed", AnEmptyCourseIsNamedOnlyForTheNotObservedPair, Family);
+        failed += RunOneRow.Case("a structural refusal does not silence the contracts that read evidence refusals", AStructuralRefusalDoesNotSilenceTheContracts, Family);
         failed += RunOneRow.Case("an accepted use gone within a tick of publishing is named", AnAcceptedUseGoneWithinATickIsNamed, Family);
         failed += RunOneRow.Case("an activity leaving during an unsettled decision is named", AnActivityLeavingDuringAnUnsettledDecisionIsNamed, Family);
         failed += RunOneRow.Case("a frozen observation past its declared size is named", AnOversizedObservationIsNamed, Family);
@@ -107,6 +108,82 @@ internal static class VerifyDecisionTripwires
             Inputs(Admitted(("combat", 3)), Target("combat-target", "8000001", observed: false)));
         Require(Count("empty-course-beside-usable-work") == 0,
             $"an unsettled decision has published nothing and must not be named as an empty course; counts={Counts()}");
+    }
+
+    // ── the two classes of refusal ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A refusal proved by a fact of the source tree must not be read as a reason the contracts stay
+    /// quiet, and it must not be able to push the reasons they *do* read out of the record.
+    ///
+    /// **This is a defect the executor refusal introduced and it was invisible from both ends.**
+    /// `step-purpose-has-no-executor` went into the same tally `AllNotObserved` reads, so on any
+    /// decision where the census admitted a usable pot the predicate saw a third reason and contract
+    /// two could not fire. Where a pot is the *only* usable work the quiet is correct — an empty course
+    /// is companionship, by the ruling — so the case that matters is the mixed one this row builds: a
+    /// settled empty course beside usable combat refused for want of an observed target, with a pot
+    /// refused beside it. That is precisely the shape both contracts exist to catch, and it was silent.
+    ///
+    /// The sharper half is the record rather than the predicate. The payload carries the top four
+    /// evidence reasons by count and a pot refusal scales with the number of pots admitted, so several
+    /// pots could push `target-capture-missing` and `assistance-target-unresolved` out of the written
+    /// record entirely — blinding contract one by deleting its evidence rather than by failing a
+    /// predicate, and doing it in a capture nobody could read the cause out of. Structural reasons ride
+    /// under their own prefix now, uncut, and the last arm pins that split at the producer.
+    /// </summary>
+    private static void AStructuralRefusalDoesNotSilenceTheContracts()
+    {
+        // Measured as a difference rather than against a number, which is what makes it a row about the
+        // structural refusal and not about how many domains happen to contradict themselves in the
+        // scene: the same decision is audited with the pot admitted and structurally refused, and
+        // without the pot at all, and both contracts must see exactly the same thing.
+        var evidence = new (string Reason, long Count)[] { ("target-capture-missing", 12), ("assistance-target-unresolved", 16) };
+        var targets = new[] { Target("combat-target", "8000001", observed: false), Target("collect-target", "7", observed: false) };
+
+        AuditDecisionContracts.Reset();
+        Audit(200, 1, Decision("published-course-holds-no-step", "keep-company", settled: true, steps: 0, facts: 60, evidence),
+            Inputs(Admitted(("combat", 3), ("collect-target", 4)), targets));
+        (long emptyWithoutPot, long contradictionWithoutPot) =
+            (Count("empty-course-beside-usable-work"), Count("census-admitted-binder-refused"));
+        Require(emptyWithoutPot > 0 && contradictionWithoutPot > 0,
+            $"premise: the scene without a pot must fire both contracts, or the comparison below has nothing to preserve; counts={Counts()}");
+
+        // The mixed case the defect made invisible: usable combat and collection refused for want of an
+        // observed target, with a usable pot refused structurally beside them. Moving the pot's count
+        // into the evidence tally — the shape before this split — makes `AllNotObserved` false and reds
+        // the first of these.
+        AuditDecisionContracts.Reset();
+        Audit(200, 1, Structural(Decision("published-course-holds-no-step", "keep-company", settled: true, steps: 0, facts: 60, evidence),
+                ("step-purpose-has-no-executor", 2)),
+            Inputs(Admitted(("combat", 3), ("collect-target", 4), ("pot-target", 2)), targets));
+        Require(Count("empty-course-beside-usable-work") == emptyWithoutPot,
+            $"an empty course beside usable work refused for want of observed targets must be named exactly as it is "
+            + $"without the pot; {emptyWithoutPot} without, {Count("empty-course-beside-usable-work")} with; counts={Counts()}");
+        Require(Count("census-admitted-binder-refused") >= contradictionWithoutPot,
+            $"a census admission its own binder refused must still be named beside a structural refusal; "
+            + $"{contradictionWithoutPot} without the pot, {Count("census-admitted-binder-refused")} with; counts={Counts()}");
+
+        // The negative is unchanged and is what keeps this from being "any refusal": a third *evidence*
+        // reason still means the search threw work away for a reason the objective may hold.
+        AuditDecisionContracts.Reset();
+        Audit(200, 1, Structural(Decision("published-course-holds-no-step", "keep-company", settled: true, steps: 0, facts: 60,
+                    ("target-capture-missing", 12), ("no-use-with-captured-travel-and-target-impact", 1)),
+                ("step-purpose-has-no-executor", 2)),
+            Inputs(Admitted(("combat", 3), ("pot-target", 2)), Target("combat-target", "8000001", observed: false)));
+        Require(Count("empty-course-beside-usable-work") == 0,
+            $"a preference refusal beside the pair must still keep the empty-course rule quiet; counts={Counts()}");
+
+        // The producer's own split, pinned at the source. The cut is what makes the crowding possible and
+        // it is one call away from the field that must never be cut, so a row that only drove the audit
+        // would pass against a producer that had merged the two tallies again.
+        string producer = File.ReadAllText(Path.Combine(RepositoryRoot(),
+            "Companion/Brain/Infrastructure/Selection/DecideCourseEachTick.cs"));
+        Require(producer.Contains("LastRefusals.OrderByDescending(entry => entry.Value).Take(4)", StringComparison.Ordinal),
+            "premise: the evidence refusals are no longer the thing being cut, so this row is pinning a cut that moved");
+        Require(producer.Contains("\"structurally-refused:\"", StringComparison.Ordinal)
+            && !producer.Contains("LastStructuralRefusals.OrderByDescending", StringComparison.Ordinal),
+            "the structural refusals are written under the evidence prefix or are being cut by count, so several pots can "
+            + "push the two strings the contracts key on out of the record and blind them without failing a predicate");
     }
 
     // ── contract three ────────────────────────────────────────────────────────────────────────────
@@ -202,12 +279,27 @@ internal static class VerifyDecisionTripwires
         Require(Count("fact-count-above-bound") == 0,
             $"a light census of exactly {light} sites is inside its own bound and must not be named; counts={Counts()}");
 
+        // **The runaway is a number rather than `other + 1`, and that is the difference between a row
+        // about this bound and a row about whatever the bound happens to be.** Planted one above the
+        // bound, this arm passes at any bound at all: loosening the non-lighting arm to 512 plants 513
+        // and stays green, which is the mutation a sentinel ran on 22 September 2026. Three hundred is
+        // the size the per-kind bound exists to catch — the figure the audit's own docstring names as the
+        // runaway a 512 total could not see, because 196 healthy light facts plus 300 is 496 — so the row
+        // requires the bound to sit under it before planting it, and the requirement is where a loosened
+        // bound reds rather than in the plant.
+        const int runaway = 300;
+        Require(other < runaway,
+            $"a non-lighting kind's bound of {other} is at or above the {runaway}-fact runaway this contract "
+                + $"exists to catch: the measured peak for these kinds is 13 (`mine-target`) and 11 "
+                + $"(`combat-use`) on the 22 September replay, and {light} healthy light facts plus {runaway} "
+                + $"is {light + runaway}, under the flat 512 total the per-kind bound replaced — so a bound "
+                + "of this size reports exactly what the total already failed to report");
         AuditDecisionContracts.Reset();
-        Audit(30, 1, Decision("course-published", "keep-company", settled: true, steps: 0, facts: light + other + 1),
-            Sized(("light-target", light), ("combat-use", other + 1)));
+        Audit(30, 1, Decision("course-published", "keep-company", settled: true, steps: 0, facts: light + runaway),
+            Sized(("light-target", light), ("combat-use", runaway)));
         Require(Count("fact-count-above-bound") == 1,
-            $"a combat-use runaway beside a healthy light census must be named, which a single total of "
-                + $"{light + other + 1} could not separate from the census; counts={Counts()}");
+            $"a combat-use runaway of {runaway} beside a healthy light census must be named, which a single "
+                + $"total of {light + runaway} could not separate from the census; counts={Counts()}");
 
         // The audit cannot reference the placer's own file — `EngineReplay` compiles this audit a second
         // time and the placer reaches the tile watcher — so it mirrors the spacing, and a mirror needs a
@@ -597,6 +689,14 @@ internal static class VerifyDecisionTripwires
             fields.Add(new("refused:" + reasonName, CourseTraceValue.Integer(count)));
         return new CourseTracePayload("course-decision", 1, fields);
     }
+
+    /// <summary>The same decision with structural refusals added under the prefix the producer writes
+    /// them at, which is the whole of how the audit tells the two classes apart.</summary>
+    private static CourseTracePayload Structural(CourseTracePayload payload, params (string Reason, long Count)[] refusals)
+        => new(payload.Kind, payload.Version, payload.Fields
+            .Concat(refusals.Select(r => new KeyValuePair<string, CourseTraceValue>(
+                "structurally-refused:" + r.Reason, CourseTraceValue.Integer(r.Count))))
+            .ToList());
 
     private static DecisionInputs Empty() => new(Array.Empty<CensusAdmission>(), Array.Empty<TargetFact>());
 

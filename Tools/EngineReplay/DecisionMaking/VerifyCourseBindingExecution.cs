@@ -39,15 +39,19 @@ internal static class VerifyCourseBindingExecution
     }
 
     /// <summary>
-    /// The purposes the sources mint, each named beside the file that mints it, so the list is a claim
-    /// this row *checks* rather than a copy it trusts.
+    /// The purposes this row expects to find declared, each named beside the file that mints it, so the
+    /// table is a claim the row *checks* rather than a copy it trusts.
     ///
-    /// A hand-written list is the failure mode this tree has already paid for twice: it passes for ever
-    /// while a seventh purpose lands in a source nobody thought to add here, which is precisely the case
-    /// the row exists for. So each entry carries its producer, the premise below asserts the literal is
-    /// still present in that file, and a separate premise asserts no *other* file in the tree mints an
-    /// opportunity key at all — which is what turns "these six are covered" into "these six are all
-    /// there are".
+    /// **It is no longer what makes the row complete, and that is the change of 22 September 2026.** The
+    /// row used to sweep `Companion/` for the literal `new OpportunityKey(` and trust this table for the
+    /// files it did not find — so `chop`, minted as a literal inside a `GatheringOpportunityFact` in a
+    /// file that constructs no key, was covered only because somebody had typed it here. A sentinel
+    /// added a seventh purpose the same way and the row stayed green; it stayed green again for a key
+    /// written as `new Infrastructure.Selection.Opportunities.OpportunityKey(…)`. Completeness now comes
+    /// from `OpportunityPurposes.All` and from `Opportunity`'s own constructor refusing an undeclared
+    /// purpose, which no spelling can walk past; this table survives as the *producer* map, because
+    /// knowing which file to open when a purpose loses its executor is worth keeping and a declaration
+    /// alone does not say it.
     /// </summary>
     private static readonly (string Purpose, string Producer)[] MintedPurposes =
     {
@@ -85,32 +89,43 @@ internal static class VerifyCourseBindingExecution
     /// </summary>
     private static void EveryPurposeHasAnExecutor()
     {
-        string root = RepositoryRoot();
-        var minters = Directory.EnumerateFiles(Path.Combine(root, "Companion"), "*.cs", SearchOption.AllDirectories)
-            .Where(file => File.ReadAllText(file).Contains("new OpportunityKey(", StringComparison.Ordinal))
-            .Select(file => Path.GetRelativePath(root, file).Replace('\\', '/'))
-            .OrderBy(name => name, StringComparer.Ordinal)
-            .ToArray();
-        string[] known = MintedPurposes.Select(p => p.Producer).Distinct(StringComparer.Ordinal)
-            .Concat(new[] { "Companion/Brain/Activities/Gathering/GatheringCourseOpportunities.cs" })
-            .Distinct(StringComparer.Ordinal).OrderBy(name => name, StringComparer.Ordinal).ToArray();
-        string[] unknown = minters.Except(known, StringComparer.Ordinal).ToArray();
-        Require(minters.Length > 0, "the sweep found no file minting an opportunity key, so it read the wrong tree");
-        Require(unknown.Length == 0,
-            $"a file mints opportunity keys and this row does not know its purposes, so a purpose with no "
-            + $"executor could land unnoticed: {string.Join(", ", unknown)}");
+        // **The set under test is the declaration, not a sweep and not this file's table.** Every
+        // opportunity a course can hold is built through `Opportunity`, which refuses a purpose outside
+        // `OpportunityPurposes.All`, so that collection is the complete list by construction rather than
+        // by anybody's search succeeding. The row's first job is therefore to check the declaration
+        // against the executor map; its second is to prove the refusal is live, below.
+        string[] declared = OpportunityPurposes.All.OrderBy(p => p, StringComparer.Ordinal).ToArray();
+        Require(declared.Length > 0, "no opportunity purpose is declared at all, so this row checks nothing");
 
+        // The table is the producer map rather than the source of truth, so what is asserted about it is
+        // that it has not drifted *out* of the declaration — a purpose named here that nothing declares
+        // is a stale row pointing whoever reads it at a file that no longer mints anything.
+        string[] strayInTable = MintedPurposes.Select(p => p.Purpose).Distinct(StringComparer.Ordinal)
+            .Except(declared, StringComparer.Ordinal).ToArray();
+        Require(strayInTable.Length == 0,
+            $"this row's producer table names purposes nothing declares, so it is pointing a reader at the wrong "
+            + $"files: {string.Join(", ", strayInTable)}");
+        string root = RepositoryRoot();
         foreach ((string purpose, string producer) in MintedPurposes)
-            Require(File.ReadAllText(Path.Combine(root, producer)).Contains($"\"{purpose}\"", StringComparison.Ordinal),
-                $"premise: the purpose '{purpose}' is no longer a literal in {producer}, so this row is checking a "
-                + "purpose nothing mints while whatever replaced it goes unchecked");
+            Require(File.ReadAllText(Path.Combine(root, producer)).Contains(
+                    "OpportunityPurposes." , StringComparison.Ordinal),
+                $"premise: {producer} is named as the producer of '{purpose}' and no longer names a declared "
+                + "purpose at all, so the table points at a file that mints nothing");
+
+        // A declared purpose with no producer is the other drift, and it is reported rather than refused:
+        // a purpose can legitimately be declared a moment before its producer lands. It is printed so the
+        // gap is visible in a run rather than silent.
+        string[] undocumented = declared.Except(MintedPurposes.Select(p => p.Purpose), StringComparer.Ordinal).ToArray();
+        if (undocumented.Length > 0)
+            Console.WriteLine($"  purposes declared with no producer named in this row: {string.Join(", ", undocumented)}");
 
         var brain = VerifyCompanionLifecycle.Create().Brain;
         HashSet<string> registered = brain.Actions.Select(action => action.Name).ToHashSet(StringComparer.Ordinal);
         Require(registered.Count > 0, "the brain registered no activities, so this row proves nothing");
 
-        foreach ((string purpose, string producer) in MintedPurposes)
+        foreach (string purpose in declared)
         {
+            string producer = MintedPurposes.FirstOrDefault(p => p.Purpose == purpose).Producer ?? "a producer this row does not name";
             if (!ExecuteCourseBinding.HasExecutor(purpose))
             {
                 (string Purpose, string Ruling) exemption = ExemptPurposes.FirstOrDefault(e => e.Purpose == purpose);
@@ -128,6 +143,43 @@ internal static class VerifyCourseBindingExecution
             Require(!ExecuteCourseBinding.HasExecutor(purpose),
                 $"'{purpose}' is exempt because {ruling}, and it has an executor again — either the exemption is "
                 + "stale or a course can now make a trip of it");
+
+        // **The arm that makes the list above complete, driven rather than searched for.** A seventh
+        // purpose is exactly what the old sweep could not see: a sentinel minted one into a fact record
+        // in a file with no key construction and this row stayed green, and it stayed green a second time
+        // for the same key construction spelled out in full. Neither spelling matters now, because every
+        // opportunity is built through one constructor and that constructor refuses a purpose the tree
+        // does not declare — so an undeclared purpose cannot become a candidate, let alone a step. The
+        // refusal is asserted by driving it, with the exception type named, so a guard downgraded to a
+        // log line or a silent skip reds here.
+        bool refusedUndeclared = false;
+        try
+        {
+            _ = new Opportunity(new OpportunityKey("smash-target", "smash", "tile:10,10", 1), 1, default,
+                OpportunityAdmission.KnownUsable, "fixture",
+                new[] { new UsefulNeed(new NeedKey(NeedKind.Loot, "smash-target"), 1, 1, 1) },
+                new[] { "smash" }, DependencyManifest.Empty, default);
+        }
+        catch (ArgumentOutOfRangeException) { refusedUndeclared = true; }
+        Require(refusedUndeclared,
+            "an opportunity was built with a purpose nothing declares, so a new domain can mint work no activity "
+            + "performs and no list in this row would ever notice — which is the exact silence this pin exists for");
+
+        foreach (string purpose in declared)
+        {
+            bool accepted = true;
+            try
+            {
+                _ = new Opportunity(new OpportunityKey("fixture-domain", purpose, "tile:10,10", 1), 1, default,
+                    OpportunityAdmission.KnownUsable, "fixture",
+                    new[] { new UsefulNeed(new NeedKey(NeedKind.Loot, "fixture-domain"), 1, 1, 1) },
+                    new[] { purpose }, DependencyManifest.Empty, default);
+            }
+            catch (ArgumentOutOfRangeException) { accepted = false; }
+            Require(accepted,
+                $"the declared purpose '{purpose}' is refused by the constructor every producer builds through, so "
+                + "the domain that mints it discovers nothing at all");
+        }
     }
 
     /// <summary>
@@ -152,9 +204,18 @@ internal static class VerifyCourseBindingExecution
         var search = new SearchCourseOrders(3);
         search.Begin(EmptyFacts(), Episode(), new[] { Usable("pot-target", "break-pot"), Usable("light-target", "light") },
             Array.Empty<OpportunityKey>(), new RefuseEverything());
-        Require(search.Refusals.TryGetValue(SearchCourseOrders.StepPurposeHasNoExecutor, out int refused) && refused == 1,
-            $"the pot was not refused for having no executor before enumeration; refusals: "
+        // The structural tally rather than the evidence one. A refusal proved by the executor map is kept
+        // apart from refusals about what an observation holds, because the audit's contracts ask whether
+        // every *evidence* refusal was a not-observed one and a structural reason mixed into that answer
+        // silences them — so this row reads the field the search actually writes it to, and a reason that
+        // moved back into the evidence tally reds here rather than silently disarming contract two.
+        Require(search.StructuralRefusals.TryGetValue(SearchCourseOrders.StepPurposeHasNoExecutor, out int refused) && refused == 1,
+            $"the pot was not refused for having no executor before enumeration; structural refusals: "
+            + $"{string.Join(", ", search.StructuralRefusals.Select(r => r.Key + "=" + r.Value))}; evidence refusals: "
             + $"{string.Join(", ", search.Refusals.Select(r => r.Key + "=" + r.Value))}");
+        Require(!search.Refusals.ContainsKey(SearchCourseOrders.StepPurposeHasNoExecutor),
+            "the executor refusal is also in the evidence tally, which is what puts contract two out of reach on "
+            + "every decision that admits a usable pot");
     }
 
     /// <summary>

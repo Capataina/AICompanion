@@ -83,16 +83,36 @@ public sealed class DecisionFactSnapshot
     {
         Id = id; WorldEpoch = worldEpoch; Tick = tick;
         ObservationOrdinal = observationOrdinal; ReceiptWatermark = receiptWatermark;
-        this.facts = facts.ToDictionary(f => f.Key);
-        Facts = Array.AsReadOnly(this.facts.Values.OrderBy(f => f.Key).ToArray());
+        DecisionFact[] published = facts.ToArray();
+        this.facts = published.ToDictionary(f => f.Key);
+        Facts = Array.AsReadOnly(published);
     }
     public long Id { get; }
     public long WorldEpoch { get; }
     public long Tick { get; }
     public long ObservationOrdinal { get; }
     public long ReceiptWatermark { get; }
-    /// <summary>The frozen census, in deterministic key order. Discovery enumerates this
-    /// captured catalogue; binding reads its values through Track so dependencies remain explicit.</summary>
+    /// <summary>
+    /// The frozen census, in the order its producers published it. Discovery enumerates this captured
+    /// catalogue; binding reads its values through Track so dependencies remain explicit.
+    ///
+    /// **It was sorted by key here until 22 September 2026, and that sort is what stopped the light
+    /// census's rank from ever reaching a decision.** `RankCensusSitesByWorth` cuts the sweep to the
+    /// sites a window could use and hands them back nearest-to-the-heading first; this constructor then
+    /// re-sorted the whole catalogue into tile-identity order, so the prefix `DiscoverAssistanceOpportunities`
+    /// walks — and therefore the candidates that survive the bounded store's per-domain floor and reach
+    /// pricing — was the lowest tile coordinates rather than the nearest sites. Three documents said
+    /// otherwise, and removing the source's own `OrderBy` did nothing on its own, because the destroyer
+    /// was one layer up from where it was looked for.
+    ///
+    /// Publication order is deterministic in the sense the key sort was there to buy: the producers run
+    /// in a fixed order and each publishes its own facts in a fixed order, so two identical observations
+    /// build an identical list. No consumer loses key order by this — `CombatCourseOpportunity` and
+    /// `GatheringCourseOpportunities` each apply `OrderBy(f => f.Key)` of their own to the kind they
+    /// want, which is how a domain asks for tile order and is the right place for it. And the cursor's
+    /// prefix check gains: `RetainCourseModelQueries` appends a completed model answer, which under a key
+    /// sort could land anywhere in the list and force a rescan, and under publication order never can.
+    /// </summary>
     public IReadOnlyList<DecisionFact> Facts { get; }
     public bool TryRead(FactKey key, out DecisionFact fact) => facts.TryGetValue(key, out fact!);
     public TrackedFactReader Track() => new(this);

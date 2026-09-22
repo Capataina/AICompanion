@@ -31,8 +31,52 @@ internal static class VerifyAssistanceOpportunityDiscovery
         Row("G02 immutable capture ignores later caller mutation", CaptureIsImmutable());
         Row("G08 native drop census survives slicing and live item mutation", NativeDropCensus());
         Row("G03 every assistance domain's real capture feeds its own discovery", CaptureFeedsDiscovery());
+        Row("G02 discovery walks the census's rank, so a cut slice is the sites the census ranked highest", DiscoveryFollowsTheCensusRank());
         return red;
     }
+
+    /// <summary>
+    /// The half of the census bound nobody had asked about until a sentinel did: whether the published
+    /// rank ever reaches the search at all.
+    ///
+    /// It did not. This source re-sorted the published facts with `OrderBy(f => f.Key)` — tile-identity
+    /// order, the very thing `RankCensusSitesByWorth` exists to stop deciding what the course sees — and
+    /// walked *that* into a store of 64 candidates across six domains with a per-domain floor of ten.
+    /// So the bound decided membership of the snapshot while tile order still decided which members were
+    /// priced, and three documents said otherwise: the class docstring's "the set it publishes is the
+    /// nearest usable sites rather than the first tiles in key order", the commit body's "the census was
+    /// choosing what the course could see, by coordinate" read as closed, and the guide's "what survives
+    /// the cut is the nearest sites". All three were true of the snapshot and false of the pricing set.
+    ///
+    /// The row builds the disagreement deliberately: twelve sites whose rank is the **reverse** of their
+    /// key order, published in rank order the way the census publishes them, and an allowance that pays
+    /// for four. What the slice examines must be the four the census ranked highest, which here are the
+    /// four *highest* keys. Restoring `OrderBy(f => f.Key)` gives the four lowest and reds it.
+    ///
+    /// Keys are `tile:04,06` rather than `tile:4,6` on purpose: ordinal string order and numeric order
+    /// disagree above nine, so an unpadded scene would make the mutation pass on some of its rows by
+    /// accident rather than fail on all of them.
+    /// </summary>
+    private static Action DiscoveryFollowsTheCensusRank() => () =>
+    {
+        // Published in rank order — nearest first — and the nearest is the highest key here.
+        DecisionFact[] ranked = Enumerable.Range(0, 12)
+            .Select(i => Light($"tile:{11 - i:00},06"))
+            .ToArray();
+        string[] byRank = ranked.Select(f => f.Key.Identity).ToArray();
+        string[] byKey = byRank.OrderBy(t => t, StringComparer.Ordinal).ToArray();
+        Require(!byRank.Take(4).SequenceEqual(byKey.Take(4)),
+            "premise: rank order and key order must disagree over the examined prefix, or this row cannot fail");
+
+        var source = new DiscoverAssistanceOpportunities("light-target");
+        var slice = source.Continue(Snapshot(1, ranked), new DecisionWorkCursor(), new(double.PositiveInfinity, 4));
+        string[] examined = slice.Examined.Select(o => o.Key.Target).ToArray();
+        Require(examined.Length == 4,
+            $"premise: the allowance must cut the walk at four sites, or nothing is being selected; examined {examined.Length}");
+        Require(examined.SequenceEqual(byRank.Take(4)),
+            $"a cut slice must be the sites the census ranked highest and was [{string.Join(" ", examined)}]; "
+            + $"by rank [{string.Join(" ", byRank.Take(4))}], by key [{string.Join(" ", byKey.Take(4))}]");
+    };
 
     /// <summary>
     /// The seam, driven end to end: the real native capture produces the facts, and the three real

@@ -89,7 +89,11 @@ public static class AuditDecisionContracts
     /// Lighting's own bound is <see cref="RankCensusSitesByWorth.MostSitesAWindowCanHold"/> — the number
     /// of spacing-disjoint torch sites the work window holds — because that is what the census can now
     /// publish rather than a figure anybody chose, and it moves if the work radius or the placer's
-    /// spacing does. The margin above it covers hysteresis, which may publish a site the ranking dropped.
+    /// spacing does. The margin above it is exactly one site, which is what hysteresis can produce: the
+    /// census keeps the single site a published course is bound to (`CaptureAssistanceOpportunities.PinnedLightSite`
+    /// returns one target or none), so at most one fact is published past the bound. It was 16 until
+    /// 22 September 2026, which was a margin nobody derived — sixteen times what the rule it covers can
+    /// emit, and therefore fifteen facts of genuine runaway that the tripwire would not have named.
     ///
     /// Every other kind keeps a flat few hundred, which is a tripwire's own bound rather than a mirror of
     /// any declaration: nothing in <c>Selection/</c> declares a fact budget at all — discovery is capped
@@ -100,7 +104,7 @@ public static class AuditDecisionContracts
     public static int MaximumFactsOfKind(string kind) => kind switch
     {
         "light-target" => Observation.RankCensusSitesByWorth.MostSitesAWindowCanHold(
-            (int)(Selection.Weights.FollowWorkRadius / 16f), TorchSpacingTiles) + 16,
+            (int)(Selection.Weights.FollowWorkRadius / 16f), TorchSpacingTiles) + 1,
         _ => 256,
     };
 
@@ -357,7 +361,8 @@ public static class AuditDecisionContracts
         if (settled && steps == 0 && anyUsable && refusals.Count > 0 && AllNotObserved(refusals))
             Fire("empty-course-beside-usable-work", tick, context,
                 $"a settled course with no steps was published (reason={reason}) while {UsableSummary(inputs.Admitted)},"
-                    + $" and every refusal was one of the not-observed pair ({RefusalSummary(refusals)})",
+                    + $" and every refusal was one of the not-observed pair ({RefusalSummary(refusals)})"
+                    + StructuralNote(payload),
                 // Which domains had usable work, not how much: see the note on the signature above.
                 DomainsWithUsableWork(inputs.Admitted));
 
@@ -554,6 +559,18 @@ public static class AuditDecisionContracts
         return text.ToString();
     }
 
+    /// <summary>
+    /// The **evidence** refusals only, which is every reason the contracts here read.
+    ///
+    /// A refusal proved by a fact of the source tree rather than by the state of an observation rides
+    /// under `structurally-refused:` and is deliberately not returned: `AllNotObserved` asks whether
+    /// every refusal was one of the two not-observed strings, and the answer is about what the world
+    /// would have to change for the order to be accepted. A purpose with no executor answers "nothing
+    /// could", so counting it as a third reason silences contract two on every decision where the census
+    /// admitted a pot — which is what it did until 22 September 2026, on exactly the mixed case the
+    /// contract exists for. The prefix is the whole of the separation: `"structurally-refused:x"` does
+    /// not start with `"refused:"`, so this reader skips it by construction rather than by a list.
+    /// </summary>
     private static Dictionary<string, long> Refusals(CourseTracePayload payload)
     {
         var refusals = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -561,6 +578,28 @@ public static class AuditDecisionContracts
             if (field.Key.StartsWith("refused:", StringComparison.Ordinal)
                 && long.TryParse(field.Value.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long count))
                 refusals[field.Key["refused:".Length..]] = count;
+        return refusals;
+    }
+
+    /// <summary>What a violation's message says about refusals the predicates deliberately ignored, so a
+    /// reader is told the pot was refused rather than left to wonder why the tally looks short.</summary>
+    private static string StructuralNote(CourseTracePayload payload)
+    {
+        Dictionary<string, long> structural = StructuralRefusals(payload);
+        return structural.Count == 0 ? ""
+            : $"; structural refusals the contracts do not read: {RefusalSummary(structural)}";
+    }
+
+    /// <summary>The structural refusals, read for the message a violation carries rather than for any
+    /// predicate, so a reader of a capture can see that a pot was refused without the contracts
+    /// treating that as a reason to stay quiet.</summary>
+    private static Dictionary<string, long> StructuralRefusals(CourseTracePayload payload)
+    {
+        var refusals = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var field in payload.Fields)
+            if (field.Key.StartsWith("structurally-refused:", StringComparison.Ordinal)
+                && long.TryParse(field.Value.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long count))
+                refusals[field.Key["structurally-refused:".Length..]] = count;
         return refusals;
     }
 

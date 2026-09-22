@@ -260,8 +260,7 @@ public sealed class CaptureAssistanceOpportunities
         // rather than a favour: the set below is re-ranked from scratch every observation, and an absent
         // unpinned fact is what `RetireAdmissionsThisObservationCannotSupport` retires, so a site that
         // drifted one rank would be torn out from under a course already flying to it.
-        string? workingOn = context.Companion.Brain.Course.Last.Binding is { } bound
-            && bound.Opportunity.Domain == "light-target" ? bound.Opportunity.Target : null;
+        string? workingOn = PinnedLightSite(context);
         var swept = new List<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>>();
         // A census publishes opportunities, not tiles.
         //
@@ -364,12 +363,36 @@ public sealed class CaptureAssistanceOpportunities
         // the placer's spacing apart in both axes, so a window this wide can never usefully hold more
         // than this many of them however dark it is, and publishing past that is spending the decision's
         // budget on answers no placement could take.
-        (List<AssistanceOpportunityFact> published, int withheld) = RankCensusSitesByWorth.PublishTheBest(
-            swept, RankCensusSitesByWorth.MostSitesAWindowCanHold(work, CompanionTorches.SpacingTiles),
-            site => site.Target == workingOn);
+        (List<AssistanceOpportunityFact> published, int withheld) = PublishLightSites(swept, work, workingOn);
         foreach (AssistanceOpportunityFact site in published) facts.Add(Fact("light-target", site.Target, 0, site));
         facts.Add(Coverage("light-coverage", area, area.Width > 0 && area.Height > 0, withheld));
     }
+
+    /// <summary>
+    /// The light site a published course is working right now, or null when it is working anything else.
+    ///
+    /// It is a named function rather than two lines at its one call site because it is half of the
+    /// hysteresis rule and the half a fixture cannot otherwise reach: a row driving
+    /// <c>RankCensusSitesByWorth.PublishTheBest</c> with a keep predicate of its own proves the helper
+    /// keeps what it is told to keep, and says nothing about whether the census tells it anything. The
+    /// keep predicate and this derivation neutralised independently are two different defects, and until
+    /// 22 September 2026 only the first had a witness — neutralising the production call site's predicate
+    /// left all seven of the census's rows green.
+    /// </summary>
+    public static string? PinnedLightSite(ActionContext context)
+        => context.Companion.Brain.Course.Last.Binding is { } bound
+            && bound.Opportunity.Domain == "light-target" ? bound.Opportunity.Target : null;
+
+    /// <summary>
+    /// The production cut: the window's own arithmetic as the bound, and the site a course is working
+    /// pinned past it. This is the call `CaptureLighting` makes, so a row driving it drives the bound,
+    /// the rank and the pin as one thing rather than re-deciding any of them for itself.
+    /// </summary>
+    public static (List<AssistanceOpportunityFact> Published, int Withheld) PublishLightSites(
+        IReadOnlyList<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>> swept, int workTiles, string? workingOn)
+        => RankCensusSitesByWorth.PublishTheBest(swept,
+            RankCensusSitesByWorth.MostSitesAWindowCanHold(workTiles, CompanionTorches.SpacingTiles),
+            site => site.Target == workingOn);
 
     /// <summary>
     /// Where the body must hover to work a tile, which is not the tile.
