@@ -651,15 +651,6 @@ public static class Weights
     /// </summary>
     public const float SettledSpeedPx = 1.5f;
 
-    /// <summary>
-    /// A positioning rule and never a wall: no scored candidate sits higher than this many tiles above
-    /// the player's feet. The orb can fly anywhere the flood reaches, so without this the openest
-    /// spot in a cavern is its roof and the companion hovers out of the player's sight. Following is
-    /// already bound tighter by the intent region's own vertical half-size; this binds the attack
-    /// requests, whose band is measured to the player and says nothing about height.
-    /// </summary>
-    public const int HoverCeilingTiles = 10;
-
     /// <summary>Item physics, from the game's own <c>Item.UpdateItem</c>: gravity per tick and the fall
     /// speed it is capped at, dry and wet. A drop is forecast to its landing with these, so a falling
     /// item is priced where it will be rather than where it is; if the game changes them the forecast
