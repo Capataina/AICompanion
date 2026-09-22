@@ -102,6 +102,37 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// <summary>The offered plan's current segment index, or -1 with no offered plan.</summary>
     public int OfferedSegment { get; private set; } = -1;
 
+    /// <summary>
+    /// The cheap legal continuation from the pose the body is actually in, which is the plan's tick-order
+    /// step 5 and the one step of it the tree never built.
+    ///
+    /// A decision spans ticks by design — one travel query can cost more than a tick's leftover
+    /// allowance — and until this existed every tick inside one asked the body to keep the player
+    /// company. That is not a neutral fallback while a fight is running: selecting a different activity
+    /// exits this one, and this one's <see cref="Exit"/> releases the committed plan with
+    /// <c>activity-exited</c>, which makes the course's accepted use absent, which releases the course,
+    /// which starts the decision again. Measured in the play of 0.38.13: 212 combat attempts at a median
+    /// of one tick, 181 of them <c>replaced-before-attacking</c>, 211 plans invalidated
+    /// <c>activity-exited</c>, 483 course releases <c>next-use-invalid:accepted-use-not-present</c>, and
+    /// twenty shots in a minute.
+    ///
+    /// The committed plan comes first because it is the thing the body is already performing and its
+    /// stand was priced by a decision that finished. The offered plan is second and is the opener the
+    /// plan's own sentence asks for — a mechanically available shot established before deeper search,
+    /// which the <c>G04 retained opener</c> row proves combat produces even under a cut. Null when
+    /// neither exists, and the caller then keeps the player company, which is the honest answer when
+    /// there is nothing to continue.
+    /// </summary>
+    public PositionRequest? Continuation
+    {
+        get
+        {
+            AttackPlan? plan = combat?.Planner.Committed ?? OfferedPlan;
+            if (plan == null || plan.Segments.Length == 0) return null;
+            return new PositionRequest(RequestKind.FireFrom, plan.Current(PlanTick).Stand.Stand, PlanTarget(plan));
+        }
+    }
+
     /// <summary>The plan the body is performing, for the hands.</summary>
     public AttackPlan? CommittedPlan => combat?.Planner.Committed;
 

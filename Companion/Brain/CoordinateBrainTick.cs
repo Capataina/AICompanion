@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Activities.Combat;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
@@ -99,6 +100,20 @@ public sealed class Brain
     public int StrandedTicks { get; private set; }
 
     /// <summary>
+    /// An operation cap on the tick's own allowance. <c>long.MaxValue</c> in play, which is exactly what
+    /// the tick has always had: the wall clock is production's only bound.
+    ///
+    /// It exists because the suite lifts every millisecond allowance, deliberately, so a fixture cannot
+    /// end up timing the machine — and a decision that spans ticks is then unreachable, because the only
+    /// thing that ends a tick's share of the work is the allowance running out. A row whose subject *is*
+    /// a decision spanning ticks therefore needs an operation count, which is the reproducible half of
+    /// <see cref="DecisionWorkBudget"/> and the half <c>G11</c>'s rows already cut on. Offline
+    /// determinism only, in the same sense as <see cref="LimitPlanningWork.Unbounded"/> beside it, and a
+    /// fixture that sets it puts it back.
+    /// </summary>
+    public static long PlanningOperationAllowance { get; set; } = long.MaxValue;
+
+    /// <summary>
     /// This tick is one for walking the pocket: stranded long enough, and inside the roam part of
     /// the roam-then-retry cycle, whose retry part hands the body back to the follow for a few
     /// ticks so a plan to the player runs again and the count can clear.
@@ -123,7 +138,9 @@ public sealed class Brain
         // nothing is, so this is the Begin/End pair it always was; under a harness that installs an
         // ambient allowance per case, a fixture driving a whole tick no longer leaves the rows after
         // it with nothing to borrow.
-        LimitPlanningWork.Ownership allowance = LimitPlanningWork.Own(Weights.TotalPlanningMilliseconds);
+        LimitPlanningWork.Ownership allowance = LimitPlanningWork.Own(new DecisionWorkBudget(
+            LimitPlanningWork.Unbounded ? double.PositiveInfinity : Weights.TotalPlanningMilliseconds,
+            PlanningOperationAllowance));
         ReflexMs = DecideMs = PositionMs = NavigateMs = FinaliseMs = 0;
         try
         {
@@ -248,9 +265,13 @@ public sealed class Brain
         ChoiceEvaluated = true;
         Chooser.Activity.BeginExecution();
         LastRequest = decision.Binding is { } step ? ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center)
-            // No step is companionship rather than a hold, because a course that found nothing worth
-            // doing must not look identical to a course that told the body to freeze.
-            : ExecuteCourseBinding.Companionship(Senses.Intent.Region.Centre);
+            // An unsettled decision may carry a continuation instead of a step — the fight the body is
+            // already in, kept while the brain thinks rather than abandoned to keeping company, which is
+            // the plan's tick-order step 5 and is what `DecideCourseEachTick.Deciding` owns.
+            : decision.Request ?? // No step and nothing to continue is companionship rather than a hold,
+                                  // because a course that found nothing worth doing must not look
+                                  // identical to a course that told the body to freeze.
+                ExecuteCourseBinding.Companionship(Senses.Intent.Region.Centre);
         // The activity still runs its own tick, for the hand it reserves and the state it keeps; its
         // returned request is discarded, because the course already said where the body goes.
         _ = action?.Execute(ctx);

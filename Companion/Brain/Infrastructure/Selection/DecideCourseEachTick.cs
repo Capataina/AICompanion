@@ -12,6 +12,7 @@ using AICompanion.Companion.Brain.Activities.Gathering;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
+using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 using AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
@@ -24,13 +25,18 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection;
 /// <param name="Binding">The published step, null when there is no course, which is companionship.</param>
 /// <param name="Reason">Why this is what the tick got, for the record and the overlay.</param>
 /// <param name="Settled">Whether the brain actually reached a decision this tick. False while a decision
-/// is still running, which is a real state rather than a rare one: a decision spans ticks by design, and
-/// every tick inside one asks the body to keep the player company because that is what it would be doing
-/// anyway. The flag exists because companionship-while-deciding and companionship-as-the-answer are
+/// is still running, which is a real state rather than a rare one: a decision spans ticks by design. The
+/// flag exists because a continuation-while-deciding and the same thing as the answer are
 /// indistinguishable from the request alone, and one of them must not be allowed to start recovery
 /// flight — the walker's own law, that a fallback triggered by the absence of the ordinary path's
 /// precondition fires hardest while the planner is still thinking.</param>
-public readonly record struct CourseDecision(string Activity, StepBinding? Binding, string Reason, bool Settled);
+/// <param name="Request">Where the body goes when there is no published step but the tick is not idle:
+/// the cheap legal continuation an unsettled decision carries, which is the plan's tick-order step 5.
+/// Null on every settled tick, where the binding or companionship answers instead. It is a request
+/// rather than a fabricated <see cref="StepBinding"/> deliberately — a step id no course ever published
+/// would join effects in the record to a course that does not contain them.</param>
+public readonly record struct CourseDecision(string Activity, StepBinding? Binding, string Reason, bool Settled,
+    PositionRequest? Request = null);
 
 /// <summary>
 /// The course owner on the live tick: one frozen observation, one discovery pass, one bounded order
@@ -246,9 +252,7 @@ public sealed class DecideCourseEachTick
             LastSearch = (deciding.EvaluatedOrders, deciding.RejectedOrders, deciding.Exhausted);
             LastRefusals = deciding.Refusals;
             LastLeaders = deciding.Leaders;
-            // Still working. The body keeps the player company while the brain thinks, which is what it
-            // would be doing anyway and is strictly better than holding still for the answer.
-            if (!deciding.Exhausted) return Companionship("deciding", settled: false);
+            if (!deciding.Exhausted) return Deciding(context);
             return Settle();
         }
 
@@ -353,8 +357,40 @@ public sealed class DecideCourseEachTick
         deciding = search;
         decidingFacts = facts;
         decidingEpisode = episode;
-        if (!search.Exhausted) return Companionship("deciding", settled: false);
+        if (!search.Exhausted) return Deciding(context);
         return Settle();
+    }
+
+    /// <summary>
+    /// What the body does on a tick whose decision has not finished: the plan's tick-order step 5, a
+    /// cheap legal continuation established from the actual pose before deeper search.
+    ///
+    /// This asked for companionship until 22 September 2026, and that was not the neutral thing it looks
+    /// like. The tick selects the decision's activity, so companionship-while-deciding *selects keeping
+    /// company*, which exits whatever was running; combat's <see cref="FightEnemies.Exit"/> releases its
+    /// committed plan with <c>activity-exited</c>; the course's accepted use is then absent, so the
+    /// course is released; releasing the course starts a decision; and a decision in flight asks for
+    /// companionship. That loop is what the play of 0.38.13 recorded as 212 combat attempts at a median
+    /// of one tick, 181 of them <c>replaced-before-attacking</c>, 211 plans invalidated
+    /// <c>activity-exited</c> and 483 releases reading <c>accepted-use-not-present</c>.
+    /// `68f07bd` had already fixed the *identity* half of the same loop, and the docstring on
+    /// <c>CombatCourseFacts.UseId</c> describes it; this is the other half, which that fix did not reach
+    /// because no fixture ran a decision spanning ticks with an activity already holding the body.
+    ///
+    /// Combat is the only domain that has a continuation to offer, and that is a property of the domains
+    /// rather than a special case: it is the one whose opportunities are a tactical search it has already
+    /// run, so the next thing to do is standing there in a committed plan. A tile job's next step is a
+    /// course step and comes back the moment the decision settles. Everything else keeps the player
+    /// company, which is what it would be doing anyway.
+    ///
+    /// The tick stays unsettled, so nothing here advances the decision identity and nothing here can
+    /// start recovery flight (<c>RecoverDistantCompanion.ReunionRequested</c> reads the flag).
+    /// </summary>
+    private CourseDecision Deciding(in ActionContext context)
+    {
+        if (context.Companion.Brain.Fighting?.Continuation is { } continuation)
+            return Trace(Last = new("combat", null, "deciding-holds-the-fight", Settled: false, continuation));
+        return Companionship("deciding", settled: false);
     }
 
     /// <summary>
