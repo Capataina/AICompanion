@@ -697,7 +697,11 @@ public sealed class CombatHeldTargetsItsBinderCouldNotSee : ICheck
                 + "stale one. This is the census and the binder disagreeing about the same fact inside one decision; the "
                 + "`contract-violation` occurrences beside it name each one with the key it read. It does not establish "
                 + "which of the two stages is wrong, and a domain whose targets all read observed here while the binder "
-                + "still refuses them would be the sharper finding — the two would then be reading different keys.",
+                + "still refuses them would be the sharper finding — the two would then be reading different keys. "
+                + "One reading caveat: the evidence is a property of a decision rather than of a tick, and a retained "
+                + "course is one decision carried across many, so these columns legitimately repeat while it is held. "
+                + "The sample count is therefore ticks the condition held for and not decisions that produced it; the "
+                + "decision count is `choice_id`'s distinct values over the same span.",
                 s.Tick(span.Start), s.Tick(span.End), span.Length);
     }
 

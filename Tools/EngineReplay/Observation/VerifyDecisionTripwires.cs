@@ -121,6 +121,33 @@ internal static class VerifyDecisionTripwires
             release: "next-use-invalid:accepted-use-not-present"), Empty());
         Require(Count("accepted-use-absent-next-tick") == 0,
             $"a release four ticks after publication is retention working and must not be named; counts={Counts()}");
+
+        // **The shape the live producer actually writes, which the two rows above do not reach.**
+        // `DecideCourseEachTick` releases inside the tick that finds the next use invalid, and then
+        // starts a decision on that same tick; a decision that does not settle in one tick returns
+        // companionship, and `Companionship` calls `Trace` like any other outcome — so the record
+        // carrying `release-reason` is usually an *unsettled* one. A rule that waited for a settled
+        // record would never fire in play while passing both rows above, which is the failure mode
+        // this row exists for.
+        AuditDecisionContracts.Reset();
+        Audit(10, 1, Decision("course-published", "combat", settled: true, steps: 2, facts: 60), Empty());
+        Audit(11, 2, Decision("deciding", "keep-company", settled: false, steps: 0, facts: 60,
+            release: "next-use-invalid:accepted-use-not-present"), Empty());
+        Require(Count("accepted-use-absent-next-tick") == 1,
+            "the release is recorded on the unsettled decision that starts in the same tick, and the rule must"
+                + $" fire there rather than waiting for a settled one; counts={Counts()}");
+
+        // And a course carried for several ticks before losing its use is retention working, whether
+        // the record that carries the release is settled or not. 483 of the 22 September capture's
+        // releases follow 217 publications, so most of them are this and must stay quiet.
+        AuditDecisionContracts.Reset();
+        Audit(10, 1, Decision("course-published", "combat", settled: true, steps: 2, facts: 60), Empty());
+        Audit(11, 1, Decision("course-retained", "combat", settled: true, steps: 2, facts: 60), Empty());
+        Audit(12, 1, Decision("course-retained", "combat", settled: true, steps: 2, facts: 60), Empty());
+        Audit(13, 2, Decision("deciding", "keep-company", settled: false, steps: 0, facts: 60,
+            release: "next-use-invalid:accepted-use-not-present"), Empty());
+        Require(Count("accepted-use-absent-next-tick") == 0,
+            $"a course carried for three ticks and then released is retention working; counts={Counts()}");
     }
 
     // ── contract four ─────────────────────────────────────────────────────────────────────────────
