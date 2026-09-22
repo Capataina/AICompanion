@@ -33,7 +33,7 @@ NavReplay/
 
 ```
 dotnet run --project Tools/NavReplay -- --self-test
-dotnet run --project Tools/NavReplay -- --extract-scenario <capture.tsv> <tick> [--size WxH]
+dotnet run --project Tools/NavReplay -- --extract-scenario <capture.tsv> <tick> [--size WxH] [--reason "<why this window>"]
 ```
 
 The self-test is a handful of ledger rows, each a property of the core with no scene of the walker's kind behind it, and `sh Tools/verify.sh` runs it after the ledger's own self-test. It runs with the millisecond allowances lifted, because a corpus verdict is an oracle only when it cannot depend on how busy the machine was; nothing here is about a deadline.
@@ -70,6 +70,8 @@ The mirror is here as a transform and a proof of the transform, not as a replay 
 ## Cutting a scenario out of a recording
 
 `--extract-scenario` cuts the terrain around the companion at a recorded tick out of a capture's own `terrain-snapshot` events, with the orb's centre from `npc_px`, the destination the brain asked for on that tick, the player's feet and their trail, and writes it in the committed scenario format `Tools/Scenarios/CLAUDE.md` describes. It is how a failure the player can feel becomes a window the world run replays, and it is what produced both committed checkpoints. **A tile no snapshot covered is written solid and counted in the reported coverage, never left as air**: the glyph alphabet reads anything outside it as air, so missing terrain would become open sky and a window with holes in it would read as a window with an easy route. Snapshots are joined to the row on the recorder's own stopwatch rather than on the tick, because the two streams have different producers and only the elapsed millisecond means the same thing in both. **Coverage is coverage as *last written*, not as it stood at the tick**, because the recorder writes a chunk only when it has changed since it last wrote one, so the header carries how far behind the tick the oldest contributing snapshot was, and that number prices a full-coverage window rather than the percentage. Which recorded columns are pixels and which are tiles is read off the column and never inferred from the text.
+
+**`--reason` writes why the window was cut onto the header, and it is the file rather than a guide that has to carry it.** A committed scenario outlives the session that cut it by months and the file is the whole of what a later reader has, so a reason recorded in `Tools/Scenarios/CLAUDE.md` instead is one fact in two homes and the guide is the one that drifts — three windows cut on 22 September 2026 were exactly that until the flag existed. It is appended after every recorded key for a reason worth a case of its own: the header is parsed by *first occurrence* of each key, `MirrorScenarioWorlds.MirrorHeader` taking `goal ` and reading to the next space, so free text written ahead of the provenance is read as the data. `VerifyTheCutReasonRidesInTheHeader` puts every one of those words inside a reason deliberately and requires the parse to be unmoved; writing the reason first instead reddens it by rewriting the reason's own coordinates as the header's. The flag is optional and an absent reason writes nothing, because a tick somebody was curious about has no reason to invent.
 
 The extractor's own liquid fidelity is the text world's: a wet tile is water or lava with a full cell, and the walker's captures carry `~` in their snapshots. Both committed checkpoint windows hold no wet tile in the saved world they are replayed in; the snapshots' `~` tiles lie outside those windows.
 

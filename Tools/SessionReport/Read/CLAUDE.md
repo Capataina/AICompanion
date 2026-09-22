@@ -7,7 +7,7 @@ Read/
 ├─ Chronicle.cs             coalesces identical state into intervals and names the inference it earns
 ├─ DescribeCombatAudit.cs   the report's Combat decisions section, read back out of CombatAudit's sidecar
 ├─ DescribeGodsEyeEvents.cs reads the `-events.jsonl` sidecar for projectile and terrain contact records
-├─ DescribeSession.cs       session metadata, schema witness, closure status, recording cost, loss distribution, and each activity's candidate funnel by stage
+├─ DescribeSession.cs       session metadata, schema witness, closure status, recording cost, loss distribution, each activity's candidate funnel by stage, and whether a machine rather than a person produced the capture
 ├─ FindStretches.cs         runs of consecutive rows satisfying a predicate, with an optional gap allowance
 ├─ JoinAttemptEvidence.cs   reads attempt outcomes, grants and strikes by their process-wide identity counters
 ├─ DescribeCourseDecisions.cs the course as a story: decisions coalesced into runs by reason, activity and purpose
@@ -23,6 +23,8 @@ The coalescing key is the reason, the activity and the bound purpose, and it is 
 **Nothing on disk has ever exercised this.** The newest capture is schema 0.40.0 and typed course evidence begins at 0.41.0, so every course reader here is skipped by name on every recording that exists as of 21 September 2026, and the first play of the wired course brain is the first real input any of them will see. The synthetic groups in `Tests/ChronicleTests.cs` prove each rule by mutation; they do not establish that a real capture parses.
 
 `ReadCourseChronicle.cs` is the retained-course gate. It treats a schema before 0.41.0 as historical-unavailable and a missing, malformed, truncated or envelope-incomplete sidecar as explanatory-partial. It never turns absent course records into an empty course timeline. Exact-input-complete additionally deserialises every immutable decision snapshot and runs the producer's manifest validator: actual values hash to their declared digests, every expected read has one matching captured value, and the aggregate digest covers context, model, scheduler, random state and manifests. Unknown payload versions are not replay inputs. The last terminal writer status must certify complete delivery and its row count must match the capture. A digest-only or empty manifest remains explanatory-partial. A snapshot occurrence with a null, missing or non-object snapshot is malformed, even beside another complete snapshot. Source tick, native phase, observation ordinal and receipt watermark must match the enclosing event. This validates recorded inputs; it does not execute a decision replay or certify that an uninstrumented producer recorded every dependency it should have read.
+
+**`DescribeSession.Synthetic` is the one reader of the `# synthetic=` marker**, and both the summary and the play-measure pins consume it, so a capture one of them refuses as play cannot be play to the other. `../CLAUDE.md` carries what the marker means and why the note's own semicolons broke the first parser; the shape of the rule here is that the producer is the value's first segment and nothing later can become it.
 
 ## There is one body, and the chronicle reads one position for it
 

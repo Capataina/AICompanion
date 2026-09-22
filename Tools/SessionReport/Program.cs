@@ -30,7 +30,10 @@ namespace AICompanion.Tools.SessionReport;
 /// </summary>
 public static class Program
 {
-    private static readonly ICheck[] Checks =
+    /// <summary>Every check, in the order the report runs them. Internal because the behaviour parity
+    /// table resolves a check's name from its type rather than repeating the string: a renamed class is
+    /// then a compile error where a renamed string would be a row that silently stops matching.</summary>
+    internal static readonly ICheck[] Checks =
     {
         // The instrument first: a finding here means the rest of the file is not yet evidence.
         new TicksAdvance(),
@@ -57,6 +60,7 @@ public static class Program
         // effort or failure to an activity is being read across records that disagree.
         new SelectedActivitiesHadAnEligibleOffer(),
         new ARetainedChoiceKeepsItsSelection(),
+        new TheBoundActivityHoldsWhileOneDecisionRuns(),
         new AttemptIdentitiesAgreeAcrossRecords(),
         new RepeatedFailedMethodsAreFindings(),
         new CompletedTransferClaimsWereReceived(),
@@ -77,6 +81,7 @@ public static class Program
         // threshold. The recording side ran ahead of the reading side for the whole migration, so until
         // this landed the companion could write a typed course trace that nothing read back.
         new EveryCourseDecisionAccountsForItsOwnSearch(),
+        new ACensusAdmissionSurvivesItsBinder(),
         new TheDecisionAuditRanOnTheDecisionsTheCaptureHolds(),
         new BeingUnableToReachHimGetsNoticed(),
         new FollowingMakesRouteProgress(),
@@ -249,6 +254,10 @@ public static class Program
         // the companion decided with it. They are printed together and in that order deliberately, so a
         // story is never read without the coverage statement that says how much of it is there.
         Console.Write(DescribeCourseDecisions.Of(session, fullTimeline));
+        // And the same decisions as a table keyed on the identity the rows carry, with the census, the
+        // ordered course and the cost joined to each. The narration above answers "what was it doing at
+        // tick N"; this answers "what was it given, what did it choose, and what did that cost".
+        Console.Write(WriteCourseTimeline.Of(session, fullTimeline));
         Console.Write(JoinAttemptEvidence.Describe(path, session, fullTimeline));
         Console.Write(Chronicle.Of(session, fullTimeline));
         if (session.Count == 0)
@@ -272,13 +281,21 @@ public static class Program
         foreach (var (name, missing) in skipped)
             Console.WriteLine($"  skipped  {name}  — the file has no {missing}");
 
+        // Coverage against the specification rather than against the columns: which of the behaviours
+        // the README says the companion is responsible for this capture said anything about at all.
+        Console.WriteLine();
+        Console.Write(WriteBehaviourParity.Of(session, findings, skipped));
+
         foreach (Severity severity in new[] { Severity.Definitive, Severity.Potential, Severity.Oddity })
         {
-            var group = Trim(findings.Where(f => f.Severity == severity)
-                                     .OrderByDescending(f => f.Rows)
-                                     .ToArray());
+            Finding[] raw = findings.Where(f => f.Severity == severity)
+                                    .OrderByDescending(f => f.Rows)
+                                    .ToArray();
+            var group = Fold(raw);
             Console.WriteLine();
-            Console.WriteLine($"{Label(severity)}  ({group.Count})");
+            Console.WriteLine(raw.Length == group.Count
+                ? $"{Label(severity)}  ({group.Count})"
+                : $"{Label(severity)}  ({group.Count} of {raw.Length:n0} occurrence(s), folded by class)");
             if (group.Count == 0)
             {
                 Console.WriteLine("  nothing");
@@ -298,11 +315,18 @@ public static class Program
             }
         }
 
-        int definitive = findings.Count(f => f.Severity == Severity.Definitive);
+        // The closing line counts the lines the report printed, with the occurrence total beside it.
+        // It used to count raw findings while the header counted folded lines, so the 22 September 2026
+        // capture closed on "1089 definitive issue(s)" under a header reading "DEFINITIVE ISSUES (8)" —
+        // two numbers for two different things, and the larger one is the one a reader quotes.
+        Finding[] definitiveFindings = findings.Where(f => f.Severity == Severity.Definitive).ToArray();
+        int definitive = Fold(definitiveFindings).Count;
         Console.WriteLine();
         Console.WriteLine(definitive == 0
             ? "no definitive issue in this session."
-            : $"{definitive} definitive issue(s): something in this session is wrong by construction.");
+            : definitive == definitiveFindings.Length
+                ? $"{definitive} definitive issue(s): something in this session is wrong by construction."
+                : $"{definitive} definitive issue(s) over {definitiveFindings.Length:n0} occurrence(s): something in this session is wrong by construction.");
         return definitive == 0 ? 0 : 1;
     }
 
@@ -375,34 +399,100 @@ public static class Program
         return (findings, skipped, ran);
     }
 
-    /// <summary>How many times one check may say the same thing before the rest become a count.</summary>
+    /// <summary>How many occurrences of one class may be printed separately before they become a count.</summary>
     private const int RepeatsShown = 3;
 
+    /// <summary>How many classes one check may print before the tail of them becomes a count.</summary>
+    private const int ClassesShown = 6;
+
+    /// <summary>How many tick spans a folded line names before the rest become a count of spans.</summary>
+    private const int SpansNamed = 8;
+
     /// <summary>
-    /// The worst few of each check's findings, with the rest folded into one line. A condition that
-    /// held five times in a session is one defect that recurred, and printing its paragraph five
-    /// times moves the reading cost rather than removing it — which is the failure a reader built to
-    /// replace hand-grepping must not commit itself.
+    /// One line per class of finding, with the count and the span it covered. A condition that held
+    /// five times in a session is one defect that recurred, and printing its paragraph five times moves
+    /// the reading cost rather than removing it — which is the failure a reader built to replace
+    /// hand-grepping must not commit itself.
+    ///
+    /// <para><b>The class is the fold key and the check is not</b>, which is the correction the 22
+    /// September 2026 capture forced. Folding per check printed the worst three and one summary line
+    /// whose detail then enumerated every one of 872 tick spans — the reading cost moved into the
+    /// summary rather than out of the report. Folding per class prints one line for 875 occurrences of
+    /// one contradiction while leaving two genuinely different findings from one check as two lines:
+    /// "projectile type 1 lands a median 21 updates late" and "projectile type 3 lands a median 12
+    /// updates late" are the whole content of that check and must not become one row.</para>
+    ///
+    /// <para>A class under <see cref="RepeatsShown"/> occurrences is left as its individual findings,
+    /// because three paragraphs carrying three different sets of numbers are worth more than one
+    /// paragraph carrying a count. Past it the class folds, and a check with more classes than
+    /// <see cref="ClassesShown"/> folds the tail of them as well, so no check can flood the report
+    /// however many distinct things it finds.</para>
     /// </summary>
-    private static List<Finding> Trim(Finding[] group)
+    internal static List<Finding> Fold(Finding[] group)
     {
         var kept = new List<Finding>();
         foreach (var byCheck in group.GroupBy(f => f.Check))
         {
-            var ordered = byCheck.ToArray();
-            kept.AddRange(ordered.Take(RepeatsShown));
-            if (ordered.Length <= RepeatsShown)
-                continue;
-            var rest = ordered.Skip(RepeatsShown).ToArray();
-            kept.Add(new Finding(
-                ordered[0].Severity,
-                byCheck.Key,
-                $"and {rest.Length} more of the same, the largest {rest[0].Rows:n0} rows",
-                $"Ticks {string.Join(", ", rest.Select(f => $"{f.FirstTick:n0}..{f.LastTick:n0}"))}. "
-                    + "Same check, same shape; the three above carry the reasoning.",
-                rest[0].FirstTick, rest[^1].LastTick, rest.Sum(f => f.Rows)));
+            var classes = new List<Finding>();
+            foreach (var byClass in byCheck.GroupBy(ClassOf, StringComparer.Ordinal))
+            {
+                var ordered = byClass.OrderByDescending(f => f.Rows).ToArray();
+                if (ordered.Length <= RepeatsShown) { classes.AddRange(ordered); continue; }
+                classes.Add(FoldOne(ordered));
+            }
+            classes.Sort((a, b) => b.Rows.CompareTo(a.Rows));
+            if (classes.Count <= ClassesShown) { kept.AddRange(classes); continue; }
+            kept.AddRange(classes.Take(ClassesShown));
+            var rest = classes.Skip(ClassesShown).ToArray();
+            kept.Add(new Finding(rest[0].Severity, byCheck.Key,
+                $"and {rest.Length} further class(es) of the same check, the largest over {rest[0].Rows:n0} row(s)",
+                $"Ticks {Spans(rest)}. The {ClassesShown} above carry the reasoning; these are the same check "
+                    + "finding different things, so run with --timeline for each one's own numbers.",
+                rest.Min(f => f.FirstTick), rest.Max(f => f.LastTick), rest.Sum(f => f.Rows)));
         }
         return kept.OrderByDescending(f => f.Rows).ToList();
+    }
+
+    /// <summary>One class's occurrences as one finding: the representative's reasoning, then the count,
+    /// the whole span and a bounded sample of the individual spans.</summary>
+    private static Finding FoldOne(Finding[] ordered)
+    {
+        int first = ordered.Min(f => f.FirstTick), last = ordered.Max(f => f.LastTick);
+        return new Finding(ordered[0].Severity, ordered[0].Check,
+            $"{ordered[0].Title} ({ordered.Length:n0}×)",
+            $"{ordered.Length:n0} occurrence(s) of one class between ticks {first:n0} and {last:n0}, over "
+                + $"{ordered.Sum(f => f.Rows):n0} row(s); the largest spans {ordered[0].Rows:n0} row(s). "
+                + $"Spans: {Spans(ordered)}. One line rather than {ordered.Length:n0}, because the same "
+                + $"contradiction recurring is one defect. {ordered[0].Detail}",
+            first, last, ordered.Sum(f => f.Rows), ClassOf(ordered[0]));
+    }
+
+    private static string Spans(Finding[] ordered)
+    {
+        var named = ordered.Take(SpansNamed)
+            .Select(f => f.FirstTick == f.LastTick ? $"{f.FirstTick:n0}" : $"{f.FirstTick:n0}..{f.LastTick:n0}");
+        string text = string.Join(", ", named);
+        return ordered.Length <= SpansNamed ? text : $"{text} and {ordered.Length - SpansNamed:n0} more";
+    }
+
+    /// <summary>
+    /// What two findings have to share to be one line. A check that can fire per tick declares its own
+    /// class; everything else is its title with the digits masked, so two findings differing only in a
+    /// count or a tick range fold and two differing in a name do not.
+    /// </summary>
+    internal static string ClassOf(Finding finding)
+    {
+        if (finding.Class is { } declared) return declared;
+        var masked = new System.Text.StringBuilder(finding.Title.Length);
+        bool inNumber = false;
+        foreach (char c in finding.Title)
+        {
+            bool digit = char.IsAsciiDigit(c) || (inNumber && (c == ',' || c == '.'));
+            if (!digit) { masked.Append(c); inNumber = false; continue; }
+            if (!inNumber) masked.Append('#');
+            inNumber = true;
+        }
+        return masked.ToString();
     }
 
     /// <summary>
