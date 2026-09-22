@@ -17,7 +17,8 @@ public readonly record struct CensusAdmission(string Domain, int Usable, int Unr
 public readonly record struct TargetFact(string Kind, string Key, bool Observed, string Evidence);
 
 /// <summary>Everything a decision audit needs that its own record does not carry.</summary>
-public sealed record DecisionInputs(IReadOnlyList<CensusAdmission> Admitted, IReadOnlyList<TargetFact> Targets);
+public sealed record DecisionInputs(IReadOnlyList<CensusAdmission> Admitted, IReadOnlyList<TargetFact> Targets,
+    IReadOnlyDictionary<string, int>? FactsByKind = null);
 
 /// <summary>
 /// Audits every recorded decision against the contracts the brain is supposed to keep, and writes a
@@ -77,20 +78,38 @@ public sealed record DecisionInputs(IReadOnlyList<CensusAdmission> Admitted, IRe
 public static class AuditDecisionContracts
 {
     /// <summary>
-    /// How large a frozen observation may get before its size is itself the finding.
+    /// How many facts of one kind a frozen observation may carry before that kind's size is the finding.
     ///
-    /// <b>This mirrors nothing, and saying so is the point of the comment.</b> There is no declared
-    /// fact budget anywhere in <c>Selection/</c>: discovery is capped at 64 candidates across six
-    /// domains and the search at three sites per order, and the number of *facts* a snapshot may hold
-    /// is bounded by nothing. Once the course brain names one, this mirrors it and this comment says
-    /// which declaration it must equal. Until then it is a tripwire's own bound taken from a
-    /// measurement rather than from a rule: in the capture of 22 September 2026 a decision carried a
-    /// median 149 facts over its first 200 ticks and 1,548 over ticks 1,801–2,000, growing
-    /// monotonically and never falling, with about sixty of them accounted for by the census. So a
-    /// few hundred is the shape of a healthy census here, and this fires where the growth has become
-    /// the story rather than at a large opening one.
+    /// <b>It is per kind because a single total could not see the thing it was watching for.</b> The
+    /// bound was one number, 512, over the whole observation, and on the 22 September capture's replay it
+    /// fired 470–647 times a run — every one of them on `light-target`, a census legitimately sized to
+    /// its window, while a runaway in `combat-use` at three or four hundred facts would have sat
+    /// invisible behind it. A tripwire whose loudest kind is its healthiest cannot report the others.
+    ///
+    /// Lighting's own bound is <see cref="RankCensusSitesByWorth.MostSitesAWindowCanHold"/> — the number
+    /// of spacing-disjoint torch sites the work window holds — because that is what the census can now
+    /// publish rather than a figure anybody chose, and it moves if the work radius or the placer's
+    /// spacing does. The margin above it covers hysteresis, which may publish a site the ranking dropped.
+    ///
+    /// Every other kind keeps a flat few hundred, which is a tripwire's own bound rather than a mirror of
+    /// any declaration: nothing in <c>Selection/</c> declares a fact budget at all — discovery is capped
+    /// at 64 candidates across six domains and the search at three sites per order. Measured on the same
+    /// replay, the largest non-lighting kind is `combat-use` at 6–11 and `mine-target` at 13, so 256 is
+    /// an order of magnitude above a healthy crowd and fires well below where a leak would hurt.
     /// </summary>
-    public const int MaximumFactsPerDecision = 512;
+    public static int MaximumFactsOfKind(string kind) => kind switch
+    {
+        "light-target" => Observation.RankCensusSitesByWorth.MostSitesAWindowCanHold(
+            (int)(Selection.Weights.FollowWorkRadius / 16f), TorchSpacingTiles) + 16,
+        _ => 256,
+    };
+
+    /// <summary>Mirrors <c>CompanionTorches.SpacingTiles</c>, which this file cannot reference: the
+    /// placer's own source reaches the tile watcher, and `EngineReplay` compiles this file a second time
+    /// without half the mod behind it, so including the placer there fails the build. The two drifting
+    /// would silently widen or narrow the light bound, so `the audit's torch spacing is the placer's` in
+    /// `VerifyDecisionTripwires` asserts they are equal and reds if either moves alone.</summary>
+    public const int TorchSpacingTiles = 8;
 
     /// <summary>
     /// What a tick's decision may cost before the overrun is reported, in milliseconds.
@@ -278,12 +297,24 @@ public static class AuditDecisionContracts
         // call and no transition contract reads it, so a carried tick allocates nothing at all.
         Dictionary<string, long> refusals = Refusals(payload);
 
-        // Contract five: the frozen observation is larger than anything the brain declared it needs.
-        if (factCount > MaximumFactsPerDecision)
-            Fire("fact-count-above-bound", tick, context,
-                $"the frozen observation carried {factCount} facts against a declared bound of"
-                    + $" {MaximumFactsPerDecision} (observation ordinal {context.ObservationOrdinal})",
-                (factCount / 256).ToString(CultureInfo.InvariantCulture));
+        // Contract five: one kind of the frozen observation is larger than that kind's own bound. The
+        // loudest kind is reported rather than every offender, because the signature groups by kind and
+        // a decision carrying two runaway kinds is one finding a reader will chase from either end.
+        if (inputs.FactsByKind is { Count: > 0 } kinds)
+        {
+            string worst = ""; int worstCount = 0, worstBound = 0;
+            foreach ((string kind, int count) in kinds)
+            {
+                int bound = MaximumFactsOfKind(kind);
+                if (count <= bound || count - bound <= worstCount - worstBound) continue;
+                worst = kind; worstCount = count; worstBound = bound;
+            }
+            if (worst.Length > 0)
+                Fire("fact-count-above-bound", tick, context,
+                    $"the frozen observation carried {worstCount} {worst} facts against that kind's bound of"
+                        + $" {worstBound}, in {factCount} facts overall (observation ordinal {context.ObservationOrdinal})",
+                    worst);
+        }
 
         // Contracts one and two both turn on which domains the census admitted usable and which of
         // those the binder then refused for want of an observed target, so the evidence is gathered
