@@ -78,6 +78,7 @@ internal static class VerifyEngineMotion
         ("the orb fits every two-by-two gap and no one-by-one gap in any direction", VerifyOrbContact.SizeRule),
         ("the orb passes a one-tile diagonal step without ever overlapping a wall", VerifyOrbContact.DiagonalStep),
         ("contact pushes the orb out of a wall, kills the velocity into it and keeps the slide", VerifyOrbContact.PushOutAndSlide),
+        ("a platform is air to the body, and the contact, the clearance, the corner graph and the clearance field all say so", VerifyOrbContact.PlatformsAreAir),
         ("a two-wide corridor is open to the flood, a one-wide is closed, and a liquid across it is as open as air", VerifyFreeSpace.CorridorsAndLiquids),
         ("the free-space flood over a screen-sized room finishes in a handful of slices", VerifyFreeSpace.FloodFinishes),
         ("a flood bounded by travel cost exhausts inside its radius with exactly the corners the ball holds", VerifyFreeSpace.FloodBounded),

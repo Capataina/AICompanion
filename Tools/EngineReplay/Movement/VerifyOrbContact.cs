@@ -2,10 +2,18 @@ extern alias live;
 
 using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.ID;
 using AICompanion.Tools.Ledger;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using Contact = live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact;
 using World = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
+using ITileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.ITileWorld;
+using TileShape = live::AICompanion.Companion.Brain.Infrastructure.Movement.TileShape;
+using OrbTerrain = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbTerrain;
+using CornerGraph = live::AICompanion.Companion.Brain.Infrastructure.Movement.CornerGraph;
+using ClearanceField = live::AICompanion.Companion.Brain.Infrastructure.Movement.ClearanceField;
+using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
 
 /// <summary>
 /// The orb's body, proved on the live motor and the engine's own advance: the size rule — it fits
@@ -121,6 +129,120 @@ internal static class VerifyOrbContact
         Require(companion.NPC.Center.X > startX + 64f, $"the slide must carry the body along the floor; it moved from x={startX:0} to {companion.NPC.Center.X:0}");
         Require(MathF.Abs(companion.NPC.Center.Y - (45 * 16f - R)) < 0.05f, $"the floor must hold the body a radius above it; centre {companion.NPC.Center}");
         return 0;
+    }
+
+    /// <summary>
+    /// A platform is air to this body, and every reader of tile solidity says so together. The owner's
+    /// ruling is that platforms are passable to the orb, and the readers that have to agree are the
+    /// contact's push-out, its clearance, the corner graph the flood and the route walk, and the
+    /// clearance field the route and the park price against — all of which reach one predicate,
+    /// <c>OrbTerrain.Solid</c>, which is <c>CircleContact.Solid</c>.
+    ///
+    /// <para>The first arm is the one that could disagree, and it is the reason this row exists. The
+    /// 2026-09-22 capture was read as the clearance column being blind to platforms while the contact
+    /// counted one as a wall; the column and the contact are in fact the same function, and the
+    /// reconstruction that matched the column to 0.10 px is evidence *for* the code rather than against
+    /// it. What was true is that <c>Solid</c> reached its answer through the world's pass-through flag
+    /// alone, so a world reporting a platform *without* the flag — a combination `ITileWorld` permits
+    /// and the recorder already names, writing "solid-platform" for exactly it — made a platform a wall
+    /// to the body, silently reversing the ruling. The arm drives the interface with both values of the
+    /// flag and requires the same answer from all four readers.</para>
+    ///
+    /// <para>The second arm is the measurement that says the live game never produces that pair: a real
+    /// platform tile read through <c>GameTileWorld</c> carries the flag, and a solid-top tile that does
+    /// not carry it is reported as air rather than as a platform. So the disagreement is unreachable in
+    /// play today, and the guard is there to keep it unreachable from a world nobody is looking at.</para>
+    /// </summary>
+    public static int PlatformsAreAir()
+    {
+        // Arm one: the interface, with the flag and without it. The same four readers, the same answers.
+        foreach (bool flag in new[] { true, false })
+        {
+            var world = new PlatformRowWorld(PlatformRow, flag);
+            string arm = flag ? "a platform carrying the pass-through flag" : "a platform whose world does not set the pass-through flag";
+            Require(world.Shape(20, PlatformRow) == TileShape.Platform, $"{arm}: the fixture world must report the tile as a platform");
+            Require(!OrbTerrain.Solid(world, 20, PlatformRow),
+                $"{arm} must not be solid to the body: platforms are passable to the orb by the owner's ruling, whatever a world says about fall-through");
+            Require(CornerGraph.Usable(world, new Point(20, PlatformRow)),
+                $"{arm}: the corner inside the platform row must be usable, or the flood and the route disagree with the contact about where the body fits");
+            Require(ClearanceField.Shared.At(world, 20, PlatformRow) >= ClearanceField.MaxTiles - 0.01f,
+                $"{arm}: the clearance field must read open air at the platform, not a wall; it read {ClearanceField.Shared.At(world, 20, PlatformRow):0.00} tiles");
+            ClearanceField.Shared.Invalidate();
+
+            // The clearance the body steers by, and the contact it would be pushed against, at one point:
+            // a body resting exactly on the platform's top surface. Both must ignore it, together.
+            Vector2 resting = new(20 * 16f, PlatformRow * 16f - R);
+            float clearance = Contact.Clearance(world, resting);
+            Require(clearance >= 32f - 0.01f,
+                $"{arm}: clearance on a platform's surface must be the cap, the same blindness the contact has; it read {clearance:0.00}px");
+            Vector2 inside = new(20 * 16f, PlatformRow * 16f + 8f);
+            Vector2 centre = inside, velocity = new(0f, 2f);
+            var result = Contact.Resolve(world, ref centre, ref velocity);
+            Require(!result.Touched && centre == inside && velocity == new Vector2(0f, 2f),
+                $"{arm}: a body inside a platform tile must meet nothing — touched={result.Touched} centre {centre} velocity {velocity}");
+            Require(Contact.SweptClear(world, new Vector2(20 * 16f, (PlatformRow - 3) * 16f), new Vector2(20 * 16f, (PlatformRow + 3) * 16f), OrbTerrain.Wall),
+                $"{arm}: a straight descent through the platform must be swept clear");
+        }
+
+        // Arm two: the live tile reader, so the first arm's second case is named as unreachable in play
+        // rather than merely guarded against. A real platform carries the flag; a solid-top tile that
+        // does not carry it is air, never a platform, so `Platform && !PassThrough` is not producible here.
+        var companion = Scene();
+        Main.tileSolid[TileID.Platforms] = true;
+        Main.tileSolidTop[TileID.Platforms] = true;
+        Fill();
+        Carve(10, 40, 10, 44);
+        for (int x = 10; x <= 40; x++)
+        {
+            Tile tile = Main.tile[x, PlatformRow];
+            tile.ClearEverything();
+            tile.HasTile = true;
+            tile.TileType = TileID.Platforms;
+        }
+        TerrainChanges.Reset();
+        var live = new GameTileWorld();
+        Require(live.Shape(20, PlatformRow) == TileShape.Platform && live.PassThrough(20, PlatformRow),
+            $"a native platform must read as a platform carrying the flag; shape {live.Shape(20, PlatformRow)} passThrough {live.PassThrough(20, PlatformRow)}");
+        Require(!OrbTerrain.Solid(live, 20, PlatformRow), "a native platform must not be solid to the body");
+        // The pair the guard exists for cannot be produced here: without the flag the live reader answers Air.
+        Main.tileSolid[TileID.Platforms] = false;
+        Main.tile[20, PlatformRow].TileFrameY = 18;
+        Require(!live.PassThrough(20, PlatformRow) && live.Shape(20, PlatformRow) == TileShape.Air,
+            $"a solid-top tile the engine does not collide with must read as air, never as a platform; shape {live.Shape(20, PlatformRow)}");
+        Main.tileSolid[TileID.Platforms] = true;
+        Main.tile[20, PlatformRow].TileFrameY = 0;
+        TerrainChanges.Reset();
+        EmitLedgerRows.Detail("orb-platform: the live tile reader cannot report Platform without pass-through — a platform carries the flag, "
+            + "and a solid-top tile the engine does not collide with reads as air, so the guarded pair is unreachable in play");
+
+        // And the body descends through it, on the live motor and the engine's own advance.
+        float minimum = Drive(companion, new Vector2(20 * 16f, (PlatformRow - 6) * 16f), new Vector2(20 * 16f, (PlatformRow + 4) * 16f), 400, out int ticks);
+        Require(ticks < 400, $"the body must descend through the platform row; after 400 ticks it sat at {companion.NPC.Center}");
+        Require(companion.NPC.Center.Y > PlatformRow * 16f + 16f,
+            $"the body must end below the platform row; its centre is at y={companion.NPC.Center.Y:0.0} against the platform's bottom at {PlatformRow * 16f + 16f:0}");
+        Require(minimum >= 32f - 0.01f,
+            $"nothing on the descent may read as near a wall, because the platform is not one; least clearance {minimum:0.00}px");
+        EmitLedgerRows.Measure(VerifyEngineMotion.Instrument, "Movement", "orb-platform-descent-ticks", ticks, "ticks", "down");
+        Main.tileSolid[TileID.Platforms] = false;
+        Main.tileSolidTop[TileID.Platforms] = false;
+        return 0;
+    }
+
+    /// <summary>The row the platform case puts its platforms on.</summary>
+    private const int PlatformRow = 30;
+
+    /// <summary>
+    /// Open air with one row of platforms across it, and a flag the case chooses. It exists so the
+    /// contact can be asked the question `GameTileWorld` cannot express — a platform whose world does
+    /// not report fall-through — which is the combination the ruling has to survive.
+    /// </summary>
+    private sealed class PlatformRowWorld(int row, bool passThrough) : ITileWorld
+    {
+        public bool InWorld(int x, int y) => x >= 0 && y >= 0 && x < 100 && y < 100;
+        public TileShape Shape(int x, int y) => InWorld(x, y) && y == row ? TileShape.Platform : TileShape.Air;
+        public bool PassThrough(int x, int y) => passThrough && Shape(x, y) == TileShape.Platform;
+        public bool Water(int x, int y) => false;
+        public bool Lava(int x, int y) => false;
     }
 
     /// <summary>Steer the live motor toward a target every tick, advancing the body the way the engine
