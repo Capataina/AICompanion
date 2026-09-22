@@ -44,8 +44,8 @@ internal static class VerifyAttemptEvidenceProducers
         Item previous = Main.item[slot];
         var ctx = VerifyCollectionContracts.SetUpFloor();
         Item drop = VerifyCollectionContracts.Drop(ItemID.CopperOre, 10, new Vector2(30 * 16 + 8, 60 * 16));
-        var recorder = new BrainTelemetry(); VerifyObservationLifecycle.Attach(recorder);
-        recorder.OnWorldLoad();
+        var recorder = new BrainTelemetry();
+        OpenTheRecorderOnACompanion.Open(recorder, ctx.Companion);
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
@@ -190,8 +190,8 @@ internal static class VerifyAttemptEvidenceProducers
         // Outside reach, so the attempt spans an approach walk as well as its strikes.
         ctx.Npc.Bottom = new Vector2(8 * 16f + 3f, ctx.Npc.Bottom.Y);
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        var recorder = new BrainTelemetry(); VerifyObservationLifecycle.Attach(recorder);
-        recorder.OnWorldLoad();
+        var recorder = new BrainTelemetry();
+        OpenTheRecorderOnACompanion.Open(recorder, ctx.Companion);
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try

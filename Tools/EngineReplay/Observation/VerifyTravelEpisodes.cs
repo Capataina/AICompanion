@@ -64,8 +64,7 @@ internal static class VerifyTravelEpisodes
     {
         CompanionNPC companion = SetUpFloorWithThePlayerDownTheFloor();
         var recorder = new BrainTelemetry();
-        VerifyObservationLifecycle.Attach(recorder);
-        recorder.OnWorldLoad();
+        OpenTheRecorderOnACompanion.Open(recorder, companion);
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
 
         try

@@ -154,8 +154,44 @@ internal static class GradeThePlayMeasures
         if (stepCannotGrade != null) EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, StepVerdict, stepCannotGrade);
         else failures += AWantedFightIsBegun(suite, play, scene);
         failures += TheAuditRanOnTheseDecisions(suite, run, play.Count, scene);
+        failures += TheObservationsFloorDoesNotClimb(suite, play, scene);
         if (play.Count > 0) Measures(suite, play, route, stage, cast, shortScene);
         return failures;
+    }
+
+    /// <summary>
+    /// The growth verdict, over the decisions this replay actually made.
+    ///
+    /// The rule is <see cref="RunTheSoak.GradeTheFactFloor"/>'s and is not restated here, deliberately:
+    /// the soak and this run differ in their scene and in nothing else that the verdict reads, and two
+    /// copies of a pair of thresholds is how one of them gets tuned to whichever run somebody was looking
+    /// at. What this adds is the scene that matters. The soak drives a seeded bot over the surface and its
+    /// census peaks at about 170 facts; this drives the capture that leaked, and with the audit wired the
+    /// same tree fired <c>fact-count-above-bound</c> on 646 of 2,340 decisions. Length was never the
+    /// variable — the play's climb from 150 to 1,603 facts happened in thirty-three seconds — so the
+    /// instrument that holds the leaking scene is the one that should carry this verdict.
+    ///
+    /// **This row is expected red on main until the brain fix lands**, the way the refusal and step
+    /// verdicts beside it already are: it measures a defect this suite exists to hold, and a green here
+    /// before the fix would mean the sampling stopped rather than that the growth stopped.
+    ///
+    /// Sampled where the decision ordinal advances rather than per tick, because a carried course holds
+    /// one frozen observation across every tick it owns the body, and counting its facts once per tick
+    /// would weight a long-held decision by how long it was held.
+    /// </summary>
+    private static int TheObservationsFloorDoesNotClimb(string suite, IReadOnlyList<RunTheWorld.PlayTick> play, string scene)
+    {
+        var facts = new List<int>();
+        long last = long.MinValue;
+        foreach (var tick in play)
+        {
+            if (tick.DecisionId == last) continue;
+            last = tick.DecisionId;
+            facts.Add(tick.Facts);
+        }
+        return RunTheSoak.GradeTheFactFloor(suite,
+            "the frozen observation's floor does not climb across the replayed capture",
+            facts, play.Count, scene, new[] { SampleTag }, mode: "production-clock");
     }
 
     /// <summary>

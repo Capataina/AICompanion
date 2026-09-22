@@ -41,6 +41,31 @@ internal static class WorldRunEntry
         int ticks = Int(args, "--ticks=", DefaultTicks);
         string suite = Value(args, "--suite=") ?? (scenario != null ? "scenario " + Path.GetFileNameWithoutExtension(scenario) : "recorded route");
 
+        // The soak: no capture at all, because its player is generated. It is the one command here whose
+        // length is the point — the climb it looks for took thirty-three seconds of play to become
+        // visible and the longest recording this machine holds is six minutes — so it takes its track
+        // from a seed rather than from a recording, and `--ticks` is how long it runs for.
+        if (args.Contains("--soak"))
+        {
+            if (world == null || !File.Exists(world))
+            {
+                string reason = $"no world file at {world ?? "<none given>"}; a .wld is never committed, so the soak "
+                    + "cannot run on a machine without one";
+                EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, "the frozen observation's floor does not climb over a long run", reason);
+                Console.WriteLine($"SKIP {reason}");
+                return 0;
+            }
+            Main.dedServ = true;
+            int soakFailures = RunTheSoak.Run(world, Int(args, "--seed=", 1),
+                Value(args, "--ticks=") is null ? 7200 : ticks,
+                Value(args, "--suite=") ?? "soak", Value(args, "--record-to="), !args.Contains("--no-light"));
+            foreach (LedgerRow row in EmitLedgerRows.Emitted)
+                Console.WriteLine($"{row.Verdict.ToUpperInvariant()} {row.Case}"
+                    + (row.Value is { } soakValue ? $" = {soakValue.ToString("0.###", CultureInfo.InvariantCulture)} {row.Unit}" : "")
+                    + (row.Message.Length > 0 ? $" :: {row.Message}" : ""));
+            return soakFailures == 0 ? 0 : 1;
+        }
+
         if (capture == null && scenario == null) { Usage(); return 2; }
 
         // A committed scenario as a checkpoint. The scenario is in the repository, so only the world
@@ -307,6 +332,13 @@ internal static class WorldRunEntry
                                       why, what stood in the world, and what the decision cost
               --record-to=<dir>       where the synthetic capture lands (default: a temporary folder)
               --no-recorder           run the play measures without recording anything
+              --soak                  the long run: a seeded bot player walking, stopping and mining a
+                                      real world with hostiles and drops arriving on a seeded schedule,
+                                      sampled once per decision for the frozen observation's size, the
+                                      opportunity store, managed memory and what deciding cost. Needs
+                                      only --world; takes --seed and --ticks (7,200 by default, about
+                                      two minutes of play)
+              --seed=N                which world the soak generates; two runs at one seed agree
               --hostile-motion=native|synthetic
                                       how a placed hostile moves; native is the game's own
                                       NPC.UpdateNPC and synthetic is a straight walk at the player

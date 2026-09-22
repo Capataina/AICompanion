@@ -100,7 +100,16 @@ internal static class RunTheWorld
         /// </summary>
         int HostilesArrivingAtCompanion,
         /// <summary>The soonest arrival at the player the threat sense forecast this tick, or infinity when nothing is coming.</summary>
-        float SoonestArrivalTicks)
+        float SoonestArrivalTicks,
+        /// <summary>
+        /// The identity of the decision standing on this tick, and how many facts its frozen observation
+        /// carried. Both are per *decision* rather than per tick, so a carried course repeats them: the
+        /// growth verdict samples where this value changes, which is the same rule the soak samples on.
+        /// They are read here rather than reconstructed because an observation is frozen for the life of
+        /// one decision and is gone by the time any grader runs.
+        /// </summary>
+        long DecisionId,
+        int Facts)
     {
         /// <summary>
         /// Whether README's fight scenes want a fight on this tick.
@@ -432,7 +441,8 @@ internal static class RunTheWorld
                 brain.DecideMs, brain.TotalMs, GC.CollectionCount(2),
                 companion.Combat.LastFireOutcome == "fired",
                 Actors?.HostilesAlive ?? 0, Actors?.DropsPresent ?? 0,
-                brain.LastAction?.Name == "combat", inRegion, atPlayer, atCompanion, soonest));
+                brain.LastAction?.Name == "combat", inRegion, atPlayer, atCompanion, soonest,
+                course.DecisionId, course.Facts?.Facts.Count ?? 0));
             // Asked after the tick's resolve, because the reach flood is advanced by the
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.
