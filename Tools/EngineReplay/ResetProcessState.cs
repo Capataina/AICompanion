@@ -121,10 +121,18 @@ internal static class ResetProcessState
         // preferences below are, and which decide whether a recorder records at all:
         // `BrainTelemetry.Record` closes the session on the first tick it reads `RecordTelemetry` false.
         // A fixture that turns recording on for its own scene and hands the switch back *off* in its
-        // `finally` rather than back to what it found therefore silences every later case's recorder —
-        // `VerifyCombatPurpose.TheRecordCarriesPursuitAimAndHitApart` does exactly that, and it registers
-        // the instance if none exists, so before it there is nothing registered and `Current` falls back
-        // to the class defaults, which record.
+        // `finally` rather than back to what it found therefore silences every later case's recorder.
+        // `VerifyCombatPurpose.TheRecordCarriesPursuitAimAndHitApart` does exactly that, at
+        // `VerifyCombatPurpose.cs:243`, and it registers the instance when none exists.
+        //
+        // **Two cases are needed to redden anything and why is not established.** Each of
+        // `a capture states the configuration it ran under and the course order it took` and
+        // `combat keeps its purpose across a substituted enemy` leaves the journey row green on its own;
+        // together they redden it. A print of `ModContent.GetInstance<CompanionDiagnosticsConfig>()` at
+        // the top of this method was run against both and did not settle it — the registration only ever
+        // reads as visible at the last reset of a run, which does not map onto the case order — so the
+        // second depositor's identity is open. It does not change this restore, which puts the switches
+        // back whatever left them.
         //
         // Found on 22 September 2026 as the second carrier of `a whole journey is recorded against its
         // proven ticks`, the row `ff30166` half-fixed. Minimal reproduction, on a tree already carrying
