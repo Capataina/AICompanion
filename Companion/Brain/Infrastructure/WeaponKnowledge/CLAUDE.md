@@ -4,7 +4,7 @@
 WeaponKnowledge/
 ├─ CLAUDE.md                        this guide, and the engine hook order the learners are written against
 ├─ WeaponIdentity.cs                a weapon named by its full item name, so a save survives shuffled numeric ids
-├─ PersistWeaponKnowledge.cs        the character tag: laws and shapes keyed by that name
+├─ PersistWeaponKnowledge.cs        the character tag: every learned table — volleys, laws, walls, hits, children, effects, outcomes, debuffs — keyed by content name
 ├─ KnowledgeRevision.cs             the stamp a plan is admitted against
 ├─ Recording/
 │  ├─ RecordProjectileFlights.cs    every use's flights watched to their death: steps, walls, hits, children, cause
