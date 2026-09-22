@@ -38,6 +38,21 @@ internal static class AttachTheRecorder
     /// <summary>Where a capture lands when the caller names no directory: outside the repository and outside every reader's scan.</summary>
     private static string DefaultRoot => Path.Combine(Path.GetTempPath(), "aicompanion-world-run");
 
+    /// <summary>
+    /// Whether a recorder was opened on this run, which the audit row reads.
+    ///
+    /// It matters beyond bookkeeping: the audit's source is installed by the recorder's <c>Load</c>,
+    /// exactly as it is in play, so <c>--no-recorder</c> genuinely leaves the audit unwired. That is a
+    /// choice the caller made rather than a defect in the brain, so the row skips on it instead of
+    /// going red — and it would be wrong to install the source here regardless of the recorder, since
+    /// the whole value of the row is that it grades the production wiring.
+    /// </summary>
+    /// It is a latch rather than <c>recorder != null</c>, because <see cref="Close"/> runs before the
+    /// rows are graded and nulls the field — the first version of this read false on every healthy
+    /// run and skipped the row it exists to enforce, which is the same class of false negative as the
+    /// <c>writer</c>-versus-<c>diagnosticWriter</c> check above it.
+    public static bool Attached { get; private set; }
+
     /// <summary>What this run wrote, for the line the run prints and for every row's message.</summary>
     public static string Describe()
         => recorder == null
@@ -67,9 +82,18 @@ internal static class AttachTheRecorder
 
         recorder = new Telemetry();
         GiveItAModWithALogger(recorder);
+        // `Load` is the ModSystem override the loader calls once in play, and the only thing it does
+        // is `ReadLiveCourseForAudit.Install()` — which is what gives the decision audit its source.
+        // Calling `OnWorldLoad` without it opens a recording whose audit counts every decision and
+        // reads no observation, which is precisely the shape `CheckTheDecisionAudit` names "the
+        // installer never ran": four of the six contracts cannot fire at all and the capture reports
+        // a handful of violations while looking healthier than a wired one. Measured on this command
+        // before the call was added — `decisions-audited=600;audit-observations-read=0`.
+        recorder.Load();
         recorder.OnWorldLoad();
         RefuseARecordingThatAlreadyGaveUp();
         MarkTheCaptureSynthetic();
+        Attached = true;
         return Telemetry.Folder;
     }
 

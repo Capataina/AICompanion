@@ -15,7 +15,7 @@ Diagnostics/
 ├─ ObserveTerrainChanges.cs  bounded rolling terrain chunks around both actors, refreshed after edits
 ├─ ObserveTravelEpisodes.cs one whole journey against its proven ticks and the player's own, and every stop on a route with the reason attributed as it happens
 ├─ CaptureMovementScenario.cs the six detectors that turn a playtest failure into a dump under their own reason; thresholds and cooldowns tune the instrument, not the brain
-├─ CaptureDecisionSnapshot.cs the values-only identity a producer attaches to an occurrence; a mutable brain, a Terraria entity or a live collection may never cross this boundary
+├─ CaptureDecisionSnapshot.cs the values-only identity a producer attaches to an occurrence; a mutable brain, a Terraria entity or a live collection may never cross this boundary. Two halves, and only one of them is alive — see below
 ├─ ReadCourseWorthPerActivity.cs the one place any surface asks what the course thought each registered activity's work was worth; the recorder's columns, the overlay's decision panel and the inspector's Execution tab all read it
 ├─ RecordCourseTrace.cs      the typed course records: observation ordinals, scalar-only payload fields and the occurrence shapes short of a whole decision snapshot, and the seam the decision audit hangs on
 ├─ AuditDecisionContracts.cs six contracts every published decision must keep, and the coalesced `contract-violation` occurrence written when one breaks
@@ -259,6 +259,10 @@ Follow-gap and one-way-held-out captures read the actual reunion/protection requ
 The continuous collection_method field distinguishes a known-drop offer from potential pot contents under the same collecting activity. It is retained activity evidence, read with choice freshness and suspension state; it does not report that a pot was broken or its contents picked up. Native world-interaction and pickup events establish those separate outcomes.
 
 ## Planned work
+
+**`CaptureDecisionSnapshot.cs` holds two types with opposite lifecycles, and the dead one cannot be deleted where it stands.** `CourseTraceContext` is alive: `DecideCourseEachTick` builds it, `RecordCourseTrace`, `RecordGodsEyeEvents`, `QueueDiagnosticRecords` and `AuditDecisionContracts` all read it. `CourseDecisionSnapshot` is the plan's exact-replay input capture and **nothing in the game ever constructs one** — `CourseDecisionSnapshot.Create` is called only from `Tools/SessionReport/Tests/ChronicleTests.cs`, and `RecordCourseTrace.RecordDecisionSnapshot`, the one function that would file one, has no caller at all in either tree. So the reader side is real (`Tools/SessionReport/Read/ReadCourseChronicle.cs` deserialises one and grades its coverage) and will never be handed an input, which means `exact-input-complete` is a verdict no capture can earn today.
+
+Two things block repairing it from this folder, and both are structural rather than a matter of somebody doing the work. **Deleting the dead half is not local**: this whole file is `<Compile Include>`-d into `Tools/SessionReport` and `Tools/EngineReplay` by explicit path, so the type name is load-bearing in two tool projects and their tests. And **wiring it is not local either**: the only honest write site is inside `DecideCourseEachTick`, at creation, material repair and periodic checkpoint, which is `../Selection/`'s file and the same boundary the two accessors below wait on. Recorded on 2026-09-22 after an audit that had reported the class as simply uncalled; it is half-called, and the half that matters is the half with no producer.
 
 **Two accessors this folder is waiting on from `../Selection/`, each with a column or an entry already shaped for it.** They are written here rather than built because that folder belongs to the course and a diagnostic may not reach into a decision to widen what it records; each is one property, and the consumer side is a single line marked at its site.
 

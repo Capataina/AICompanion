@@ -39,11 +39,13 @@ public static class SelfTestTheStore
             "a narrower run is never the baseline for a wider one", CoverageRules);
         failed += EmitLedgerRows.Case(Instrument, Suite,
             "a deliberately red case can be produced on demand, so the rerun loop can be exercised", ForcedRed);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "a measure the producer declared a sample reports its delta without being called drift", SampledMeasures);
         // The last line is what verify.sh shows for this instrument, and a self-test that prints
         // nothing when it passes reads exactly like one that ran nothing.
         Console.WriteLine(failed == 0
-            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip and the quoted intervals."
-            : $"ledger self-test: {failed} of 6 store properties failed.");
+            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip, the quoted intervals and the sampled-measure reading."
+            : $"ledger self-test: {failed} of 7 store properties failed.");
         return failed;
     }
 
@@ -104,6 +106,59 @@ public static class SelfTestTheStore
             { Console.WriteLine("a run of identical coverage must be eligible"); failed++; }
         return failed;
     }
+
+    /// <summary>
+    /// One measure, one commit apart, read twice: once as an ordinary measurement and once as a
+    /// sample the producer declared. The same delta must be reported both times and must be called
+    /// drift only in the first reading.
+    ///
+    /// The pair is the whole test, and it is written as a pair deliberately. A row asserting only
+    /// that a tagged measure reports <c>Sampled</c> would pass against a scoreboard that reported
+    /// every measure that way, which is the failure worth catching here — the play-measures suite
+    /// is fourteen rows of one instrument and the ordinary measures are fifty rows of every other,
+    /// so a tag read too widely would silence exactly the drift the scoreboard exists to print. The
+    /// untagged arm is what stops that, and the identical values in both arms are what make the
+    /// tag the only variable.
+    /// </summary>
+    private static int SampledMeasures()
+    {
+        int failed = 0;
+        Run before = Measured(120.0, sampled: false), after = Measured(180.0, sampled: false);
+        CaseChange plain = Only(Scoreboard.Compare(before, after, Array.Empty<Run>()));
+        if (plain.Change != Change.MeasureDrift)
+            failed += Failed($"an untagged measure that moved 120 -> 180 reported {plain.Change}, not MeasureDrift, "
+                + "so the tag is being read for rows that never carried it and real drift has stopped printing");
+
+        CaseChange sampled = Only(Scoreboard.Compare(Measured(120.0, sampled: true), Measured(180.0, sampled: true), Array.Empty<Run>()));
+        if (sampled.Change != Change.Sampled)
+            failed += Failed($"a measure tagged '{EmitLedgerRows.SampledTag}' that moved 120 -> 180 reported {sampled.Change}, "
+                + "so every run of a play-measures suite reads as a regression against the run before it");
+        if (sampled.Before != plain.Before || sampled.After != plain.After)
+            failed += Failed($"the sampled reading printed {sampled.Before} -> {sampled.After} where the same numbers printed "
+                + $"{plain.Before} -> {plain.After} untagged; the delta is the one thing the tag must not hide");
+        if (!sampled.Detail.Contains("not drift", StringComparison.Ordinal))
+            failed += Failed($"the sampled reading's detail '{sampled.Detail}' does not say why the delta is not a move");
+
+        // A sample that did not move is still unchanged. Without this the tag would be a licence to
+        // print a line for every play measure on every run, which is the noise the change removes.
+        CaseChange still = Only(Scoreboard.Compare(Measured(120.0, sampled: true), Measured(120.0, sampled: true), Array.Empty<Run>()));
+        if (still.Change != Change.Unchanged)
+            failed += Failed($"a sampled measure that did not move reported {still.Change} rather than Unchanged");
+        return failed;
+    }
+
+    private static CaseChange Only(IReadOnlyList<CaseChange> changes)
+        => changes.Count == 1 ? changes[0]
+            : throw new InvalidOperationException($"the synthetic pair produced {changes.Count} changes, so the row is not comparing one case");
+
+    private static Run Measured(double value, bool sampled)
+        => new("synthetic", RunHeader.Now("0000000", false, "0000000", "", ""),
+            new[]
+            {
+                new LedgerRow("world-run", "play measures", "median distance while he moved", "measure",
+                    value, "px", "down", "in-suite; production-allowances",
+                    sampled ? new[] { EmitLedgerRows.SampledTag } : Array.Empty<string>()),
+            }, 0);
 
     private static Run Synthetic(params (string Case, string Verdict)[] rows)
         => new("synthetic", RunHeader.Now("0000000", false, "0000000", "", ""),

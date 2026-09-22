@@ -102,6 +102,10 @@ internal static class VerifyEngineMotion
         ("a non-empty course is priced end to end from the tick it starts at", VerifyWholeCoursePricing.Run),
         ("a bound course step names the activity that performs it and the place it happens", VerifyCourseBindingExecution.Run),
         ("an opportunity the census admits usable is one the binder can still read", VerifyAdmittedOpportunitiesBind.Run),
+        // Reads no live Terraria at all — it builds a fact snapshot and binds it — so it is safe anywhere
+        // in this table, and it is here rather than only behind `--retained-course-combat` because the
+        // pricing it guards is what the whole-suite run would otherwise never exercise.
+        ("binding a fight claims the front rather than its first shot", VerifyCombatCourseBinding.TheBoundFightClaimsTheFrontRatherThanItsFirstShot),
         ("a decision that spans ticks keeps the fight the body is already in", VerifyADecisionInFlightKeepsTheFight.Run),
         ("what one decision costs to assemble and to carry", VerifyWhatEachDecisionCosts.Run),
         ("the search keeps the best order the winner beat", VerifyTheSearchRetainsItsRunnerUp.Run),
@@ -212,6 +216,17 @@ internal static class VerifyEngineMotion
         ("the companion's stats mirror the player's", VerifyStatMirroring.Run),
         ("experience follows the game's own numbers: kills, boss fights and work level the companion alike in every difficulty", VerifyCompanionExperience.Run),
         ("a whole journey is recorded against its proven ticks", VerifyTravelEpisodes.Run),
+        // Appended here rather than at the very end of the list, because the entry below it must stay
+        // last for the reason its own comment gives.
+        // The gate id belongs on the *outer* name, because the outer name is the ledger's unit: the inner
+        // RunOneRow names never reach a run file, so a tag that lives only on them cannot be selected with
+        // --case, cannot be reruns-red'd, and cannot be counted by anything reading Tools/Ledger/runs/. Three
+        // cases carry one here; the other 87 gate-tagged rows in this suite still do not, and giving them one
+        // means renaming cases that have baselines, which the scoreboard reads as `gone` plus `new` for each.
+        // These three are new on this branch and have no baseline, so the prefix costs nothing today.
+        ("a vein's remaining work is answered or refused by name, never left unknown", VerifyVeinRemainingWork.Run),
+        ("G13 an encounter suppresses work and orders feasible fights by what the companion survives", VerifyEncounterConduct.Run),
+        ("G10 no domain recomputes a spatial fact the senses already publish", VerifySharedSpatialFacts.Run),
         // Last on purpose, and the position is a finding rather than a preference. This case drives 220
         // whole brain ticks with two hostiles, a third spawned mid-scene and one killed, which is the
         // widest process footprint any case in this table has. Registered eighth it turned three

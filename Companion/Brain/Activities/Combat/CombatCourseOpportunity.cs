@@ -152,13 +152,66 @@ public sealed class CombatOpportunityBinder:IOpportunityBinder
         // Mana never refuses a cast.  ItemWeapon reads the gradient before Spend floors the
         // pool, then the body's delayed regeneration owns the later refill.  It is therefore
         // neither a capacity reservation nor an admission gate here.
-        double travel=capturedTravel.Ticks,useTicks=Math.Max(1,use.UseTicks),impact=state.Tick+travel+use.TargetImpactTicks,damage=Math.Min(target.Life,use.ExpectedTargetDamage);
+        double travel=capturedTravel.Ticks,useTicks=Math.Max(1,use.UseTicks);
+        var fight=FightAhead(facts,state,slot,generation,target,travel);
+        double impact=fight.NominalTick,damage=fight.Damage;
         var after=new FactValue(Math.Max(0,target.Life-damage),target.X,target.Y,JsonSerializer.Serialize(target with {Life=(int)Math.Max(0,Math.Floor(target.Life-damage))}));
         var dependencies=facts.Manifest(); var parents=state.ReadEffects;
-        var effect=new PredictedEffect(CourseIdentity.Next(),new NeedKey(NeedKind.HostileLife,slot.ToString(CultureInfo.InvariantCulture),generation),damage,impact,impact,impact,EstimateStatus.Nominal,parents,new[]{new EffectDelta(targetKey,after)},dependencies);
+        var effect=new PredictedEffect(CourseIdentity.Next(),new NeedKey(NeedKind.HostileLife,slot.ToString(CultureInfo.InvariantCulture),generation),damage,impact,fight.EarliestTick,fight.LatestTick,EstimateStatus.Nominal,parents,new[]{new EffectDelta(targetKey,after)},dependencies);
         var binding=new StepBinding(CourseIdentity.Next(),opportunity.Key,CombatCourseFacts.Method,new CoursePoint(use.StandX,use.StandY),CombatCourseFacts.ToolId(use.WeaponSlot,use.WeaponItemType,use.WeaponPrefix),facts.SnapshotId,facts.WorldEpoch,travel,useTicks,0,new[]{new ResourcePhase(CourseResource.Body,state.Tick,state.Tick+travel+useTicks,1),new ResourcePhase(CourseResource.Hand,state.Tick+travel,state.Tick+travel+useTicks,1)},new[]{effect},parents,dependencies,true,capturedTravel.ArrivalVelocity,use.Id,arrivalPose);
         return new(binding,OpportunityAdmission.KnownUsable,use.Id,false);
     }
+    /// <summary>
+    /// What taking this fight is forecast to do to the target, which is every use the captured front
+    /// holds against it rather than only the next one.
+    ///
+    /// **A course is charged the whole excursion and must be credited the whole of it.** Until
+    /// 22 September 2026 the effect was one use's damage, while the companionship gap the same order
+    /// paid ran to the reunion at the end of the fight — so a fight was priced as one arrow against a
+    /// six-second trip, and the empty course beat it. Measured on the play of 0.38.13 through the world
+    /// run: a 45-life zombie 363 px away, six uses in the front totalling 48 damage, and the order priced
+    /// at useful 0.0083 against gap 0.0203, total −0.0120, for 513 consecutive ticks with a bow in hand
+    /// and nothing refused. One arrow of six is not what binding that step does.
+    ///
+    /// Each use is timed by its own place in the plan — the travel to the stand, plus how long after the
+    /// first shot the plan fires it, plus that shot's own flight — because the plan's fire ticks are
+    /// absolute and its later stands are reached during the fight rather than before it. The amount is
+    /// summed and the total capped at the observed life, so a front that over-kills claims a kill and no
+    /// more; <see cref="CourseComparisonEpisode"/> caps it a second time against the need's remaining
+    /// amount, which is the authority when two orders both claim the same body.
+    ///
+    /// The nominal tick is the damage-weighted mean impact rather than the first or the last, and the
+    /// interval carries the two: the first impact is the earliest this damage begins and the last is when
+    /// it is complete. A first-tick nominal would price a long fight as if it were instant, and a
+    /// last-tick nominal would discount the opening shot as heavily as the closing one. The evidence
+    /// stays <see cref="EstimateStatus.Nominal"/>, so this claims no justified bounds and the order it
+    /// belongs to still reports <c>effect-uncertain</c>; over-claiming a fight that is abandoned after
+    /// one shot is what the effect ledger's receipts and the forecast-error observer exist to catch.
+    /// </summary>
+    private static (double Damage,double NominalTick,double EarliestTick,double LatestTick) FightAhead(
+        TrackedFactReader facts,ProjectedCourseState state,int slot,int generation,
+        CombatCourseFacts.Target target,double travel)
+    {
+        var front=facts.Facts.Where(f=>f.Key.Kind=="combat-use").OrderBy(f=>f.Key)
+            .Select(f=>CombatCourseFacts.Read<CombatCourseFacts.Use>(f))
+            .Where(u=>u!=null&&u.TargetSlot==slot&&u.TargetGeneration==generation
+                &&float.IsFinite(u.ExpectedTargetDamage)&&u.ExpectedTargetDamage>0&&u.TargetImpactTicks>0)
+            .OrderBy(u=>u!.FireTick).ToArray();
+        if(front.Length==0) return (0,state.Tick+travel,state.Tick+travel,state.Tick+travel);
+        int opening=front[0]!.FireTick;
+        double remaining=target.Life,total=0,weighted=0,earliest=double.MaxValue,latest=0;
+        foreach(var shot in front)
+        {
+            if(remaining<=0) break;
+            double share=Math.Min(remaining,shot!.ExpectedTargetDamage);
+            remaining-=share; total+=share;
+            double at=state.Tick+travel+Math.Max(0,shot.FireTick-opening)+shot.TargetImpactTicks;
+            weighted+=share*at; earliest=Math.Min(earliest,at); latest=Math.Max(latest,at);
+        }
+        if(total<=0) return (0,state.Tick+travel,state.Tick+travel,state.Tick+travel);
+        return (total,weighted/total,earliest,latest);
+    }
+
     public BindingValidation ValidateNextUse(StepBinding binding,DecisionFactSnapshot facts) {
         if(binding.Method!=CombatCourseFacts.Method||!TryTarget(binding.Opportunity,out int slot,out int generation))return new(OpportunityAdmission.KnownUnusable,"method-or-target-changed",true);
         var reader=facts.Track();

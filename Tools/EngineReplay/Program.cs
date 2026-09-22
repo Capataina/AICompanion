@@ -115,7 +115,8 @@ if (args.Contains("--retained-course-recording")) return
     + RunOneRow.Case("G14 native events retain their writer chronology", () => { if (VerifyGodsEyeEvents.Run() != 0) throw new InvalidOperationException("Native event chronology failed."); });
 if (args.Contains("--retained-course-combat")) return
     RunOneRow.Case("G04 captured combat use binds and validates exactly", () => VerifyCombatCourseBinding.CapturedUseBindsWithoutReadingLiveTerraria())
-    + RunOneRow.Case("G04 native planned use carries simulator damage", () => VerifyRetainedCombatBudget.PlannedUseCarriesSimulatorTargetDamage());
+    + RunOneRow.Case("G04 native planned use carries simulator damage", () => VerifyRetainedCombatBudget.PlannedUseCarriesSimulatorTargetDamage())
+    + RunOneRow.Case("binding a fight claims the front rather than its first shot", () => VerifyCombatCourseBinding.TheBoundFightClaimsTheFrontRatherThanItsFirstShot());
 if (args.Contains("--retained-course-budget")) return VerifyRetainedCombatBudget.SharedAllowanceCutsEveryConsumer()
     + VerifyRetainedCombatBudget.AUsefulOpenerSurvivesABroaderSearchCut();
 if (args.Contains("--travel-episodes")) return VerifyTravelEpisodes.Run();
