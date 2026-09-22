@@ -43,6 +43,8 @@ public static class ChronicleTests
             DowningDoesNotProveAvoidability();
             ASelectedActivityMustHaveCarriedAnEligibleOffer();
             ASelectionChangesOnlyWithANewComparison();
+            FindingsFoldToOneLinePerClassCarryingItsCount();
+            TheCourseErasChecksReplaceTheChoosersAtTheirSchema();
             AttemptEvidenceJoinsByIdentityAndDisagreementsAreDefinitive();
             ACompletedTransferClaimNeedsItsReceivedQuantity();
             AClaimedArrivalMustLieInsideItsSuccessRegion();
@@ -1381,6 +1383,60 @@ public static class ChronicleTests
         finally { foreach (string file in files) File.Delete(file); }
     }
 
+    /// <summary>
+    /// The report prints one line per class of finding with its count, never one per occurrence.
+    ///
+    /// <para>The 22 September 2026 capture closed on "1089 definitive issue(s)" under a header reading
+    /// "DEFINITIVE ISSUES (8)": the header counted folded lines and the closing line counted raw
+    /// findings, and the eight real findings of that session were underneath 1,089 repetitions of two.
+    /// The three arms here are the three ways that can go wrong — a class not folding, a class folding
+    /// that should not, and one check's many classes flooding the report — and the fourth asserts that
+    /// the count a folded line carries is the occurrence count rather than the line count.</para>
+    /// </summary>
+    private static void FindingsFoldToOneLinePerClassCarryingItsCount()
+    {
+        Finding One(string check, string title, int tick, string? cls = null)
+            => new(Severity.Definitive, check, title, "detail", tick, tick, 1, cls);
+
+        var repeated = Enumerable.Range(1, 300).Select(t => One("one check", "the same contradiction", t)).ToArray();
+        var folded = Program.Fold(repeated);
+        Require(folded.Count == 1, $"300 occurrences of one class printed {folded.Count} line(s) rather than one");
+        Require(folded[0].Rows == 300, $"the folded line carried {folded[0].Rows} row(s) rather than the 300 it folded");
+        Require(folded[0].FirstTick == 1 && folded[0].LastTick == 300, "the folded line lost the span its occurrences covered");
+        Require(folded[0].Title.Contains("300×", StringComparison.Ordinal), "the folded line's title does not carry its count");
+
+        // Two findings of one check whose titles differ only in a number are one class and must not be
+        // folded at two, because two paragraphs of real numbers beat one paragraph of a count.
+        var pair = Program.Fold(new[]
+        {
+            One("one check", "projectile type 1 lands a median 21 updates late", 5),
+            One("one check", "projectile type 3 lands a median 12 updates late", 9),
+        });
+        Require(pair.Count == 2, $"two occurrences of one class folded into {pair.Count} line(s) rather than staying two");
+
+        // Digits are masked, so a class differing only in its numbers folds; a name is not a digit, so a
+        // class differing in a word does not.
+        Require(Program.ClassOf(One("c", "525 ticks with nothing fired", 1)) == Program.ClassOf(One("c", "238 ticks with nothing fired", 1)),
+            "two findings differing only in a count were read as two classes");
+        Require(Program.ClassOf(One("c", "the selected combat carried a Deferred offer", 1)) != Program.ClassOf(One("c", "the selected collect carried a Deferred offer", 1)),
+            "two findings differing in an activity name were read as one class");
+
+        // A declared class overrides the title, which is how a check that fires per tick folds even
+        // when its title carries the identity that changed.
+        Require(Program.Fold(new[] { One("c", "from combat to keep-company", 1, "the activity changed"),
+                                     One("c", "from collect to keep-company", 2, "the activity changed"),
+                                     One("c", "from mine to keep-company", 3, "the activity changed"),
+                                     One("c", "from chop to keep-company", 4, "the activity changed") }).Count == 1,
+            "four occurrences sharing a declared class did not fold to one line");
+
+        // Ten genuinely different classes from one check are capped, so no check can flood the report.
+        var many = Enumerable.Range(1, 10).SelectMany(n => Enumerable.Range(0, 4)
+            .Select(k => One("one check", $"class {(char)('a' + n)} fired", n * 10 + k))).ToArray();
+        var capped = Program.Fold(many);
+        Require(capped.Count == 7, $"ten classes from one check printed {capped.Count} line(s) rather than six and a tail");
+        Require(capped.Sum(f => f.Rows) == 40, "the capped report lost occurrences rather than counting them");
+    }
+
     private static void ASelectionChangesOnlyWithANewComparison()
     {
         string file = Path.GetTempFileName();
@@ -1396,6 +1452,80 @@ public static class ChronicleTests
                 "a label that changed under one comparison identity was not reported");
             Require(Read("0\t-\t0\n1\tmine\t1\n2\thunt\t2\n").Length == 0, "a label changed by a new comparison was reported");
             Require(Read("1\tmine\t5\n2\t-\t0\n3\t-\t0\n").Length == 0, "a respawned brain restarting its identities was reported");
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>
+    /// The two checks whose producer the course brain replaced, graded by the schema the capture
+    /// declares rather than by the column names, which did not move.
+    ///
+    /// <para>Both rules restate the family chooser's guarantees, and both were still Definitive on the
+    /// 22 September 2026 capture: 875 findings that a selected keep-company carried a
+    /// <c>not-compared</c> offer, and 214 that an activity changed under one comparison identity. Since
+    /// schema 0.44.0 <c>&lt;activity&gt;_offer</c> is the course's census admission and
+    /// <c>ReadCourseWorthPerActivity</c> writes <c>not-compared</c> for an activity the course mints no
+    /// domain for; since 0.43.0 <c>choice_id</c> is the course's decision identity, which a changing
+    /// activity does not contradict. Neither column changed name or position, so the schema line is the
+    /// only witness there is and every arm below turns on it.</para>
+    ///
+    /// <para>The skip arms go through <see cref="Program.Evaluate"/> rather than asking the check,
+    /// because asking the check proves nothing about the runner — the same reason the revived combat
+    /// check's own coverage arm does.</para>
+    /// </summary>
+    private static void TheCourseErasChecksReplaceTheChoosersAtTheirSchema()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            Session Load(string schema, string rows)
+            {
+                File.WriteAllText(file,
+                    $"# schema={schema}\n# text_columns=action,keep-company_offer,combat_offer\n"
+                    + "tick\taction\tchoice_id\tchoice_fresh\tkeep-company_offer\tcombat_offer\n" + rows);
+                return Session.Load(file);
+            }
+
+            // Keeping company selected while its own offer reads the word the course writes for an
+            // activity it mints no domain for.
+            const string companyRows = "1\tkeep-company\t7\t1\tnot-compared\tUsable:-\n2\tkeep-company\t7\t0\tnot-compared\tUsable:-\n";
+            var offer = new SelectedActivitiesHadAnEligibleOffer();
+            Require(offer.Run(Load("0.43.0", companyRows)).Count() == 1,
+                "a not-compared offer under the chooser's own schema was not reported");
+            Require(!offer.Run(Load("0.44.0", companyRows)).Any(),
+                "a not-compared offer was still a contradiction on a capture whose offer column is the course's census admission");
+
+            // What stays a contradiction at that schema: a bound step in a domain the same decision's
+            // census had itself proved unusable.
+            Finding[] unusable = offer.Run(Load("0.44.0",
+                "1\tcombat\t7\t1\tnot-compared\tKnownUnusable:no-admissible-target\n")).ToArray();
+            Require(unusable.Length == 1 && unusable[0].Severity == Severity.Definitive,
+                "a selected activity whose own census read KnownUnusable was not reported on a course capture");
+
+            // The activity changing inside one identity: the chooser's rule on an older capture, the
+            // course's on a newer one, and the runner is what decides which.
+            const string flickerRows = "1\tcombat\t7\t1\tnot-compared\tUsable:-\n2\tkeep-company\t7\t0\tnot-compared\tUsable:-\n"
+                + "3\tcombat\t7\t0\tnot-compared\tUsable:-\n4\tkeep-company\t7\t0\tnot-compared\tUsable:-\n";
+            string Chooser = new ARetainedChoiceKeepsItsSelection().Name, Course = new TheBoundActivityHoldsWhileOneDecisionRuns().Name;
+
+            var older = Program.Evaluate(Load("0.42.0", flickerRows));
+            Require(older.Skipped.Any(s => s.Name == Course) && !older.Skipped.Any(s => s.Name == Chooser),
+                "on a chooser-era capture the course rule ran and the chooser rule was skipped, which is backwards");
+            Require(older.Findings.Count(f => f.Check == Chooser && f.Severity == Severity.Definitive) == 3,
+                "the chooser rule did not report each label move on a capture it still grades");
+
+            var newer = Program.Evaluate(Load("0.44.0", flickerRows));
+            Require(newer.Skipped.Any(s => s.Name == Chooser) && !newer.Skipped.Any(s => s.Name == Course),
+                "on a course-era capture the chooser rule was not skipped by name, or the course rule did not run");
+            Finding[] bound = newer.Findings.Where(f => f.Check == Course).ToArray();
+            Require(bound.Length == 1, $"the course rule reported {bound.Length} finding(s) rather than one for the whole session");
+            Require(bound[0].Rows == 3, $"the course rule counted {bound[0].Rows} transition(s) rather than the three the fixture holds");
+            Require(bound[0].Severity == Severity.Potential,
+                $"the course rule graded the change {bound[0].Severity} — the row cannot say whether the decision was settled, so it is not a contradiction");
+            Require(bound[0].Detail.Contains("combat→keep-company 2×", StringComparison.Ordinal),
+                "the course rule did not name which activity change it counted");
+            Require(!newer.Findings.Any(f => f.Check == Chooser),
+                "a skipped check still contributed findings");
         }
         finally { File.Delete(file); }
     }

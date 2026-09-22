@@ -13,7 +13,7 @@ Checks/
 ├─ CheckDecisionStability.cs          a chosen behaviour lasts long enough to accomplish something
 ├─ CheckFailedMethods.cs              a method tried more than once with no credited effect
 ├─ CheckFollowProgress.cs             follow objective open but body is stalled or receding
-├─ CheckOffersAttemptsAndGrants.cs    selections, attempts and grants read by process-wide identity
+├─ CheckOffersAttemptsAndGrants.cs    selections, attempts and grants read by process-wide identity, and the course-era replacement for the chooser's retained-selection rule
 ├─ CheckTheBody.cs                    a body with a route ahead of it moves, and being unable to reach him is noticed
 ├─ CheckTheChoices.cs                 choice rows reflect what the activity owner recorded
 ├─ CheckTheFight.cs                   hands work while threatened; a hitting fight keeps its score; a fight held over targets its binder cannot see; a crowd is priced from here
@@ -36,6 +36,22 @@ Both are Oddity throughout on purpose. No capture yet carries one of these occur
 The player is the one reference the brain did not produce, and two checks read him directly.** `TorchesGoWhereHisCursorWould` finds stretches where keeping company won while the tile the player's own smart cursor would offer for a torch read dark and stayed the same tile throughout — the same tile is what "it stayed unlit" means in a record that cannot see the torch go in — and reports the stage lighting refused that tile at, because a sealed stand is a correct refusal and a lit, placer-refused or search-cut stage is a rule or a search disagreeing with his cursor. `HuntsWorthTakingAreTaken` finds stretches where keeping company won while hunting rated its offer usable, the nearest reachable hostile was near, and the player stood idle, and reports hunting's raw, final and time factors with its funnel's furthest stage. Both are Potential, and every threshold is a named constant in the check carrying the reason it has that size. They meet an older capture differently. The cursor check needs columns only schema 0.35.0 writes, so it skips a 0.34.0 capture by name. The hunt check needs only columns 0.34.0 already records, and reads the time factor and the funnel where the capture has them, so it runs on a 0.34.0 capture and leaves those two readings out. Read against the 14:16 capture of 15 September, its four conditions held together on 234 rows but never for more than 26 consecutive ticks, so it reported nothing. That is a fact about that afternoon's record, not a fault in the check.
 
 **A check's own name lands in the coverage block of every report, including the multi-run one, so it shares a namespace with that report's vocabulary.** `MultiRunReport` says "refused cross-run joins" when two captures came from different code, and its self-test asserts that word is absent from a clean join by plain substring — so naming a check "did a refused step…" once failed a multi-run assertion about provenance, in a report about something else, with nothing in either file wrong. That check is gone now and the collision with it, but the rule it bought is not: a new check's name is worth reading against the words the reports already use before it is settled.
+
+## A check whose producer was replaced runs, finds plenty, and is wrong — and the coverage block cannot see it
+
+The deleted-check section below is about a check that lost its *column*, which skips and says so. The opposite case bit on 22 September 2026 and is the harder one: a check whose column kept its name and position while the thing writing it was replaced. Two here did, and between them they produced every one of that capture's 1,089 definitive findings — a report in which eight real findings sat under 1,089 repetitions of two false ones.
+
+```
+what the check restated                      what the course brain writes there now
+├─ <activity>_offer is the chooser's         the course's three-valued census admission (0.44.0),
+│  eligibility, and only a Usable or         with `not-compared` for an activity the course mints
+│  Unresolved one may be selected            no domain for — which keeping company always is
+└─ choice_id is the comparison identity      DecideCourseEachTick.DecisionId (0.43.0), advancing
+   Chooser.Choose advances when it            once per decision *reached*, so an activity change
+   replaces the current activity              inside one decision contradicts nothing
+```
+
+Both now gate on the capture's declared schema, which is the only witness either has. `SelectedActivitiesHadAnEligibleOffer` exempts `not-compared` from 0.44.0 and keeps the reading that is still a contradiction there — a selected activity whose own domain census read `KnownUnusable` or `NoOpportunity`, which is the course binding a step in a domain it had itself proved unusable. `ARetainedChoiceKeepsItsSelection` skips by name from 0.43.0 rather than being deleted, because every capture on disk from before 21 September carries the chooser's identity and the rule still grades those. **`TheBoundActivityHoldsWhileOneDecisionRuns` is a new class and not that one renamed**, by this folder's own rule that a name in the coverage block is read as the question asked: it counts the activity changes inside one decision identity, once for the whole session, at **Potential** — because a row carries the decision identity and the activity and *not* whether that decision had settled, so it cannot separate a published course legitimately carrying an activity change from the flicker loop, and the finding says which record would. On the 22 September capture it reports 214 transitions, 212 of them `combat→keep-company`, which is the same loop the recorder's own `activity-exited-during-decision` contract names from the producer's side at schema 0.45.0.
 
 ## A check can be brought back rather than deleted, and one now has been
 

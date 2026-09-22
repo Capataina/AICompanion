@@ -39,6 +39,14 @@ public enum Severity
 /// One thing the reader found, with the place it happened and the numbers that prove it. The
 /// <see cref="Detail"/> carries the mechanism and the threshold, so a finding can be argued with
 /// rather than merely believed.
+///
+/// <para><see cref="Class"/> is what the report folds on when one check fires many times, and it is
+/// optional because a title is usually its own class. It exists because the 22 September 2026 capture
+/// produced 1,089 definitive findings from two checks and eight printed lines, so the count a reader
+/// saw and the lines under it described different things; a check that can fire per tick names the
+/// class those firings share, and the report prints one line carrying the count. Left null the class is
+/// the title with its digits masked, which folds "525 ticks with…" and "238 ticks with…" together
+/// without a check having to say so.</para>
 /// </summary>
 public sealed record Finding(
     Severity Severity,
@@ -47,7 +55,8 @@ public sealed record Finding(
     string Detail,
     int FirstTick,
     int LastTick,
-    int Rows);
+    int Rows,
+    string? Class = null);
 
 /// <summary>
 /// The contract every check implements. A check names the columns it cannot work without, and the
