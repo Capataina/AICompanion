@@ -96,6 +96,8 @@ internal static class OpenTheRecorderOnACompanion
     /// </summary>
     public static void Place(CompanionNPC companion)
     {
+        sourceBeforeThisFixture = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
+            .AuditDecisionContracts.Source;
         if (ModContent.GetInstance<CompanionNPC>() == null) ContentInstance.Register(companion);
         companion.NPC.type = ModContent.NPCType<CompanionNPC>();
         companion.NPC.active = true;
@@ -124,10 +126,28 @@ internal static class OpenTheRecorderOnACompanion
         typeof(ModType).GetProperty("Mod")!.SetValue(recorder, mod);
     }
 
-    /// <summary>Takes the body back out. A companion left in a slot under the registered type is a live
-    /// companion to anything that scans for one, and the per-case reset does not deactivate a slot.</summary>
+    /// <summary>What <see cref="AuditDecisionContracts.Source"/> held before this fixture placed a body,
+    /// so <see cref="Clear"/> can give it back rather than leaving the live reader wired for whoever runs
+    /// next. Null is the ordinary prior value and restoring null is the point.</summary>
+    private static Func<live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.DecisionInputs?>? sourceBeforeThisFixture;
+
+    /// <summary>
+    /// Takes the body back out and gives the audit's source back.
+    ///
+    /// A companion left in a slot under the registered type is a live companion to anything that scans for
+    /// one, and the per-case reset does not deactivate a slot. The source matters for the same reason one
+    /// step along: a fixture that installed the live reader and did not remove it leaves the next case's
+    /// audit reading through a body that case never placed, which is a pass or a fail decided by run
+    /// order. The slot goes back as a blank inactive NPC rather than as the previous occupant — restoring
+    /// that is the per-case reset's job and `ResetProcessState.cs` is not this file's to edit.
+    /// </summary>
     public static void Clear()
-        => Main.npc[Slot] = new NPC { whoAmI = Slot, active = false };
+    {
+        Main.npc[Slot] = new NPC { whoAmI = Slot, active = false };
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Source
+            = sourceBeforeThisFixture;
+        sourceBeforeThisFixture = null;
+    }
 
     /// <summary>The recorder's own close, which takes the reason it writes into the end marker; a fixture
     /// closing it directly names itself rather than borrowing a gameplay reason.</summary>

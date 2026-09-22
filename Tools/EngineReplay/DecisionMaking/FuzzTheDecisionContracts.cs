@@ -224,6 +224,16 @@ internal static class FuzzTheDecisionContracts
     /// <c>decide-overran-allowance</c> is reported and never asserted, for the regime reason at the head
     /// of this file. The two world-explainable kinds assert on the firings no injected event accounts
     /// for, and print both halves.
+    ///
+    /// <b>The excuse reaches exactly the two kinds <see cref="WorldExplainable"/> names, and the first
+    /// version of this method applied it to every kind.</b> With <c>Disturb</c> injecting on about 55% of
+    /// ticks, a three-tick window stands beside most firings, so a defect firing
+    /// <c>census-admitted-binder-refused</c>, <c>empty-course-beside-usable-work</c> or
+    /// <c>fact-count-above-bound</c> five to fifteen times across six sequences would have been excused in
+    /// full and the row would have stayed green. The census plant was caught only because it fired 895
+    /// times and 55 of those landed away from any injected event. Those three kinds are about what the
+    /// brain did with the world it was handed, not about a body the world removed, so nothing this
+    /// generator injects can explain one and every firing is asserted on.
     /// </summary>
     private static void TheContractHeld(string kind, List<Firing> firings, int[] seeds)
     {
@@ -238,17 +248,22 @@ internal static class FuzzTheDecisionContracts
             return;
         }
 
-        var unattributed = mine.Where(f => !f.WorldCaused).ToList();
-        if (WorldExplainable.Contains(kind) && mine.Count != unattributed.Count)
+        bool excusable = WorldExplainable.Contains(kind);
+        var asserted = excusable ? mine.Where(f => !f.WorldCaused).ToList() : mine;
+        if (excusable && mine.Count != asserted.Count)
             AICompanion.Tools.Ledger.EmitLedgerRows.Detail(
-                $"{Family} {kind}: {mine.Count - unattributed.Count} of {mine.Count} firing(s) stand within "
+                $"{Family} {kind}: {mine.Count - asserted.Count} of {mine.Count} firing(s) stand within "
                 + $"{WorldEventWindow} tick(s) of an event this generator injected, which the contract cannot tell "
                 + "from the loop it is named for; they are reported rather than asserted on");
 
-        Require(unattributed.Count == 0,
-            $"{unattributed.Count} of {mine.Count} firing(s) of {kind} are explained by nothing this generator did "
-            + $"to the world; seeds run were {string.Join(",", seeds)}; first three: "
-            + string.Join(" | ", unattributed.Take(3).Select(Describe)));
+        string basis = excusable
+            ? $"are explained by nothing this generator did to the world within {WorldEventWindow} tick(s)"
+            : "fired at all, and no injected event can explain this kind — it is about what the brain did with "
+              + "the world it was handed rather than about a body the world removed";
+        Require(asserted.Count == 0,
+            $"{asserted.Count} of {mine.Count} firing(s) of {kind} {basis}; seeds run were "
+            + $"{string.Join(",", seeds)}; first three: "
+            + string.Join(" | ", asserted.Take(3).Select(Describe)));
     }
 
     private static string Describe(Firing firing)

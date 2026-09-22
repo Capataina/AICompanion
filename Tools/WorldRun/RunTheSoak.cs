@@ -62,6 +62,22 @@ internal static class RunTheSoak
     private const int GrowthSlackFacts = 128;
 
     /// <summary>
+    /// How many windows the floor may climb through without once falling back.
+    ///
+    /// This is the brief's own rule — "a rolling window's minimum must fall back at least once per N
+    /// decisions" — and it is asserted beside <see cref="GrowthSlackFacts"/> rather than instead of it,
+    /// because the two catch different shapes: a store leaking one fact per decision stays inside the
+    /// bound for 128 decisions while never falling back once, and a run whose census swings widely falls
+    /// back constantly while still crossing the bound. Twenty windows is a thousand decisions, so the
+    /// rule reads as "the quietest decision of some thousand must be quieter than the quietest of the
+    /// thousand before it, at least once per thousand". Measured: a clean 7,200-tick soak at seed 1 fell
+    /// back 13 times over 51 windows against the 2 this requires, and the planted static leak fell back 0
+    /// times over 36 windows against 1. Below twenty windows the rule asks for nothing and the bound is
+    /// the whole verdict, which the row's message says out loud.
+    /// </summary>
+    private const int RequiredFallbackSpanWindows = 20;
+
+    /// <summary>
     /// How much managed memory the run may end holding over its warmed baseline, after a forced
     /// collection at both ends, in bytes.
     ///
@@ -273,7 +289,40 @@ internal static class RunTheSoak
     /// </summary>
     private static int GradeTheGrowth(string suite, List<DecisionSample> samples, int seed, int ticks)
     {
-        const string Case = "the frozen observation's floor does not climb over a long run";
+        // The yield rides out on every run, graded or not, because the verdict below covers a slice of the
+        // run rather than the run, and how big that slice is moved 1.8x with machine load on one seed —
+        // 1,428 against 2,536 decisions over the same 7,200 ticks. A reader comparing two soak rows needs
+        // to see that the second one graded nearly twice as much brain as the first.
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "soak decision yield per thousand ticks",
+            samples.Count * 1000d / Math.Max(1, ticks), "decisions/1k ticks",
+            mode: "in-suite",
+            tags: new[] { EmitLedgerRows.ProductionAllowancesTag, "sampled-under-the-production-clock" },
+            message: $"seed {seed}: {samples.Count} decision(s) over {ticks} tick(s); the growth verdict needs "
+                + $"{WarmUpDecisions + GrowthWindowDecisions * 2} of them and grades "
+                + $"{Math.Max(0, samples.Count - WarmUpDecisions) / GrowthWindowDecisions} window(s) of "
+                + $"{GrowthWindowDecisions}. Measured 1,428 against 2,536 decisions over the same 7,200 ticks at one "
+                + "seed under different machine load, so this number is the verdict's coverage rather than a "
+                + "property of the brain");
+
+        return GradeTheFactFloor(suite, "the frozen observation's floor does not climb over a long run",
+            samples.Select(s => s.Facts).ToList(), ticks, $"seed {seed}",
+            new[] { EmitLedgerRows.ProductionAllowancesTag }, mode: "in-suite");
+    }
+
+    /// <summary>
+    /// The growth rule itself, over any run's per-decision fact counts.
+    ///
+    /// Shared rather than copied because the scene is the variable and the rule is not: the soak drives a
+    /// seeded surface bot and the play-measures replay drives the capture that actually leaked, and a
+    /// second copy of two thresholds would let one of them be tuned to the run in front of whoever was
+    /// looking. The caller owns the case name, the label, the tags and the mode; everything the verdict
+    /// decides on lives here.
+    /// </summary>
+    public static int GradeTheFactFloor(string suite, string @case, IReadOnlyList<int> factsPerDecision,
+        int ticks, string label, IReadOnlyList<string> tags, string mode)
+    {
+        var samples = factsPerDecision;
+        string Case = @case;
         // The warm-up decisions are out of the windows for the memory baseline's reason, and it is not a
         // small correction here: discovery is resumable and accumulates, so a brain's first decisions
         // carry almost nothing. Measured on the first soak run, seed 1, 600 ticks: window floors of
@@ -281,9 +330,11 @@ internal static class RunTheSoak
         // it as the baseline reddens the row on a clean tree by 138 facts.
         if (samples.Count < WarmUpDecisions + GrowthWindowDecisions * 2)
         {
-            string reason = $"{samples.Count} decision(s) in {ticks} tick(s) is fewer than {WarmUpDecisions} warm-up "
-                + $"plus the two windows of {GrowthWindowDecisions} this verdict compares, so it would be reading one "
-                + "window against itself or against the census filling";
+            string reason = $"{samples.Count} decision(s) in {ticks} tick(s) against the "
+                + $"{WarmUpDecisions + GrowthWindowDecisions * 2} this verdict needs ({WarmUpDecisions} warm-up plus "
+                + $"two windows of {GrowthWindowDecisions}), so it would be reading one window against itself or "
+                + "against the census filling. The yield measure beside this row carries the same count, because a "
+                + "skip that says only 'not enough' leaves a reader unable to tell a short run from a starved one";
             EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, Case, reason);
             return 0;
         }
@@ -292,27 +343,46 @@ internal static class RunTheSoak
         for (int start = WarmUpDecisions; start + GrowthWindowDecisions <= samples.Count; start += GrowthWindowDecisions)
         {
             int floor = int.MaxValue;
-            for (int i = start; i < start + GrowthWindowDecisions; i++) floor = Math.Min(floor, samples[i].Facts);
+            for (int i = start; i < start + GrowthWindowDecisions; i++) floor = Math.Min(floor, samples[i]);
             floors.Add(floor);
         }
-        int first = floors[0], last = floors[^1], peak = samples.Max(s => s.Facts);
+        int first = floors[0], last = floors[^1], peak = samples.Max();
         int fallbacks = 0;
         for (int i = 1; i < floors.Count; i++) if (floors[i] < floors[i - 1]) fallbacks++;
 
-        string message = $"seed {seed}: window floors {string.Join(" ", floors)} over {floors.Count} window(s) of "
+        // Two rules, not one, and the second is the brief's own. The bound catches a fast climb in a short
+        // run; the fall-back rule catches the shape the play actually had, which is a floor that never
+        // comes back down. Neither implies the other: a store leaking one fact per decision passes the
+        // bound for 128 decisions while never falling back once, and a run whose floor swings wildly falls
+        // back often while crossing the bound. The first version of this row computed `fallbacks`, printed
+        // it, and asserted only the bound, so a strictly monotone floor passed with "0 window(s) fell back"
+        // inside a PASS message.
+        //
+        // The rate rather than "at least one", because a run is graded in windows and a longer run has
+        // more of them: one fall-back per RequiredFallbackSpanWindows is one release of the floor every
+        // thousand decisions. Measured on a clean 7,200-tick soak at seed 1: 13 fall-backs over 51 windows
+        // against the 2 required, and 0 over 36 on the planted leak, which is where the margin comes from.
+        int requiredFallbacks = floors.Count / RequiredFallbackSpanWindows;
+        string message = $"{label}: window floors {string.Join(" ", floors)} over {floors.Count} window(s) of "
             + $"{GrowthWindowDecisions} decision(s) after {WarmUpDecisions} warm-up decisions; first {first}, last {last}, peak {peak}, "
-            + $"{fallbacks} window(s) fell back on the one before. The line is last <= first + {GrowthSlackFacts}, "
-            + "a quarter of AuditDecisionContracts.MaximumFactsPerDecision, because there is no declared fact "
-            + "budget in Selection/ to mirror and the play climbed 150 -> 1,603 and never fell";
-        if (last <= first + GrowthSlackFacts)
+            + $"{fallbacks} window(s) fell back on the one before against the {requiredFallbacks} required. Two lines: "
+            + $"last <= first + {GrowthSlackFacts}, a quarter of AuditDecisionContracts.MaximumFactsPerDecision, "
+            + "because there is no declared fact budget in Selection/ to mirror and the play climbed 150 -> 1,603 and "
+            + $"never fell; and one fall-back per {RequiredFallbackSpanWindows} window(s), the brief's own rule, "
+            + "because a floor that only ever rises is a store outliving its observations however slowly it does it";
+
+        var broken = new List<string>();
+        if (last > first + GrowthSlackFacts) broken.Add($"the floor rose by {last - first} facts over the run");
+        if (fallbacks < requiredFallbacks)
+            broken.Add($"the floor fell back {fallbacks} time(s) against the {requiredFallbacks} required over "
+                + $"{floors.Count} window(s)");
+        if (broken.Count == 0)
         {
-            EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, Case, message,
-                mode: "in-suite", tags: new[] { EmitLedgerRows.ProductionAllowancesTag });
+            EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, Case, message, mode: mode, tags: tags);
             return 0;
         }
         EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, Case,
-            $"the observation's floor rose by {last - first} facts over the run. " + message,
-            mode: "in-suite", tags: new[] { EmitLedgerRows.ProductionAllowancesTag });
+            string.Join("; and ", broken) + ". " + message, mode: mode, tags: tags);
         return 1;
     }
 
@@ -365,13 +435,29 @@ internal static class RunTheSoak
         long read = Field(closing, "audit-observations-read"), audited = Field(closing, "decisions-audited");
         if (read <= 0)
         {
-            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, Case,
-                $"{audited} decision(s) audited and {read} frozen observation(s) read in {Path.GetFileName(capture)}, "
-                + "so four of the six contracts could not have fired whatever this run did. The two causes this run "
-                + "already closes are the source never being installed and the companion having no slot for "
-                + "CompanionNPC.Instance to find, so a skip here is a third one and the place to look is what "
-                + "ReadLiveCourseForAudit.Read returned null for");
-            return 0;
+            // A fail rather than a skip, and the distinction is about who is at fault. A skip is for a
+            // question this machine cannot ask — no saved world, no committed capture. This run installs
+            // `ReadLiveCourseForAudit` itself and places its own body, so nothing about the machine can
+            // produce a zero here: the only way to reach it is a defect in the wiring under test, and a
+            // skip would report that as "not asked" while the scoreboard stayed green. The fuzzer's
+            // premise row already throws on the identical condition; this is the same premise in the same
+            // verdict class, which it was not before.
+            // A negative count is the field being absent from the closing line rather than a count of
+            // minus one, and the two have different causes: absent means the recorder closed without the
+            // audit's figures at all, zero means it closed with them and they were zero.
+            string counts = read < 0 || audited < 0
+                ? $"the closing line of {Path.GetFileName(capture)} carries no decisions-audited or "
+                  + "audit-observations-read field at all"
+                : $"{audited} decision(s) audited and {read} frozen observation(s) read in {Path.GetFileName(capture)}";
+            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, Case,
+                counts + ", "
+                + "so four of the six contracts could not have fired whatever this run did and a green row here would "
+                + "mean nothing. The soak installs the audit's source and places its own body, so this is a defect in "
+                + "the wiring rather than a machine that cannot be asked: look at what ReadLiveCourseForAudit.Read "
+                + "returned null for — no companion in Main.npc under the registered type, or no brain on the one "
+                + "that is there",
+                mode: "in-suite", tags: new[] { EmitLedgerRows.ProductionAllowancesTag });
+            return 1;
         }
 
         string events = Path.ChangeExtension(capture, null) + "-events.jsonl";
