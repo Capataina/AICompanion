@@ -471,8 +471,14 @@ public sealed class BrainTelemetry : ModSystem
         QueueDiagnosticRecords.TryEnqueueTsv($"# source_revision={SourceProvenance}");
         QueueDiagnosticRecords.TryEnqueueTsv($"# capabilities={DescribeCapabilities()}");
         QueueDiagnosticRecords.TryEnqueueTsv($"# world={DescribeWorld()}");
-        recordedConfiguration = RecordedConfiguration.Current();
-        QueueDiagnosticRecords.TryEnqueueTsv($"# config={recordedConfiguration.Describe()}");
+        // `# config=` is deliberately *not* written here, and the reason is the whole of the 0.45.0
+        // honesty fix: this runs at `OnWorldLoad`, which is before the character's saved preferences
+        // have been loaded, so every value it could read is a default. The 22 September 2026 capture's
+        // header said `chopping=Opportunistic` while its tick-1 `configuration` occurrence and every
+        // census on every row said `Mimic`, and one of the two had to be lying to the reader. The line
+        // is written from the first recorded row instead, which is the first moment the preferences the
+        // brain is actually deciding with exist; it is still a preamble line, because the header itself
+        // is written on that same row.
         // What a capture keeps and what it forgets, read from the constants that bound each store, so a reader can tell an
         // absence the recorder never kept from one that did not happen without knowing the code.
         QueueDiagnosticRecords.TryEnqueueTsv("# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered"
@@ -728,7 +734,13 @@ public sealed class BrainTelemetry : ModSystem
             return;
         recordClock.Restart();
         var configuration = RecordedConfiguration.Current();
-        if (configuration != recordedConfiguration)
+        // The first recorded row *establishes* the session's configuration rather than changing it, so
+        // it writes no occurrence: the header line is written from this same value a few hundred lines
+        // below, and a change record on the tick that sets the baseline would report every session as
+        // having reconfigured itself on tick one. From the second row on, a difference is a preference
+        // the player moved mid-session and is recorded as one.
+        if (!headerWritten) recordedConfiguration = configuration;
+        else if (configuration != recordedConfiguration)
         {
             recordedConfiguration = configuration;
             GodsEyeEvents.RecordConfiguration(configuration.Describe());
@@ -835,6 +847,12 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
+            // The configuration the session is actually running under, read at the first recorded row
+            // rather than at world entry, because the character's saved preferences load between the
+            // two. Reading it here is what makes the header and the tick-1 `configuration` occurrence
+            // the same answer; before 0.45.0 they could disagree and the capture gave a reader no way
+            // to tell which was the lie. Enqueued before the header, so it is still a preamble line.
+            QueueDiagnosticRecords.TryEnqueueTsv($"# config={recordedConfiguration.Describe()}");
             var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,plan_stand,mine_policy,mine_status,mine_target,plan_invalid,nav_status,position_reason,plan_reason,hand_grant,control_request_owner,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,plan_targets,plan_uses,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up,evade_reason,evade_choice,plan_vector,knowledge_residual");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
@@ -1310,8 +1328,30 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(FormattableString.Invariant(
                 $"{intent.Centre.X:0},{intent.Centre.Y:0};{intent.HalfSize.X:0},{intent.HalfSize.Y:0}"))
             .Append('\t').Append(intent.Pull(companion.NPC.Bottom).ToString("0.000", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(brain.Chooser.LastTaskOrder.Length == 0 ? "-" : brain.Chooser.LastTaskOrder)
-            .Append('\t').Append(brain.Chooser.LastTaskOrderRunnerUp.Length == 0 ? "-" : brain.Chooser.LastTaskOrderRunnerUp);
+        // Schema 0.45.0: these two read the published course. They read `Chooser.LastTaskOrder` and
+        // `Chooser.LastTaskOrderRunnerUp` until now, which is `OrderNearbyTasks`' permutation scoring —
+        // retired with the family chooser on `0bb2c8a` — so **every row of every capture since that
+        // commit wrote a dash in both**, which is this folder's own trap wearing its plainest face: a
+        // frozen empty string is a legal string, nothing went red, and a reader asking a capture "what
+        // order did it consider" got nothing at all. The name and the position do not move; the meaning
+        // does, which is the one change the append convention cannot carry and is what the schema bump
+        // is for.
+        //
+        // `task_order` is the published course's bound steps, in the order the course will perform
+        // them, by purpose. A course with no steps is companionship and writes `-`, as it did before
+        // for fewer than two close jobs.
+        //
+        // `task_order_runner_up` **cannot be filled**, and it writes the reason rather than a dash,
+        // because a dash here would be indistinguishable from the dead column it replaces.
+        // `SearchCourseOrders` retains `Best` and `BestValue` and no second-best order: the search
+        // prunes as it goes and the order that came closest is discarded rather than kept. Filling this
+        // needs an accessor on that class — the runner-up projection whose first step differs from the
+        // best one's — and that file belongs to the course, not to this folder.
+        var published = brain.Course.Course.Current?.Projection.Steps;
+        sb.Append('\t').Append(published == null || published.Count == 0
+                ? "-"
+                : string.Join(">", published.Select(step => step.Opportunity.Purpose)))
+            .Append('\t').Append("unavailable:the-search-retains-only-its-best-order");
         // Lane A, schema 0.35.0: the time factor each activity's final carried.
         //
         // **This one is constant at 1.000 under the course, by design rather than by the accident that
