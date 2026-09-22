@@ -1,6 +1,6 @@
 # One implementation plan owns the retained course brain
 
-[Implement the Retained Course Brain](<Implement the Retained Course Brain.md>) is the single active implementation plan, formerly Proposal 05. The owner selected this direction and requested a complete design on 19 September 2026. The game-code build awaits the later implementation instruction; writing a plan does not implement it.
+[Implement the Retained Course Brain](<Implement the Retained Course Brain.md>) is the single active implementation plan, formerly Proposal 05. The owner selected this direction and requested a complete design on 19 September 2026, and `0bb2c8a` on 21 September put the plan's brain on the live tick. Since then this folder is the design the code is measured against rather than a design waiting to be built: the root `CLAUDE.md`'s current-state section says what of it exists, and an audit of the plan against the tree on 22 September 2026 (after the first play, which found the companion refusing every job it discovered) counted three or four of the sixteen acceptance gates fully built, eight to ten partial, and G01a, G06, G10 and G13 with no fixture row, with the plan's step-5 cheap continuation and its step-7 comparison instruments (reactive reference, exact oracle, seeded sequences, snapshot replay) never written. Writing a plan does not implement it, and a class a fixture exercises and production never calls does not either.
 
 ```text
 proposal/
@@ -23,4 +23,4 @@ The first-version numerical preference policy is an explicit design hypothesis c
 
 ## Planned work
 
-The full implementation is specified in the plan's dependency order and G01a–G15 gates. No gameplay portion is complete from this documentation checkpoint. Known separate product work—mastery effects, unsupported firing mechanisms, gear discoverability and closed-door route representation—retains its own scope and cannot be reported as solved by planning.
+The full implementation is specified in the plan's dependency order and G01a–G15 gates; what is built against them is the root guide's account and the 22 September audit above, not this file's. Known separate product work—mastery effects, unsupported firing mechanisms, gear discoverability and closed-door route representation—retains its own scope and cannot be reported as solved by planning.
