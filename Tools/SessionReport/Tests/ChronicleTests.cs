@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 
 namespace AICompanion.Tools.SessionReport;
@@ -38,7 +39,7 @@ public static class ChronicleTests
             MultiRunRetainsDefinitiveExit();
             DecisionContractsDistinguishStallsFromProgress();
             AFrozenBodyWithARouteAheadIsReportedAndARestingOneIsNot();
-            HuntRangeEvidenceDoesNotInventUniversalFailure();
+            CombatHoldingUnobservableTargetsIsFoundAndOldCapturesSkip();
             DowningDoesNotProveAvoidability();
             ASelectedActivityMustHaveCarriedAnEligibleOffer();
             ASelectionChangesOnlyWithANewComparison();
@@ -68,6 +69,9 @@ public static class ChronicleTests
             CourseSnapshotRequiresActualValuesAndMatchingDigests();
             CourseReaderRejectsMixedAndDigestOnlySnapshots();
             CourseDecisionsAreReadCheckedAndNarrated();
+            TheGuideQuotesTheSchemaConstantItDocuments();
+            TheAuditsOwnWiringIsWitnessedByTheCapture();
+            TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
             Console.WriteLine($"Chronicle self-tests passed ({Ran.Count} assertion groups).{DeclaredButSilent()}");
@@ -103,6 +107,198 @@ public static class ChronicleTests
     /// nothing — and the measure is read for its own arithmetic, so a share whose denominator was the
     /// wrong set would show up here rather than in a report about a real play.</para>
     /// </summary>
+    /// <summary>
+    /// Schema 0.45.0's frame ledger, read end to end: the measure's arithmetic, the check's threshold
+    /// and the one distinction the whole column set exists to preserve.
+    ///
+    /// <para><b>An update is not a frame.</b> The engine runs a fixed timestep and catches up by
+    /// running two updates back to back with no draw between them, so a session's frames a second and
+    /// its updates a second are two different numbers and only the first is what a player sees. A
+    /// reader that derived "frames per second" from the interval would report the catch-up update as a
+    /// fast frame and the whole capture as healthier than it was, which is why the producer counts
+    /// draws at the draw callback and why the row below sets half its updates to zero draws and
+    /// requires the two figures to differ.</para>
+    ///
+    /// <para>Every other assertion here is a pair, because a check that fires on everything is worth
+    /// no more than one that fires on nothing: the threshold is asked of a capture above it and a
+    /// capture below it, and the unmeasured first interval is asked for as an exclusion rather than as
+    /// a fast frame.</para>
+    /// </summary>
+    private static void TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            // One row per update. `frame` of -1 is the producer's "no previous update to measure from".
+            Session Capture(Func<int, (double Frame, int Draws)> shape, int rows = 400)
+            {
+                var trace = new StringBuilder("# schema=0.45.0\n"
+                    + "tick\twall_elapsed_ms\tframe_ms\tdraws\toverlay_ms\tinspector_ms\tengine_ms\tbrain_ms\trecord_ms\n");
+                double wall = 0;
+                for (int tick = 0; tick < rows; tick++)
+                {
+                    (double frame, int draws) = shape(tick);
+                    wall += frame < 0 ? 0 : frame;
+                    trace.Append(FormattableString.Invariant(
+                        $"{tick}\t{wall:0.00}\t{frame:0.00}\t{draws}\t0.40\t1.10\t{Math.Max(0d, frame - 11.5):0.00}\t9.00\t1.00\n"));
+                }
+                File.WriteAllText(file, trace.ToString());
+                return Session.Load(file);
+            }
+
+            // Above the threshold: every interval overruns, so the check fires once, as Potential, with
+            // the split in its detail rather than only the share.
+            Finding[] slow = new TheFrameFitsTheEnginesTimestep().Run(Capture(_ => (25.0, 1))).ToArray();
+            Require(slow.Length == 1 && slow[0].Severity == Severity.Potential,
+                "a capture whose every interval overruns must report exactly one potential finding");
+            Require(slow[0].Detail.Contains("brain 9.00 ms a frame", StringComparison.Ordinal)
+                    && slow[0].Detail.Contains("inspector 1.10 ms a frame", StringComparison.Ordinal)
+                    && slow[0].Detail.Contains("engine ", StringComparison.Ordinal),
+                $"the finding must carry the split beside the share, not the share alone: {slow[0].Detail}");
+            Require(slow[0].Detail.Contains("25%", StringComparison.Ordinal),
+                "the finding must state the threshold it was judged against so it can be argued with");
+
+            // Below it: a capture comfortably inside the timestep says nothing at all.
+            Require(new TheFrameFitsTheEnginesTimestep().Run(Capture(_ => (10.0, 1))).ToArray().Length == 0,
+                "a capture inside the engine's own timestep must produce no finding");
+
+            // The unmeasured first interval is excluded, not counted as the fastest frame in the file.
+            // With every other row at 25 ms the share is 100%, and a -1 counted as a frame would be 99.7%.
+            Finding[] withUnmeasured = new TheFrameFitsTheEnginesTimestep()
+                .Run(Capture(tick => (tick == 0 ? -1.0 : 25.0, 1))).ToArray();
+            Require(withUnmeasured.Length == 1 && withUnmeasured[0].Title.Contains("100.0%", StringComparison.Ordinal),
+                $"an unmeasured interval must be excluded rather than counted as a fast frame: {(withUnmeasured.Length == 0 ? "no finding" : withUnmeasured[0].Title)}");
+
+            // The measure, and the distinction the columns exist for. Half the updates carry no draw,
+            // which is the engine catching up, so frames a second must come out below updates a second.
+            Session mixed = Capture(tick => (10.0, tick % 2 == 0 ? 1 : 0));
+            var rows = new MeasureTheFrame().Rows(mixed).ToList();
+            double Value(string name) => rows.Single(r => r.Case == "frame/" + name).Value ?? -1;
+            Require(Math.Abs(Value("updates-per-second") - 2.0 * Value("frames-per-second")) < 0.5,
+                $"half the updates carrying no draw must halve frames a second against updates a second;"
+                + $" updates={Value("updates-per-second"):0.0} frames={Value("frames-per-second"):0.0}");
+            Require(Value("overrun-share") == 0, $"a 10 ms interval is inside the budget; overrun-share={Value("overrun-share")}");
+            Require(Math.Abs(Value("median-ms") - 10.0) < 0.01, $"the median interval must be the one written; median={Value("median-ms")}");
+            // 9.00 brain of a 10.00 interval is 90%, and the shares are taken over the summed interval
+            // rather than as a mean of per-row shares, which would weight a catch-up update like a hitch.
+            Require(Math.Abs(Value("brain-share") - 90.0) < 0.5, $"brain-share={Value("brain-share")}");
+            Require(Math.Abs(Value("inspector-share") - 11.0) < 0.5, $"inspector-share={Value("inspector-share")}");
+
+            // The producer pin. The five columns are written by a file this project does not compile,
+            // so a rename there leaves every row above passing against a capture nobody writes.
+            string recorder = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
+            Require(recorder.Contains("\\tframe_ms\\tdraws\\toverlay_ms\\tinspector_ms\\tengine_ms", StringComparison.Ordinal),
+                "the recorder no longer writes the frame ledger's five columns in the order this reader names them");
+            string ledger = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "MeasureFrameCost.cs"));
+            Require(ledger.Contains("FrameMilliseconds = 1000d / 60d", StringComparison.Ordinal),
+                "the producer's own frame budget moved away from the engine's timestep, so this reader's share means something else");
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>
+    /// The two wirings of the decision audit that fail silently in play, read back off a capture's own
+    /// closing line.
+    ///
+    /// <para>Neither can be caught by a headless row, because headlessly the source is installed by the
+    /// fixture and the hook is driven directly. What a capture can say is how many decisions reached
+    /// the audit and how many of those read a frozen observation, and the two failures are exactly the
+    /// two zeroes: decisions recorded with nothing audited is the hook gone from
+    /// <c>RecordCourseTrace.Record</c>, and everything audited with nothing read is
+    /// <c>ReadLiveCourseForAudit.Install</c> never having run. The third case here is the one the check
+    /// is worth nothing without — a wired session says nothing at all.</para>
+    /// </summary>
+    /// <summary>
+    /// The Diagnostics guide's "the capture schema is X" sentence against the constant it describes.
+    ///
+    /// <para>That sentence went stale across a version bump and a reviewer found it, which is the same
+    /// failure this whole folder is careful about in the other direction: a number in prose that no
+    /// instrument checks is a claim, and every version bump is an invitation for it to drift. The
+    /// guide's own text says the constant is the only authority; this makes that enforceable rather
+    /// than advisory, so the next bump reddens here instead of shipping a lie in the file a stranger
+    /// reads first.</para>
+    /// </summary>
+    private static void TheGuideQuotesTheSchemaConstantItDocuments()
+    {
+        string recorder = Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
+        string guide = Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "CLAUDE.md");
+        var constant = Regex.Match(File.ReadAllText(recorder), @"Schema\s*=\s*""(?<v>\d+\.\d+\.\d+)""");
+        Require(constant.Success, $"no Schema constant found in {recorder}, so the guide has nothing to be checked against");
+        var quoted = Regex.Match(File.ReadAllText(guide), @"The capture schema is \*\*(?<v>\d+\.\d+\.\d+)\*\*");
+        Require(quoted.Success, $"{guide} no longer states the capture schema in the shape this row reads");
+        Require(quoted.Groups["v"].Value == constant.Groups["v"].Value,
+            $"the guide says the capture schema is {quoted.Groups["v"].Value} and the recorder's constant is"
+                + $" {constant.Groups["v"].Value}; the constant is the authority and the sentence is wrong");
+    }
+
+    private static void TheAuditsOwnWiringIsWitnessedByTheCapture()
+    {
+        object Field(string kind, string text) => new { Kind = kind, Text = text };
+        string Decision(int seq, long tick) => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d,
+            kind = "course-course-decision", subject = 0, related = "", label = "", channel = "",
+            pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f, expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+            payload_kind = ReadCourseDecisions.Kind, payload_version = 1, phase = "brain",
+            observation_ordinal = 1L, receipt_watermark = 0L,
+            payload = new { Kind = ReadCourseDecisions.Kind, Version = 1, Fields = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["reason"] = Field("text", "course-published"),
+                ["activity"] = Field("text", "keep-company"),
+                ["settled"] = Field("flag", "true"),
+                ["purpose"] = Field("text", ""),
+                ["steps"] = Field("integer", "0"),
+                ["orders-priced"] = Field("integer", "1"),
+                ["orders-refused"] = Field("integer", "0"),
+                ["search-exhausted"] = Field("flag", "true"),
+                ["release-reason"] = Field("text", ""),
+                ["facts"] = Field("integer", "7"),
+            } } });
+        string Marker(int seq, string kind) => JsonSerializer.Serialize(new { v = 1, seq, tick = 0, wall_elapsed_ms = 0d,
+            kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+            expected_x = 0f, expected_y = 0f, amount = 0, detail = "" });
+
+        var check = new TheDecisionAuditRanOnTheDecisionsTheCaptureHolds();
+        void Drive(string name, string schema, string closing, bool frameColumn, Action<Session> assert)
+        {
+            string tsv = Path.GetTempFileName(), events = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+            try
+            {
+                string header = frameColumn ? "tick\tframe_ms\n1\t25.00\n" : "tick\n1\n";
+                File.WriteAllText(tsv, $"# schema={schema}\n{header}{closing}");
+                File.WriteAllLines(events, new[] { Marker(0, "session"), Decision(1, 1), Decision(2, 2), Marker(3, "session-end") });
+                assert(Session.Load(tsv));
+            }
+            finally { File.Delete(tsv); if (File.Exists(events)) File.Delete(events); }
+        }
+
+        Drive("hook gone", "0.45.0", "# closing=world-unload;rows=1;decisions-audited=0;audit-observations-read=0\n", true, session =>
+        {
+            Finding[] findings = check.Run(session).ToArray();
+            Require(check.Missing(session) == null, $"a 0.45.0 capture with both counts must be gradeable; {check.Missing(session)}");
+            Require(findings.Length == 1 && findings[0].Severity == Severity.Definitive
+                    && findings[0].Detail.Contains("RecordCourseTrace.Record", StringComparison.Ordinal),
+                $"two recorded decisions and nothing audited must name the hook; got {findings.Length} finding(s)");
+        });
+
+        Drive("source never installed", "0.45.0", "# closing=world-unload;rows=1;decisions-audited=2;audit-observations-read=0\n", true, session =>
+        {
+            Finding[] findings = check.Run(session).ToArray();
+            Require(findings.Length == 1 && findings[0].Detail.Contains("ReadLiveCourseForAudit.Install", StringComparison.Ordinal),
+                $"everything audited and nothing read must name the installer rather than the hook; got {findings.Length} finding(s)");
+        });
+
+        Drive("wired", "0.45.0", "# closing=world-unload;rows=1;decisions-audited=2;audit-observations-read=2\n", true, session =>
+            Require(check.Run(session).ToArray().Length == 0, "a wired session must produce no finding at all"));
+
+        // An older capture's trailer carries neither count, and reading a missing count as zero would
+        // report every capture written before 0.45.0 as an audit that never ran. It skips by name.
+        Drive("older capture", "0.44.0", "# closing=world-unload;rows=1\n", false, session =>
+        {
+            Require(check.Missing(session) != null,
+                "a capture whose recorder never wrote the counts must skip by name rather than read their absence as zero");
+            Require(check.Run(session).ToArray().Length == 0, "a skipped check must still produce nothing when asked");
+        });
+    }
+
     private static void CourseDecisionsAreReadCheckedAndNarrated()
     {
         // The producer's own shape, from `CourseTracePayload`: a kind, a version and a field map whose
@@ -810,37 +1006,99 @@ public static class ChronicleTests
         finally { File.Delete(file); }
     }
 
-    private static void HuntRangeEvidenceDoesNotInventUniversalFailure()
+    /// <summary>
+    /// The check that could not run between schema 0.40.0 and 0.45.0, on the evidence it reads now.
+    ///
+    /// <para>It used to parse the arsenal's bounded shortlist of rejected weapon-target pairs out of
+    /// `target_evidence`, and the weapon block's rename took that column away, so it has been a named
+    /// skip on every capture since and the shortlist it parsed is written nowhere. 0.45.0 gives the two
+    /// names back with the course's meaning and the check asks the question the 22 September capture
+    /// raised: a fight held while every target the census admitted read as not observed to the binder
+    /// that had to use it.</para>
+    ///
+    /// <para><b>The dangerous case is the old capture, and it is asserted through the runner rather
+    /// than through the check.</b> A pre-0.40.0 capture carries both names holding the arsenal's format,
+    /// and a predicate written for the new one would parse it confidently as something else. The check
+    /// names `frame_ms` in its `Needs` as the witness and never reads it, so such a capture reaches the
+    /// coverage block as a named skip; asking the check directly would prove nothing about that, which
+    /// is why the last case here goes through `Program.Evaluate`.</para>
+    /// </summary>
+    private static void CombatHoldingUnobservableTargetsIsFoundAndOldCapturesSkip()
     {
         string file = Path.GetTempFileName();
         try
         {
-            Finding[] Read(string evidence, int age = 0, string fire = "no-target", string action = "hunt")
+            Finding[] Read(string evidence, string age = "combat=40", string fire = "not-fighting",
+                string action = "combat", int rows = 301)
             {
-                var trace = new StringBuilder("tick\taction\tbrain_fresh\tfire\ttarget_evidence_age\ttarget_evidence\n");
-                for (int tick = 0; tick < 301; tick++)
-                    trace.AppendLine($"{tick}\t{action}\t1\t{fire}\t{age}\t{evidence}");
+                var trace = new StringBuilder("# schema=0.45.0\n"
+                    + "tick\taction\tbrain_fresh\tfire\ttarget_evidence_age\ttarget_evidence\tframe_ms\n");
+                for (int tick = 0; tick < rows; tick++)
+                    trace.AppendLine($"{tick}\t{action}\t1\t{fire}\t{age}\t{evidence}\t25.00");
                 File.WriteAllText(file, trace.ToString());
-                return new HuntingHadAWeaponThatCouldReach().Run(Session.Load(file)).ToArray();
+                return new CombatHeldTargetsItsBinderCouldNotSee().Run(Session.Load(file)).ToArray();
             }
 
-            const string distant = "7:12:0:0:weapon=1:outside-reach";
-            Require(Read("7:12:0:0:weapon=0:no-clear-trajectory|" + distant).Length == 0,
-                "one weapon outside reach turned a mixed rejection set into a universal range failure");
-            Require(Read("7:12:10:weapon=0:kills=0:harm=0:value=10|" + distant).Length == 0,
-                "an accepted attack pair was ignored beside a range rejection");
-            foreach (string malformed in new[] { "", "-", "outside-reach", distant + "|", distant + "|truncated", "x:12:0:0:weapon=1:outside-reach" })
-                Require(Read(malformed).Length == 0, "missing or malformed evidence became an all-pairs claim");
-            Require(Read(distant, age: 100).Length == 0, "retained old evidence became a fresh range observation");
-            Require(Read(distant, fire: "fired").Length == 0 && Read(distant, fire: "cooldown").Length == 0,
-                "successful shooting or cooldown became failed pursuit");
-            Finding[] findings = Read("7:12:0:0:weapon=0:outside-reach|" + distant);
+            const string unseen = "combat=combat-target:8000001:0:Unresolved:0/3";
+            Finding[] findings = Read(unseen);
             Require(findings.Length == 1 && findings[0].Severity == Severity.Potential,
-                "a bounded range-only interval must remain a potential issue, not proof of impossible pursuit");
-            Require(findings[0].Detail.Contains("recorded", StringComparison.Ordinal),
-                "range diagnosis lost its bounded evidence qualification");
-            Require(Read("7:12:0:0:weapon=0:outside-reach|" + distant, action: "combat").Length == 1,
-                "the same interval under the merged stance's label was not read as a fight");
+                $"a sustained fight over targets the binder cannot see must be one potential finding; got {findings.Length}");
+            Require(findings[0].Detail.Contains("not `Observed`", StringComparison.Ordinal)
+                    && findings[0].Detail.Contains("-1 is a fact key this recorder never saw observed", StringComparison.Ordinal),
+                $"the finding must say what the evidence and the age mean: {findings[0].Detail}");
+
+            // The universal claim is universal. One domain reading Observed beside one that does not is
+            // a census and a binder agreeing about something, and the older version of this check made
+            // exactly this mistake in the other direction — an existential match read as a universal.
+            Require(Read(unseen + "|collect-target=collect-target:7:0:Observed:4/4").Length == 0,
+                "one observed domain beside an unobserved one must not read as every target unobserved");
+
+            foreach (string quiet in new[] { "", "-", "Unresolved", "combat=", "combat=k:Unresolved",
+                         "combat=k:Unresolved:0/3|", "combat=k:Unresolved:x/3", "7:12:0:0:weapon=1:outside-reach",
+                         // An evidence level no producer writes. It was on the accepted list once, which
+                         // widened the predicate against a string that can only come from a corrupt cell.
+                         "combat=combat-target:8000001:0:no-snapshot:0/3" })
+                Require(Read(quiet).Length == 0,
+                    $"a dash, an absence or a shape this producer does not write must be refused rather than matched: '{quiet}'");
+
+            // The levels the producer can write, pinned from the producer rather than from this list:
+            // every `FactEvidence` member short of Observed, plus the audit's own `absent`.
+            foreach (string level in new[] { "Unresolved", "Missing", "Modelled", "absent" })
+                Require(Read($"combat=combat-target:8000001:0:{level}:0/3").Length == 1,
+                    $"a level the audit writes must be read as unobserved evidence: '{level}'");
+            // `FactEvidence` lives in `Selection/`, which SessionReport does not compile, so the members
+            // are read out of the producer's own source. A member added there and not here would make
+            // this predicate silently refuse a real recording, which is the same class of failure as an
+            // accepted value nobody writes and is why both directions are pinned.
+            string dependencies = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure",
+                "Selection", "Courses", "TrackCourseDependencies.cs"));
+            var declaration = Regex.Match(dependencies, @"enum FactEvidence\s*\{(?<members>[^}]*)\}");
+            Require(declaration.Success, "FactEvidence is no longer declared where this row reads it from");
+            foreach (string member in declaration.Groups["members"].Value.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string level = member.Trim();
+                if (level.Length == 0 || level == "Observed") continue;
+                Require(Read($"combat=combat-target:8000001:0:{level}:0/3").Length == 1,
+                    $"the producer writes an evidence level this check refuses: '{level}'");
+            }
+
+            Require(Read(unseen, fire: "fired").Length == 0 && Read(unseen, fire: "cooldown").Length == 0,
+                "a fight that is firing or reloading is a fight working");
+            Require(Read(unseen, action: "keep-company").Length == 0, "keeping company is not a fight held");
+            Require(Read(unseen, rows: 299).Length == 0, "a stretch under the inspection threshold must stay quiet");
+            Require(Read(unseen, action: "hunt").Length == 1, "the pre-merge stance label must still be read as a fight");
+
+            // The witness. An older capture carries both names holding the arsenal's own format and no
+            // `frame_ms`, and must reach the coverage block as a skip rather than this predicate.
+            var old = new StringBuilder("# schema=0.39.0\ntick\taction\tbrain_fresh\tfire\ttarget_evidence_age\ttarget_evidence\n");
+            for (int tick = 0; tick < 301; tick++)
+                old.AppendLine($"{tick}\thunt\t1\tno-target\t0\t7:12:0:0:weapon=1:outside-reach");
+            File.WriteAllText(file, old.ToString());
+            var (findingsOnOld, skipped, _) = Program.Evaluate(Session.Load(file));
+            Require(skipped.Any(s => s.Name == new CombatHeldTargetsItsBinderCouldNotSee().Name),
+                "a capture from before the columns changed meaning must skip this check by name, not be parsed by it");
+            Require(!findingsOnOld.Any(f => f.Check == new CombatHeldTargetsItsBinderCouldNotSee().Name),
+                "the arsenal's own evidence format was read as the course's");
         }
         finally { File.Delete(file); }
     }

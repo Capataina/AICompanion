@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -124,7 +125,7 @@ public sealed class BrainTelemetry : ModSystem
     // columns as their evidence, so all three were grading constants. `<activity>_time` stays at 1.000 and
     // is documented at its site as constant by design, because the course has no per-activity time factor
     // to report and inventing one would be the very substitution this bump exists to declare.
-    private const string Schema = "0.44.0";
+    private const string Schema = "0.45.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -177,6 +178,20 @@ public sealed class BrainTelemetry : ModSystem
     // Rows this session has written, which the end marker states so a reader can tell a file that lost rows from one
     // that never had them.
     private static int rowsWritten;
+    /// <summary>The brain cost of the row before this one. The frame ledger's remainder subtracts it
+    /// rather than this row's, because an interval closed at the top of update N spans update N−1 —
+    /// the same reason `record_ms` is already the previous row's.</summary>
+    private static double lastBrainMs;
+    // One `frame-overrun` occurrence per window rather than per overrunning frame. On the 22 September
+    // capture 84% of frames exceeded the budget, so an occurrence each would be two thousand records
+    // saying one thing; the window carries how many there were and the worst one's whole split, which
+    // is what a reader of a hitch actually opens. The share across the session is read off the
+    // `frame_ms` column instead, where every row has one.
+    private const int OverrunWindowTicks = 30;
+    private static ulong overrunWindowOpenedAt;
+    private static int overrunsInWindow;
+    private static double worstFrameInWindow;
+    private static string worstFrameSplit = "";
     private static RecordedConfiguration recordedConfiguration;
     /// <summary>The revision and tree state AICompanion.csproj's StampSourceRevision target stamped into this assembly,
     /// read once; "unknown" when that build could not ask git.</summary>
@@ -219,6 +234,10 @@ public sealed class BrainTelemetry : ModSystem
     public static string Folder => Path.Combine(Main.SavePath, "ModSources", "AICompanion", "Telemetry");
     internal static double ElapsedMilliseconds => sessionClock.Elapsed.TotalMilliseconds;
 
+    /// <summary>Stands the decision audit's reader up before any world opens, and whether or not
+    /// recording is switched on, because the audit's source is wiring rather than session state.</summary>
+    public override void Load() => ReadLiveCourseForAudit.Install();
+
     public override void OnWorldLoad()
     {
         Close("superseded-by-world-load");
@@ -253,6 +272,16 @@ public sealed class BrainTelemetry : ModSystem
             lastDecision = null;
             firstUpdateRecorded = false;
             ScenarioCapture.Reset();
+            AuditDecisionContracts.Reset();
+            FrameCost.Reset();
+            // The identities are per session, so a previous world's drop cannot suppress this one's
+            // first sighting of the slot it happens to reuse.
+            sightedDrops.Clear();
+            lastBrainMs = 0;
+            overrunWindowOpenedAt = Main.GameUpdateCount;
+            overrunsInWindow = 0;
+            worstFrameInWindow = 0;
+            worstFrameSplit = "";
             TravelEpisodes.Reset();
             BehaviourCensus.Reset();
             SessionMap.Reset();
@@ -359,10 +388,28 @@ public sealed class BrainTelemetry : ModSystem
         // The open journey and the open stop belong to this session, so they are written before the stream closes; the
         // census closes its own open episode inside Report for the same reason.
         TravelEpisodes.Close(CompanionNPC.Instance);
+        // The decision audit coalesces its violations, so the totals in the capture are the totals as
+        // at the last record it wrote; this enqueues one closing record per kind that has moved since,
+        // while the event stream is still taking them.
+        AuditDecisionContracts.Flush();
         GodsEyeEvents.Close();
         try
         {
-            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions}");
+            // A session that recorded no row at all still says what it ran under. The line is written
+            // from the first row because that is the first moment the character's saved preferences
+            // exist; a capture with no rows never reached it, and before this it closed carrying no
+            // `# config=` line of any kind — which reads as a capture from before 0.28.0 rather than as
+            // a session that opened and recorded nothing. The value is read now rather than at world
+            // entry for the same reason the row's is, so it is the preferences as they stand.
+            if (!headerWritten)
+                QueueDiagnosticRecords.TryEnqueueTsv($"# config={RecordedConfiguration.Current().Describe()}");
+            // `decisions-audited` and `audit-observations-read` are the capture's own witnesses to the
+            // audit's two wirings, and they are here rather than in the header because the header is
+            // written on the first row, before any decision has been made. A reader grades them against
+            // the count of `course-decision` occurrences: decisions with nothing audited is the hook
+            // gone from `RecordCourseTrace.Record`, and decisions audited with nothing read is
+            // `ReadLiveCourseForAudit.Install` never having run. Both are silent in play otherwise.
+            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead}");
             diagnosticWriter.Stop(TimeSpan.FromMilliseconds(100), reason, rowsWritten);
         }
         catch (Exception e)
@@ -401,6 +448,53 @@ public sealed class BrainTelemetry : ModSystem
         }
     }
 
+    /// <summary>
+    /// Keeps the frame-overrun window, and writes it when it closes.
+    ///
+    /// An overrun is an interval past one frame at sixty a second, which is a fact of the engine's
+    /// fixed timestep rather than a threshold anybody chose. The window is what keeps a session whose
+    /// every frame overruns from filling the sidecar with two thousand records saying one thing, and
+    /// it carries both halves of what a reader needs: how many frames in the window overran, and the
+    /// whole split of the worst of them, so a hitch can be attributed without opening the row.
+    /// </summary>
+    private static void ObserveFrameOverrun(double frameMs, double remainder, NPC npc)
+    {
+        if (frameMs > FrameCost.FrameMilliseconds)
+        {
+            overrunsInWindow++;
+            if (frameMs > worstFrameInWindow)
+            {
+                worstFrameInWindow = frameMs;
+                worstFrameSplit = FormattableString.Invariant(
+                    $"brain={lastBrainMs:0.00};record={(double.IsNaN(lastRecordMs) ? 0d : lastRecordMs):0.00};overlay={FrameCost.OverlayMilliseconds:0.00};inspector={FrameCost.InspectorMilliseconds:0.00};engine={remainder:0.00};draws={FrameCost.Draws}");
+            }
+        }
+        if (Main.GameUpdateCount - overrunWindowOpenedAt < OverrunWindowTicks) return;
+        if (overrunsInWindow > 0)
+            GodsEyeEvents.RecordFrameOverrun(npc, overrunsInWindow, OverrunWindowTicks, worstFrameInWindow, worstFrameSplit);
+        overrunWindowOpenedAt = Main.GameUpdateCount;
+        overrunsInWindow = 0;
+        worstFrameInWindow = 0;
+        worstFrameSplit = "";
+    }
+
+    /// <summary>
+    /// One extra preamble line from a harness that is driving this recorder rather than a game.
+    ///
+    /// It exists because the world run had to reach `QueueDiagnosticRecords.TryEnqueueTsv` by
+    /// reflection to stamp what it was replaying, and a reflective call into a method this folder is
+    /// free to rename is a break nobody finds until it throws at run time. The caller owns the line's
+    /// content and this owns the `# ` and the ordering; it is refused once the header has been written,
+    /// because a preamble line after the header is a line every reader will mis-parse as a trailer.
+    /// </summary>
+    /// <returns>Whether the line was accepted: false where no session is open or the header has already
+    /// gone out, both of which are the caller's mistake rather than a dropped record.</returns>
+    public static bool AnnotateHeader(string line)
+    {
+        if (diagnosticWriter == null || headerWritten || string.IsNullOrWhiteSpace(line)) return false;
+        return QueueDiagnosticRecords.TryEnqueueTsv(line.StartsWith("# ", StringComparison.Ordinal) ? line : "# " + line);
+    }
+
     private static void WriteMetadata()
     {
         if (diagnosticWriter == null)
@@ -412,8 +506,14 @@ public sealed class BrainTelemetry : ModSystem
         QueueDiagnosticRecords.TryEnqueueTsv($"# source_revision={SourceProvenance}");
         QueueDiagnosticRecords.TryEnqueueTsv($"# capabilities={DescribeCapabilities()}");
         QueueDiagnosticRecords.TryEnqueueTsv($"# world={DescribeWorld()}");
-        recordedConfiguration = RecordedConfiguration.Current();
-        QueueDiagnosticRecords.TryEnqueueTsv($"# config={recordedConfiguration.Describe()}");
+        // `# config=` is deliberately *not* written here, and the reason is the whole of the 0.45.0
+        // honesty fix: this runs at `OnWorldLoad`, which is before the character's saved preferences
+        // have been loaded, so every value it could read is a default. The 22 September 2026 capture's
+        // header said `chopping=Opportunistic` while its tick-1 `configuration` occurrence and every
+        // census on every row said `Mimic`, and one of the two had to be lying to the reader. The line
+        // is written from the first recorded row instead, which is the first moment the preferences the
+        // brain is actually deciding with exist; it is still a preamble line, because the header itself
+        // is written on that same row.
         // What a capture keeps and what it forgets, read from the constants that bound each store, so a reader can tell an
         // absence the recorder never kept from one that did not happen without knowing the code.
         QueueDiagnosticRecords.TryEnqueueTsv("# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered"
@@ -669,7 +769,13 @@ public sealed class BrainTelemetry : ModSystem
             return;
         recordClock.Restart();
         var configuration = RecordedConfiguration.Current();
-        if (configuration != recordedConfiguration)
+        // The first recorded row *establishes* the session's configuration rather than changing it, so
+        // it writes no occurrence: the header line is written from this same value a few hundred lines
+        // below, and a change record on the tick that sets the baseline would report every session as
+        // having reconfigured itself on tick one. From the second row on, a difference is a preference
+        // the player moved mid-session and is recorded as one.
+        if (!headerWritten) recordedConfiguration = configuration;
+        else if (configuration != recordedConfiguration)
         {
             recordedConfiguration = configuration;
             GodsEyeEvents.RecordConfiguration(configuration.Describe());
@@ -678,6 +784,7 @@ public sealed class BrainTelemetry : ModSystem
         TravelEpisodes.Watch(companion);
         Brain brain = companion.Brain;
         var senses = brain.Senses;
+        WatchSightedDrops(senses);
         NPC npc = companion.NPC;
         RecordTerrainChunks.ObserveActors(npc, Main.LocalPlayer);
         string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
@@ -712,6 +819,11 @@ public sealed class BrainTelemetry : ModSystem
             if (candidate is Activities.Gathering.ChopTree chopAction) chop = chopAction;
         }
         activityControls += $";mine-last-conclusion={mine?.LastConclusion?.ToString() ?? "none"}";
+        // The one contract that is a per-tick cost rather than a property of a decision, so it is
+        // audited here: `DecideMs` is laid at the end of the decide phase and does not exist at the
+        // moment the decision records itself. Every other contract is audited where the decision is
+        // recorded, in `AuditDecisionContracts`.
+        AuditDecisionContracts.ObserveDecideCost(brain.DecideMs, (long)Main.GameUpdateCount);
         if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
         {
             var board = new StringBuilder();
@@ -742,6 +854,25 @@ public sealed class BrainTelemetry : ModSystem
                 board.Append(CultureInfo.InvariantCulture,
                     $";course:{leader.Key}=value:{leader.Value.Total.Nominal:0.000},useful:{leader.Value.UsefulEffects:0.000}"
                     + $",harm:{leader.Value.Harm:0.000},gap:{leader.Value.Companionship:0.000}");
+            // The reason here is the commonest *non-usable* admission's, which merges two groups that
+            // fail in opposite directions: a candidate proven unusable is a census that finished and
+            // found nothing, and one left unresolved is a census that has not answered, which is the
+            // middle value this whole tree is built on not collapsing. A domain with both reports one
+            // string and a reader cannot tell which group it describes.
+            //
+            // **The group is one accessor away and it is on the course's own branch.**
+            // `DecideCourseEachTick.Candidates` exposes each `Opportunity` with its `Admission` and its
+            // `Reason`, so the reason can be tagged with the group it came from — a stale candidate
+            // reads `Unresolved:admission-evidence-absent` rather than a bare reason string. The line is
+            // written out and commented because this worktree does not carry that accessor yet; it is
+            // uncommented at the merge and the plain `reason:` below goes with it.
+            //
+            //   string Group(string domain) => course.Candidates
+            //       .Where(c => c.Key.Domain == domain && c.Admission != OpportunityAdmission.KnownUsable)
+            //       .GroupBy(c => c.Admission + ":" + c.Reason, StringComparer.Ordinal)
+            //       .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            //       .Select(g => g.Key).FirstOrDefault() ?? "-";
+            //
             foreach (var domain in course.Admitted)
                 board.Append(CultureInfo.InvariantCulture,
                     $";course-admitted:{domain.Domain}=usable:{domain.Usable},unknown:{domain.Unresolved},unusable:{domain.Unusable},reason:{(domain.Reason.Length == 0 ? "-" : domain.Reason)}");
@@ -771,6 +902,12 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
+            // The configuration the session is actually running under, read at the first recorded row
+            // rather than at world entry, because the character's saved preferences load between the
+            // two. Reading it here is what makes the header and the tick-1 `configuration` occurrence
+            // the same answer; before 0.45.0 they could disagree and the capture gave a reader no way
+            // to tell which was the lie. Enqueued before the header, so it is still a preamble line.
+            QueueDiagnosticRecords.TryEnqueueTsv($"# config={recordedConfiguration.Describe()}");
             var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,plan_stand,mine_policy,mine_status,mine_target,plan_invalid,nav_status,position_reason,plan_reason,hand_grant,control_request_owner,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,plan_targets,plan_uses,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up,evade_reason,evade_choice,plan_vector,knowledge_residual");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
@@ -782,6 +919,10 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var a in brain.Chooser.Actions)
                 if (a is Activities.ICandidateFunnelSource) textColumns.Append(',').Append(a.Name).Append("_funnel");
             textColumns.Append(",torch_reference,torch_reference_dark,torch_reference_stage");
+            // 0.45.0's two textual columns. The declaration is a hand-maintained string beside the
+            // header builder and is the half that gets forgotten, which is how `torch_reason` spent a
+            // whole schema reading as a column that failed to parse as a number.
+            textColumns.Append(",target_evidence,target_evidence_age");
             QueueDiagnosticRecords.TryEnqueueTsv(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
@@ -883,6 +1024,28 @@ public sealed class BrainTelemetry : ModSystem
             // lookahead tick at which the job's own flight met a hit (-1 for never), which candidate a bent tick flew, and how
             // many candidates each refusal removed. `evade_reason` and `evade_choice` are textual and declared in the preamble.
             h.Append("\tevade_reason\tevade_hit_tick\tevade_choice\tevade_refused_nowhere\tevade_refused_danger");
+            // Schema 0.45.0's frame ledger, appended at the end so every column before it keeps its index.
+            // `frame_ms` is update-to-update and **an update is not a frame** — the engine catches up by
+            // running two updates with no draw between them — so `draws` carries how many draws the
+            // interval held and frames a second is derived from that rather than from the interval.
+            // `overlay_ms` and `inspector_ms` are the two sections of this mod's own drawing, timed on the
+            // ledger's own clock; `engine_ms` is what is left of the interval after the *previous* row's
+            // brain, this row's `record_ms` (which is also the previous row's cost) and the two draw
+            // sections, all of which are that same update's. The interval a row can see closed at the
+            // end of the update before it, so `frame_ms` describes the update before the row's own.
+            h.Append("\tframe_ms\tdraws\toverlay_ms\tinspector_ms\tengine_ms");
+            // The two names return here, and **they do not mean what they meant before 0.40.0**, which
+            // is why a reader of them names a 0.45.0-only witness column rather than trusting the name.
+            // They were the arsenal's own rejected-pair shortlist — `slot:generation:0:0:weapon=N:reason`
+            // — and went with the weapon block's rename; they are the course's now, per domain, as
+            // `<domain>=<fact key>:<evidence>:<observed>/<total>` and `<domain>=<ticks>`, which is the
+            // measurement six readings of the 22 September capture each named as the one thing that
+            // would have settled the census-against-binder contradiction and could not be taken.
+            h.Append("\ttarget_evidence\ttarget_evidence_age");
+            // Pixels from the body's bottom edge down to the first support, platforms counted, negative
+            // where the edge is already inside it. It ends the row because a body sinking into a
+            // platform was otherwise a reconstruction from the centre, the grid and a radius.
+            h.Append("\tsupport_below_px");
             QueueDiagnosticRecords.TryEnqueueTsv(h.ToString());
             headerWritten = true;
         }
@@ -1236,8 +1399,33 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(FormattableString.Invariant(
                 $"{intent.Centre.X:0},{intent.Centre.Y:0};{intent.HalfSize.X:0},{intent.HalfSize.Y:0}"))
             .Append('\t').Append(intent.Pull(companion.NPC.Bottom).ToString("0.000", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(brain.Chooser.LastTaskOrder.Length == 0 ? "-" : brain.Chooser.LastTaskOrder)
-            .Append('\t').Append(brain.Chooser.LastTaskOrderRunnerUp.Length == 0 ? "-" : brain.Chooser.LastTaskOrderRunnerUp);
+        // Schema 0.45.0: these two read the published course. They read `Chooser.LastTaskOrder` and
+        // `Chooser.LastTaskOrderRunnerUp` until now, which is `OrderNearbyTasks`' permutation scoring —
+        // retired with the family chooser on `0bb2c8a` — so **every row of every capture since that
+        // commit wrote a dash in both**, which is this folder's own trap wearing its plainest face: a
+        // frozen empty string is a legal string, nothing went red, and a reader asking a capture "what
+        // order did it consider" got nothing at all. The name and the position do not move; the meaning
+        // does, which is the one change the append convention cannot carry and is what the schema bump
+        // is for.
+        //
+        // `task_order` is the published course's bound steps, in the order the course will perform
+        // them, by purpose. A course with no steps is companionship and writes `-`, as it did before
+        // for fewer than two close jobs.
+        //
+        // `task_order_runner_up` is the best priced order whose first step differs from the published
+        // one's — `DecideCourseEachTick.LastRunnerUpOrder`, retained by the search since 5c39e91 — as
+        // `purpose>purpose@value`, and `-` when the search priced fewer than two distinct first steps.
+        // That dash is a fact about this decision's search rather than about the recorder having nothing
+        // to ask, which is why the column wrote the reason it could not be filled until the accessor
+        // existed: a dash there was exactly what the dead column had written since 0bb2c8a.
+        var published = brain.Course.Course.Current?.Projection.Steps;
+        var runnerUp = brain.Course.LastRunnerUpOrder;
+        sb.Append('\t').Append(published == null || published.Count == 0
+                ? "-"
+                : string.Join(">", published.Select(step => step.Opportunity.Purpose)))
+            .Append('\t').Append(runnerUp is not { } second || second.Purposes.Count == 0
+                ? "-"
+                : string.Join(">", second.Purposes) + "@" + second.Value.ToString("0.000", CultureInfo.InvariantCulture));
         // Lane A, schema 0.35.0: the time factor each activity's final carried.
         //
         // **This one is constant at 1.000 under the course, by design rather than by the accident that
@@ -1291,6 +1479,24 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(!evade.Bent ? "-" : evade.Choice switch { EvadeChoice.Stop => "stop", EvadeChoice.JobHeading => "job-heading", _ => "heading" })
             .Append('\t').Append(evade.RefusedNowhere)
             .Append('\t').Append(evade.RefusedDanger);
+
+        // Schema 0.45.0: the whole update, and the parts of it this mod can account for. Written last in
+        // the row and read in the same order the header declares them.
+        double frameMs = FrameCost.IntervalMilliseconds;
+        double remainder = FrameCost.RemainderMilliseconds(lastBrainMs, lastRecordMs);
+        sb.Append('\t').Append(frameMs < 0 ? "-1.00" : frameMs.ToString("0.00", CultureInfo.InvariantCulture))
+            .Append('\t').Append(FrameCost.Draws)
+            .Append('\t').Append(FrameCost.OverlayMilliseconds.ToString("0.00", CultureInfo.InvariantCulture))
+            .Append('\t').Append(FrameCost.InspectorMilliseconds.ToString("0.00", CultureInfo.InvariantCulture))
+            .Append('\t').Append(remainder < 0 && frameMs < 0 ? "-1.00" : remainder.ToString("0.00", CultureInfo.InvariantCulture));
+        ObserveFrameOverrun(frameMs, remainder, npc);
+        lastBrainMs = brain.TotalMs;
+        // What the binder read about the targets its own census admitted, held by the audit from the
+        // moment the decision recorded itself, because the frozen observation is in hand there and not
+        // here. A dash is a decision that contradicted nothing, never an absence of evidence.
+        sb.Append('\t').Append(AuditDecisionContracts.LastTargetEvidence.Length == 0 ? "-" : AuditDecisionContracts.LastTargetEvidence)
+            .Append('\t').Append(AuditDecisionContracts.LastTargetEvidenceAge.Length == 0 ? "-" : AuditDecisionContracts.LastTargetEvidenceAge);
+        sb.Append('\t').Append(SupportBelow(npc.Bottom));
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
@@ -1425,11 +1631,79 @@ public sealed class BrainTelemetry : ModSystem
             TileShape.SolidUpperLeft => "slope-upper-left",
             TileShape.SolidUpperRight => "slope-upper-right",
             TileShape.Half => "half-block",
-            TileShape.Platform => passThrough ? "platform" : "solid-platform",
+            // No `solid-platform` arm: `ReadGameTerrain.Shape` returns `Platform` only where
+            // `PassThrough` is already true, and `TextTileWorld` maps the same glyphs both ways, so a
+            // non-pass-through platform is unreachable by construction in every world this reads. The
+            // arm existed and wrote a string no capture could ever carry, which is a reader being
+            // taught to look for a state that does not exist.
+            TileShape.Platform => "platform",
             TileShape.Solid => "solid",
             _ => "air",
         };
     }
+
+    /// <summary>
+    /// How far the body's bottom edge is above the first support beneath it, in pixels, counting a
+    /// platform as support — <see cref="MovementQueries.IsSupport"/> is the predicate, so this is the
+    /// same "is there something here" every search asks rather than a second opinion about tiles.
+    ///
+    /// <b>A negative value is the reading this exists for.</b> A body resting on a surface reads zero
+    /// or a little above; a body whose bottom edge is below the top of the tile supporting it is
+    /// *inside* that tile, and the number says by how much. Before this column a body sinking into a
+    /// platform was a reconstruction from the body's centre, the tile grid and a radius, which is the
+    /// arithmetic a reader gets wrong by a body radius when `npc_px` changed from feet to centre.
+    ///
+    /// A dash means no support was found inside the window, which is not the same fact as no support:
+    /// the probe stops at <see cref="SupportProbeTiles"/> tiles, because an orb over a chasm would
+    /// otherwise walk the column to the world's floor on every tick of a long fall.
+    /// </summary>
+    /// <summary>Identities the loot sense has already been seen admitting, so a drop lying on the floor
+    /// for a thousand ticks is one occurrence and not a thousand.</summary>
+    private static readonly HashSet<int> sightedDrops = new();
+
+    /// <summary>
+    /// One <c>drop-sighted</c> occurrence per drop, on the tick the loot sense first admits it.
+    ///
+    /// <b>What a capture could not say before it.</b> An item reached the record only by being
+    /// considered in a candidate funnel or by being picked up, so a drop the companion saw and never
+    /// went for existed nowhere — three of the 22 September capture's tail drops are nameable in no
+    /// record at all — and a world run had nothing to stage. The sighting is the sense's own admission
+    /// rather than a decision about the drop, so it fires whatever the course then does.
+    ///
+    /// It reads <c>Senses.Loot</c> from here rather than from Observation, because the recorder is the
+    /// consumer and a sense does not write occurrences; the identity is the god's-eye item identity, so
+    /// a sighting and a later pickup join on the same number.
+    /// </summary>
+    private static void WatchSightedDrops(Infrastructure.Observation.Senses senses)
+    {
+        if (!GodsEyeEvents.Active) return;
+        // A slot emptied and refilled gives a new identity rather than a new slot, so the set is
+        // pruned by what is live this tick rather than by a bound: the sense holds only drops inside
+        // its own search radius, so it cannot grow without limit.
+        if (sightedDrops.Count > 4096) sightedDrops.Clear();
+        foreach (Observation.LootSense.Pickup drop in senses.Loot.Pickups)
+        {
+            if (!Observation.LootSense.IsWorldDrop(drop.Item)) continue;
+            if (!sightedDrops.Add(GodsEyeEvents.ItemIdentity(drop.Item))) continue;
+            GodsEyeEvents.RecordDropSighted(drop.Item, drop.DistanceToCompanion, drop.Value);
+        }
+    }
+
+    private static string SupportBelow(Vector2 bottom)
+    {
+        int x = (int)MathF.Floor(bottom.X / 16f);
+        int feet = (int)MathF.Floor(bottom.Y / 16f);
+        for (int y = feet; y < feet + SupportProbeTiles; y++)
+        {
+            if (!MovementQueries.IsSupport(x, y)) continue;
+            return (y * 16f - bottom.Y).ToString("0.00", CultureInfo.InvariantCulture);
+        }
+        return "-";
+    }
+
+    /// <summary>How far down <see cref="SupportBelow"/> looks. Two screens at the game's own tile size,
+    /// which is past anything a hover holds and short of walking a shaft to the world's floor.</summary>
+    private const int SupportProbeTiles = 64;
 
     internal static string DescribeControls(Controls controls)
         => $"desired={controls.Desired.X.ToString("0.00", CultureInfo.InvariantCulture)},{controls.Desired.Y.ToString("0.00", CultureInfo.InvariantCulture)}";

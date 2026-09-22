@@ -46,6 +46,11 @@ public static class Program
         // performed it, went with the walker: there is one body and one contact now, run identically
         // in the mod and in every headless tool, so there is no second prediction to disagree with.
         new TheBodyIsNeverPinned(),
+        // Whether the whole update fitted the engine's own timestep, and where it went when it did
+        // not. It sits beside the instrument checks rather than among the behaviour ones because a
+        // session the world could not keep up with is a session whose behaviour was measured on a
+        // world running at a fraction of real time.
+        new TheFrameFitsTheEnginesTimestep(),
         // The identity contracts: whether a selection, an attempt and a control grant are named
         // consistently across the rows and the occurrence sibling. Every one is a rule the producer
         // guarantees rather than a threshold, and a finding here means any later attribution of
@@ -72,12 +77,13 @@ public static class Program
         // threshold. The recording side ran ahead of the reading side for the whole migration, so until
         // this landed the companion could write a typed course trace that nothing read back.
         new EveryCourseDecisionAccountsForItsOwnSearch(),
+        new TheDecisionAuditRanOnTheDecisionsTheCaptureHolds(),
         new BeingUnableToReachHimGetsNoticed(),
         new FollowingMakesRouteProgress(),
         new ArrivalDoesNotStrandFollowing(),
         new ClaimedArrivalsStayInsideTheirSuccessRegion(),
         new HuntingProducesAnOutcome(),
-        new HuntingHadAWeaponThatCouldReach(),
+        new CombatHeldTargetsItsBinderCouldNotSee(),
         // A submerged body running its breath down was a check here and is not replaced. The orb has
         // no breath, and every liquid is air to it, so there is no submerged state for a check to watch.
         new FollowingRespondsAfterDeparture(),
@@ -128,6 +134,9 @@ public static class Program
         new MeasureJourneysReached(),
         new MeasureHandsByActivity(),
         new MeasureTerrainRevisionRate(),
+        // What the whole update cost and whose each part of it was, from schema 0.45.0's frame ledger.
+        // Updates a second and frames a second are two rows here because an update is not a frame.
+        new MeasureTheFrame(),
         // The orb's stillness and roughness, which the first orb play of 15 September made the
         // question: `unexplained-stops` read zero over a session spent mostly still, because a body
         // held by a safety response or an arrived hold has no route to stop on.

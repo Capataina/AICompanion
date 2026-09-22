@@ -26,6 +26,14 @@
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/CollectNativeEffectReceipts.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/CaptureDecisionSnapshot.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/RecordCourseTrace.cs" />
+    <!-- RecordCourseTrace calls the decision audit, so the audit is on this list too. It takes its
+         census and its target facts through a delegate precisely so that following it here does not
+         drag Selection/ and Activities/ across the boundary; ReadLiveCourseForAudit, which does name
+         them, stays on the mod side and is not compiled here. The consequence is a coverage limit
+         worth knowing before trusting a green run: the audit's live source is installed by a file this
+         project cannot see, so no row here can establish that the install happens. The capture's
+         closing line carries `audit-observations-read` for that, and SessionReport grades it. -->
+    <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/AuditDecisionContracts.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/QueueDiagnosticRecords.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/FlushDiagnosticRecords.cs" />
     <Compile Include="../../Companion/PlayerIntegration/ObservePlayerEvents.cs" />

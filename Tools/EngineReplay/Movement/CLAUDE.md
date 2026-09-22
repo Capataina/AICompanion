@@ -2,7 +2,7 @@
 
 Everything about getting the orb from where it is to where it was asked to be, proved against Terraria's own tiles. `VerifyEngineMotion.cs` is also the default suite's entry point: it holds the default case table and the flag dispatch, which the parent guide describes.
 
-The default table also registers retained-course policy/projection contracts, native receipt observation, diagnostic transport and the shared-budget opener case from their owning folders. Focused flags are convenience entry points; those checks must remain in the default table so the ledger sees a failing new contract during whole-project verification. Pure-core rows retain their narrower evidence scope even when the native suite runs them.
+The default table also registers retained-course policy/projection contracts, native receipt observation, diagnostic transport, the decision tripwires and the shared-budget opener case from their owning folders. Focused flags are convenience entry points; those checks must remain in the default table so the ledger sees a failing new contract during whole-project verification. Pure-core rows retain their narrower evidence scope even when the native suite runs them.
 
 ```
 Movement/

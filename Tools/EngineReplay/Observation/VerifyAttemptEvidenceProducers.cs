@@ -48,9 +48,16 @@ internal static class VerifyAttemptEvidenceProducers
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
-        preferences.PotBreaking = false;
         try
         {
+            // One tick before the flip, and the order is the point rather than a detail. Since schema
+            // 0.45.0 the `# config=` preamble is written from the *first recorded row* rather than from
+            // world entry, because the character's preferences load between the two and the header used
+            // to state defaults the brain was not deciding with. So a preference changed before that
+            // first row is part of the session's baseline and writes no occurrence; changed after it, it
+            // is a mid-session change and writes one, which is what this scene is about.
+            VerifyOreWork.AdvanceBrain(ctx);
+            preferences.PotBreaking = false;
             for (int tick = 0; tick < 900 && live::AICompanion.Companion.Brain.Infrastructure.Observation.LootSense.IsWorldDrop(drop); tick++)
                 VerifyOreWork.AdvanceBrain(ctx);
             for (int tick = 0; tick < 30; tick++) VerifyOreWork.AdvanceBrain(ctx);
@@ -227,6 +234,10 @@ internal static class VerifyAttemptEvidenceProducers
         Console.WriteLine($"attempt evidence producers: {strikes.Count} native strike(s) each name the attempt their row and outcome name");
         SuccessRegionsAreWhatTheirRowsClaim(capture, ore);
         ACaptureNamesItsSourceConfigurationAndClosure(capture, potBreakingTurnedOff: false);
+        // This scene binds a mining course, so it is the one that can require the order columns to hold
+        // something: a capture where nothing binds satisfies every consistency rule with every row a
+        // dash, which is exactly what the retired chooser's columns wrote.
+        VerifyCaptureHonesty.TaskOrderReadsThePublishedCourse(capture, requireBoundStep: true);
     }
 
     /// <summary>

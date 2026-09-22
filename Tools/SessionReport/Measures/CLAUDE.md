@@ -11,8 +11,11 @@ Measures/
 ├─ MeasureFollowingAndPlaces.cs   where the companion sat, what it knew it could reach, where its journeys ended
 ├─ MeasureCommitmentAndChoice.cs  where the body stopped for nothing the record names, why the chosen activity changed, what the hands did
 ├─ MeasureCourseWork.cs           what a course decision cost and chose: decisions recorded, the settled, retained, bound-step and search-exhausted shares, orders priced and refused, committed depth, the refusal split, the activities chosen
+├─ MeasureTheFrame.cs             what the whole update cost and whose each part of it was, with updates a second and frames a second as two numbers
 └─ MeasureStillnessAndMotion.cs   how often the orb sat still while the player moved and who held it, how far it trailed, how roughly it moved, how long safety owned it
 ```
+
+**`MeasureTheFrame.cs` carries the one naming rule this folder would otherwise have broken.** An update is not a frame: the engine runs a fixed timestep and catches up by running two updates back to back with no draw between them, so `frame/updates-per-second` comes from the recorded intervals and `frame/frames-per-second` from the recorded draw count, and deriving the second from the first would report a caught-up update as a fast frame and the capture as healthier than it was. Its five share rows are taken over the *summed* interval rather than as a mean of per-row shares, because a mean weights a 6 ms catch-up update the same as a 90 ms hitch and the question is where the session's time went. `frame/engine-share` is a remainder rather than a measurement of the engine and the row says so.
 
 
 `../Program.cs` runs them in the ordinary report and alone under `--measures <capture>`, which is what `../../backfill-capture.sh` calls.
