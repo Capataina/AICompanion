@@ -152,8 +152,14 @@ public sealed class CombatOpportunityBinder:IOpportunityBinder
         // Mana never refuses a cast.  ItemWeapon reads the gradient before Spend floors the
         // pool, then the body's delayed regeneration owns the later refill.  It is therefore
         // neither a capacity reservation nor an admission gate here.
-        double travel=capturedTravel.Ticks,useTicks=Math.Max(1,use.UseTicks);
+        double travel=capturedTravel.Ticks;
         var fight=FightAhead(facts,state,slot,generation,target,travel);
+        // The body and the hand are occupied until the last shot this step's effect claims lands, not
+        // until the first one is fired. A phase that ends after one use lets the order search schedule a
+        // second step inside a window the fight already owns, and it charged the companionship gap for
+        // one use against a credit spanning the whole fight — the asymmetry `2e187a7` named and moved
+        // only half of. The debit is the side that moves: the occupancy is real.
+        double useTicks=Math.Max(Math.Max(1,use.UseTicks),fight.LatestTick-(state.Tick+travel));
         double impact=fight.NominalTick,damage=fight.Damage;
         var after=new FactValue(Math.Max(0,target.Life-damage),target.X,target.Y,JsonSerializer.Serialize(target with {Life=(int)Math.Max(0,Math.Floor(target.Life-damage))}));
         var dependencies=facts.Manifest(); var parents=state.ReadEffects;
@@ -192,8 +198,25 @@ public sealed class CombatOpportunityBinder:IOpportunityBinder
         TrackedFactReader facts,ProjectedCourseState state,int slot,int generation,
         CombatCourseFacts.Target target,double travel)
     {
-        var front=facts.Facts.Where(f=>f.Key.Kind=="combat-use").OrderBy(f=>f.Key)
-            .Select(f=>CombatCourseFacts.Read<CombatCourseFacts.Use>(f))
+        // **Every use this claim is computed from goes through `Read`, so the manifest the binding
+        // carries names all of them.** It used to deserialise straight out of `facts.Facts`, which is the
+        // raw snapshot, so an effect claiming three uses declared a dependency on the one the `Bind` loop
+        // happened to read — and `DependencyManifest.Changed`, `RetainCourse`, `BindCourseOrder` and
+        // `RepairCourse.Invalidate` all decide whether a retained course is still priced on facts the
+        // world still holds by consulting exactly that manifest. A change confined to the second or third
+        // use reached none of them. It stayed quiet only because the co-read `combat-target` fact carries
+        // the hostile's live centre and so dirties the manifest whenever the target moves, which is luck;
+        // `UseId` deliberately excludes the plan and segment numbers, so a fresh search reproduces the
+        // first use's key exactly while replacing everything after it.
+        //
+        // The target filter reads the *key* rather than the value, because `UseId` puts the target slot
+        // and generation in the identity — so the uses belonging to other targets are never consumed and
+        // never enter this manifest, and the declaration stays complete without becoming a subscription
+        // to every shot in the snapshot.
+        string mine=FormattableString.Invariant($"npc:{slot}.{generation}/");
+        var front=facts.Facts.Where(f=>f.Key.Kind=="combat-use"
+                &&f.Key.Identity.StartsWith(mine,StringComparison.Ordinal))
+            .OrderBy(f=>f.Key).Select(f=>CombatCourseFacts.Read<CombatCourseFacts.Use>(facts.Read(f.Key)))
             .Where(u=>u!=null&&u.TargetSlot==slot&&u.TargetGeneration==generation
                 &&float.IsFinite(u.ExpectedTargetDamage)&&u.ExpectedTargetDamage>0&&u.TargetImpactTicks>0)
             .OrderBy(u=>u!.FireTick).ToArray();

@@ -172,6 +172,36 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// is born; see the comment there for why it is never cleared.</summary>
     private (int Slot, int Generation)[] preparedTargets = Array.Empty<(int, int)>();
 
+    /// <summary>
+    /// The tick a change in the admissible set last forced a fresh search, so churn cannot buy one search
+    /// per tick. See <see cref="ForcedSearchInterval"/>.
+    ///
+    /// It is null rather than a far-past sentinel, and that is not style. Written as `int.MinValue` with
+    /// the elapsed time taken as `Senses.Tick - lastForcedSearchTick`, the subtraction overflows to a
+    /// large negative number, which reads as *inside* the window — so the very first change was
+    /// rate-limited, nothing ever ran a search to move the sentinel, and the gate was suppressed for the
+    /// life of the process. It reddened `combat's published front describes the hostiles that are there
+    /// now` the first time it ran, which is the row that exists for exactly this front going stale.
+    /// </summary>
+    private int? lastForcedSearchTick;
+
+    /// <summary>
+    /// How many ticks a set-forced search bars the next one for. A *change* in the admissible hostiles is
+    /// what drops the prepared offer and re-searches, and a hostile crossing the admission boundary can
+    /// change it on every tick — measured 22 September 2026 at zero searches over sixty quiet ticks and
+    /// sixty over sixty with one hostile entering and leaving the set each tick, which is the whole
+    /// planning allowance spent on the gate.
+    ///
+    /// The bound is a rate rather than a settling delay on purpose. Requiring a change to persist N ticks
+    /// before it counts would delay pricing *every* genuine arrival, including the hostile that arrives
+    /// and stays, which is the case the gate exists for; rate-limiting prices the first change at once and
+    /// only makes the second wait. Ten ticks is a sixth of a second, so a genuine arrival is priced well
+    /// inside a player's reaction, and it caps the worst case at six searches a second against sixty — at
+    /// the 12 ms a cold crowd search costs (`AIC-445`) that is the difference between the gate fitting
+    /// inside the tick's 12 ms decide allowance and consuming several of them.
+    /// </summary>
+    private const int ForcedSearchInterval = 10;
+
     private bool SameAdmissibleTargets(List<(int Slot, int Generation)> admissible)
     {
         if (preparedTargets.Length != admissible.Count) return false;
@@ -355,7 +385,18 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         // re-searching under one is opportunistic replacement, which this tree does not build — the
         // consequence, named rather than discovered, is that a hostile arriving during a committed fight
         // still gets no priced use until that fight ends.
-        if (plan == null && preparedPlan != null && SameAdmissibleTargets(admissible)
+        // The set changing is what drops the offer, and it may do so at most once every
+        // `ForcedSearchInterval` ticks: inside that window the offer is re-priced as though the set were
+        // unchanged and published with `OfferedCut`, which is the census's own word for "this front is
+        // not a finished answer". Labelling it is the whole of what makes the rate limit honest — a
+        // suppressed search publishes a front that is knowingly behind the world, and a reader that
+        // cannot tell that from a current one is being lied to rather than economised on.
+        bool setChanged = preparedPlan != null && !SameAdmissibleTargets(admissible);
+        // A clock that has gone backwards — a fresh world, a reused activity — is treated as no bar at
+        // all rather than as a window that will not expire for two billion ticks.
+        bool rateLimited = setChanged && lastForcedSearchTick is int last
+            && ctx.Senses.Tick >= last && ctx.Senses.Tick - last < ForcedSearchInterval;
+        if (plan == null && preparedPlan != null && (!setChanged || rateLimited)
             && combat.Planner.CheckPrepared(ctx, positioner, allows, preparedPlan))
         {
             DecisionWorkBudget preparedBudget = LimitPlanningWork.Current;
@@ -372,7 +413,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             {
                 lastPricedPlan = preparedPlan;
                 lastPricedOutcome = fresh.Outcome!.Value;
-                OfferFromPlan(ctx, preparedPlan, fresh.Outcome!.Value, weights, frontSize: 1, cut: false);
+                OfferFromPlan(ctx, preparedPlan, fresh.Outcome!.Value, weights, frontSize: 1, cut: rateLimited);
                 if (running)
                 {
                     CommitAndRecord(ctx, combat, preparedPlan, preparedSearch, null, weights, running);
@@ -384,6 +425,10 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             preparedPlan = null;
             preparedSearch = null;
         }
+        // A search the set change reached starts the next bar. It is stamped here rather than at the gate
+        // so a change that is rate-limited into a re-price does not extend its own window: the bar is a
+        // bound on searches performed, not on changes noticed.
+        if (setChanged) lastForcedSearchTick = ctx.Senses.Tick;
         DecisionWorkBudget budget = LimitPlanningWork.Current;
         SearchAttackPlans.SearchResult result = SearchAttackPlans.Search(ctx, combat, positioner, allows,
             weights, combat.NextPlanId++, ref budget);

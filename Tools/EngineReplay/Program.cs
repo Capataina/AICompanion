@@ -116,7 +116,8 @@ if (args.Contains("--retained-course-recording")) return
 if (args.Contains("--retained-course-combat")) return
     RunOneRow.Case("G04 captured combat use binds and validates exactly", () => VerifyCombatCourseBinding.CapturedUseBindsWithoutReadingLiveTerraria())
     + RunOneRow.Case("G04 native planned use carries simulator damage", () => VerifyRetainedCombatBudget.PlannedUseCarriesSimulatorTargetDamage())
-    + RunOneRow.Case("binding a fight claims the front rather than its first shot", () => VerifyCombatCourseBinding.TheBoundFightClaimsTheFrontRatherThanItsFirstShot());
+    + RunOneRow.Case("binding a fight claims the front rather than its first shot", () => VerifyCombatCourseBinding.TheBoundFightClaimsTheFrontRatherThanItsFirstShot())
+    + RunOneRow.Case("a bound fight is occupied and declared for its whole length", () => VerifyCombatCourseBinding.ABoundFightIsOccupiedAndDeclaredForItsWholeLength());
 if (args.Contains("--retained-course-budget")) return VerifyRetainedCombatBudget.SharedAllowanceCutsEveryConsumer()
     + VerifyRetainedCombatBudget.AUsefulOpenerSurvivesABroaderSearchCut();
 if (args.Contains("--travel-episodes")) return VerifyTravelEpisodes.Run();
