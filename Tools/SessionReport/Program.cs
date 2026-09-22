@@ -30,7 +30,10 @@ namespace AICompanion.Tools.SessionReport;
 /// </summary>
 public static class Program
 {
-    private static readonly ICheck[] Checks =
+    /// <summary>Every check, in the order the report runs them. Internal because the behaviour parity
+    /// table resolves a check's name from its type rather than repeating the string: a renamed class is
+    /// then a compile error where a renamed string would be a row that silently stops matching.</summary>
+    internal static readonly ICheck[] Checks =
     {
         // The instrument first: a finding here means the rest of the file is not yet evidence.
         new TicksAdvance(),
@@ -277,6 +280,11 @@ public static class Program
         Console.WriteLine($"coverage  {ran} of {Checks.Length} checks ran");
         foreach (var (name, missing) in skipped)
             Console.WriteLine($"  skipped  {name}  — the file has no {missing}");
+
+        // Coverage against the specification rather than against the columns: which of the behaviours
+        // the README says the companion is responsible for this capture said anything about at all.
+        Console.WriteLine();
+        Console.Write(WriteBehaviourParity.Of(session, findings, skipped));
 
         foreach (Severity severity in new[] { Severity.Definitive, Severity.Potential, Severity.Oddity })
         {

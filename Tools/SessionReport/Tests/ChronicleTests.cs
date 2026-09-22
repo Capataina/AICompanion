@@ -74,6 +74,7 @@ public static class ChronicleTests
             ACensusAdmissionMustSurviveItsOwnBinder();
             ASyntheticCaptureIsNotReadAsPlay();
             TheCourseTimelineIsOneRowPerDecisionAndFoldsWhatRepeats();
+            TheBehaviourParityTableStillNamesRealBehavioursAndRealFixtures();
             TheGuideQuotesTheSchemaConstantItDocuments();
             TheAuditsOwnWiringIsWitnessedByTheCapture();
             TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
@@ -375,6 +376,52 @@ public static class ChronicleTests
     /// that absence as a distinguishing value split the table into a hundred runs, a third of them one
     /// undescribed decision each, which is the per-tick log the page exists to replace.</para>
     /// </summary>
+    /// <summary>
+    /// The behaviour parity table's two claims about things outside this folder, each pinned against
+    /// the file that owns it.
+    ///
+    /// <para>The table maps every row of the README's Behaviour By Behaviour specification to the
+    /// fixture cases that grade it headlessly. Both halves of that mapping can rot without a symptom:
+    /// a renamed behaviour row leaves a mapping pointing at nothing, and a renamed fixture case leaves
+    /// a row claiming coverage that no instrument provides. Neither would change a single number in a
+    /// report, which is exactly the failure a coverage table exists to prevent and would therefore
+    /// commit itself.</para>
+    ///
+    /// <para>The check side needs no pin: the mapping names check <em>types</em>, so renaming a check
+    /// class is a compile error here.</para>
+    /// </summary>
+    private static void TheBehaviourParityTableStillNamesRealBehavioursAndRealFixtures()
+    {
+        string readme = File.ReadAllText("README.md");
+        var specified = WriteBehaviourParity.BehavioursIn(readme);
+        Require(specified.Count >= 30,
+            $"the README's Behaviour By Behaviour table parsed as {specified.Count} row(s); it held 32 on 22 September 2026, so either the parse broke or the specification shrank");
+        foreach (string mapped in WriteBehaviourParity.MappedBehaviours)
+            Require(specified.Contains(mapped, StringComparer.Ordinal),
+                $"the parity table maps '{mapped}', which the README's specification no longer names — the row was renamed or removed and the mapping points at nothing");
+
+        // Every case name the table claims must be a case some instrument registers. The registration
+        // tables are literals in source, so the pin is a substring search across the instruments rather
+        // than a run of them: a run would need the suite, and a name that no longer registers is a
+        // claim about coverage rather than about a failure.
+        //
+        // **This tool's own tree is excluded, and leaving it in made the pin useless.** The parity
+        // table's literals live under `Tools/SessionReport/Write/`, so a search across all of `Tools/`
+        // finds every name in the table's own source and passes whatever the instruments register — a
+        // mutation inventing the case "gathering beside the player is cooperative rather than competing
+        // xx" was green. A pin that includes the thing being pinned is asserting that a file contains
+        // its own contents.
+        string reader = "Tools" + Path.DirectorySeparatorChar + "SessionReport" + Path.DirectorySeparatorChar;
+        string sources = string.Concat(Directory.EnumerateFiles("Tools", "*.cs", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !p.Contains(reader, StringComparison.Ordinal))
+            .Select(File.ReadAllText));
+        foreach (string fixture in WriteBehaviourParity.NamedFixtures)
+            Require(sources.Contains("\"" + fixture + "\"", StringComparison.Ordinal),
+                $"the parity table names the fixture case '{fixture}', which no instrument under Tools/ registers any more — the row claims coverage nothing provides");
+    }
+
     private static void TheCourseTimelineIsOneRowPerDecisionAndFoldsWhatRepeats()
     {
         object Field(string kind, string text) => new { Kind = kind, Text = text };
