@@ -10,8 +10,8 @@ Ledger/
 ├─ Ledger.csproj          a plain console project; compiles nothing from the mod tree
 ├─ EmitLedgerRows.cs      the row, the six verdicts, and the one writer — included as a source file by every other Tools project
 ├─ ReadAndWriteRuns.cs    the run header, the store, and baseline resolution through git ancestry
-├─ CompareRunsAndScore.cs the Wilson interval, the noise band, and the printed scoreboard
-├─ SelfTestTheStore.cs    the store's own rules: commit widths, the baseline refusals, the round trip
+├─ CompareRunsAndScore.cs the Wilson interval, the noise band, the sampled reading, and the printed scoreboard
+├─ SelfTestTheStore.cs    the store's own rules: commit widths, the baseline refusals, the round trip, the sampled pair
 ├─ Program.cs             begin · scoreboard · compare · baseline · reds · error · list · --self-test
 └─ runs/                  committed run files, one per run
 ```
@@ -33,6 +33,10 @@ Two things worth expecting from that store rather than reading as a defect. **"N
 `pass` and `fail` are the thing under test. `error` is the check itself breaking, which is a different repair and must never be read as the thing under test failing. `skipped` carries its reason and is never a pass, because zero coverage and a clean run look identical in any report that folds them together. `sealed` is a model-closed search answer — the search proved nothing, rather than proving impossibility. `measure` carries a number instead of a verdict and is **never graded here**: whether a number is bad is a question about the design, which the verification plan answers and this tool does not, so a declared pass line travels as a tag on the row rather than as a comparison in the code.
 
 That last rule is the one most likely to be undone by somebody trying to be helpful. A measure that decides pass or fail from a threshold nobody declared collapses "ever green" into "green now" and cannot separate a flake from a regression, which is why the plan refuses per-instrument thresholds outright.
+
+**A measure the producer declared a sample is printed and not called drift, and the tag carries no number for exactly the reason above.** `EmitLedgerRows.SampledTag` says one thing: this value is a draw from a distribution rather than a property of the tree, so a second run of the same commit answers differently and the delta between two runs is a difference between two draws. The scoreboard groups such a case under `sampled measures — a second draw, not drift` with the same before, after, direction and noise band an ordinary measure gets; what it loses is the word drift and the "measures that moved" heading. A tolerance *number* on the tag was refused: a threshold that decides which deltas are worth printing is a pass line, and the rule two paragraphs up forbids one here whoever writes it — the honest bound on a sample is still repeats of one commit, which the band already computes and still prints beside the sampled reading.
+
+The case it exists for is the play-measures run, which keeps the wall clock and stages a live scene, so all fourteen of its measures differ on every run and every `verify.sh` reported fourteen moves. Reading fourteen false moves per run is how a reader stops reading the block at all, which costs the real drift the block exists to show. The tag is applied by the producer and by nobody else: the scoreboard never infers sampledness from the suite name, the instrument or the mode, because a rule guessing which rows are samples would silence a genuine regression the first time somebody named a suite in a way it matched.
 
 ## A baseline must have measured at least what the run being scored measured
 

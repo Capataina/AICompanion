@@ -404,14 +404,14 @@ internal static class GradeThePlayMeasures
     /// **Every one of them is a sample rather than a value**, and each says so in a tag, because
     /// this run keeps the game's own wall clock and therefore does not repeat itself: measured over
     /// five whole-capture runs at one commit, the shares move three to four points and the
-    /// second-generation collection count ran 12, 13 and 38. The ledger has no notion of a per-row
-    /// tolerance to declare that with — <c>CompareRunsAndScore.Drift</c> calls any difference above
-    /// 1e-9 a drift, and its only softening is a noise band built from three or more *repeat runs at
-    /// the baseline commit* — so the tag is a label for a reader rather than something the scoreboard
-    /// acts on, and every one of these will appear under "measures that moved" on every run until
-    /// somebody either teaches the ledger tolerance or runs this suite three times per commit.
+    /// second-generation collection count ran 12, 13 and 38. The tag is the ledger's own
+    /// <c>EmitLedgerRows.SampledTag</c> and not a spelling of this file's, because the scoreboard reads
+    /// that constant to print a sampled case under its own heading rather than as drift: a string of
+    /// our own here filed fourteen "measures that moved" on every run, which is what the tag was
+    /// meant to stop. The tag carries no tolerance, by the ledger guide's ruling; the only bound on a
+    /// sample is still the noise band from three or more repeat runs at the baseline commit.
     /// </summary>
-    private const string SampleTag = "sampled-under-the-production-clock";
+    private const string SampleTag = EmitLedgerRows.SampledTag;
 
     private static void Measures(string suite, IReadOnlyList<RunTheWorld.PlayTick> play, ReadRecordedRoute.Route route,
         StageRecordedActors stage, ReadRecordedActors.Cast cast, string scene)
