@@ -138,7 +138,23 @@ public sealed class CourseComparisonEpisode
 
 public sealed record CourseValue(OutcomeEstimate Total, double UsefulEffects, double Harm,
     double Companionship, double CompanionHarm, double ReunionTick, bool ReunionProven,
-    IReadOnlyList<string> Unknowns, OutcomeEstimate SelfHarm);
+    IReadOnlyList<string> Unknowns, OutcomeEstimate SelfHarm, bool TakesHostileLife)
+{
+    /// <summary>
+    /// Whether this course is a fight that would actually do something, which is the qualifier the
+    /// encounter's survival-first ordering needs and did not have.
+    ///
+    /// It is the *claimed* amount rather than the presence of a combat step, so a course whose target
+    /// some earlier step in the same order has already killed claims nothing and is not a fight — the
+    /// census caps each effect at the need's remaining amount, and a step that takes zero life is a step
+    /// with no consequence whatever it was called. That is the "meaningful" half of the plan's phrase.
+    ///
+    /// What it is not: a feasibility proof. An unresolved prefix is refused by `Compare` before any
+    /// ordering happens, and native admission belongs to the binder, so "feasible" here means the
+    /// projection priced a real claim rather than that the shot is certain to land.
+    /// </summary>
+    public bool TakesHostileLife { get; } = TakesHostileLife;
+}
 public sealed record CourseComparison(long SnapshotId, long EpisodeId, long IncumbentBinding,
     long ChallengerBinding, CourseValue Incumbent, CourseValue Challenger, bool Replace, string Reason);
 
@@ -164,6 +180,7 @@ public static class CompareCourseOutcomes
     public static CourseValue Evaluate(CourseProjection course, CourseComparisonEpisode episode)
     {
         double useful = 0, lower = 0, upper = 0, harm = 0, selfHarm = 0, gap = 0;
+        bool takesHostileLife = false;
         double harmLower = 0, harmUpper = 0, gapLower = 0, gapUpper = 0;
         double selfLower = 0, selfUpper = 0;
         bool selfBounded = true;
@@ -182,6 +199,7 @@ public static class CompareCourseOutcomes
             { unknowns.Add("effect-outside-census:" + effect.Need); continue; }
             double amount = Math.Min(effect.Amount, remaining[effect.Need]);
             remaining[effect.Need] -= amount;
+            if (effect.Need.Kind == NeedKind.HostileLife && amount > 0) takesHostileLife = true;
             double worth = need.Worth(amount) * episode.RelevanceFor(effect.Need.Kind);
             useful += worth * Discount(Math.Max(0, effect.NominalTick - origin), timeScale);
             if (effect.Evidence is EstimateStatus.NativeBound or EstimateStatus.ModelBound)
@@ -259,7 +277,8 @@ public static class CompareCourseOutcomes
             : OutcomeEstimate.Unknown(total);
         return new(estimate, useful, harm, gap, selfHarm, course.ReunionTick,
             course.ReunionProven, Array.AsReadOnly(unknowns.ToArray()), selfBounded
-                ? new(selfHarm, selfLower, selfUpper, EstimateStatus.ModelBound) : OutcomeEstimate.Unknown(selfHarm));
+                ? new(selfHarm, selfLower, selfUpper, EstimateStatus.ModelBound) : OutcomeEstimate.Unknown(selfHarm),
+            takesHostileLife);
     }
 
     public static CourseComparison Compare(long snapshotId, CourseComparisonEpisode episode,
@@ -292,9 +311,31 @@ public static class CompareCourseOutcomes
             oldValue, newValue, replace, reason);
     }
 
+    /// <summary>
+    /// Order two futures, survival first during an encounter — **and survival-first is a rule between
+    /// fights**, since 22 September 2026.
+    ///
+    /// The encounter key exists so that, offered two ways to take the same fight, the companion takes the
+    /// one it survives even when that one kills less. Applied with no qualifier it also said that doing
+    /// nothing beats any fight costing a single point, because a course with no effects has no harm: for
+    /// an idle course I and a fight F it reduced to <c>F.CompanionHarm.CompareTo(0)</c>, positive whenever
+    /// the fight cost anything at all. That is the plan's own G13 mutation, <c>idle artificially wins by
+    /// zero damage</c>, and it was live — `SearchCourseOrders` runs this comparison against its incumbent
+    /// best on every priced order, so during any recognised encounter an empty order outranked every
+    /// fight that could be hurt. Lane G found it on 22 September 2026 and left the ordering to this file.
+    ///
+    /// So the key applies only where both sides are fights that would take hostile life. An empty course
+    /// is not a fight continuation and cannot win a survival comparison by having nothing to lose; where
+    /// one side is not a fight the comparison falls through to the total, which is the ordinary question
+    /// of whether the fight is worth its cost and is where a fight should lose when it is not.
+    ///
+    /// This removes a tie-break rather than granting combat a bonus, which is the distinction to keep:
+    /// a fight priced below an empty course still loses to it, on the total, exactly as before.
+    /// </summary>
     public static int NominalOrder(CourseValue left, CourseValue right, bool encounter)
     {
-        int order = encounter ? right.CompanionHarm.CompareTo(left.CompanionHarm) : 0;
+        int order = encounter && left.TakesHostileLife && right.TakesHostileLife
+            ? right.CompanionHarm.CompareTo(left.CompanionHarm) : 0;
         if (order == 0) order = left.Total.Nominal.CompareTo(right.Total.Nominal);
         if (order == 0) order = right.Harm.CompareTo(left.Harm);
         if (order == 0 && left.ReunionProven && right.ReunionProven)

@@ -27,6 +27,83 @@ internal static class VerifyCourseCore
             resources ?? Array.Empty<ResourcePhase>(), effects, Array.Empty<long>(), dependencies ?? DependencyManifest.Empty, true);
     private static CourseProjection Projection(params StepBinding[] steps)
         => new(steps, Array.Empty<PredictedHarm>(), Array.Empty<CompanionshipInterval>(), 30, true);
+    /// <summary>
+    /// Survival-first is a rule *between fights*, and an empty course is not a fight.
+    ///
+    /// `NominalOrder` compares companion harm before anything else during an encounter, which is right
+    /// between two courses that both take the fight: the one that survives it wins even when it kills
+    /// less. Applied with no qualifier it also says that doing nothing beats any fight that costs a
+    /// single point, because an empty course has no effects and therefore no harm — the plan's own G13
+    /// mutation `idle artificially wins by zero damage`, which lane G found live in production on
+    /// 22 September 2026 and left for this folder to rule on. For an idle course I and a fight F it
+    /// reduced to `F.CompanionHarm.CompareTo(0)`, positive whenever the fight costs anything at all, and
+    /// `SearchCourseOrders` runs exactly that comparison against its incumbent best on every priced order.
+    ///
+    /// Three arms, because the fix has two ways to be wrong and only one to be right. The first is the
+    /// defect: a fight worth a great deal that takes a small hit must beat standing still. The second is
+    /// the property the qualifier must not destroy, and it is lane G's survival row in miniature — two
+    /// fights, the safer one *less* valuable, and the safer one still wins, which is the arm that goes
+    /// red if the encounter key is deleted rather than qualified. The third is the over-correction: an
+    /// idle course must still beat a fight that is worth less than nothing, because the qualifier removes
+    /// a tie-break and does not hand combat a bonus.
+    /// </summary>
+    private static void SurvivalIsBetweenFights()
+    {
+        var zombie = new NeedKey(NeedKind.HostileLife, "npc:5", 3);
+        var episode = new CourseComparisonEpisode(2, 1, 100,
+            new[] { new UsefulNeed(zombie, 40, 40, 1) }, true, 1, "fixture");
+        Require(episode.Encounter, "premise: the episode must read as an encounter, or no arm here is about G13");
+
+        // A fight is a course that takes hostile life. `cost` is companion harm at a tick the projection
+        // actually counts — harm before the projection's own start tick is skipped, which is why 50.
+        CourseProjection Fight(long id, double lifeTaken, double cost)
+            => new(new[] { Binding(id, new[] { new PredictedEffect(id + 100, zombie, lifeTaken, 40, 40, 40,
+                    EstimateStatus.NativeBound, Array.Empty<long>(), Array.Empty<EffectDelta>(), DependencyManifest.Empty) }) },
+                new[] { new PredictedHarm(HarmActor.Companion, cost, 100, 50, EstimateStatus.NativeBound) },
+                Array.Empty<CompanionshipInterval>(), 30, true);
+        var idle = new CourseProjection(Array.Empty<StepBinding>(), Array.Empty<PredictedHarm>(),
+            Array.Empty<CompanionshipInterval>(), 30, true);
+
+        CourseValue Value(CourseProjection course) => CompareCourseOutcomes.Evaluate(course, episode);
+        CourseValue nothing = Value(idle), winnable = Value(Fight(1, 40, 5));
+        Require(nothing.CompanionHarm == 0 && winnable.CompanionHarm > 0,
+            $"premise: idle must cost nothing and the fight must cost something, or the arm is vacuous; "
+            + $"idle {nothing.CompanionHarm}, fight {winnable.CompanionHarm}");
+        Require(winnable.Total.Nominal > nothing.Total.Nominal,
+            $"premise: the fight must be worth more than standing still on totals, or the row is about "
+            + $"pricing rather than ordering; fight {winnable.Total.Nominal}, idle {nothing.Total.Nominal}");
+
+        Require(CompareCourseOutcomes.NominalOrder(nothing, winnable, encounter: true) < 0,
+            $"standing still outranks a fight worth {winnable.Total.Nominal:0.0000} because the fight costs "
+            + $"{winnable.CompanionHarm:0.0000} and doing nothing costs zero: survival-first is being applied "
+            + $"to a course that is not a fight, so the companion wins the encounter comparison by having "
+            + $"nothing to lose");
+        Require(CompareCourseOutcomes.NominalOrder(winnable, nothing, encounter: true) > 0,
+            "the order is not antisymmetric between a fight and standing still");
+
+        // Two fights: the safer one kills less and is worth less, so only a survival key can pick it.
+        CourseValue safer = Value(Fight(2, 20, 1)), deadlier = Value(Fight(3, 40, 30));
+        Require(safer.Total.Nominal < deadlier.Total.Nominal,
+            $"premise: the safer fight must be the less valuable one, or the total decides it and the "
+            + $"survival key is untested; safer {safer.Total.Nominal}, deadlier {deadlier.Total.Nominal}");
+        Require(CompareCourseOutcomes.NominalOrder(safer, deadlier, encounter: true) > 0,
+            $"the survivable fight lost to the deadlier one during an encounter: safer costs "
+            + $"{safer.CompanionHarm:0.0000} against {deadlier.CompanionHarm:0.0000}, and survival-first "
+            + $"between two fights is the rule the qualifier must preserve rather than remove");
+
+        // And the qualifier removes a tie-break rather than granting combat a bonus.
+        CourseValue hopeless = Value(Fight(4, 0.0001, 90));
+        Require(hopeless.Total.Nominal < nothing.Total.Nominal,
+            $"premise: the hopeless fight must be worth less than nothing; {hopeless.Total.Nominal}");
+        Require(CompareCourseOutcomes.NominalOrder(nothing, hopeless, encounter: true) > 0,
+            $"a fight worth {hopeless.Total.Nominal:0.0000} beat standing still, so the encounter qualifier "
+            + "has become a bonus for being a fight rather than the removal of a tie-break that did not apply");
+
+        string detail = System.FormattableString.Invariant(
+            $"  encounter ordering: a fight worth {winnable.Total.Nominal:0.0000} at a cost of {winnable.CompanionHarm:0.0000} beats idle at {nothing.Total.Nominal:0.0000}; between two fights the safer ({safer.CompanionHarm:0.0000}) still beats the deadlier ({deadlier.CompanionHarm:0.0000}) though it is worth less");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail(detail);
+    }
+
     private static void Require(bool condition, string reason)
     { if (!condition) throw new InvalidOperationException(reason); }
     private static void Close(double actual, double expected, string reason)
@@ -39,6 +116,7 @@ internal static class VerifyCourseCore
         + RunOneRow.Case("G03 discount rebasing preserves the remaining future", Rebase)
         + RunOneRow.Case("G03 companionship integral uses dimensionless units", GapUnits)
         + RunOneRow.Case("G07 uncertain challengers wait for semantic boundaries", BoundaryRetention)
+        + RunOneRow.Case("G13 doing nothing cannot win an encounter by having nothing to lose", SurvivalIsBetweenFights)
         + RunOneRow.Case("G08 changed facts dirty only dependent descendants", SpatialDependencies)
         + RunOneRow.Case("G08 refreshed reads preserve descendants and reject cycles atomically", DependencyRefresh)
         + RunOneRow.Case("G08 receipts allocate physical amount once", ReceiptConservation)
