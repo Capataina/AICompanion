@@ -232,6 +232,7 @@ internal static class VerifyEngineMotion
         // flips, and is the widest process footprint in the table. It puts its own world back and
         // restores every static it writes, and running last means nothing inherits whatever it misses.
         ("seeded event sequences nobody wrote break no decision contract", FuzzTheDecisionContracts.Run),
+        ("a fixture that records is one the audit can read a body from", VerifyEveryRecordedFixtureIsVisibleToTheAudit.Run),
     };
 
     /// <summary>

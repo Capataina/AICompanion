@@ -100,7 +100,10 @@ internal static class MeasureBrainCost
         config.RecordTelemetry = recording;
         config.OnChanged();
         var recorder = new BrainTelemetry();
-        VerifyObservationLifecycle.Attach(recorder);
+        // The body goes into its slot on both arms, recording or not: this instrument's whole claim is
+        // that the two runs differ by the recorder and nothing else, and a companion the audit can see
+        // on one arm and not the other is a second variable inside a single-variable comparison.
+        OpenTheRecorderOnACompanion.AttachWithoutOpening(recorder, companion);
         if (recording) recorder.OnWorldLoad();
 
         var run = new Run(name, new List<string>(Ticks), new Dictionary<string, List<double>>());

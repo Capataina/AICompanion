@@ -74,8 +74,7 @@ internal static class RecordEvidenceScenes
         try { ctx = build(); }
         catch (Exception error) { AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"{name}: scene did not build: {error.Message}"); return 1; }
         var recorder = new BrainTelemetry();
-        VerifyObservationLifecycle.Attach(recorder);
-        recorder.OnWorldLoad();
+        OpenTheRecorderOnACompanion.Open(recorder, ctx.Companion);
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         string? failure = null;
         try

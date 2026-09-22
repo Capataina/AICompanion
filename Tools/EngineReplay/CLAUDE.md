@@ -11,6 +11,7 @@ EngineReplay/
 ├─ Program.cs             the entry point and the flag table
 ├─ ResetProcessState.cs   the per-process and per-case reset every instrument shares
 ├─ RunOneRow.cs           one named row, run through the ledger's emitter
+├─ OpenTheRecorderOnACompanion.cs  the one way a fixture opens a recording, and the row that keeps it the only way
 ├─ Combat/                the stance, its firing, danger, encounter context and safety as a layer on the job, over four children: Activity, Planning, Simulation and Knowledge
 ├─ DecisionMaking/        the retained course: objective, projection, binding, consequence pricing
 ├─ Gathering/             ore work, cooperation beside the player, remaining-work accounting
@@ -165,6 +166,31 @@ Two more consequences follow from installing the allowance, and both have alread
 A case whose subject *is* a deadline keeps the clock, and there are two ways to say so. A whole case tags itself `EmitLedgerRows.ProductionAllowancesTag`. A single row inside an otherwise lifted case saves the regime, turns the lift off, and restores **what it found** — never a literal, because a literal is the current default written down twice, and the day the real default moves every fixture ordered after that row runs under the stale one. The row's own mode is stamped by the emitter rather than passed by the caller, so a row always records the regime the process was actually in.
 
 The walker's three deadline rows went with its planner and no orb row is about a deadline yet; the mechanism stays because the next one will be. Each of the three had announced itself by going red with its own premise assertion rather than by passing quietly — *"the starved run finished its search in one tick, so it proves nothing about deadlines"* — and an orb deadline row is held to the same bar.
+
+## A fixture opens a recording one way, because thirteen sites assembled it by hand and all thirteen left the audit blind
+
+`OpenTheRecorderOnACompanion` is that one way. Before it, seven files wrote the same three lines — construct a `BrainTelemetry`, hand it a mod through `VerifyObservationLifecycle.Attach`, call `OnWorldLoad` — and **not one of them put the companion's body into `Main.npc`**. `ReadLiveCourseForAudit.Read`, the decision audit's own source, reaches the course through `CompanionNPC.Instance`, which is `Main.ActiveNPCs` scanned for the registered type; `VerifyCompanionLifecycle.Create` builds a body with both halves of the `ModNPC` attachment and no slot, so the scan found nothing and the source returned null on every call.
+
+**Nothing went red, and the shape of the silence is the lesson.** The audit counts every decision at the top of its own method, before the source is consulted, so a session in that state reports *every decision audited and zero observations read* — four of the six decision contracts unable to fire, with every row above them green. Measured on the first run of `DecisionMaking/FuzzTheDecisionContracts.cs`: 1,200 decisions audited, 0 observations read, five contract rows green. The second half was the same failure from the other side: `ReadLiveCourseForAudit.Install` is called in play from `BrainTelemetry.Load`, a `ModSystem` override the loader invokes and no fixture did, so even a body in a slot was not enough. The two halves are indistinguishable from outside and the helper does both.
+
+The surface is four entry points, each named for the situation rather than for the step, and `Attach` is gone rather than kept as a delegation — what it did was the half of opening a recorder that a fixture could get right while still leaving the audit blind:
+
+```
+Open(recorder, companion)                 a session that will record decisions: mod, body, source, open
+AttachWithoutOpening(recorder, companion) everything but the open, for the one caller that decides
+                                          whether to record after it already has a companion
+OpenWithNoCompanion(recorder, why)        a session with no brain in it, carrying the reason in a
+                                          parameter so choosing it is a written decision
+Place(companion) / Clear() / Close()      the body into slot 0 and out again, and the recorder's own close
+```
+
+The body goes in **slot 0** and that is `CompanionNPC.Find`'s doing rather than tidiness: it returns the *first* active NPC whose type matches, so a body placed above another slot carrying the same type would lose the scan to it. `StageRecordedActors` skips slot 0 by its own guard and every combat scene seeds hostiles well above it.
+
+**`VerifyEveryRecordedFixtureIsVisibleToTheAudit` is what keeps it the only way**, and it is a source pin for the reason this folder already pins two refusal literals: the defect is not that a session fails, it is that a session *succeeds* with four contracts inert, so a runtime guard only ever fires on the fixture that already calls it. The row walks every `.cs` under this project, finds each file constructing the mod's recorder, and requires it to name the helper; `Observation/GodsEyeTestStubs.cs` is excused by name because its `BrainTelemetry` is a test-local stub of its own. Beside it, two behaviour rows drive the guard from the state it refuses — with the slot cleared, `CompanionNPC.Instance` must be null, the installed source must hand back nothing and the guard must throw — and one asserts **identity** rather than non-nullness, because a row happy with "something was found" would pass against a body an earlier case left in a lower slot.
+
+Both halves are proved by mutation. Reverting one fixture to the old three-line shape reddens the pin by name: *1 fixture(s) construct the recorder without opening it through OpenTheRecorderOnACompanion … Observation/VerifyCaptureHonesty.cs*. Making the guard return early reddens its own row: *a fixture about to record with a body the audit cannot read was allowed through*. On a clean tree the row reports **8 files constructing the recorder, 1 excused by name, all the rest through the one seam.**
+
+**Two sites deliberately place no body, and they say why in a parameter.** `VerifyZeroTickLifecycleMetadata` and `VerifyRecordingSwitch` are about the recorder's own file lifecycle with no tick behind them, so there is no decision for the audit to read; the reason is an argument rather than a comment precisely so that a site which quietly wants `Open` cannot read identically from outside.
 
 ## The verdict boundary: a fixture never prints its own PASS or FAIL
 

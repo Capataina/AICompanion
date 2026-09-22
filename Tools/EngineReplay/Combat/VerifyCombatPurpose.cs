@@ -168,8 +168,7 @@ internal static class VerifyCombatPurpose
             Strike(new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ObserveLandedCompanionHits(), enemy, shot, 5);
 
             var recorder = new live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry();
-            VerifyObservationLifecycle.Attach(recorder);
-            recorder.OnWorldLoad();
+            OpenTheRecorderOnACompanion.Open(recorder, ctx.Companion);
             string path = Directory.GetFiles(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry.Folder, "*.tsv")
                 .OrderByDescending(File.GetLastWriteTimeUtc).First();
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);

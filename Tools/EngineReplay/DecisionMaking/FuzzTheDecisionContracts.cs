@@ -155,7 +155,7 @@ internal static class FuzzTheDecisionContracts
         }
         finally
         {
-            CloseTheRecorder();
+            OpenTheRecorderOnACompanion.Close();
             config.RecordTelemetry = priorRecording;
             config.OnChanged();
             foreach (int type in filledNames) nameCache[type] = null!;
@@ -265,14 +265,14 @@ internal static class FuzzTheDecisionContracts
     private static SequenceOutcome DriveOneSequence(int seed, List<Firing> firings)
     {
         var recorder = new BrainTelemetry();
-        VerifyObservationLifecycle.Attach(recorder);
         // The production entry point rather than `ReadLiveCourseForAudit.Install()` by name: the install
         // is a wiring no headless row can witness, and going in through the override at least witnesses
-        // that `Load` still does it.
+        // that `Load` still does it. The helper installs the source too, so this is belt and braces
+        // rather than the only route.
         recorder.Load();
         Audit.Reset();
         ActionContext ctx = Scene(seed);
-        recorder.OnWorldLoad();
+        OpenTheRecorderOnACompanion.Open(recorder, ctx.Companion);
 
         var random = new Random(seed);
         var counts = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -465,36 +465,9 @@ internal static class FuzzTheDecisionContracts
             Item drop = VerifyCollectionContracts.Drop(ItemID.CopperOre, 5, new Vector2((52 + i) * 16 + 8, 60 * 16), 10 + i);
             drop.playerIndexTheItemIsReservedFor = Main.myPlayer;
         }
-        PutTheCompanionWhereTheAuditCanFindIt(ctx);
         ctx.Senses.Update(ctx.Npc, ctx.Player);
         return ctx;
     }
-
-    /// <summary>
-    /// The companion's body into a live NPC slot, under its registered type.
-    ///
-    /// <c>ReadLiveCourseForAudit.Read</c> reaches the course through
-    /// <c>CompanionNPC.Instance</c>, which is <c>Main.ActiveNPCs</c> scanned for the registered type —
-    /// and a fixture's companion is an object with a reverse attachment and no slot, so that scan finds
-    /// nothing and the audit's source returns null on every call. Measured here before it was fixed:
-    /// 1,200 decisions audited and 0 frozen observations read, which is exactly the broken-installer
-    /// signature the audit's own comments describe and would have left four of the six contracts unable
-    /// to fire behind five green rows. The premise row is what caught it.
-    /// </summary>
-    private static void PutTheCompanionWhereTheAuditCanFindIt(ActionContext ctx)
-    {
-        var companion = (live::AICompanion.Companion.CharacterBody.CompanionNPC)ctx.Companion;
-        if (Terraria.ModLoader.ModContent.GetInstance<live::AICompanion.Companion.CharacterBody.CompanionNPC>() == null)
-            Terraria.ModLoader.ContentInstance.Register(companion);
-        companion.NPC.type = Terraria.ModLoader.ModContent.NPCType<live::AICompanion.Companion.CharacterBody.CompanionNPC>();
-        companion.NPC.active = true;
-        companion.NPC.whoAmI = CompanionSlot;
-        Main.npc[CompanionSlot] = companion.NPC;
-    }
-
-    /// <summary>Where the companion's own body stands in <c>Main.npc</c> while a sequence runs. Slot 0
-    /// rather than a high one so it is nowhere near the 30..36 block the generator spawns hostiles in.</summary>
-    private const int CompanionSlot = 0;
 
     private static NPC Spawn(int slot, Vector2 bottom)
     {
@@ -516,14 +489,8 @@ internal static class FuzzTheDecisionContracts
         for (int slot = 30; slot <= 36; slot++) { Main.npc[slot].active = false; Main.npc[slot].life = 0; }
         // And the companion's own slot: a body left in `Main.npc` under the registered type is a live
         // companion to anything that scans for one, including the next case's `CompanionNPC.Instance`.
-        Main.npc[CompanionSlot] = new NPC { whoAmI = CompanionSlot, active = false };
+        OpenTheRecorderOnACompanion.Clear();
     }
-
-    /// <summary>The recorder's own close takes the reason it writes into the end marker, and a fixture
-    /// closing it directly names itself rather than borrowing a gameplay reason.</summary>
-    private static void CloseTheRecorder()
-        => typeof(BrainTelemetry).GetMethod("Close", BindingFlags.Static | BindingFlags.NonPublic)
-            ?.Invoke(null, new object[] { "fixture-close" });
 
     private static void Require(bool condition, string message)
     {
