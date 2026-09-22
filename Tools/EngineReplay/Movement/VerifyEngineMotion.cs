@@ -101,7 +101,6 @@ internal static class VerifyEngineMotion
         ("a decision that spans ticks keeps the fight the body is already in", VerifyADecisionInFlightKeepsTheFight.Run),
         ("what one decision costs to assemble and to carry", VerifyWhatEachDecisionCosts.Run),
         ("the search keeps the best order the winner beat", VerifyTheSearchRetainsItsRunnerUp.Run),
-        ("combat's published front describes the hostiles that are there now", VerifyTheCensusFrontIsCurrent.Run),
         ("collecting, lighting and pot breaking bind steps a course can hold", VerifyAssistanceCourseBindings.Run),
         ("native lighting projections preserve captured light and shared deficits", VerifyLightingOpportunityCapture.Run),
         ("native tree census retains work across cuts and observes axe effects", VerifyTreeOpportunityCapture.Run),
@@ -206,6 +205,17 @@ internal static class VerifyEngineMotion
         ("the companion's stats mirror the player's", VerifyStatMirroring.Run),
         ("experience follows the game's own numbers: kills, boss fights and work level the companion alike in every difficulty", VerifyCompanionExperience.Run),
         ("a whole journey is recorded against its proven ticks", VerifyTravelEpisodes.Run),
+        // Last on purpose, and the position is a finding rather than a preference. This case drives 220
+        // whole brain ticks with two hostiles, a third spawned mid-scene and one killed, which is the
+        // widest process footprint any case in this table has. Registered eighth it turned three
+        // `VerifyAttackPlanning` scenes and `VerifyTravelEpisodes` red in-suite while all four stayed
+        // green alone; putting its own world back — the npc and item slots it seeded, every projectile,
+        // the mining policy, the player's pose — did not clear them, and `VerifyCompanionLifecycle.Create`
+        // rebuilds every actor slot and re-seeds the gear at the next case anyway, so the residue is a
+        // process static `ResetProcessState.BeforeCase` does not restore and this row is only the first
+        // case wide enough to expose it. Naming that static is the reset's job and the main thread owns
+        // it; running last means nothing inherits the residue in the meantime.
+        ("combat's published front describes the hostiles that are there now", VerifyTheCensusFrontIsCurrent.Run),
     };
 
     /// <summary>

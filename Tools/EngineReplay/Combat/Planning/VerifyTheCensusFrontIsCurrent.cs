@@ -13,6 +13,7 @@ using live::AICompanion.Companion.Brain.Activities.Combat;
 using live::AICompanion.Companion.Brain.Infrastructure.Observation;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
+using WorkPolicies = live::AICompanion.Companion.Brain.Activities.WorkPolicies;
 
 /// <summary>
 /// Combat is the one domain whose opportunities are a tactical search rather than a world scan, so the
@@ -35,11 +36,28 @@ internal static class VerifyTheCensusFrontIsCurrent
         return red;
     }
 
+    /// <summary>
+    /// The row puts back the world it built, and that is *not* enough — which is the part worth knowing.
+    ///
+    /// Registered eighth in the default table, this case turned three `VerifyAttackPlanning` scenes and
+    /// `VerifyTravelEpisodes` red in-suite while all four passed standalone; `company fights from inside
+    /// the predicted region` reported a committed stand at x 660 against a region centred on x 917.
+    /// Skipping this row's body turned the same thirty-three-case subset green with nothing else changed,
+    /// which attributes it here. Putting back everything the row reaches did not clear it: the npc and
+    /// item slots, every projectile, the mining policy and the player's pose are all restored below and
+    /// the four stayed red. That is consistent rather than puzzling, because `VerifyCompanionLifecycle
+    /// .Create` already rebuilds every `Main.npc`, `Main.projectile` and `Main.item` slot and re-seeds the
+    /// gear at the next case, so the world was never the carrier — the residue is a process static
+    /// `ResetProcessState.BeforeCase` does not restore, and this row is merely the first case with a
+    /// footprint wide enough to expose it. The restores stay because each is correct on its own terms.
+    /// Naming that static belongs to the reset and the case is registered last until it is.
+    /// </summary>
     private static int Row(string name, Action test)
     {
+        WorkPolicy policy = WorkPolicies.Mining;
         try { test(); Console.WriteLine("  GREEN " + name); return 0; }
         catch (Exception error) { Console.WriteLine("  RED " + name + ": " + error.Message); return 1; }
-        finally { ClearTheScene(); }
+        finally { ClearTheScene(); WorkPolicies.Mining = policy; }
     }
 
     private static void ANewHostileIsPublished()
@@ -186,6 +204,7 @@ internal static class VerifyTheCensusFrontIsCurrent
     /// row empties what it built rather than handing it to whatever runs next.</summary>
     private static void ClearTheScene()
     {
+        foreach (Projectile projectile in Main.projectile) projectile.active = false;
         for (int slot = 10; slot <= 11; slot++) { Main.item[slot] = new Item(); Main.item[slot].active = false; }
         for (int slot = FirstHostile; slot <= NewHostile; slot++) { Main.npc[slot].active = false; Main.npc[slot].life = 0; }
     }
