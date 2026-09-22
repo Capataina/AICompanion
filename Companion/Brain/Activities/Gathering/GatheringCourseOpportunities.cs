@@ -333,6 +333,9 @@ public sealed class CaptureGatheringOpportunities
             stand, veinComplete && targetSettled, work, tiles, veinComplete, replacementGap);
     }
 
+    /// <summary>The one refusal that is genuinely an open question rather than an observed fact.</summary>
+    private const string UnexplainedRemaining = "native-remaining-unresolved";
+
     /// <summary>
     /// Which of <see cref="TileMiner.EstimateRemaining"/>'s five refusals a tile met, asked in that
     /// method's own order so the answer is the condition it actually returned on rather than the first one
@@ -345,8 +348,6 @@ public sealed class CaptureGatheringOpportunities
     /// proven refusal there would be asserting something nobody established. That is the one case that stays
     /// <c>unknown</c>, which is what <c>unknown</c> is for.</para>
     /// </summary>
-    private const string UnexplainedRemaining = "native-remaining-unresolved";
-
     private static string WhyNoRemainingWork(TileMiner miner, Item pick, Point tile)
         => !Terraria.WorldGen.InWorld(tile.X, tile.Y, 5) ? "tile-outside-the-world"
             : !OreFinder.IsOre(tile.X, tile.Y) ? "tile-is-no-longer-ore"

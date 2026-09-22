@@ -43,18 +43,26 @@ internal static class VerifySharedSpatialFacts
     };
 
     /// <summary>
-    /// Each refused shape is a way of answering a shared question privately, named as the text that appears
-    /// at the call site rather than as a type, because that is what a grep can be held to and what a new file
-    /// will be written as.
+    /// Each refused shape is a way of answering a shared question privately. <c>Type</c> is the declared name
+    /// and <c>Pattern</c> is the text that appears at a call site; they are separate fields because the
+    /// premise below needs the first and the sweep needs the second.
+    ///
+    /// <para><b>A file in this tree is named for what it does and its types are named for what they are, and
+    /// the first version of this list forgot it.</b> The senses are declared <c>ReachSense</c>,
+    /// <c>LightSense</c> and <c>PlayerIntentRegionSense</c> in files called <c>ObserveReach.cs</c>,
+    /// <c>ObserveLight.cs</c> and <c>ObservePlayerIntentRegion.cs</c>, so three of six patterns were spelled
+    /// from the filename, matched nothing anywhere, and made half this row a check that could not fail —
+    /// which is the defect this lane's own third commit was about, committed again one commit later. The
+    /// premise is what closes the class rather than the instance.</para>
     /// </summary>
-    private static readonly (string Pattern, string Fact, string Instead)[] Refused =
+    private static readonly (string Type, string Pattern, string Fact, string Instead)[] Refused =
     {
-        ("PlayerIntentRegion.Around(", "the player's intent region", "read ctx.Senses.Intent.Region or .Regions"),
-        ("new PlayerIntentRegion(", "the player's intent region", "read ctx.Senses.Intent.Region or .Regions"),
-        ("new ObservePlayerIntentRegion(", "the player's intent region", "read ctx.Senses.Intent"),
-        ("new ClearanceField(", "the clearance field", "read ClearanceHeat, the one shared surface over it"),
-        ("new ObserveReach(", "the reach flood", "read ctx.Senses.Reach"),
-        ("new ObserveLight(", "the light field", "read ctx.Senses.Light"),
+        ("PlayerIntentRegion", "PlayerIntentRegion.Around(", "the player's intent region", "read ctx.Senses.Intent.Region or .Regions"),
+        ("PlayerIntentRegion", "new PlayerIntentRegion(", "the player's intent region", "read ctx.Senses.Intent.Region or .Regions"),
+        ("PlayerIntentRegionSense", "new PlayerIntentRegionSense(", "the player's intent region", "read ctx.Senses.Intent"),
+        ("ClearanceField", "new ClearanceField(", "the clearance field", "read ClearanceHeat, the one shared surface over it"),
+        ("ReachSense", "new ReachSense(", "the reach flood", "read ctx.Senses.Reach"),
+        ("LightSense", "new LightSense(", "the light field", "read ctx.Senses.Light"),
     };
 
     public static int Run()
@@ -78,12 +86,28 @@ internal static class VerifySharedSpatialFacts
             $"the sweep found only {sources.Length} source files under {string.Join(" and ", ConsumerTrees)}, "
             + "which is too few to be those trees; a rule that read nothing reports what a held rule reports");
 
+        // The premise that stops a dead pattern. A refused shape names a type, and a type that no longer
+        // exists under that name cannot be constructed by anybody — so the pattern matches nothing, the row
+        // passes, and half the rule is silently switched off. That is not hypothetical here: three of these
+        // six were first spelled from their *file* names, which are verbs, where the declarations are nouns.
+        // Asserting the declaration exists turns a rename into a red row rather than into lost coverage.
+        string[] declarations = Directory
+            .EnumerateFiles(Path.Combine(root, "Companion", "Brain", "Infrastructure"), "*.cs", SearchOption.AllDirectories)
+            .Select(File.ReadAllText)
+            .ToArray();
+        foreach (string type in Refused.Select(refused => refused.Type).Distinct())
+            Require(declarations.Any(text => text.Contains($"class {type}", StringComparison.Ordinal)
+                    || text.Contains($"struct {type}(", StringComparison.Ordinal)
+                    || text.Contains($"struct {type}\n", StringComparison.Ordinal)),
+                $"'{type}' is refused below and is declared nowhere under Companion/Brain/Infrastructure, so its "
+                + "pattern matches nothing and that part of this rule is switched off rather than held");
+
         var violations = new List<string>();
         foreach (string path in sources)
         {
             string[] lines = File.ReadAllLines(path);
             for (int index = 0; index < lines.Length; index++)
-                foreach ((string pattern, string fact, string instead) in Refused)
+                foreach ((string _, string pattern, string fact, string instead) in Refused)
                     if (lines[index].Contains(pattern, StringComparison.Ordinal))
                         violations.Add($"{Path.GetRelativePath(root, path)}:{index + 1} builds {fact} "
                             + $"({pattern.TrimEnd('(')}); {instead}");
