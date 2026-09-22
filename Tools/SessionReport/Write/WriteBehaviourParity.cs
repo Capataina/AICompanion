@@ -421,9 +421,14 @@ public static class WriteBehaviourParity
         {
             text.Append($"  {extract.Select(e => e.Tick).Distinct().Count()} tick(s) worth cutting into a committed scenario for the "
                 + $"{extract.Count} disagreement(s) above; run each from the repository root:\n");
+            // The reason rides on the command rather than on a comment beside it, because the
+            // extractor writes it into the fixture's own header and a committed scenario outlives the
+            // session that cut it: a window whose reason lives only in `Tools/Scenarios/CLAUDE.md` is
+            // one fact in two homes, of which the guide is the one that drifts.
             foreach (int tick in extract.Select(e => e.Tick).Distinct().OrderBy(t => t))
                 text.Append($"    dotnet Tools/NavReplay/bin/Debug/net8.0/NavReplay.dll --extract-scenario {session.Path} {tick}"
-                    + $"   # {string.Join(", ", extract.Where(e => e.Tick == tick).Select(e => e.Behaviour))}\n");
+                    + $" --reason \"{string.Join(", ", extract.Where(e => e.Tick == tick).Select(e => e.Behaviour))}"
+                    + $", read from {Path.GetFileNameWithoutExtension(session.Path)}\"\n");
         }
         return text.ToString();
     }
