@@ -14,7 +14,11 @@ using live::AICompanion.Companion.Brain.Infrastructure.Observation;
 internal static class VerifyCourseCore
 {
     private static readonly NeedKey Loot = new(NeedKind.Loot, "copper:0");
-    private static readonly OpportunityKey Key = new("collect", "copper", "slot:1", 1);
+    // The second field is the *purpose* and it has to be one `ExecuteCourseBinding` can execute: the
+    // search refuses an opportunity whose purpose names no activity, so "copper" — which read as a
+    // material here — was dropped before enumeration and left every ordering row measuring an empty
+    // search. The material belongs in the target, where it already is.
+    private static readonly OpportunityKey Key = new("collect", "collect", "slot:1", 1);
     private static DecisionFactSnapshot Facts(long id = 1, long epoch = 1, params DecisionFact[] facts)
         => new(id, epoch, 100, 1, 0, facts);
     private static CourseComparisonEpisode Episode(params UsefulNeed[] needs)
@@ -716,7 +720,10 @@ internal static class VerifyCourseCore
             while (cursor.Offset < count && budget.TrySpend("source"))
             {
                 long index = cursor.Offset; cursor.Advance(); Examined++;
-                result.Add(new(new(name, "group", index.ToString(), 1), 1, new(index, 0), OpportunityAdmission.KnownUsable,
+                // "collect" rather than a synthetic purpose, because the search refuses an opportunity
+                // whose purpose names no activity in `ExecuteCourseBinding`'s map: a made-up one is
+                // dropped before enumeration and the row measures an empty search rather than a deep one.
+                result.Add(new(new(name, "collect", index.ToString(), 1), 1, new(index, 0), OpportunityAdmission.KnownUsable,
                     "observed", new[] { new UsefulNeed(Loot, 20, 20, 1) }, new[] { "pickup" }, DependencyManifest.Empty, default));
             }
             if (cursor.Offset == count) cursor.Complete();

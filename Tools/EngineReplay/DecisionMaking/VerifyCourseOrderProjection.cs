@@ -110,7 +110,11 @@ internal static class VerifyCourseOrderProjection
             "the curve did not use the explicitly captured recovery preference");
     }
 
-    private static Opportunity Site(string target) => new(new("fixture", "use", target, 1), 1, default,
+    // The purpose is a real one and has to be: `SearchCourseOrders` refuses any opportunity whose
+    // purpose has no executor in `ExecuteCourseBinding`'s map, so a synthetic purpose here would be
+    // dropped before enumeration and every row below would measure an empty search. The domain stays
+    // synthetic, which nothing refuses.
+    private static Opportunity Site(string target) => new(new("fixture", "collect", target, 1), 1, default,
         OpportunityAdmission.KnownUsable, "fixture", new[] { new UsefulNeed(new(NeedKind.Loot, target), 1, 1, 1) },
         new[] { "use" }, DependencyManifest.Empty, default);
     private static DecisionFactSnapshot Facts() => new(1, 1, 100, 1, 0, Array.Empty<DecisionFact>());

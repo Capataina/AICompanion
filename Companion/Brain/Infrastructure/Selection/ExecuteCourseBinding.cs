@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Activities;
@@ -28,29 +29,61 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection;
 public static class ExecuteCourseBinding
 {
     /// <summary>
-    /// The activity that performs a bound purpose, by the name it registers under.
+    /// The activity that performs each bound purpose, by the name it registers under, and the whole of
+    /// what a course may bind.
     ///
     /// The mapping is explicit rather than derived from the domain string because the two vocabularies
     /// genuinely differ and each difference is a decision: combat's opportunities are minted per *use*
     /// with the purpose "fire" while the activity is "combat", and lighting's activity is
-    /// "place-torches" while its domain is "light-target". A silent fallback here would route unknown
-    /// work to whichever activity sorted first, so an unmapped purpose throws instead — a new domain
-    /// must name its executor rather than inherit one.
+    /// "place-torches" while its domain is "light-target".
+    ///
+    /// <para>**`break-pot` is deliberately absent, and its absence is now load-bearing rather than a
+    /// note.** A pot is broken in passing by whatever activity is already travelling, through the shared
+    /// nearby-work adapter — that is the owner's ruling, `J08` asserts it, and the root guide states it.
+    /// The purpose used to map to the empty string with the caller reading that as "no activity change",
+    /// which made a pot bindable as a course step: the search would order a dedicated trip to a pot, the
+    /// tick would carry it, and the body would fly there with no activity, no attempt, no credit and
+    /// nothing in the record saying anything was running. Measured over a whole-tick probe, thirty ticks
+    /// of `bound=pot-target:tile:27,58 action=none` before the lighting trip the row was about could
+    /// start. So the map is the single fact of which purposes are executable, `SearchCourseOrders`
+    /// refuses any opportunity whose purpose is not in it before enumeration, and this throws for a pot
+    /// like any other unmapped purpose rather than answering with a blank.</para>
+    ///
+    /// <para>What a future pot executor would need, so nobody re-adds the blank: an activity registered
+    /// under its own name that reserves the hand on arrival, opens and concludes an attempt so the work
+    /// is credited to something, and declares `CourseDomains` for `pot-target` — at which point the
+    /// entry goes in this map and the exemption in `VerifyCourseBindingExecution` goes out. That is a
+    /// product decision about whether the companion should make trips for pots, not a wiring gap.</para>
     /// </summary>
-    public static string ActivityFor(string purpose) => purpose switch
-    {
-        "fire" => "combat",
-        "mine" => "mine",
-        "chop" => "chop",
-        "collect" => "collect",
-        "light" => "place-torches",
-        // A pot is broken in passing by whatever activity is already travelling, through the shared
-        // nearby-work adapter, so it names no activity of its own. The course may still bind it as a
-        // purpose; the caller treats a null executor as "no activity change", not as a refusal.
-        "break-pot" => "",
-        _ => throw new ArgumentOutOfRangeException(nameof(purpose), purpose,
-            "A bound purpose must name the activity that performs it."),
-    };
+    private static readonly Dictionary<string, string> Executors =
+        new(StringComparer.Ordinal)
+        {
+            ["fire"] = "combat",
+            ["mine"] = "mine",
+            ["chop"] = "chop",
+            ["collect"] = "collect",
+            ["light"] = "place-torches",
+        };
+
+    /// <summary>Whether a purpose has an executor at all, which is what makes an unexecutable step a
+    /// *proven* refusal rather than an unanswered question: the map is a fact of this tree and nothing
+    /// about the world can change the answer.</summary>
+    public static bool HasExecutor(string purpose) => Executors.ContainsKey(purpose);
+
+    /// <summary>Every purpose a course may bind, for the row that checks the producers against it.</summary>
+    public static IReadOnlyCollection<string> ExecutablePurposes => Executors.Keys;
+
+    /// <summary>
+    /// The activity that performs a bound purpose. A silent fallback here would route unknown work to
+    /// whichever activity sorted first, so an unmapped purpose throws — a new domain must name its
+    /// executor rather than inherit one, and a purpose the search should have refused must not reach
+    /// the body wearing a blank activity name.
+    /// </summary>
+    public static string ActivityFor(string purpose) => Executors.TryGetValue(purpose, out string? activity)
+        ? activity
+        : throw new ArgumentOutOfRangeException(nameof(purpose), purpose,
+            "A bound purpose must name the activity that performs it; SearchCourseOrders refuses a "
+            + "purpose with no executor before it can be ordered.");
 
     /// <summary>
     /// Where the body is asked to be for this binding.
@@ -66,7 +99,9 @@ public static class ExecuteCourseBinding
         var pose = new Vector2((float)binding.Pose.X, (float)binding.Pose.Y);
         if (binding.Opportunity.Purpose == "fire")
             return new PositionRequest(RequestKind.FireFrom, pose);
-        if (binding.Opportunity.Purpose is not ("mine" or "chop" or "light" or "break-pot"))
+        // `break-pot` was in this list and is orphaned by the executor map refusing it before a step can
+        // exist: a pot can no longer be a binding, so a branch for one is a branch nothing reaches.
+        if (binding.Opportunity.Purpose is not ("mine" or "chop" or "light"))
             return PositionRequest.ExactAt(pose);
         Point work = WorkTileOf(binding.Opportunity);
         // A stand the body has already satisfied is not a journey. The stand in the binding came from a

@@ -8,6 +8,7 @@ using Microsoft.Xna.Framework;
 using live::AICompanion.Companion.Brain.Infrastructure.Position;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
+using live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 
 /// <summary>
@@ -29,7 +30,8 @@ internal static class VerifyCourseBindingExecution
             try { test(); Console.WriteLine("GREEN " + name); }
             catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
         }
-        Row("G01 every bound purpose names an activity the chooser registers", EveryPurposeHasAnExecutor);
+        Row("G01 every purpose discovery can publish has an executor or a written exemption", EveryPurposeHasAnExecutor);
+        Row("G01 a purpose with no executor is refused before the search can order it", AnExemptPurposeIsRefusedBeforeItIsOrdered);
         Row("G03 every discovered domain has a binder that can turn it into a step", EveryDomainCanBind);
         Row("G01 a firing stand keeps its own request kind", StandsAndTilesKeepTheirKinds);
         Row("G01 an unmapped purpose refuses rather than defaulting", UnknownPurposeRefuses);
@@ -37,25 +39,122 @@ internal static class VerifyCourseBindingExecution
     }
 
     /// <summary>
-    /// The purposes the sources actually mint, read off their own construction sites rather than
-    /// imagined: combat mints "fire" per use, gathering carries the site's own "mine"/"chop", and the
-    /// assistance adapter maps its three domains to "collect", "light" and "break-pot".
+    /// The purposes the sources mint, each named beside the file that mints it, so the list is a claim
+    /// this row *checks* rather than a copy it trusts.
+    ///
+    /// A hand-written list is the failure mode this tree has already paid for twice: it passes for ever
+    /// while a seventh purpose lands in a source nobody thought to add here, which is precisely the case
+    /// the row exists for. So each entry carries its producer, the premise below asserts the literal is
+    /// still present in that file, and a separate premise asserts no *other* file in the tree mints an
+    /// opportunity key at all — which is what turns "these six are covered" into "these six are all
+    /// there are".
     /// </summary>
-    private static readonly string[] MintedPurposes = { "fire", "mine", "chop", "collect", "light", "break-pot" };
+    private static readonly (string Purpose, string Producer)[] MintedPurposes =
+    {
+        ("fire", "Companion/Brain/Activities/Combat/CombatCourseOpportunity.cs"),
+        ("mine", "Companion/Brain/Activities/Gathering/GatheringCourseOpportunities.cs"),
+        ("chop", "Companion/Brain/Activities/Gathering/CaptureTreeOpportunities.cs"),
+        ("collect", "Companion/Brain/Infrastructure/Selection/Opportunities/DiscoverAssistanceOpportunities.cs"),
+        ("light", "Companion/Brain/Infrastructure/Selection/Opportunities/DiscoverAssistanceOpportunities.cs"),
+        ("break-pot", "Companion/Brain/Infrastructure/Selection/Opportunities/DiscoverAssistanceOpportunities.cs"),
+    };
 
+    /// <summary>
+    /// The purposes deliberately outside `ExecuteCourseBinding`'s map, with the ruling that puts each
+    /// there. An exemption is a written decision rather than a gap, and it is a *list* so that adding to
+    /// it is a visible edit somebody has to justify in a diff.
+    /// </summary>
+    private static readonly (string Purpose, string Ruling)[] ExemptPurposes =
+    {
+        ("break-pot", "a pot is broken in passing by whatever activity is already travelling, by the "
+            + "owner's ruling, which J08 and the root guide both state; it is not a trip of its own"),
+    };
+
+    /// <summary>
+    /// Every purpose discovery can publish either has an executor the brain registers, or is exempt by a
+    /// named ruling and is refused by the search before it can become a step.
+    ///
+    /// The middle clause is what the row gained on 22 September 2026, and it is a defect rather than a
+    /// tidy-up. `break-pot` mapped to the empty string and the caller read that as "no activity change",
+    /// so the search could order a dedicated trip to a pot and the tick carried it: measured whole-tick,
+    /// thirty consecutive ticks of `bound=pot-target:tile:27,58 action=none` — the body flying to a pot
+    /// with no activity, no attempt and no credit, on the very scene whose contract is that a pot is
+    /// broken in passing. The class is wider than the pot: any domain that gains discovery before it
+    /// gains an executor fails exactly this way and fails silently, because a course publishing work
+    /// nothing performs reads from outside as a companion that decided something and then stood there.
+    /// </summary>
     private static void EveryPurposeHasAnExecutor()
     {
+        string root = RepositoryRoot();
+        var minters = Directory.EnumerateFiles(Path.Combine(root, "Companion"), "*.cs", SearchOption.AllDirectories)
+            .Where(file => File.ReadAllText(file).Contains("new OpportunityKey(", StringComparison.Ordinal))
+            .Select(file => Path.GetRelativePath(root, file).Replace('\\', '/'))
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        string[] known = MintedPurposes.Select(p => p.Producer).Distinct(StringComparer.Ordinal)
+            .Concat(new[] { "Companion/Brain/Activities/Gathering/GatheringCourseOpportunities.cs" })
+            .Distinct(StringComparer.Ordinal).OrderBy(name => name, StringComparer.Ordinal).ToArray();
+        string[] unknown = minters.Except(known, StringComparer.Ordinal).ToArray();
+        Require(minters.Length > 0, "the sweep found no file minting an opportunity key, so it read the wrong tree");
+        Require(unknown.Length == 0,
+            $"a file mints opportunity keys and this row does not know its purposes, so a purpose with no "
+            + $"executor could land unnoticed: {string.Join(", ", unknown)}");
+
+        foreach ((string purpose, string producer) in MintedPurposes)
+            Require(File.ReadAllText(Path.Combine(root, producer)).Contains($"\"{purpose}\"", StringComparison.Ordinal),
+                $"premise: the purpose '{purpose}' is no longer a literal in {producer}, so this row is checking a "
+                + "purpose nothing mints while whatever replaced it goes unchecked");
+
         var brain = VerifyCompanionLifecycle.Create().Brain;
         HashSet<string> registered = brain.Actions.Select(action => action.Name).ToHashSet(StringComparer.Ordinal);
-        Require(registered.Count > 0, "the chooser registered no activities, so this row proves nothing");
+        Require(registered.Count > 0, "the brain registered no activities, so this row proves nothing");
 
-        foreach (string purpose in MintedPurposes)
+        foreach ((string purpose, string producer) in MintedPurposes)
         {
+            if (!ExecuteCourseBinding.HasExecutor(purpose))
+            {
+                (string Purpose, string Ruling) exemption = ExemptPurposes.FirstOrDefault(e => e.Purpose == purpose);
+                Require(exemption.Purpose != null,
+                    $"the purpose '{purpose}', minted by {producer}, has no executor and no written exemption — a "
+                    + "course would bind it, the tick would carry it, and nothing would perform it");
+                continue;
+            }
             string executor = ExecuteCourseBinding.ActivityFor(purpose);
-            if (executor.Length == 0) continue; // a pot is broken in passing and names no activity
             Require(registered.Contains(executor),
-                $"the purpose '{purpose}' maps to the activity '{executor}', which the chooser does not register — bound work of that kind would publish and never run. Registered: {string.Join(", ", registered.OrderBy(name => name))}");
+                $"the purpose '{purpose}' maps to the activity '{executor}', which the brain does not register — bound work of that kind would publish and never run. Registered: {string.Join(", ", registered.OrderBy(name => name))}");
         }
+
+        foreach ((string purpose, string ruling) in ExemptPurposes)
+            Require(!ExecuteCourseBinding.HasExecutor(purpose),
+                $"'{purpose}' is exempt because {ruling}, and it has an executor again — either the exemption is "
+                + "stale or a course can now make a trip of it");
+    }
+
+    /// <summary>
+    /// The exempt purpose is refused by name before the search can order it, which is the structural
+    /// half: the row above says a pot must not be executable, and this one says the search acts on that
+    /// rather than leaving it to whoever reads the map next.
+    ///
+    /// It is a *proven* refusal and not the middle value, and the distinction is the reason it is
+    /// written here: `ExecuteCourseBinding`'s map is a fact of this tree, so no later slice, no larger
+    /// allowance and nothing about the world can turn the answer into a yes. Reading it as unresolved
+    /// would park the opportunity for ever, re-offering it on every observation, which is the starvation
+    /// shape this tree keeps refusing everywhere else.
+    /// </summary>
+    private static void AnExemptPurposeIsRefusedBeforeItIsOrdered()
+    {
+        string source = File.ReadAllText(Path.Combine(RepositoryRoot(),
+            "Companion/Brain/Infrastructure/Selection/Courses/SearchCourseOrders.cs"));
+        Require(source.Contains($"\"{SearchCourseOrders.StepPurposeHasNoExecutor}\"", StringComparison.Ordinal),
+            $"premise: '{SearchCourseOrders.StepPurposeHasNoExecutor}' is no longer written by the search, so a "
+            + "capture's refusal tally cannot name this reason and nothing downstream can count it");
+
+        var search = new SearchCourseOrders(3);
+        search.Begin(EmptyFacts(), Episode(), new[] { Usable("pot-target", "break-pot"), Usable("light-target", "light") },
+            Array.Empty<OpportunityKey>(), new RefuseEverything());
+        Require(search.Refusals.TryGetValue(SearchCourseOrders.StepPurposeHasNoExecutor, out int refused) && refused == 1,
+            $"the pot was not refused for having no executor before enumeration; refusals: "
+            + $"{string.Join(", ", search.Refusals.Select(r => r.Key + "=" + r.Value))}");
     }
 
     /// <summary>
@@ -163,6 +262,39 @@ internal static class VerifyCourseBindingExecution
         => new(1, new OpportunityKey("fixture-domain", purpose, target, 0), "method", new CoursePoint(x, y),
             "tool", 1, 1, 0, 0, 0, Array.Empty<ResourcePhase>(), Array.Empty<PredictedEffect>(),
             Array.Empty<long>(), DependencyManifest.Empty, useProven: true);
+
+    /// <summary>The repository root, found by walking up for `Companion/Brain` rather than by counting
+    /// parents, because the working directory differs between `run-case.sh`, `verify.sh` and a hand run
+    /// and a fixed number of parents is a silent skip on two of the three.</summary>
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null && !Directory.Exists(Path.Combine(directory.FullName, "Companion", "Brain")))
+            directory = directory.Parent;
+        return directory?.FullName ?? throw new InvalidOperationException(
+            "the repository root was not found by walking up for Companion/Brain, so the source sweep read nothing");
+    }
+
+    private static Opportunity Usable(string domain, string purpose)
+        => new(new OpportunityKey(domain, purpose, "tile:10,10", 1), 1, default, OpportunityAdmission.KnownUsable,
+            "fixture", new[] { new UsefulNeed(new NeedKey(NeedKind.Loot, domain), 1, 1, 1) },
+            new[] { purpose }, DependencyManifest.Empty, default);
+
+    private static DecisionFactSnapshot EmptyFacts() => new(1, 1, 100, 1, 0, Array.Empty<DecisionFact>());
+
+    private static CourseComparisonEpisode Episode()
+        => new(1, 1, 100, new[] { new UsefulNeed(new NeedKey(NeedKind.Loot, "fixture"), 1, 1, 1) }, true, 0, "fixture");
+
+    /// <summary>A projector the refusal row never reaches, because the filter it is about runs inside
+    /// `Begin` before any order is projected. It throws rather than returning a rejection, so a filter
+    /// that stopped filtering fails loudly here instead of passing the pot through to a stub that
+    /// refuses everything anyway.</summary>
+    private sealed class RefuseEverything : ICourseProjector
+    {
+        public CourseProjectionResult Continue(IReadOnlyList<OpportunityKey> order, DecisionFactSnapshot facts,
+            CourseComparisonEpisode episode, DecisionWorkCursor cursor, DecisionWorkBudget budget)
+            => throw new InvalidOperationException("the refusal row projected an order; Begin should have filtered first");
+    }
 
     private static void Require(bool condition, string message)
     {

@@ -99,6 +99,11 @@ public sealed class SearchCourseOrders
     private readonly Dictionary<string, int> refusals = new(StringComparer.Ordinal);
     private const int MaximumRefusalKinds = 16;
 
+    /// <summary>The reason an opportunity no activity can perform is dropped before enumeration. It is
+    /// a literal a row reads back out of this file, so renaming it fails that row rather than quietly
+    /// making a capture's refusal tally unreadable.</summary>
+    public const string StepPurposeHasNoExecutor = "step-purpose-has-no-executor";
+
     private void Refuse(string reason)
     {
         string key = string.IsNullOrEmpty(reason) ? "unstated" : reason;
@@ -142,7 +147,28 @@ public sealed class SearchCourseOrders
         this.facts = facts; this.episode = episode; this.projector = projector;
         // An episode is frozen even as the game proceeds; publication separately revalidates
         // the resulting prefix. Restart only when a read dependency actually changed.
-        var usable = opportunities.Where(o => o.Admission == OpportunityAdmission.KnownUsable).OrderBy(o => o.Key).ToArray();
+        // A purpose with no executor cannot be a step, and that is a proven refusal rather than the
+        // middle value: `ExecuteCourseBinding`'s map is a fact of this tree, so nothing about the world,
+        // the allowance or a later slice can turn a no into a yes, and reading it as unresolved would
+        // park the opportunity for ever instead of dropping it.
+        //
+        // It is refused here, before enumeration, rather than inside the projection, because an
+        // unexecutable opportunity may sit at any position of any order: filtering the candidate set
+        // removes it from every order at once where a per-step check would have to run inside each
+        // projection and would still admit the order until it reached that step.
+        //
+        // The defect it closes is a pot. `break-pot` mapped to a blank activity and the caller read the
+        // blank as "no activity change", so the search would order a dedicated trip to a pot and the
+        // tick would carry it — measured, thirty ticks of `action=none` with no attempt and no credit,
+        // on a scene whose whole point was that a pot is broken *in passing*. The class is wider than
+        // the pot and that is why the refusal is written against the map rather than against the
+        // purpose: any domain that gains discovery before it gains an executor fails exactly this way,
+        // silently, because a course that publishes work nothing performs looks from outside like a
+        // companion that decided something and then stood there.
+        var executable = opportunities.Where(o => o.Admission == OpportunityAdmission.KnownUsable
+            && ExecuteCourseBinding.HasExecutor(o.Key.Purpose)).ToArray();
+        int unexecutable = opportunities.Count(o => o.Admission == OpportunityAdmission.KnownUsable) - executable.Length;
+        var usable = executable.OrderBy(o => o.Key).ToArray();
         DepthTruncated = usable.Length > MaxDepth;
         orders = Enumerate(usable, retained, MaxDepth).GetEnumerator();
         pendingOrder = null; Best = null; BestValue = null; Exhausted = false;
@@ -150,6 +176,9 @@ public sealed class SearchCourseOrders
         bestFirstStep = null; byFirstStep.Clear(); idleOrder = null;
         EvaluatedOrders = RejectedOrders = 0;
         refusals.Clear();
+        // Recorded after the clear, so the count belongs to this search, and by name so a capture says
+        // which reason it was rather than leaving a domain's whole census unaccounted for.
+        for (int i = 0; i < unexecutable; i++) Refuse(StepPurposeHasNoExecutor);
         leaders.Clear();
         RequiredTravel = Array.Empty<CourseTravelRequest>();
         RequiredEnemyMotion = Array.Empty<CourseEnemyMotionRequest>();
