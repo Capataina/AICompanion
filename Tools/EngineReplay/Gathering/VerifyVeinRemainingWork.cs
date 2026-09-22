@@ -36,10 +36,18 @@ using live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 /// </summary>
 internal static class VerifyVeinRemainingWork
 {
+    /// <remarks>
+    /// These two rows carry **no gate prefix**, and the absence is deliberate. They were first written as
+    /// `G08 …`, which is wrong: the plan's G08 is *repairs across domains* — slot reuse, changed pick power,
+    /// remote and local terrain edits — and these are about the admission's three-valued vocabulary, which no
+    /// gate in section 9 names. Nothing in the tree reads a gate tag today, so the mislabel cost nothing and
+    /// would have misled the first person to grep for G08's coverage. A row that belongs to no gate says so by
+    /// having no prefix rather than by borrowing the nearest one.
+    /// </remarks>
     public static int Run()
-        => RunOneRow.Case("G08 an ore the handed pickaxe can damage carries a remaining estimate when it is admitted",
+        => RunOneRow.Case("an ore the handed pickaxe can damage carries a remaining estimate when it is admitted",
                AnAdequatePickResolvesTheVein)
-         + RunOneRow.Case("G08 a vein the handed pickaxe cannot damage is refused by name rather than left unknown",
+         + RunOneRow.Case("a vein the handed pickaxe cannot damage is refused by name rather than left unknown",
                AWeakPickRefusesRatherThanWonders);
 
     /// <summary>

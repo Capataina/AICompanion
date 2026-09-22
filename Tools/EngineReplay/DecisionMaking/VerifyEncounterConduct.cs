@@ -4,8 +4,13 @@ extern alias live;
 
 using System;
 using System.Linq;
+using Microsoft.Xna.Framework;
+using Terraria;
+using Terraria.ID;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
+using ThreatSense = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense;
+using EncounterSense = live::AICompanion.Companion.Brain.Infrastructure.Observation.EncounterSense;
 
 /// <summary>
 /// Gate G13 — how a course behaves while the world is about one thing.
@@ -20,15 +25,18 @@ using live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 /// <item><c>an unarmed companion offers no combat</c> (<c>Combat/VerifyCombatActivity</c>) and
 /// <c>combat is admitted only where it can be executed</c> (<c>Combat/VerifyHuntAdmissibility</c>) are the
 /// safe-conduct half — no weapon and no executable stand each produce no offer rather than an attempt.</item>
-/// <item><c>the live brain stops mining only where the event reaches it</c>
-/// (<c>Combat/VerifyEncounterContext</c>) is the suppression half at the level of the whole brain, with its own
-/// paired control: the same blood moon with the player underground, where the game does not run it, must leave
-/// mining valued to within a ten-thousandth of the quiet scene.</item>
+/// <item>The whole-brain suppression half is <c>VerifyEncounterContext.TheLiveBrainStopsMiningOnlyWhereTheEventReachesIt</c>,
+/// with its own paired control: the same blood moon with the player underground, where the game does not run
+/// it, must leave mining valued to within a ten-thousandth of the quiet scene. **Cite it by its ledger case
+/// name, which is `combat keeps its purpose across a substituted enemy`** — `VerifyEncounterContext` is not
+/// registered in `DefaultCases` at all and runs inside `VerifyCombatPurpose.Run()`, so a reader who greps for
+/// the method's own sentence finds nothing. An earlier draft of this summary cited that sentence as a case
+/// name and it exists in no fixture.</item>
 /// </list>
 ///
-/// What this file adds is the two properties nothing asserts, both at the level of the comparison rather than
-/// of one multiplier — <c>the course charges an encounter once and only to optional non-combat work</c> already
-/// pins <c>RelevanceFor</c>'s arithmetic, and a row repeating it would not have caught either of these.
+/// The other two clauses are added here, at the level of the comparison and the sense rather than of one
+/// multiplier — <c>the course charges an encounter once and only to optional non-combat work</c> already pins
+/// <c>RelevanceFor</c>'s arithmetic, and a row repeating it would not have caught any of these.
 /// </summary>
 internal static class VerifyEncounterConduct
 {
@@ -39,7 +47,9 @@ internal static class VerifyEncounterConduct
         => RunOneRow.Case("G13 an encounter suppresses a whole optional course while leaving a fight worth what it was",
                SuppressionIsOnWorkRatherThanABonusOnCombat)
          + RunOneRow.Case("G13 among two feasible fights the survivable one wins, and only while the encounter is on",
-               SurvivalOrdersFeasibleFightsAndOnlyUnderAnEncounter);
+               SurvivalOrdersFeasibleFightsAndOnlyUnderAnEncounter)
+         + RunOneRow.Case("G13 the player's death leaves the encounter standing",
+               ThePlayersDeathPreservesTheEncounter);
 
     /// <summary>
     /// The plan's §2 wording is that optional work is *inadmissible* during a boss or event, and the tree
@@ -90,9 +100,15 @@ internal static class VerifyEncounterConduct
     /// win — which here is the *riskier* one, because its harm is the only thing making its total smaller, so a
     /// survival rule left switched on everywhere is caught rather than merely unexercised.</para>
     ///
-    /// <para>Mutation from the plan's column, "idle artificially wins by zero damage": the third assertion is
-    /// that a course doing nothing does not outrank a feasible fight under an encounter. <b>This is the arm
-    /// that fails on the tree as it stands</b> — see the note on the assertion itself.</para>
+    /// <para><b>The plan's other column for this gate, "idle artificially wins by zero damage", is not
+    /// asserted here and this row does not catch it.</b> It is not a mutation on this tree — it is the tree's
+    /// behaviour: `NominalOrder` opens with the harm comparison and applies no feasibility or meaningfulness
+    /// qualifier, so for an empty course `I` and any feasible fight `F` it reduces to
+    /// `F.CompanionHarm.CompareTo(0)`, positive whenever the fight costs anything at all. An earlier version
+    /// of this summary claimed a third assertion covering it and said that arm failed on this tree; there was
+    /// no such assertion and the row was green, which is a docstring describing a check nobody wrote. The
+    /// finding is routed to whoever owns `Selection/` rather than asserted here, because a red row is a stop
+    /// for every lane; `DecisionMaking/CLAUDE.md` carries the arm to add once the ordering is ruled on.</para>
     /// </summary>
     private static void SurvivalOrdersFeasibleFightsAndOnlyUnderAnEncounter()
     {
@@ -124,6 +140,82 @@ internal static class VerifyEncounterConduct
         Require(CompareCourseOutcomes.NominalOrder(riskyCalm, safeCalm, encounter: false) > 0,
             $"with no encounter the ordering must be total value first, and the safer-but-emptier course won anyway, "
             + $"which is a survival rule left switched on in a calm world; safe={safeCalm.Total.Nominal} risky={riskyCalm.Total.Nominal}");
+    }
+
+    /// <summary>
+    /// The plan's third G13 clause, and the one a sentinel proved had no detector anywhere: planting
+    /// <c>if (player.dead) { Intensity = 0f; Source = "none"; Recognised = false; return; }</c> at the top of
+    /// <c>EncounterSense.Update</c> left both rows above green and `combat keeps its purpose across a
+    /// substituted enemy` green too.
+    ///
+    /// <para>It matters because a player's death is the one moment an encounter is most certainly still on —
+    /// the boss that killed him is still in the room — and because this tree deliberately stopped suspending
+    /// decisions on player death. A sense that reads the world as calm the instant he goes down hands every
+    /// optional need its full relevance back mid-boss.</para>
+    ///
+    /// <para>It is a live sense over live NPC slots rather than an arithmetic row, because the clause is about
+    /// what the sense reads rather than about what the objective does with it. The scene is deliberately one
+    /// boss and nothing else: `boss |= threat.IsBoss` is taken before the reach filter, so the recognition
+    /// does not depend on the body being reachable, and one hostile keeps the scene under the headless spawn
+    /// cap of five where a crowd would read an inferred encounter and prove the wrong thing.</para>
+    ///
+    /// <para>The pair is alive-then-dead over the same scene, so a sense that answered `boss` unconditionally
+    /// would satisfy neither half: the first assertion is that killing the player changes nothing, and the
+    /// last is that removing the boss does.</para>
+    /// </summary>
+    private static void ThePlayersDeathPreservesTheEncounter()
+    {
+        Player player = Main.player[0];
+        player.active = true;
+        player.dead = false;
+        player.statLife = player.statLifeMax = player.statLifeMax2 = 100;
+        player.position = new Vector2(40 * 16, 60 * 16);
+        Main.worldSurface = 200;
+
+        NPC companion = Main.npc[1];
+        companion.SetDefaults(NPCID.Zombie);
+        companion.active = true;
+        companion.position = new Vector2(41 * 16, 60 * 16);
+
+        NPC boss = Main.npc[2];
+        boss.SetDefaults(NPCID.KingSlime);
+        boss.active = true;
+        boss.life = boss.lifeMax = 2000;
+        boss.position = new Vector2(48 * 16, 60 * 16);
+        Require(boss.boss, "premise: the scene's hostile must carry the game's own boss flag, or it tests nothing");
+
+        var threats = new ThreatSense();
+        var sense = new EncounterSense();
+
+        Observe(threats, sense, player, companion);
+        Require(sense.Recognised && sense.Source == "boss" && sense.Intensity == 1f,
+            $"premise: a live boss beside a living player must read as a recognised encounter; "
+            + $"got source={sense.Source} intensity={sense.Intensity} recognised={sense.Recognised}");
+
+        player.dead = true;
+        player.statLife = 0;
+        Observe(threats, sense, player, companion);
+        Require(sense.Recognised && sense.Source == "boss" && sense.Intensity == 1f,
+            $"the player's death cleared the encounter while the boss that killed him is still standing; "
+            + $"got source={sense.Source} intensity={sense.Intensity} recognised={sense.Recognised}. "
+            + "Optional work gets its whole relevance back the instant he goes down");
+
+        // The other half of the pair: the sense must still be able to say no. Without this, a boss flag read
+        // unconditionally — or a sense that never updates at all after the first observation — passes above.
+        boss.active = false;
+        Observe(threats, sense, player, companion);
+        Require(!sense.Recognised && sense.Source == "none" && sense.Intensity == 0f,
+            $"with the boss gone the sense must read a calm world, dead player or not; "
+            + $"got source={sense.Source} intensity={sense.Intensity} recognised={sense.Recognised}");
+    }
+
+    /// <summary>One observation per engine tick, because the admission ceiling is measured from when each
+    /// counted hostile arrived and observations sharing a tick collapse every arrival into now.</summary>
+    private static void Observe(ThreatSense threats, EncounterSense sense, Player player, NPC companion)
+    {
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        threats.Update(player, companion);
+        sense.Update(player, threats);
     }
 
     private static CourseComparisonEpisode Calm()

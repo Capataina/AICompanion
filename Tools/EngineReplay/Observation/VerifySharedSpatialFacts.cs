@@ -32,14 +32,23 @@ using AICompanion.Tools.Ledger;
 internal static class VerifySharedSpatialFacts
 {
     /// <summary>
-    /// The two trees the rule binds. Both are consumers by design: an activity decides what to do and an
-    /// interaction does it, and neither is where a spatial fact is derived. `Infrastructure/Observation/` is
-    /// deliberately not in the list — it is where the facts come from.
+    /// The trees the rule binds. All three are consumers by design: an activity decides what to do, an
+    /// interaction does it, and weapon knowledge learns from what happened — none of them is where a spatial
+    /// fact is derived. `Infrastructure/Observation/` is deliberately absent; it is where the facts come from.
+    ///
+    /// <para><b>This list is the same list `Tools/check-navigation-boundary.sh`'s reach boundary sweeps</b>
+    /// (`reach_dirs`), and it must stay that way. It held two of the three when it was written, and a
+    /// sentinel planted a real `new ReachSense()` in `Infrastructure/WeaponKnowledge/` — a tree the script
+    /// has always called a consumer — and this row stayed green. Two definitions of "which trees are
+    /// consumers" is one vocabulary in two homes, which is the defect class this lane's mining commit
+    /// removed a seam of; the honest repair for the *pair* is one home, and until there is one, a change to
+    /// either list is a change to both.</para>
     /// </summary>
     private static readonly string[] ConsumerTrees =
     {
         "Companion/Brain/Activities",
         "Companion/Brain/Infrastructure/Interactions",
+        "Companion/Brain/Infrastructure/WeaponKnowledge",
     };
 
     /// <summary>
@@ -96,9 +105,7 @@ internal static class VerifySharedSpatialFacts
             .Select(File.ReadAllText)
             .ToArray();
         foreach (string type in Refused.Select(refused => refused.Type).Distinct())
-            Require(declarations.Any(text => text.Contains($"class {type}", StringComparison.Ordinal)
-                    || text.Contains($"struct {type}(", StringComparison.Ordinal)
-                    || text.Contains($"struct {type}\n", StringComparison.Ordinal)),
+            Require(declarations.Any(text => DeclaresExactly(text, type)),
                 $"'{type}' is refused below and is declared nowhere under Companion/Brain/Infrastructure, so its "
                 + "pattern matches nothing and that part of this rule is switched off rather than held");
 
@@ -118,6 +125,45 @@ internal static class VerifySharedSpatialFacts
         Require(violations.Count == 0,
             "a domain answers a shared spatial question privately, so two domains can disagree about one world: "
             + string.Join(" | ", violations));
+    }
+
+    /// <summary>
+    /// Whether <paramref name="text"/> declares exactly <paramref name="type"/> — a whole identifier, not a
+    /// prefix of a longer one.
+    ///
+    /// <para><b>The premise was a substring test when it was written, which is the third time this lane met
+    /// the same defect and the second time inside the fixture written to close it.</b> `text.Contains($"class
+    /// {type}")` accepts a refused `Type` of `PlayerIntentRegionSens`, declared nowhere, because
+    /// `class PlayerIntentRegionSense` contains it; and `struct PlayerIntentRegion(` is contained in
+    /// `struct PlayerIntentRegions(`. So renaming the `PlayerIntentRegion` struct while
+    /// `PlayerIntentRegionSense` stands takes two of the six patterns dead and the premise still passes. A
+    /// sentinel found it by planting the truncated name.</para>
+    ///
+    /// <para>The next character after the name is what decides it: an identifier continues into a letter, a
+    /// digit or an underscore, and ends at anything else — a brace, a parenthesis for a positional record, a
+    /// space before a base list or a generic constraint, or the end of the line. That is deliberately a
+    /// character class rather than an enumeration of the shapes a declaration can take, because the
+    /// enumeration is what was wrong the first two times.</para>
+    ///
+    /// <para>What it still does not guard is the *method* half of a pattern: `PlayerIntentRegion.Around(`
+    /// goes dead if `Around` is renamed while the type stands, and nothing here would notice. That is named
+    /// rather than fixed, because checking it wants a compiler rather than a sweep.</para>
+    /// </summary>
+    private static bool DeclaresExactly(string text, string type)
+    {
+        foreach (string keyword in new[] { "class ", "struct " })
+        {
+            int from = 0;
+            while (true)
+            {
+                int at = text.IndexOf(keyword + type, from, StringComparison.Ordinal);
+                if (at < 0) break;
+                int after = at + keyword.Length + type.Length;
+                if (after >= text.Length || !(char.IsLetterOrDigit(text[after]) || text[after] == '_')) return true;
+                from = at + 1;
+            }
+        }
+        return false;
     }
 
     /// <summary>

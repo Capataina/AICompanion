@@ -347,6 +347,23 @@ public sealed class CaptureGatheringOpportunities
     /// with a zero <c>useTime</c> refuses with no condition above it holding, and a fact that claimed a
     /// proven refusal there would be asserting something nobody established. That is the one case that stays
     /// <c>unknown</c>, which is what <c>unknown</c> is for.</para>
+    ///
+    /// <para><b>Only one of the five names is pinned by a fixture, and the reason is a property of where this
+    /// is called rather than a gap somebody can close with another scene.</b> A sentinel collapsed the whole
+    /// ladder to <c>=> "pickaxe-cannot-damage"</c> and both vein rows stayed green, which is true and reads
+    /// worse than it is. The target this is asked about came out of the census, and the census publishes a
+    /// site only for a tile that is inside the world and is ore — so on a *fresh* capture
+    /// <c>tile-outside-the-world</c> and <c>tile-is-no-longer-ore</c> cannot be produced at all, and
+    /// <c>the-game-refuses-to-kill-this-tile</c> needs an ore type the game refuses to kill, which vanilla's
+    /// ore set does not contain. All three are reachable only on the re-answer path, where a frozen tile list
+    /// outlives the tiles in it. And <c>outside-allowance-or-protected</c> is reachable but not
+    /// *distinguishable*: the admission ladder above reaches the identical string first through
+    /// <c>allowed</c>, so no observation can tell that arm from this one.</para>
+    ///
+    /// <para>So what a scene can pin today is the pickaxe arm, which the meteorite row does. The value of the
+    /// other four is in the record rather than in the branch — a re-answer that outlives its tiles says which
+    /// tile and why instead of saying nothing — and the row that would pin them is a re-answer scene, which
+    /// is where the stale-tile history in this folder's guide already lives.</para>
     /// </summary>
     private static string WhyNoRemainingWork(TileMiner miner, Item pick, Point tile)
         => !Terraria.WorldGen.InWorld(tile.X, tile.Y, 5) ? "tile-outside-the-world"
