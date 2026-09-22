@@ -24,7 +24,8 @@ NavReplay/
 ├─ VerifyNavigatorConclusions.cs what a kept conclusion about a goal may outlive: drift, an edit, an interrupt, a jittering goal
 ├─ VerifyMirrorExactness.cs      the reflection transform proved an involution over the committed corpus and a flood proved symmetric
 ├─ MirrorScenarioWorlds.cs       a block reflected left to right: tiles, glyph pairs, the actors, the trail and the orb's centre
-└─ ExtractScenarioFromCapture.cs a recorded tick's terrain cut out of a capture into a committed-format scenario
+├─ VerifyTheCutReasonRidesInTheHeader.cs a reason written ahead of every parsed header key, requiring the mirror to read it unmoved
+└─ ExtractScenarioFromCapture.cs a recorded tick's terrain cut out of a capture into a committed-format scenario, with an optional `--reason` appended after every key
 ```
 
 **`NavReplay.csproj` lists its own sources**, because `EnableDefaultCompileItems` is off: a file added to this folder and not added there does not fail to build, it is simply absent, and whatever row it carried reports nothing. The movement core arrives through a glob, so a new core file is compiled here without anyone editing the project, and a core file that names a Terraria type breaks this build before it breaks the boundary script.
@@ -32,8 +33,8 @@ NavReplay/
 ## Two commands
 
 ```
-dotnet run --project Tools/NavReplay -- --self-test
-dotnet run --project Tools/NavReplay -- --extract-scenario <capture.tsv> <tick> [--size WxH] [--reason "<why this window>"]
+dotnet run -p:UseAppHost=false --project Tools/NavReplay -- --self-test
+dotnet run -p:UseAppHost=false --project Tools/NavReplay -- --extract-scenario <capture.tsv> <tick> [--size WxH] [--reason "<why this window>"]
 ```
 
 The self-test is a handful of ledger rows, each a property of the core with no scene of the walker's kind behind it, and `sh Tools/verify.sh` runs it after the ledger's own self-test. It runs with the millisecond allowances lifted, because a corpus verdict is an oracle only when it cannot depend on how busy the machine was; nothing here is about a deadline.
@@ -78,6 +79,6 @@ The extractor's own liquid fidelity is the text world's: a wet tile is water or 
 ## Traps
 
 - Marker glyphs are air. Move actors through the header keys — `orb x,y` is the centre in pixels — never by writing a marker over a slope or a platform.
-- `MovementQueries.World`, `FreeSpaceSearch.WorldOverride` and `ClearanceField.Shared` are process statics the core reads; a case that plants a world and does not clear it hands the next case its terrain. The self-test resets them per row and any new row does the same.
+- `MovementQueries.World`, `FreeSpaceSearch.WorldOverride`, `ClearanceField.Shared` and `MovementQueries.Hazards` are process statics the core reads; a case that plants a world or a set of hazard boxes and does not clear it hands the next case its terrain. `Program.cs`'s inline reset (`EmitLedgerRows.ResetBeforeCase`) clears all four before every case, including the enemy boxes one component publishes for another to read within a tick, since 0366809 — before it, only five fixtures cleared `Hazards` themselves in their own setup (`VerifyAccompanyGetsPastAnObstruction.cs`, `VerifyAccompanyStaysAboveHisHead.cs`, `VerifyAccompanyPrefersClearance.cs`, `VerifyTheEscapeCostsTheSameEveryTick.cs`, `VerifyTheWideLegUnderATravellingPlayer.cs`), which fixed the one reader somebody remembered and left the next one order-dependent. Those five local clears stay: they are harmless and they document what each scene assumes about the hazard set it starts from. Any new row relying on process state does the same.
 - `OrbPace` is written by the motor in the game and by nothing here unless a row writes it; a row that does not is steering the body a plain player would produce, from the fallback in `BehaviourWeights`.
 - A green self-test is evidence about the core. It never substitutes for the native suite, where the same contact runs against Terraria's own tiles, or for a world run, where the whole brain runs behind a recorded player.

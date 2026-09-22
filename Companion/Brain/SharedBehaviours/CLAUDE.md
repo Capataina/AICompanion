@@ -9,7 +9,7 @@ SharedBehaviours/
 └─ Recovery/    distant flight home
 ```
 
-Shooting is not here. A free hand asks the arsenal in `Companion/Brain/Infrastructure/Interactions/Firing/Arsenal.cs` after movement; the choice is a brain behaviour whose joint evaluator lives under the Combat activity, and this folder owns neither. Movement and aiming are infrastructure those behaviours call.
+Shooting is not here. A free hand asks the arsenal — `CompanionCombat` in `Companion/Brain/Infrastructure/Interactions/Firing/CompanionCombat.cs` — after movement; the choice is a brain behaviour whose joint evaluator lives under the Combat activity, and this folder owns neither. Movement and aiming are infrastructure those behaviours call.
 
 Safety's prediction is built every tick, with or without an ordinary offer, and submits nothing. Recovery submits one request to Grants and never writes the NPC.
 

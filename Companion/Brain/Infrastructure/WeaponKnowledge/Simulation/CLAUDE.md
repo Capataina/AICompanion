@@ -1,0 +1,57 @@
+# Simulation — pricing a shot before it is fired
+
+```
+Simulation/
+├─ CLAUDE.md
+├─ SimulateUse.cs             one use, walked forward under the learned laws and the composed weapon numbers
+├─ SolveAims.cs                intercepts, spread offsets, bank shots and pierce lines, each priced by the simulator
+├─ CacheSimulatedUses.cs       per-tick cache: the positioner scores many stands with the same weapons
+├─ CachePlannedSims.cs         cross-tick cache: a search re-prices the same stands sixty times a second
+└─ ApplyCompanionModifiers.cs  the one seam a companion-side modifier (extra pierce, extra projectiles) enters a use through
+```
+
+This folder is where `../Learning/`'s tables and `../Recording/`'s raw traces stop being descriptive and start being predictive: everything else in `../` answers "what has a weapon done"; this folder answers "what would this weapon do from here, at this target, with this aim" — for a shot that has not been fired yet. `../../Activities/Combat/Planning/`'s search calls this folder, never the learning tables directly, to price every stand and aim candidate it considers.
+
+## `SimulateUse`: one hypothetical use, walked forward
+
+`SimulateUse.Simulate` takes a `WeaponId` (the item, its slot, whether it swings, and the composed numbers — damage, speed, knockback, use time, mana cost — the hand would actually fire with), a muzzle, an aim point and a launch direction, and a `CombatWorld` (the companion's and player's centres, for push pricing, plus the terrain revision the caches key on), and walks the shot forward tick by tick under the fitted `FlightLaw` from `../Learning/FitFlightLaws.cs`, applying `../Learning/LearnWallResponses.cs` at every tile contact and `../Learning/LearnChildSpawns.cs` at every trigger a child would fire on. The result, `SimulatedUse`, is a list of `SimHit`s (which body, which tick, how much damage after armour and the learned outcome correction, the expected push, whether the running tally already has the body dead, and where the hit lands), `SimBounce`s and `SimDeath`s, plus the drawn `Paths` the overlay and the audit read to show what the sim actually traced.
+
+`WeaponId.Identify` reads the numbers straight off the hand's own weapon (`../../Interactions/Firing/CompanionWeapon`) rather than maintaining a second copy of them, so a sim prices exactly what the hand would fire, never a stand-in. `IdentifyGeometry` is the cheaper sibling used where only the swing arc or reach geometry is needed and the full weapon identity would be wasted work — reading `../CLAUDE.md`'s combat sections for how the generators in `../../Activities/Combat/Planning/ProposeFiringStands.cs` use it is the right next step for anyone extending a generator.
+
+**A `SimHit` carries `DamageIfDebuffed` beside `Damage` because the search prices a *continuation*, not a single shot in isolation.** `../CLAUDE.md`'s "A debuff is a rate and a context" section is the authoritative account of how a later use in the same plan is priced between the two by the learned debuff chance — this folder only supplies the two numbers, it does not choose between them.
+
+`SimHit.PushX` and `Dead` come straight from `../Learning/LearnWeaponEffectsOnEnemies.cs`'s per-item, per-enemy-type table; a body the sim's running tally has already killed earns no further push pricing on a later hit in the same use, because a dead body cannot be pushed anywhere.
+
+## `SolveAims`: proposing candidates, not solving one
+
+`SolveAims` replaced an older trajectory solver that traced one ray under a fixed four-number arc. What it does instead — and the distinction is the whole point of the file's own docstring — is **propose up to `MaxAims` (10) candidate aim points** (the direct intercept, offsets spread across the volley's own angular spread, single bank shots off nearby walls, and lines threaded through two or more bodies for a piercing weapon) and hand every one of them to `SimulateUse` to be priced. Nothing in `SolveAims` itself decides which candidate is good; a bank whose bounce `../Learning/LearnWallResponses.cs` cannot predict for this projectile type scores nothing when simulated and is therefore never chosen, without `SolveAims` needing to know why. This is the same shift the rest of `../` makes from "compute the answer" to "propose candidates and let the learned/simulated pricing choose" — `AimCandidate`'s two fields (`AimPoint`, `LaunchDirection`) exist as two separate values specifically because they diverge for anything that arcs: the hand fires along the launch direction, while a volley's later slots anchor on the aim point itself.
+
+`../CLAUDE.md`'s "Aim is a decision variable whose prior is the intercept's" is the design ruling this file implements: because the aim input to `../Learning/LearnAttackOutcomes.cs`'s regression is linear in the offset's size, the learned answer is always either the intercept or the widest offered candidate, never something in between — which is a property of the learning model in `../Learning/`, not of `SolveAims` itself, but it is why `SolveAims` only needs to offer a handful of discrete candidates rather than sweep a continuous range.
+
+## The two caches, and why there are two rather than one
+
+**`CacheSimulatedUses`** is cleared every tick (`ClearAtTick`) and exists because the positioner scores many candidate stands against the same handful of weapons within one tick, and the search re-asks about stands the positioner has already priced. Its key is the weapon, its modifiers, the stand's tile, the aim's cell, the fire tick, and the knowledge and terrain revisions — enemy positions enter only through the aim itself, which the docstring calls out as sound specifically *because* the forecast is built once per decision and the cache is cleared every tick, so within one tick every sim that shares a key genuinely did read the same enemies. `Enabled` exists solely so `--combat-cost`'s C1 measurement can price the same decision with the cache forced off, to separate what the cache saves from what the underlying computation costs; production never turns it off.
+
+**`CachePlannedSims`** survives *across* ticks and exists for a different cost: a search prices the same stands roughly sixty times a second against enemies that mostly do not move, and re-flying every aim from scratch every tick was measured spending whole frames deciding not to fight. Its key additionally carries the enemy content the simulation actually read — slot, tile, life, velocity, defence, burning flag — so a body that moved, was wounded or caught fire invalidates its own entries without needing a global clear; a frozen crowd hits the cache indefinitely. `Capacity` (2048) is sized to the seven generators' probe working set on a crowded scene (past six hundred distinct aims), because a smaller cap would clear mid-decision and re-fly everything anyway, defeating the point. The docstring is explicit that a fresh sim is dual-written into the per-tick cache too, so the hands and the overlay read exactly what they read before this cache existed — this cache is purely an optimisation over repeated searches within and across ticks, never a second source of truth the hands could disagree with the per-tick cache about.
+
+**What neither cache's key can see is the observed-motion tracker's sub-tile drift.** `CachePlannedSims`'s own docstring names this: predictions shift by less than a tile while the key holds steady, which is planning-grade noise the search's dominance tolerances absorb, and it never reaches an actual aim, because the hands fire from the per-tick cache alone, which is rebuilt fresh every tick from the live world.
+
+## `ApplyCompanionModifiers`: the one seam a modifier enters through
+
+`ModifierState` (extra projectiles, added pierce) is recorded on every companion trace at spawn time specifically so `../Learning/FitFlightLaws.cs` and the other learners can exclude a modified trace whole — a value that has absorbed a modifier belongs to no fixed projectile type once the modifier changes. `ApplyCompanionModifiers.Current()` is the single place a use reads what the companion itself is contributing to a shot; today that is `Planted`, a value only fixtures set (S5 plants one extra projectile), because there is no live mastery-bonuses record yet and production reads `ModifierState.None` unconditionally. The docstring is explicit that phase G is what wires this to a real bonuses record and to the extra spawns' spacing — until then, this file is a seam waiting for its other end, not a dead one: every caller that needs to know what the companion added already goes through `Current()`, so wiring a real bonuses record in is a one-file change.
+
+## Traps
+
+**A cache key that omits something the sim actually reads is a correctness bug wearing a performance file's clothes.** Both caches' docstrings state exactly what their keys cover and why omitting enemy identity from `CacheSimulatedUses`'s key is safe (because it is cleared every tick) while `CachePlannedSims`'s key must carry enemy content explicitly (because it survives across ticks, when enemies move). A change to what a sim reads that is not reflected in both keys' composition is a stale-cache defect that will not show up as a crash — it shows up as a hand firing at where an enemy used to be.
+
+**`SolveAims` proposing a candidate is not the same as that candidate being usable.** A caller that treats `SolveAims`'s output as already-vetted aim points, rather than routing every one of them through `SimulateUse`, will fire at bank shots the wall-response table cannot actually predict.
+
+**`ApplyCompanionModifiers.Planted` is fixture-only state that persists across whatever calls set it until explicitly reset.** A fixture that plants a modifier and does not reset it leaks that modifier into the next fixture's simulated uses; the per-case reset described in `../Recording/CLAUDE.md` is what is relied on to clear it between engine-replay cases.
+
+## Relations
+
+`../Learning/` supplies every predictive table this folder composes: `FitFlightLaws` for the flight, `LearnWallResponses` for bounces, `LearnChildSpawns` for spawned children, `LearnHitResponses` for pierce and area falloff, `LearnWeaponEffectsOnEnemies` for push and damage-ratio, `LearnAttackOutcomes` for the outcome correction. `../../Activities/Combat/Planning/SearchAttackPlans.cs` and `../../Activities/Combat/Planning/ProposeFiringStands.cs` are this folder's production callers, pricing every generator's candidate stand and aim through `SimulateUse` and `SolveAims`. `../../Interactions/Firing/CompanionWeapon` is what `WeaponId.Identify` reads to avoid a second copy of the hand's own numbers. `../CLAUDE.md`'s combat sections ("A hit pushes...", "What a weapon's attacks achieve...", "Aim is a decision variable...") are the user-facing account of the rulings this folder's code implements mechanically.
+
+## Current state
+
+Built across the combat plan's phase C and phase E (the seven-generator stand search and the removal of the older trajectory solver, `30fef2b`, `1cf1002`, `03986f0`), with `LearnAttackOutcomes`'s pricing wired into the arsenal's stand assessment closing `AIC-395`, per `../CLAUDE.md`. No commit in this repository's history touching this folder postdates that work; today's course-brain switch and family-chooser deletion did not reach it, because the search this folder is called from prices candidates the same way whether a course or a chooser is the caller.

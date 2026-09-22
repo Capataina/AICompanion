@@ -42,6 +42,7 @@ CombatAudit/
 ├─ AuditSearch.cs         the replay and the exhaustive front, with the regret and generator attribution
 ├─ AuditWeights.cs        each objective halved and doubled, and what moved
 ├─ AuditKnowledge.cs      predicted hits against landed damage, per projectile type
+├─ AuditHold.cs           the shifted plan committed, and the commitment's own Validate run on the snapshot's tick
 └─ SelfTest.cs            eight rows, each proving its own verdict by a mutation baked in beside it
 ```
 
@@ -70,9 +71,9 @@ The division of labour with the session reader is worth stating plainly, because
 ## Operating manual
 
 ```
-dotnet run --project Tools/CombatAudit -- --self-test                      eight rows, exit 0
-dotnet run --project Tools/CombatAudit -- Telemetry/<stamp>.tsv            audit a capture
-dotnet run --project Tools/CombatAudit -- Telemetry/<stamp>.tsv --write    and write the sidecar
+dotnet run -p:UseAppHost=false --project Tools/CombatAudit -- --self-test                   eight rows, exit 0
+dotnet run -p:UseAppHost=false --project Tools/CombatAudit -- Telemetry/<stamp>.tsv         audit a capture
+dotnet run -p:UseAppHost=false --project Tools/CombatAudit -- Telemetry/<stamp>.tsv --write and write the sidecar
                                           --snapshot N                     one snapshot by index
                                           --no-sweep                       skip the weight sweep
 ```
@@ -117,7 +118,7 @@ The last two rows were added after the file's own docstring was written, which s
 
 ## Gaps and planned work
 
-- **The audit has never been run against a real capture in anger, and that is the headline gap.** Every row it has ever filed comes from `SelfTest`'s own synthetic scenes. `Telemetry/` is gitignored so `verify.sh` cannot run it over a recording, and the retained-course brain was wired on 21 September and unplayed at that date. The first play of the wired brain is the first real input this tool will see, exactly as it is for the session reader's course files.
+- **The audit has never been run against a real capture in anger, and that is still the headline gap.** Every row it has ever filed comes from `SelfTest`'s own synthetic scenes. `Telemetry/` is gitignored so `verify.sh` cannot run it over a recording. The retained-course brain, wired on 21 September, was first played on 22 September (capture `2026-09-22_10-05-56-125`), and no `-combat-audit.json` sidecar for that capture exists in this checkout — that first play is the first real input this tool *could* see, and it has not yet been pointed at it.
 - **Committing a capture, or backfilling one through `../backfill-capture.sh`, is what would turn the five measures into a trend** rather than five numbers produced once. Until then a scoreboard comparison on `combat-audit` compares nothing.
 - **The exhaustive grid's cap is a constant with no measurement behind it.** It was chosen to bound the run and nobody has measured what share of real decisions hit it; the verdict reports `capped` per decision, so the first real capture answers this for free.
 - **Two files here are size outliers and both are code, so both are plans and neither is an edit.** `SelfTest.cs` is 754 lines at 3.9× this folder's median and divides at the row — eight independent scenes sharing only their `Row` wrapper, which is the cleanest split boundary in the tree. `RestoreSnapshot.cs` is 534 lines at 2.7× and divides by what it restores: tiles and world, actors, knowledge and ledgers, the plan and its proposals. Neither is urgent; both would be cheap, and the reference surface is the project file's compile list plus the internal call sites, which is enumerable in one search.

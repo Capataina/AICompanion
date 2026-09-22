@@ -10,8 +10,8 @@ Infrastructure/
 ├─ Position/       a kind of place into a hover point
 ├─ Movement/       one request surface and one motor
 ├─ Interactions/   pickaxe, axe, torch, doors, homes, firing
-├─ Aiming/         projectile trajectory solver
-├─ WeaponKnowledge/ what each weapon does, learned from its own shots
+├─ WeaponKnowledge/ what each weapon does, learned from its own shots — its Simulation/
+│                  subfolder holds the aim solver and the use simulator
 ├─ Grants/         one packet for feet and hand; incidental pots
 └─ Diagnostics/    overlay, telemetry, scenario capture
 ```

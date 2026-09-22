@@ -22,7 +22,7 @@ The native card is one panel whose body swaps between the profile overview, Inve
 
 Mimic means the player's corresponding action triggers work. Mining and chopping therefore have Off/Mimic/Auto choices. Voluntary hunting, pot breaking and supplied torch placement instead have Off/On choices. Disabling hunting does not disable guarding or self-preservation. Carrying a torch remains independent of placing one. Fishing is not implemented.
 
-The native preferences in `../Companion/PlayerIntegration/ConfigureCompanionPreferences.cs` own these settings. The original HTML card predates the voluntary toggles and uses longer policy labels; its control inventory is not the current native capability list. A scored behaviour can be disabled by an eligibility policy without replacing utility scoring.
+The native preferences in `../Companion/PlayerIntegration/ConfigureCompanionPreferences.cs` own these settings. The original HTML card predates the voluntary toggles and uses longer policy labels; its control inventory is not the current native capability list. A preference gates whether a domain may be discovered at all, which is independent of how the brain then chooses between what it discovered — so the mock's control inventory says nothing about the decision procedure, and it kept saying nothing when that procedure was replaced.
 
 The native card explicitly identifies guarding and survival as automatic. The inspector and telemetry switches belong to tModLoader Mod Configuration rather than this card.
 

@@ -7,6 +7,8 @@ Firing/
 ├─ ItemWeapon.cs             the one weapon: whatever item sits in a weapon slot, read and never run
 ├─ CompanionCombat.cs        the one combat surface: gear enumeration, forecast, planner, hands
 ├─ FireDueUse.cs             the plan's due use, or the best from here at the plan's targets while travelling
+├─ FlightModel.cs            a use's cheap pre-gate: launch speed, projectile box, trace length and reach, before anything is simulated
+├─ ForecastUses.cs           what each weapon would land from a stand, priced for the attack planner
 ├─ TrackLandedHits.cs        which NPC a companion shot struck, whether a projectile is the companion's, and the global hooks that attribute hits and open outcome windows
 ├─ SpoofOwnerInputForShots.cs the companion's aim point as its projectiles' cursor while their AI runs
 └─ ObserveShotOutcomes.cs    one use's outcome window: its projectile and every descendant, the damage landed, the bodies struck, the debuffs added
