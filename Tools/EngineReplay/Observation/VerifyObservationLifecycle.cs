@@ -137,9 +137,8 @@ internal static class VerifyObservationLifecycle
     {
         var (mine, ctx) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Opportunistic,
             TileID.Copper, new Microsoft.Xna.Framework.Point(25, 89));
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "recorded conclusion needs a real admitted vein");
-        int index = ctx.Companion.Brain.Actions.FindIndex(action => action.Name == "mine");
-        ctx.Companion.Brain.Actions[index] = mine;
+        // The course binds the vein and mining is handed the step, which is the only way mining has a job now.
+        VerifyOreWork.AcceptBoundOre(ctx, mine, "recorded conclusion needs a real bound vein");
         live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = live::AICompanion.Companion.Brain.Activities.WorkPolicy.Disabled;
         mine.Execute(ctx);
         var conclusion = mine.LastConclusion ?? throw new InvalidOperationException("revocation omitted the job conclusion");

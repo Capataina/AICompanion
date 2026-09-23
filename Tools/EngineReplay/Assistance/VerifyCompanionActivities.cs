@@ -692,23 +692,26 @@ internal static class VerifyCompanionActivities
     private static void RemoteJobReleasesAndDiscoversNearbyOre()
     {
         var (mine, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "initial vein not found");
-        mine.AdmitActivity();
+        VerifyOreWork.AcceptBoundOre(ctx, mine, "initial vein not found");
         int oldJob = mine.JobId;
         ctx.Npc.Bottom = new Vector2(88 * 16, 60 * 16);
         // Place the next vein beyond the old job's continuation envelope from the new player.
         ctx.Player.Bottom = new Vector2(2000, 60 * 16);
         Tile ore = Main.tile[84, 59]; ore.HasTile = true; ore.TileType = TileID.Copper;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Changed(84, 59);
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
-        for (int i = 0; i < 61; i++) VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(mine.JobId != oldJob && mine.TargetTile == new Point(84, 59), "an obsolete retained vein must not prevent discovering reachable local ore");
+        VerifyOreWork.ResettleReach(ctx);
+        // The course finds the local ore and hands it over; the obsolete vein must neither hold the step nor the job.
+        VerifyOreWork.AcceptBoundOre(ctx, mine, "an obsolete retained vein must not prevent discovering reachable local ore");
+        Require(mine.JobId != oldJob && mine.TargetTile == new Point(84, 59),
+            $"an obsolete retained vein must not prevent working reachable local ore; job={mine.JobId} target={mine.TargetTile}");
     }
 
     private static void ApproximateArrivalMustContinueApproaching()
     {
         Point ore = new(25, 59);
         var (mine, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, ore);
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "initial vein not found");
+        VerifyOreWork.AcceptBoundOre(ctx, mine, "initial vein not found");
         // The recorded symptom was Mine.Execute returning Hold while its own reach test failed.
         // Supply a legitimate in-reach stand and an actual pose 19px short of the reach boundary.
         //
@@ -723,20 +726,21 @@ internal static class VerifyCompanionActivities
         ctx.Npc.Center = stand - new Vector2(19, 0);
         Require(!FindToolAccess.InReach(ctx.Npc.Center, ore) && FindToolAccess.InReach(stand, ore),
             $"fixture must straddle the actual mining reach boundary; centre={ctx.Npc.Center} stand={stand} ore={ore}");
-        typeof(live::AICompanion.Companion.Brain.Activities.Gathering.MineOre).GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(mine, new OreFinder.OreTarget(ore, TileID.Copper, stand));
-        Require(mine.Execute(ctx).Kind == RequestKind.Exact, "a non-swingable approximate arrival must keep approaching instead of holding");
+        // The bound step still names the ore; the body is what arrived short of it.
+        var request = mine.Execute(ctx);
+        Require(request.Kind == RequestKind.Exact && !mine.HandsBusy,
+            $"a non-swingable approximate arrival must keep approaching instead of holding; request={request} status={mine.Status}");
     }
 
     private static void RetainedMiningRespectsTheCompanionsRange()
     {
         var (mine, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "fixture must discover a mining job");
-        mine.AdmitActivity();
+        VerifyOreWork.AcceptBoundOre(ctx, mine, "fixture must bind a mining job");
         ctx.Npc.Bottom = ctx.Player.Bottom + new Vector2(Preferences.Current.ActiveActivityRadius + 1, 0);
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0 && mine.RemainingTiles == 0,
-            "retained ore near the player must not keep a companion outside the active range in mining mode");
+        mine.Prepare(ctx);
+        Require(mine.RemainingTiles == 0 && mine.JobId == 0,
+            $"retained ore near the player must not keep a companion outside the active range in mining mode; job={mine.JobId} remaining={mine.RemainingTiles}");
     }
 
     private static void BedsProtectTheRoomAndItsBoundary()

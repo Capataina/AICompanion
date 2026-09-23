@@ -78,14 +78,18 @@ internal static class VerifyOreWork
 
     private static void DisabledDoesNotStartAJob()
     {
-        var (action, ctx) = SetUp(WorkPolicy.Disabled, TileID.Copper, new Point(25, 59));
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.RemainingTiles == 0 && action.Status == "disabled", "disabled mining must not retain ore work");
+        Point ore = new(25, 59);
+        var (action, ctx) = SetUp(WorkPolicy.Disabled, TileID.Copper, ore);
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null && action.RemainingTiles == 0 && action.JobId == 0,
+            $"disabled mining must not bind or retain ore work; {DriveGatheringThroughTheCourse.Account(ctx)}");
+        Require(DriveGatheringThroughTheCourse.Site(ctx, "mine-target", ore) is { Admission: "unusable", Reason: "mining-disabled" },
+            $"the census must refuse the ore as a policy prohibition, not report it absent; got {DriveGatheringThroughTheCourse.Site(ctx, "mine-target", ore)}");
         Require(action.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.PolicyForbidden && action.EligibilityReason == "mining-disabled",
             $"a disabled policy must be classified as a policy prohibition, not as absent ore; got {action.Eligibility}/{action.EligibilityReason}");
         WorkPolicies.Mining = WorkPolicy.Opportunistic;
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f
-            && action.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable,
-            $"the same exposed ore with mining enabled must be a usable offer; got {action.Eligibility}/{action.EligibilityReason}");
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") is { } step && DriveGatheringThroughTheCourse.Tile(step) == ore,
+            $"the same exposed ore with mining enabled must be bound; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void DepartingPlayerChangesWhetherWorkIsWorthFinishing()
@@ -378,18 +382,21 @@ internal static class VerifyOreWork
 
     private static void PreparedWorkForecastRespondsToNativeProgress()
     {
+        // The remaining work the activity reports is taken at its own swing, so it describes the bound tile as the
+        // hand meets it. The private preparation this row used to read — a trip forecast frozen until the next
+        // preparation — went with the search that produced it.
         Point ore = new(25, 89);
         var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        float untouched = mine.ForecastTicks();
+        var step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", "remaining-work fixture needs a bound ore");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
+        var untouched = mine.RemainingWork;
+        Require(untouched is { Hits: > 1 } && Main.tile[ore.X, ore.Y].HasTile && ctx.Companion.Miner.LastOutcome is { Productive: true },
+            $"remaining-work fixture needs actual partial native damage from the first swing; before={untouched}");
         Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
-        Require(ctx.Companion.Miner.Swing(ore, pick) && Main.tile[ore.X, ore.Y].HasTile,
-            "remaining-work fixture needs actual partial native damage");
         for (int tick = 0; tick < pick.useTime; tick++) ctx.Companion.Miner.Tick();
-        Require(mine.ForecastTicks() == untouched, "comparison must retain its prepared estimate until refreshed");
-        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(mine.ForecastTicks() < untouched,
-            $"remaining work must shrink after native progress with the same pose and target: before={untouched}; after={mine.ForecastTicks()}");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
+        Require(mine.RemainingWork?.Hits < untouched.Value.Hits,
+            $"remaining work must shrink after native progress with the same pose and target: before={untouched}; after={mine.RemainingWork}");
     }
 
     private static void RemainingToolWorkMatchesNativeCompletion()
@@ -567,49 +574,71 @@ internal static class VerifyOreWork
 
     private static void MimicStartsFromThePlayersVein()
     {
+        // Mimic is honoured by the census now, because the census is the only discovery: the player's live ore
+        // contact admits ore of the type he hit, and nothing else. The control is the same scene with no contact,
+        // which a census ignoring Mimic would bind exactly as it binds the first.
         Point ore = new(25, 59);
+        var (_, idle) = SetUp(WorkPolicy.Mimic, TileID.Copper, ore);
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        // The watcher is process-wide; a world load is what clears it in play, so the control starts from one.
+        new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock().OnWorldLoad();
+        idle.Senses.Update(idle.Npc, idle.Player);
+        Require(DriveGatheringThroughTheCourse.Decide(idle, "mine") == null
+                && DriveGatheringThroughTheCourse.Site(idle, "mine-target", ore) is { Admission: "unusable", Reason: "mimic-awaiting-player-ore-contact" },
+            $"mimic mining with no player ore contact must not bind ore; {DriveGatheringThroughTheCourse.Account(idle)}; site {DriveGatheringThroughTheCourse.Site(idle, "mine-target", ore)}");
         var (action, ctx) = SetUp(WorkPolicy.Mimic, TileID.Copper, ore, playerHit: ore);
-        var directReach = ctx.Companion.Brain.Senses.Reach.Reachable(new Point(24, 59));
-        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score > 0f && action.TargetTile == ore,
-            $"mimic mining must select the ore vein the player hit (score={score}, target={action.TargetTile}, status={action.Status}, observed={ctx.Senses.Player.MinedOre}, direct={directReach})");
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        var step = DriveGatheringThroughTheCourse.Decide(ctx, "mine");
+        Require(step != null && DriveGatheringThroughTheCourse.Tile(step) == ore,
+            $"mimic mining must bind the ore vein the player hit (observed={ctx.Senses.Player.MinedOre}); {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void OpportunisticKeepsOneVeinAcrossAnInterruption()
     {
-        var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f, "nearby ore must start opportunistic mining without a player hit");
+        Point ore = new(25, 59);
+        var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        var step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", "nearby ore must start opportunistic mining without a player hit");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
         int id = action.JobId;
+        Require(id > 0, $"the bound ore must open a job; status={action.Status}");
         action.Exit(ctx); // Guard/self-defence switching actions must not discard retained work.
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.JobId == id, "an interrupted vein must resume with the same job identity");
-        ctx.Companion.NPC.Center += new Vector2(64, 0);
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.JobId == id && action.TargetStandPosition == ctx.Npc.Center,
-            "scoring early during guard must not retain an old approach after guard moves the body again");
+        step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", "an interrupted vein must be bound again");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
+        Require(action.JobId == id, $"an interrupted vein must resume with the same job identity; before={id} after={action.JobId}");
+        // A body moved by guard is asked to work from where it now is when that still reaches the ore: the step's
+        // pose is re-derived at execution rather than flown back to.
+        ctx.Companion.NPC.Center += new Vector2(16, 0);
+        var request = live::AICompanion.Companion.Brain.Infrastructure.Selection.ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center);
+        Require(!FindToolAccess.InReach(ctx.Npc.Center, ore) || request.Anchor == ctx.Npc.Center,
+            $"a moved body still in reach must not be sent back to an old approach; request={request} centre={ctx.Npc.Center}");
     }
 
     private static void DirtIsNeverAWorkTarget()
     {
         var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Dirt, new Point(25, 59));
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.TargetTile == null, "ordinary terrain must not be selected for mining");
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null && DriveGatheringThroughTheCourse.Census(ctx, "mine-target").Count == 0,
+            $"ordinary terrain must be neither a mining site nor a bound step; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void ADepletedTileRelocatesWithinTheVein()
     {
         Point first = new(25, 59), second = new(26, 59);
         var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, first, second);
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.RemainingTiles == 2, "the fixture must start as a two-tile vein");
-        float capturedValue = action.Score(), capturedTrip = action.ForecastTicks();
-        var capturedTarget = action.ActivityTarget;
-        Tile removed = Main.tile[first.X, first.Y];
+        var step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", "the fixture must start as a bound two-tile vein");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
+        int job = action.JobId;
+        Require(job > 0 && action.RemainingTiles == 2, $"the fixture must start as a two-tile vein; remaining={action.RemainingTiles}");
+        // Whichever tile the course bound is the one the player takes, so the relocation has to come from the course.
+        Point taken = DriveGatheringThroughTheCourse.Tile(step), left = taken == first ? second : first;
+        Tile removed = Main.tile[taken.X, taken.Y];
         removed.ClearEverything();
-        ctx.Companion.NPC.position = new Vector2(26 * 16, 60 * 16 - ctx.Companion.NPC.height);
-        Require(action.Score() == capturedValue && action.ForecastTicks() == capturedTrip
-            && action.ActivityTarget == capturedTarget && action.RemainingTiles == 2,
-            "comparison must not prune externally removed ore or recompute the prepared trip");
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.TargetTile == second && action.RemainingTiles == 1,
-            "after one tile disappears, the retained job must relocate to the remaining ore");
-        Require(action.TargetStandPosition == ctx.Companion.NPC.Center,
-            "an in-reach resumed tile must use the body’s current stand instead of walking back to an old one");
+        TerrainChanges.Changed(taken.X, taken.Y);
+        step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", "after one tile disappears the course must bind the rest of the vein");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
+        Require(DriveGatheringThroughTheCourse.Tile(step) == left && action.TargetTile == left && action.RemainingTiles == 1,
+            $"after one tile disappears the step must be the remaining ore; bound={DriveGatheringThroughTheCourse.Tile(step)} remaining={action.RemainingTiles}");
+        Require(action.JobId == job, $"relocating within the vein must keep the one job; before={job} after={action.JobId}");
     }
 
     private static void AWeakPickDoesNotMaskFartherOre()
@@ -619,15 +648,21 @@ internal static class VerifyOreWork
         Tile tile = Main.tile[usable.X, usable.Y];
         tile.TileType = TileID.Copper;
         Main.tileSolid[TileID.Copper] = true;
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.TargetTile == usable,
-            "a nearby unmineable ore must not mask a farther ore the current pick can mine");
+        TerrainChanges.Reset();
+        var step = DriveGatheringThroughTheCourse.Decide(ctx, "mine");
+        Require(step != null && DriveGatheringThroughTheCourse.Tile(step) == usable,
+            $"a nearby unmineable ore must not mask a farther ore the current pick can mine; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void AnUnmineableVeinDoesNotBecomeWork()
     {
-        var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Chlorophyte, new Point(25, 59));
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.RemainingTiles == 0 && action.Status == "no mineable ore",
-            "a pickaxe that cannot damage ore must not create a retained mining job");
+        Point ore = new(25, 59);
+        var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Chlorophyte, ore);
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null && action.RemainingTiles == 0 && action.JobId == 0,
+            $"a pickaxe that cannot damage ore must not create a mining job; {DriveGatheringThroughTheCourse.Account(ctx)}");
+        Require(DriveGatheringThroughTheCourse.Site(ctx, "mine-target", ore) is { Admission: "unusable", Reason: "pickaxe-cannot-damage" },
+            $"the census must say the pickaxe is why; got {DriveGatheringThroughTheCourse.Site(ctx, "mine-target", ore)}");
     }
 
     private static void ASealedTreeYieldsToReachableOre()
@@ -648,27 +683,17 @@ internal static class VerifyOreWork
         // asks about the far side of it; otherwise the tree reads reachable because the world it was proven
         // in had no wall.
         ResettleReach(ctx);
-        var chop = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
-        var tree = new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping.TreeFinder.ChoppableTree(
-            new Point(40, 59), new Vector2(38 * 16 + 8, 60 * 16), 1);
-        typeof(live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree)
-            .GetField("tree", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(chop, tree);
-        Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) == 0f && VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0f,
-            "a retained tree across a sealed wall must yield to reachable ore beside the companion");
-        var sinceReachField = typeof(live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree)
-            .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        int preparedAge = (int)sinceReachField.GetValue(chop)!;
-        for (int comparison = 0; comparison < 20; comparison++)
-            Require(chop.Score() == 0f, "repeated comparison must preserve an unavailable tree's value");
-        Require((int)sinceReachField.GetValue(chop)! == preparedAge,
-            "chopping comparison must not advance its discovery timer or repeat its reach search");
-        for (int tick = 0; tick < 20; tick++) VerifyPreparedActivities.PrepareAndScore(chop, ctx);
-        int agedTo = (int)sinceReachField.GetValue(chop)!;
-        // The number is in the message because the two ways this row can fail need opposite fixes and
-        // look identical without it: a value below 20 is the search re-running and zeroing the counter,
-        // and a value of 20 with the row still red would be the counter never advancing at all.
-        Require(agedTo == 20,
-            $"unchanged retained work must reuse its reach verdict rather than search every scoring tick; the counter read {agedTo} after 20 preparations, so the reach search re-ran {(agedTo < 20 ? $"{20 - agedTo} preparation(s) ago" : "at an unexpected cadence")}");
+        WorkPolicies.Chopping = WorkPolicy.Opportunistic;
+        TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
+        // The trunk census is the only place a tree is found now, so the sealed tree is refused there, by its own
+        // approach, and the course binds the reachable ore instead. The half of this row that counted chopping's
+        // private reach cadence went with that search: a verdict a census holds is re-asked on its own geometry
+        // rule, which `VerifyTreeOpportunityCapture`'s re-answer row owns.
+        var step = DriveGatheringThroughTheCourse.Decide(ctx, "mine");
+        Require(step != null && DriveGatheringThroughTheCourse.Tile(step) == new Point(25, 59),
+            $"a tree across a sealed wall must yield to reachable ore beside the companion; {DriveGatheringThroughTheCourse.Account(ctx)}");
+        Require(DriveGatheringThroughTheCourse.Site(ctx, "chop-target", new Point(40, 59)) is { Admission: "unusable", Reason: "approach-unreachable" },
+            $"the sealed tree must be refused by its approach, not merely outscored; got {DriveGatheringThroughTheCourse.Site(ctx, "chop-target", new Point(40, 59))}");
     }
 
     private static void ChoppingPrefersASeparateActiveTrunk()
@@ -698,22 +723,29 @@ internal static class VerifyOreWork
                 Require(ctx.Senses.Player.ChoppedTree == point, "cooperation fixture must observe the actual active trunk");
             }
             WorkPolicies.Chopping = WorkPolicy.Opportunistic;
+            WorkPolicies.Mining = WorkPolicy.Disabled;
+            TerrainChanges.Reset();
+            ResettleReach(ctx);
+            // The preference lives in the trunk census now, where every trunk is known, so each half asks the
+            // course which trunk it binds rather than asking chopping which one it found.
+            Point? Bound()
+                => DriveGatheringThroughTheCourse.Decide(ctx, "chop") is { } step ? DriveGatheringThroughTheCourse.Tile(step) : null;
             PlayerHits(first);
-            var chop = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
-            Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0 && chop.ActivityTarget == second.ToWorldCoordinates(),
-                "automatic chopping must prefer a separate usable tree over the nearer player trunk");
+            Require(Bound() == second,
+                $"automatic chopping must prefer a separate usable tree over the nearer player trunk; {DriveGatheringThroughTheCourse.Account(ctx)}");
             PlayerHits(second);
-            Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0 && chop.ActivityTarget == first.ToWorldCoordinates(),
-                "a new player trunk must refresh cooperation before the ordinary discovery deadline");
+            Require(Bound() == first,
+                $"a new player trunk must move the companion's trunk on the next decision; {DriveGatheringThroughTheCourse.Account(ctx)}");
             Tile removed = Main.tile[first.X, first.Y];
             removed.HasTile = false;
-            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree(), ctx) > 0,
-                "automatic cooperation is a preference and must permit the sole remaining player tree");
+            TerrainChanges.Changed(first.X, first.Y);
+            Require(Bound() == second,
+                $"automatic cooperation is a preference and must permit the sole remaining player tree; {DriveGatheringThroughTheCourse.Account(ctx)}");
             WorkPolicies.Chopping = WorkPolicy.Mimic;
-            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree(), ctx) == 0,
-                "Mimic must retain its explicit exclusion of the active player trunk");
+            Require(Bound() == null,
+                $"Mimic must retain its explicit exclusion of the active player trunk; {DriveGatheringThroughTheCourse.Account(ctx)}");
         }
-        finally { WorkPolicies.Chopping = original; clock.OnWorldUnload(); }
+        finally { WorkPolicies.Chopping = original; WorkPolicies.Mining = WorkPolicy.Opportunistic; clock.OnWorldUnload(); }
     }
 
     private static void RevokedWorkCannotExecuteAPreparedCandidate()
@@ -735,26 +767,28 @@ internal static class VerifyOreWork
                     Main.tileAxe[TileID.Trees] = true;
                     Main.tileSolid[TileID.Trees] = false;
                     TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
-                    action = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
+                    WorkPolicies.Mining = WorkPolicy.Disabled;
+                    action = ctx.Companion.Brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree>().Single();
                 }
                 // One radius above the floor row, which is where SetUp leaves the body: a centre written onto the
                 // floor line itself puts half the circle inside the floor, and the first contact resolve moves it
                 // off the pose the row is about.
                 if (inPosition) ctx.Npc.Center = new Vector2(23 * 16 + 8, 90 * 16 - CircleContact.Radius);
                 else ctx.Npc.Center = new Vector2(15 * 16 + 8, 90 * 16 - CircleContact.Radius);
-                Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
-                    $"permission fixture needs prepared work: chopping={chopping}; inPosition={inPosition}");
-                // The activity's own live-permission answer, which is what a binder reads. It went through
-                // `ValidatePreparedActivity.Capture(action).Rejection(action)` until 22 September 2026, and
-                // that type's first line was this same property — the captured identity checks it added
-                // around it belonged to the chooser's activation stage and went with it (`AIC-419`). The
-                // course's equivalent identity check is the admission-evidence sweep in
-                // `Opportunities/DiscoverOpportunities`, held by `VerifyAdmittedOpportunitiesBind`.
+                TerrainChanges.Reset();
+                ResettleReach(ctx);
+                var step = DriveGatheringThroughTheCourse.Bind(ctx, chopping ? "chop" : "mine",
+                    $"permission fixture needs a bound step: chopping={chopping}; inPosition={inPosition}");
+                ctx.Companion.Brain.Activity.Select(action, ctx, step);
+                // The policy is revoked between the binding and the swing, which is the window a census proved
+                // against an older observation leaves open; the swing's own recheck is what closes it.
                 if (chopping) WorkPolicies.Chopping = WorkPolicy.Disabled;
                 else WorkPolicies.Mining = WorkPolicy.Disabled;
-                Require(action.PreparedTargetRejection == "work-disabled",
-                    $"revoked work must refuse its own prepared target: chopping={chopping}; inPosition={inPosition}; rejection={action.PreparedTargetRejection}");
                 var request = action.Execute(ctx);
+                string refusal = action is MineOre refusingMine ? refusingMine.Status
+                    : ((live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree)action).Status;
+                Require(refusal is "disabled before execution" or "work-disabled",
+                    $"revoked work must refuse its bound step by name: chopping={chopping}; inPosition={inPosition}; status={refusal}");
                 Require(request == live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold
                     && !action.HandsBusy && ctx.Companion.Miner.LastOutcome == null && ctx.Companion.Chopper.LastOutcome == null,
                     $"revoked work must neither approach nor swing: chopping={chopping}; inPosition={inPosition}; request={request}; hands={action.HandsBusy}");
@@ -778,10 +812,13 @@ internal static class VerifyOreWork
                 Main.tileSolid[TileID.Trees] = false;
                 TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
                 WorkPolicies.Chopping = WorkPolicy.Opportunistic;
+                WorkPolicies.Mining = WorkPolicy.Disabled;
                 ctx.Npc.Center = new Vector2((mirrored ? 30 : 20) * 16 + 8, 90 * 16 - CircleContact.Radius);
-                var chop = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
-                Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0,
-                    "a tree inside actual reach must prepare useful work");
+                TerrainChanges.Reset();
+                ResettleReach(ctx);
+                var step = DriveGatheringThroughTheCourse.Bind(ctx, "chop", "a tree inside actual reach must be bound");
+                var chop = ctx.Companion.Brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree>().Single();
+                ctx.Companion.Brain.Activity.Select(chop, ctx, step);
                 var request = chop.Execute(ctx);
                 Require(request == live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold
                     && chop.HandsBusy && ctx.Companion.Chopper.LastOutcome is { Productive: true },
@@ -805,18 +842,18 @@ internal static class VerifyOreWork
                     "a wall added after preparation must prevent another native axe effect");
             }
         }
-        finally { WorkPolicies.Chopping = original; }
+        finally { WorkPolicies.Chopping = original; WorkPolicies.Mining = WorkPolicy.Opportunistic; }
     }
 
     private static void LosingWorkEligibilityDoesNotClaimCompletion()
     {
         Point ore = new(25, 89);
         var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "completion fixture needs a retained vein");
+        AcceptBoundOre(ctx, mine, "completion fixture needs a retained vein");
         Tile replacement = Main.tile[ore.X, ore.Y];
         replacement.TileType = TileID.Chlorophyte;
         Main.tileSolid[TileID.Chlorophyte] = true;
-        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        mine.Prepare(ctx);
         Require(!mine.Status.StartsWith("completed", StringComparison.Ordinal),
             $"a transformed unmineable deposit must not be reported as completed work: {mine.Status}");
         Require(mine.LastConclusion is { Tracked: 1, Changed: 1, Missing: 0, ObservedClear: false, CompanionRemovals: 0 },
@@ -835,12 +872,13 @@ internal static class VerifyOreWork
     {
         Point first = new(25, 89), second = new(40, 89);
         var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, first);
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "the evidence fixture needs a first job");
+        AcceptBoundOre(ctx, mine, "the evidence fixture needs a first job");
         int firstJob = mine.JobId;
         mine.BeginAttempt();
         Tile removed = Main.tile[first.X, first.Y];
         removed.HasTile = false;
-        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        TerrainChanges.Changed(first.X, first.Y);
+        mine.Prepare(ctx);
         Require(mine.LastConclusion is { ObservedClear: true } end && end.JobId == firstJob, "the first job must end observed clear");
         Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Activities.AttemptStatus.Invalid,
             "the attempt that owned the externally cleared job must conclude invalid");
@@ -849,8 +887,9 @@ internal static class VerifyOreWork
         ore.ClearEverything();
         ore.HasTile = true;
         ore.TileType = TileID.Copper;
-        for (int i = 0; i < 61 && mine.JobId <= firstJob; i++) VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(mine.JobId > firstJob, "the fixture must discover the second job before concluding");
+        TerrainChanges.Changed(second.X, second.Y);
+        AcceptBoundOre(ctx, mine, "the fixture must bind the second ore before concluding");
+        Require(mine.JobId > firstJob, $"the second ore must open the second job; job={mine.JobId}");
         Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Activities.AttemptStatus.Attempted,
             $"a new attempt must not conclude from the previous job's end; got {mine.ConcludeAttempt(0)}");
     }
@@ -861,7 +900,7 @@ internal static class VerifyOreWork
     {
         Point left = new(24, 89), right = new(25, 89);
         var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, left, right);
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "the joint fixture needs a two-tile vein");
+        AcceptBoundOre(ctx, mine, "the joint fixture needs a two-tile vein");
         mine.BeginAttempt();
         int effects = 0;
         for (int tick = 0; tick < 600 && Main.tile[left.X, left.Y].HasTile && Main.tile[right.X, right.Y].HasTile; tick++)
@@ -876,7 +915,7 @@ internal static class VerifyOreWork
             "the companion must remove one tile with its own native strikes");
         Tile taken = Main.tile[other.X, other.Y];
         taken.HasTile = false;
-        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        mine.Prepare(ctx);
         Require(mine.LastConclusion is { ObservedClear: true, Tracked: 2, CompanionRemovals: 1 },
             $"the joint vein must end clear with one companion removal; got {mine.LastConclusion}");
         Require(mine.ConcludeAttempt(effects) is { Status: live::AICompanion.Companion.Brain.Activities.AttemptStatus.Complete,
@@ -1002,7 +1041,7 @@ internal static class VerifyOreWork
         {
             Point ore = new(25, 89);
             var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-            Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "attribution fixture needs a prepared vein");
+            AcceptBoundOre(ctx, mine, "attribution fixture needs a bound vein");
             int id = mine.JobId;
             if (ownRemoval)
             {
@@ -1018,12 +1057,12 @@ internal static class VerifyOreWork
                 Tile removed = Main.tile[ore.X, ore.Y];
                 removed.HasTile = false;
             }
-            VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+            mine.Prepare(ctx);
             Require(mine.LastConclusion is { Tracked: 1, Missing: 1, Present: 0, Changed: 0, ObservedClear: true } end
                 && end.JobId == id && end.CompanionRemovals == (ownRemoval ? 1 : 0),
                 $"a cleared observed vein must retain actual removal attribution: own={ownRemoval}; end={mine.LastConclusion}");
             var retained = mine.LastConclusion;
-            VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+            mine.Prepare(ctx);
             Require(mine.LastConclusion == retained, "ending an empty job again must not overwrite its original evidence");
             // Direct Execute calls here bypass the activity owner, so the credited effect count is
             // supplied: the question is whether the same cleared vein reads differently with and
@@ -1055,25 +1094,31 @@ internal static class VerifyOreWork
                     Main.tileAxe[TileID.Trees] = true;
                     Main.tileSolid[TileID.Trees] = false;
                     TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
-                    action = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
+                    WorkPolicies.Mining = WorkPolicy.Disabled;
+                    action = ctx.Companion.Brain.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree>().Single();
                 }
-                Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
-                    "replacement fixture needs a real prepared tool target");
+                TerrainChanges.Reset();
+                var step = DriveGatheringThroughTheCourse.Bind(ctx, chopping ? "chop" : "mine", "replacement fixture needs a real bound tool target");
+                ctx.Companion.Brain.Activity.Select(action, ctx, step);
                 object? originalIdentity = action.ActivityIdentity;
                 tile.TileType = chopping ? TileID.Cactus : TileID.Tin;
                 Main.tileAxe[TileID.Cactus] = true;
                 Main.tileSolid[TileID.Tin] = true;
+                TerrainChanges.Changed(point.X, point.Y);
                 var request = action.Execute(ctx);
                 Require(request == live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold
                     && !action.HandsBusy && ctx.Companion.Miner.LastOutcome == null && ctx.Companion.Chopper.LastOutcome == null,
-                    $"a prepared tool must not act on replacement material: chopping={chopping}; hand={action.HandsBusy}");
-                float renewedValue = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-                Require(renewedValue > 0 && action.PreparedTargetRejection.Length == 0
-                    && !Equals(originalIdentity, action.ActivityIdentity),
-                    $"eligible replacement material needs fresh work: chopping={chopping}; value={renewedValue}; rejection={action.PreparedTargetRejection}; old={originalIdentity}; current={action.ActivityIdentity}; mine-status={mine.Status}; remaining={mine.RemainingTiles}");
+                    $"a bound tool must not act on replacement material: chopping={chopping}; hand={action.HandsBusy}");
+                // The replacement is new work only once the course binds it: the census sees the edit, publishes the
+                // new material as a new site, and the step it binds carries a different identity.
+                var renewed = DriveGatheringThroughTheCourse.Bind(ctx, chopping ? "chop" : "mine",
+                    $"eligible replacement material needs fresh work: chopping={chopping}");
+                ctx.Companion.Brain.Activity.Select(action, ctx, renewed);
+                Require(!Equals(originalIdentity, action.ActivityIdentity),
+                    $"eligible replacement material needs fresh work under a new identity: chopping={chopping}; old={originalIdentity}; current={action.ActivityIdentity}; bound={renewed.NativeUseId}; mine-status={mine.Status}; remaining={mine.RemainingTiles}");
             }
         }
-        finally { WorkPolicies.Chopping = original; }
+        finally { WorkPolicies.Chopping = original; WorkPolicies.Mining = WorkPolicy.Opportunistic; }
     }
 
     private static void AxeEligibilityAloneDoesNotMakeATree()
@@ -1119,11 +1164,12 @@ internal static class VerifyOreWork
         // An unflooded region: every tile is "not yet known" and nothing is proven either way. This is the
         // state the live brain is in for its first rescores after a world change.
         EmptyTheReachRegion(ctx);
-        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(action.Status == "approach unknown",
-            $"the fixture must actually reach an undecided approach, or it tests nothing; status={action.Status}");
-        Require(score == 0f,
-            $"ore whose approach the evidence could not decide scored {score}, so mining would still win the tick; status={action.Status}");
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        var site = DriveGatheringThroughTheCourse.Site(ctx, "mine-target", new Point(50, 59));
+        Require(site is { Admission: "unknown", Reason: "approach-not-yet" },
+            $"the fixture must actually reach an undecided approach, or it tests nothing; census={site}");
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null,
+            $"ore whose approach the evidence could not decide must not be bound, or mining would still win the tick; {DriveGatheringThroughTheCourse.Account(ctx)}");
         Require(action.TargetTile == null && action.ActivityTarget == null,
             "an undecided approach must not publish a plan target");
         Require(action.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
@@ -1167,10 +1213,12 @@ internal static class VerifyOreWork
         // The row must start in the cold state rather than assume it: a setup that warmed the region, or an
         // ore near enough to resolve through the in-reach shortcut, would make the run below prove nothing
         // about a cold flood while passing exactly as it does now.
-        float cold = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(cold == 0f && mine.Status == "approach unknown",
+        // Asked of the approach query directly, which is the census's own question, so the premise reads the
+        // region without deciding anything that could grow it.
+        var cold = FindToolAccess.Approach(ore, ctx.Npc.Center, ctx.Senses.Reach, out _);
+        Require(cold == Reachability.Reach.Unknown && mine.JobId == 0,
             $"the row must begin with mining unable to answer, or the run proves nothing about a cold flood; "
-            + $"score={cold} status={mine.Status}");
+            + $"approach={cold} job={mine.JobId}");
         var run = RunBrainUntilBroken(ctx, ore, 900);
         if (!run.Broken)
         {
@@ -1279,11 +1327,13 @@ internal static class VerifyOreWork
         EmptyTheReachRegion(ctx);
         Require(FindToolAccess.Approach(sealedOre, ctx.Npc.Center, ctx.Companion.Brain.Senses.Reach, out _) == Reachability.Reach.No,
             "the nearby ore must have no exposed working face, and must answer so from geometry rather than from the region");
-        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score == 0f && action.TargetTile == null,
-            $"neither the sealed ore nor the unsettled region may become a plan; status={action.Status} score={score} target={action.TargetTile}");
-        Require(action.Status == "approach unknown",
-            $"the farther ore must remain the discovery's unresolved candidate, not be replaced by the sealed neighbour; status={action.Status}");
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        var sealedSite = DriveGatheringThroughTheCourse.Site(ctx, "mine-target", sealedOre);
+        var farSite = DriveGatheringThroughTheCourse.Site(ctx, "mine-target", unresolvedOre);
+        Require(sealedSite is { Admission: "unusable", Reason: "approach-unreachable" } && farSite is { Admission: "unknown", Reason: "approach-not-yet" },
+            $"the census must hold the sealed ore as proven unusable and the farther ore as its unresolved candidate, neither substituted for the other; sealed={sealedSite} far={farSite}");
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null && action.TargetTile == null,
+            $"neither the sealed ore nor the unsettled region may become a bound step; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     /// <summary>
@@ -1324,9 +1374,9 @@ internal static class VerifyOreWork
             Require(standing != Reachability.Reach.Yes,
                 $"the {shape} ore must have no usable approach; got {standing}");
             var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
-            float value = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-            Require(value > 0f && mine.TargetTile == usable && mine.Eligibility == OfferEligibility.Usable,
-                $"a {shape} nearer ore must not mask the exposed farther one; value={value} target={mine.TargetTile} offer={mine.Eligibility}/{mine.EligibilityReason}");
+            var bound = DriveGatheringThroughTheCourse.Decide(ctx, "mine");
+            Require(bound != null && DriveGatheringThroughTheCourse.Tile(bound) == usable,
+                $"a {shape} nearer ore must not mask the exposed farther one; {DriveGatheringThroughTheCourse.Account(ctx)}");
             var run = RunBrainUntilBroken(ctx, usable, 900);
             Require(run.Broken, $"the whole brain must break the exposed ore beside a {shape} one; feet={ctx.Npc.Center} status={mine.Status} action={ctx.Companion.Brain.LastAction?.Name}");
             Require(Main.tile[blocked.X, blocked.Y].HasTile && walls.All(wall => Main.tile[wall.X, wall.Y].HasTile),
@@ -1446,18 +1496,18 @@ internal static class VerifyOreWork
         int weakPower = TileMiner.PickaxeFor(ctx.Player).pick;
         Require(!ctx.Companion.Miner.CanMine(ore, weakPower) && ctx.Companion.Miner.CanMine(ore, strong.pick),
             $"the fixture needs ore the fallback pick ({weakPower}) cannot damage and the stronger pick ({strong.pick}) can");
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0f && mine.RemainingTiles == 0
-            && mine.Eligibility == OfferEligibility.KnownUnusable,
-            $"a pick too weak for the only ore must offer no work and say the tool is why; got {mine.Eligibility}/{mine.EligibilityReason}");
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null && mine.RemainingTiles == 0
+                && DriveGatheringThroughTheCourse.Site(ctx, "mine-target", ore) is { Admission: "unusable", Reason: "pickaxe-cannot-damage" },
+            $"a pick too weak for the only ore must bind no work and say the tool is why; {DriveGatheringThroughTheCourse.Account(ctx)}; site {DriveGatheringThroughTheCourse.Site(ctx, "mine-target", ore)}");
 
         // The companion's pick is the one in its own pickaxe slot, never the player's held tool, so the
         // swap is made in the gear (slot index 2 is the pickaxe, by GearSlot's order).
         var gear = ctx.Player.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
         Item weakPick = gear.Slots[2];
         gear.Slots[2] = strong;
-        float stronger = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(stronger > 0f && mine.JobId > 0 && mine.Eligibility == OfferEligibility.Usable,
-            $"a stronger pick must start the job on the next preparation, not after a search cadence; value={stronger} job={mine.JobId} offer={mine.Eligibility}/{mine.EligibilityReason}");
+        // A changed pick reopens the census, so the stronger pick is bound on the next decision.
+        AcceptBoundOre(ctx, mine, "a stronger pick must start the job on the next decision, not after a search cadence");
 
         mine.BeginAttempt();
         int effects = 0;
@@ -1471,9 +1521,15 @@ internal static class VerifyOreWork
         Require(effects > 0 && Main.tile[ore.X, ore.Y].HasTile, "the stronger pick must land real partial damage before the swap");
 
         gear.Slots[2] = weakPick;
-        float weaker = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(weaker == 0f && mine.Eligibility == OfferEligibility.KnownUnusable && Main.tile[ore.X, ore.Y].HasTile,
-            $"a weaker pick must end the offer as a tool that cannot mine, with the ore still in place; value={weaker} offer={mine.Eligibility}/{mine.EligibilityReason}");
+        // The step bound under the stronger pick is still the one in hand; the swing's own recheck refuses it.
+        for (int tick = 0; tick < 120 && !ctx.Companion.Miner.Ready; tick++) ctx.Companion.Miner.Tick();
+        long lastStrike = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
+        mine.Execute(ctx);
+        Require((ctx.Companion.Miner.LastOutcome?.Attempt ?? -1) == lastStrike && mine.Status == "no mineable ore"
+                && mine.Eligibility == OfferEligibility.KnownUnusable && Main.tile[ore.X, ore.Y].HasTile,
+            $"a weaker pick must refuse the bound step as a tool that cannot mine, with the ore still in place; status={mine.Status} offer={mine.Eligibility}/{mine.EligibilityReason}");
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null,
+            $"with the weaker pick back the course must not bind the ore again; {DriveGatheringThroughTheCourse.Account(ctx)}");
         var conclusion = mine.ConcludeAttempt(effects);
         Require(conclusion.Status == AttemptStatus.Partial,
             $"real damage followed by a lost tool is partial work, never complete or failed; got {conclusion}");
@@ -1513,14 +1569,16 @@ internal static class VerifyOreWork
         Require(Main.tile[ore.X, ore.Y].HasTile && seal.All(p => Main.tile[p.X, p.Y].HasTile)
             && (ctx.Companion.Miner.LastOutcome?.Attempt ?? -1) == strikesBefore,
             "a sealed ore must receive no strike and its seal no digging");
-        Require(mine.Score() == 0f && mine.Eligibility is not (OfferEligibility.Usable or OfferEligibility.Unresolved),
-            $"a sealed ore must stop being offered as usable or undecided work; offer={mine.Eligibility}/{mine.EligibilityReason}");
+        // The census is what offers work now, so it is the census that must stop offering the sealed ore.
+        var sealedSite = DriveGatheringThroughTheCourse.Site(ctx, "mine-target", ore);
+        Require(sealedSite is { Admission: "unusable" } && ctx.Companion.Brain.Course.Last.Activity != "mine",
+            $"a sealed ore must stop being offered as usable or undecided work; census={sealedSite}; {DriveGatheringThroughTheCourse.Account(ctx)}");
         var sealedAttempt = ctx.Companion.Brain.Activity.RecentAttempts.LastOrDefault(attempt => attempt.Activity == "mine");
         // The cause is the orb's wording, `MineOre.NoProvenPoseReason`: a cell the body can be reached into,
         // where the walker's was a pose it could prove it could stand in. Only the string moved — the status
         // and the absence of any credited effect are what this row is about, and both were already right.
         Require(sealedAttempt is { Status: AttemptStatus.Failed, Cause: "remaining ore has no reachable working cell", ProductiveEffects: 0 },
-            $"the approach lost to the player's wall must close as a failed method with no credited effect; got {sealedAttempt}");
+            $"the approach lost to the player's wall must close as a failed method with no credited effect; got {sealedAttempt}; all mine attempts [{string.Join(" | ", ctx.Companion.Brain.Activity.RecentAttempts.Where(a => a.Activity == "mine").Select(a => $"{a.StartTick}-{a.EndTick} {a.Status} {a.Cause}"))}]");
 
         Point opened = seal[0];
         Tile gap = Main.tile[opened.X, opened.Y];
@@ -1602,6 +1660,18 @@ internal static class VerifyOreWork
         return brain.Course.Last.Activity;
     }
 
+    /// <summary>The course binds an ore step and mining is handed it the way the tick hands it over, without
+    /// executing: the job the step opens is then the job a row reasons about. It replaces preparing mining on its
+    /// own, which found its own ore and is gone.</summary>
+    internal static live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.StepBinding AcceptBoundOre(
+        ActionContext ctx, MineOre mine, string why)
+    {
+        var step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", why);
+        ctx.Companion.Brain.Activity.Select(mine, ctx, step);
+        Require(mine.JobId > 0, $"{why}: the bound step opened no job; status={mine.Status} step={step.NativeUseId}");
+        return step;
+    }
+
     /// <summary>Every registered activity's worth as the course priced it, in the shape a failure message
     /// wants: the reader's own numbers, so a row's diagnostic cannot drift from what the recorder prints.</summary>
     internal static string CourseBoard(live::AICompanion.Companion.Brain.Brain brain)
@@ -1680,7 +1750,9 @@ internal static class VerifyOreWork
         }
         companion.Brain.Senses.Update(companion.NPC, player);
         SettleReach(companion, player);
-        return (new MineOre(), new ActionContext(companion, companion.Brain.Senses));
+        // The brain's own registered instance, because the course hands its step to that instance and to no
+        // other: a free-standing MineOre could only ever be driven by a search of its own, which is gone.
+        return (companion.Brain.Actions.OfType<MineOre>().Single(), new ActionContext(companion, companion.Brain.Senses));
     }
 
     /// <summary>

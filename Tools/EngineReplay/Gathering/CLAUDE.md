@@ -1,21 +1,26 @@
 # Gathering fixtures — ore, trees, and who is credited for the work
 
-Eight files, every one of which drives the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention. The one file here that drove no work at all was `VerifyRouteHomeFromEitherEnd`, which read `Chooser.RouteDetour` from beside the ore and from beside the player; it went with the chooser on 22 September 2026, and where its property stands now is the paragraph below.
+Ten files, every one of which drives the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention. The one file here that drove no work at all was `VerifyRouteHomeFromEitherEnd`, which read `Chooser.RouteDetour` from beside the ore and from beside the player; it went with the chooser on 22 September 2026, and where its property stands now is the paragraph below.
 
 **Which brain a row drives is the first thing to establish before reading its verdict, and since 22 September 2026 there is only one.** `AIC-419` deleted the family chooser, and with it the three rows here that were the reason it could not be deleted:
 
 ```
-drives the course                       VerifyOreWork's departure row, VerifyTreeOpportunityCapture,
+drives the course                       every row that asks what is worked: VerifyOreWork, VerifyMiningList,
+                                        VerifyWorkAccounting, VerifyGatheringCooperation,
+                                        VerifyGatheringActsOnTheBinding, VerifyTreeOpportunityCapture,
                                         VerifyGatheringOpportunityDiscovery, VerifyGatheringCourseBindings
 drives an observation, not a decision   VerifyOreWork's ReunionChargeReadsDepartureAndTheRouteHome, which
-                                        now calls ObserveCompanionship and reads the three numbers the
-                                        recorder writes, in place of Chooser.Choose and mining's score
-drives an activity or a tool directly   VerifyMiningList, VerifyWorkAccounting — neither calls a course
-                                        or a whole tick; they drive mining's own job and the native tool
-                                        and read what the world lost
+                                        calls ObserveCompanionship and reads the three numbers the recorder
+                                        writes
+drives only the native tool             VerifyOreWork's native rows (hit counts, partial damage, the axe's
+                                        own table, the nearest-first approach equivalence)
 deleted with the chooser                VerifyGatheringCooperation's W04 and G02, and the whole of
                                         VerifyRouteHomeFromEitherEnd
 ```
+
+**Since 23 September 2026 no row here drives mining's or chopping's own discovery, because there is none.** The activities perform the step the course bound and search for nothing, so a row that used to prepare one of them alone and read the target its private search found now asks the course: `DriveGatheringThroughTheCourse.Decide` runs the tick's decide phase with the body held still and returns the bound step, `Perform` hands it over through `OwnCurrentActivity.Select` exactly as the tick does, `Census` reads the census's own admission for a row asking *why* something was not bound, and `VerifyOreWork.AcceptBoundOre` opens mining's job on the bound vein for the job-accounting rows. `VerifyOreWork.SetUp` returns the brain's registered `MineOre` rather than a free-standing one for the same reason: the course hands its step to that instance and to no other. A row's census reasons are the census's vocabulary (`mining-list`, `pickaxe-cannot-damage`, `approach-not-yet`), not the activities' old status strings.
+
+Three halves went rather than being ported, each because its subject was the deleted search: `ASealedTreeYieldsToReachableOre`'s count of chopping's private reach cadence (the census re-asks a held verdict on its own geometry rule, which `G08`'s re-answer row owns); `ADepletedTileRelocatesWithinTheVein`'s check that a comparison did not recompute the prepared trip; and `PreparedToolsRejectReplacementMaterial`'s `PreparedTargetRejection`, a surface that no longer exists. `G03 one trip unit` was restated rather than dropped: the per-activity trip forecasts it compared are gone, so it compares the course's travel per pixel for a bound ore step and a bound trunk step from one body point.
 
 `VerifyRouteHomeFromEitherEnd` read `Chooser.RouteDetour` from beside the ore and from beside the player, because the separation cost a job paid was decided from wherever the body happened to be when the job was chosen. The course has no such helper and no such cost: an unresolved route is a typed unresolved answer rather than a number a caller reconstructs, which is the property `VerifyCompanionshipForecast`'s `G15 companionship requires timed travel and actual arrival evidence` holds — a leg with no timed travel refuses the forecast with `timed-travel-evidence-unresolved` instead of costing zero. `../../../Companion/Brain/Infrastructure/Selection/Courses/CLAUDE.md` carries the property with both of the chooser's arms beside it.
 
@@ -31,8 +36,13 @@ Gathering/
 ├─ VerifyGatheringCooperation.cs working beside the player without competing with him
 ├─ VerifyVeinRemainingWork.cs    a vein with no remaining estimate is refused by name rather than left unknown,
 │                                beside the control that resolves — the 22 September capture's own signature
+├─ VerifyGatheringActsOnTheBinding.cs the hand strikes the ore or trunk the course bound, not the nearest one,
+│                                and refuses a stale bound tile by name without striking a neighbour
+├─ DriveGatheringThroughTheCourse.cs how a row gets a step: the course's decision, the hand-over, the census's answer
 └─ VerifyWorkAccounting.cs       what a job reports against what the world shows
 ```
+
+**`VerifyGatheringActsOnTheBinding` is the acceptance for the executor rule, and every scene in it is built so the two choosers of the old shape disagree.** Two targets both inside tool reach of where the companion already hovers, the nearer one worth less to the course because its material's census is larger — a copper tile beside a floating tin with a far copper vein inflating copper's denominator, and an ordinary trunk beside a palm with two far trunks — so a nearest-first search strikes the nearer target while the course binds the other. Each scene first asserts the course bound the target nearest-first would not pick, because a scene where both agree passes whichever the hand obeys. It was red on `04f9df2` with the old executors (`the pickaxe struck {X:22 Y:59} while the course bound the tin at {X:24 Y:57}`) and on two planted mutations that pick a tile of their own in `OnAccept`. Its stale-step rows mine the bound tile out from under the step, turn it into another ore the pick can damage, place a bed that makes it part of a protected home, and turn a bound trunk into a palm the axe could fell, and require a named refusal with no strike — the protection row names the rung where the cooperation fixture's W05 only proves the hand stopped, and each of those two rows goes red with its own rung removed; the sealed-first-vein row pins that a mine step strikes its use's tile and prints the work tile `ExecuteCourseBinding.WorkTileOf` carries for the same step, which is the identity tile and a different one.
 
 **`VerifyVeinRemainingWork` is the one file here shaped from a capture rather than from a scene somebody invented, and the pair is what makes it a check.** The 22 September 2026 play read `native-remaining-unresolved` on every ore for all 2,340 ticks, so the defect's whole signature is one reason string; a row asserting only that a refused vein is not that string would be satisfied by any implementation that renamed it. So the file drives the same three-cell vein twice through `VerifyOreWork.SetUp` and the real native census, once as meteorite (pick requirement 50, against the fixture's copper pickaxe at 35, so the refusal is real and the tool is the cause) and once as copper, and requires the first to answer `unusable / pickaxe-cannot-damage` and the second `usable / observed-native-ore` with a positive remaining estimate. Three cells rather than one because the estimate is taken per tile and summed, so a single-cell scene cannot tell a whole-vein answer from a per-tile one, and a premise row refuses the scene outright if the flood did not join them.
 

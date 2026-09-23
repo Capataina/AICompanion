@@ -147,11 +147,10 @@ internal static class RenderNativeInterface
         var mine = new live::AICompanion.Companion.Brain.Activities.Gathering.MineOre();
         var target = new Point(20, 33);
         Tile oreTile = Main.tile[20, 33]; oreTile.HasTile = true; oreTile.TileType = Terraria.ID.TileID.Copper;
-        var ore = new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.OreFinder.OreTarget(target, Terraria.ID.TileID.Copper, new Vector2(320, 320));
-        mine.GetType().GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(mine, ore);
-        // This is a retained-state rendering fixture, not a discovery run. The public
-        // activity target comes from preparation, separately from the native ore target.
-        mine.GetType().GetField("preparedTarget", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(mine, target.ToWorldCoordinates());
+        // This is a retained-state rendering fixture, not a discovery run. Mining's target is the step the course
+        // binds, and no course runs here, so the activity is selected with no step; the seeded ore tile and the tool
+        // region below are what the Execution page draws from. It set mining's private `target` and
+        // `preparedTarget` by reflection until 23 September 2026, when both went with mining's own search.
         companion.Brain.Activity.Select(mine,
             new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses));
         foreach (var entry in new[] { (Terraria.ID.ItemID.CopperOre, "Copper Ore"), (Terraria.ID.ItemID.Wood, "Wood"), (Terraria.ID.ItemID.Gel, "Gel") })

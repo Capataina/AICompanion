@@ -25,6 +25,41 @@ public sealed class GatheringOpportunityBinder : IOpportunityBinder
     public static string Tool(CapturedToolWork work) => $"tool:{work.ItemType}:{work.Prefix}:{work.Power}:{work.UseTime}";
     private static string Use(GatheringOpportunityFact site) => $"{site.Domain}:{site.TileX},{site.TileY}:{site.Material}";
 
+    /// <summary>
+    /// The exact tile and material a bound gathering step swings at, read back from the use this binder
+    /// wrote into <see cref="StepBinding.NativeUseId"/>. This is the one tile the hand may work.
+    ///
+    /// <para>It is read from the use rather than from <c>ExecuteCourseBinding.WorkTileOf</c>, because for ore
+    /// the two are different tiles. The ore opportunity's identity names the vein by its first tile in sorted
+    /// order, while the site the census admitted — and the stand, the need and this use — name the vein's
+    /// first tile with a proven approach. A vein whose first tile is sealed and whose second is exposed
+    /// therefore has an identity pointing at rock the hand cannot reach and a use pointing at the tile the
+    /// body was sent beside. For a tree the two coincide (the identity is the trunk's bottom), and reading
+    /// both domains through the use keeps one parser rather than two.</para>
+    ///
+    /// <para>A step of another domain, or a use this binder did not write, answers false: the caller is
+    /// handed a step it cannot perform and says so by name rather than guessing a tile.</para>
+    /// </summary>
+    public static bool TryReadUse(StepBinding step, string domain, out Microsoft.Xna.Framework.Point tile, out int material)
+    {
+        tile = default;
+        material = 0;
+        if (step.Opportunity.Domain != domain) return false;
+        string use = step.NativeUseId;
+        string prefix = domain + ":";
+        if (!use.StartsWith(prefix, StringComparison.Ordinal)) return false;
+        string[] parts = use.Substring(prefix.Length).Split(':');
+        if (parts.Length != 2) return false;
+        string[] xy = parts[0].Split(',');
+        if (xy.Length != 2
+            || !int.TryParse(xy[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int x)
+            || !int.TryParse(xy[1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int y)
+            || !int.TryParse(parts[1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out material))
+            return false;
+        tile = new Microsoft.Xna.Framework.Point(x, y);
+        return true;
+    }
+
     public BindingResult Bind(Opportunity opportunity, ProjectedCourseState state, TrackedFactReader facts,
         DecisionWorkCursor cursor, DecisionWorkBudget budget)
     {

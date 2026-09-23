@@ -19,6 +19,8 @@ using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movem
 using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 using TorchBearer = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.TorchBearer;
+using StepBinding = live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.StepBinding;
+using ExecuteCourseBinding = live::AICompanion.Companion.Brain.Infrastructure.Selection.ExecuteCourseBinding;
 
 /// <summary>
 /// P11's capability revision for the player-derived capabilities the companion reads live: tool reach
@@ -83,24 +85,29 @@ internal static class VerifyCapabilityRevision
         // never works from and the premise failed on geometry rather than on reach.
         Vector2 body = ctx.Npc.Center;
         Require(FindToolAccess.InReach(body, ore), "premise: the ore must be inside reach 5 from where the body hovers");
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0 && mine.TargetStandPosition == body,
-            $"premise: a vein in reach must be worked from where the body already is; stand={mine.TargetStandPosition} body={body} status={mine.Status}");
-        mine.Execute(ctx);
+        // Where the body is sent is the bound step's request, which is what the tick hands the positioner; the stand
+        // is the census's, re-derived when reach changes because reach is in the census's own signature.
+        PositionRequest Sent(StepBinding step) => ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center);
+        var step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", "premise: a vein in reach must be bound");
+        Require(Sent(step).Anchor == body,
+            $"premise: a vein in reach must be worked from where the body already is; request={Sent(step)} body={body}");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
         Require(mine.HandsBusy, $"premise: the first execution must swing; status={mine.Status}");
 
         Player.tileRangeX = 2;
         Require(!FindToolAccess.InReach(body, ore), "premise: reach 2 must not reach the ore from the same spot");
-        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        PositionRequest shrunk = mine.Execute(ctx);
+        step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", "the ore must still be bound under the smaller reach");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
+        PositionRequest shrunk = Sent(step);
         Require(!mine.HandsBusy, $"no swing may come from a pose the current reach cannot swing from; request={shrunk}");
         Require(shrunk.Kind == RequestKind.Exact && Vector2.DistanceSquared(shrunk.Anchor, body) > 4f
                 && FindToolAccess.InReach(shrunk.Anchor, ore),
-            $"the next preparation must re-derive a stand that reaches under the new reach, not hold the old one; request={shrunk} body={body} stand={mine.TargetStandPosition} status={mine.Status}");
+            $"the next decision must re-derive a stand that reaches under the new reach, not hold the old one; request={shrunk} body={body} status={mine.Status}");
 
         Player.tileRangeX = 5;
-        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(mine.TargetStandPosition == body,
-            $"once reach grows back, work from where the body is again instead of flying to the smaller reach's stand; stand={mine.TargetStandPosition} body={body}");
+        step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", "the ore must be bound again once reach grows");
+        Require(Sent(step).Anchor == body,
+            $"once reach grows back, work from where the body is again instead of flying to the smaller reach's stand; request={Sent(step)} body={body}");
     }
 
     private static void MiningRediscoversOnReachIncrease()
@@ -119,14 +126,14 @@ internal static class VerifyCapabilityRevision
         // the thing it was written for: the offer arrives on the very next preparation rather than after the
         // discovery cadence.
         Player.tileRangeX = Player.tileRangeY = 0;
-        float small = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(small == 0f, $"premise: no pose reaches a solid ore tile at reach 0, because the only one would be inside it; value={small} status={mine.Status} offer={mine.Eligibility}/{mine.EligibilityReason}");
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null,
+            $"premise: no pose reaches a solid ore tile at reach 0, because the only one would be inside it; {DriveGatheringThroughTheCourse.Account(ctx)}");
 
         Player.tileRangeX = 5;
         Player.tileRangeY = 11;
-        float grown = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(grown > 0f && mine.Eligibility == OfferEligibility.Usable && mine.TargetTile == ore,
-            $"a reach that now covers the ore must be offered on the next preparation, not after the search cadence; value={grown} status={mine.Status} offer={mine.Eligibility}/{mine.EligibilityReason}");
+        var step = DriveGatheringThroughTheCourse.Decide(ctx, "mine");
+        Require(step != null && DriveGatheringThroughTheCourse.Tile(step) == ore,
+            $"a reach that now covers the ore must be bound on the next decision, not after any cadence; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     // ── chopping ─────────────────────────────────────────────────────────────────────────────
@@ -142,55 +149,58 @@ internal static class VerifyCapabilityRevision
         TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
         TerrainChanges.Reset();
         WorkPolicies.Chopping = WorkPolicy.Opportunistic;
-        return (new ChopTree(), ctx, bottom);
+        return (ctx.Companion.Brain.Actions.OfType<ChopTree>().Single(), ctx, bottom);
     }
 
     private static void ChoppingStandFollowsReach()
     {
         var (chop, ctx, trunk) = SetUpTree();
         Vector2 feet = ctx.Npc.Bottom;
-        Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0, $"premise: a trunk inside reach must be offered; offer={chop.Eligibility}/{chop.EligibilityReason}");
-        chop.Execute(ctx);
-        Require(chop.HandsBusy, "premise: the first execution must swing from the feet");
+        var step = DriveGatheringThroughTheCourse.Bind(ctx, "chop", "premise: a trunk inside reach must be bound");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
+        Require(chop.HandsBusy, $"premise: the first execution must swing from where the body is; status={chop.Status}");
 
         Player.tileRangeX = 2;
         Require(!FindToolAccess.InReach(feet, trunk), "premise: reach 2 must not reach the trunk from the same feet");
-        VerifyPreparedActivities.PrepareAndScore(chop, ctx);
-        PositionRequest shrunk = chop.Execute(ctx);
+        step = DriveGatheringThroughTheCourse.Bind(ctx, "chop", "the trunk must still be bound under the smaller reach");
+        DriveGatheringThroughTheCourse.Perform(ctx, step);
+        PositionRequest shrunk = ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center);
         Require(!chop.HandsBusy && shrunk.Kind == RequestKind.Exact && FindToolAccess.InReach(shrunk.Anchor, trunk),
-            $"chopping must walk to a stand that reaches under the new reach; request={shrunk} feet={feet} offer={chop.Eligibility}/{chop.EligibilityReason}");
+            $"chopping must be sent to a stand that reaches under the new reach; request={shrunk} feet={feet} status={chop.Status}");
     }
 
     private static void ChoppingDeferralEndsOnReachIncrease()
     {
-        var (chop, ctx, trunk) = SetUpTree();
+        var (_, ctx, trunk) = SetUpTree();
         Player.tileRangeX = Player.tileRangeY = 0;
-        float none = VerifyPreparedActivities.PrepareAndScore(chop, ctx);
-        Require(none == 0f, $"premise: no pose reaches a trunk at reach 0; value={none} offer={chop.Eligibility}/{chop.EligibilityReason}");
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "chop") == null,
+            $"premise: no pose reaches a trunk at reach 0; {DriveGatheringThroughTheCourse.Account(ctx)}");
 
         Player.tileRangeX = Player.tileRangeY = 5;
         Require(FindToolAccess.InReach(ctx.Npc.Center, trunk), "premise: reach 5 reaches the trunk from where the body hovers");
-        float grown = VerifyPreparedActivities.PrepareAndScore(chop, ctx);
-        Require(grown > 0f && chop.Eligibility == OfferEligibility.Usable,
-            $"a trunk refused under a smaller reach must be offered once the reach covers it, not after its deferral expires; value={grown} offer={chop.Eligibility}/{chop.EligibilityReason}");
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "chop") is { } step && DriveGatheringThroughTheCourse.Tile(step) == trunk,
+            $"a trunk refused under a smaller reach must be bound once the reach covers it, on the next decision; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void ChoppingRemainingWorkFollowsTheAxe()
     {
-        var (chop, ctx, _) = SetUpTree();
+        var (_, ctx, trunk) = SetUpTree();
         // The companion's axe is the one in its own axe slot (gear slot index 3), never the player's
-        // held tool, so the swap is made in the gear.
+        // held tool, so the swap is made in the gear. The work each axe would do is the census's, which is what
+        // the course prices and binds, and a changed axe is in the census's own signature.
         var gear = ctx.Player.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
         gear.Slots[3].SetDefaults(ItemID.CopperAxe);
-        float copperValue = VerifyPreparedActivities.PrepareAndScore(chop, ctx);
-        var copperWork = chop.RemainingWork;
-        Require(copperValue > 0 && copperWork != null,
-            $"premise: a copper axe must price the trunk; offer={chop.Eligibility}/{chop.EligibilityReason}");
-        var copper = copperWork!.Value;
+        var copperSite = DriveGatheringThroughTheCourse.Site(ctx, "chop-target", trunk);
+        Require(copperSite?.Work is { DamagePerHit: > 0 } && DriveGatheringThroughTheCourse.Decide(ctx, "chop") != null,
+            $"premise: a copper axe must price and bind the trunk; census={copperSite}; {DriveGatheringThroughTheCourse.Account(ctx)}");
+        var copper = copperSite!.Work!;
         gear.Slots[3].SetDefaults(ItemID.GoldAxe);
-        VerifyPreparedActivities.PrepareAndScore(chop, ctx);
-        Require(chop.RemainingWork is { } gold && gold.DamagePerHit > copper.DamagePerHit && gold.Hits <= copper.Hits,
-            $"a stronger axe must price the same trunk with its own damage on the next preparation; copper={copper} gold={chop.RemainingWork}");
+        var goldSite = DriveGatheringThroughTheCourse.Site(ctx, "chop-target", trunk);
+        var gold = goldSite?.Work;
+        Require(gold != null && gold.DamagePerHit > copper.DamagePerHit && gold.ItemType == ItemID.GoldAxe,
+            $"a stronger axe must price the same trunk with its own damage on the next capture; copper={copper} gold={gold}");
+        Require(DriveGatheringThroughTheCourse.Decide(ctx, "chop") is { } bound && bound.Tool.Contains($":{gold!.Power}:", System.StringComparison.Ordinal),
+            $"the step bound after the swap must carry the gold axe; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     // ── lighting and pots (one shared interaction base) ──────────────────────────────────────

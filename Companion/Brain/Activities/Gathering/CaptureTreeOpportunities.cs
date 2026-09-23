@@ -40,7 +40,9 @@ public sealed class CaptureTreeOpportunities
     private Rectangle held;
     private int terrainRevision;
     private long lastAttempt;
-    private (int Type, int Prefix, int Power, int UseTime) tool;
+    /// <summary>The axe and the player's tool reach the admissions were proved under; reach is here for the reason the ore
+    /// census's pick signature carries it — every published stand is a cell within reach of its trunk.</summary>
+    private (int Type, int Prefix, int Power, int UseTime, (int X, int Y) Reach) tool;
     private WorkPolicy policy;
     private (int Generation, bool Complete, Point Body, Point? PlayerTree, bool Chopping, float Allowance) geometry;
 
@@ -52,7 +54,7 @@ public sealed class CaptureTreeOpportunities
         Point centre = context.Senses.Intent.Region.Heading.ToTileCoordinates();
         Rectangle wanted = new(centre.X - radius, centre.Y - radius, radius * 2 + 1, radius * 2 + 1);
         Item axe = TileChopper.AxeFor(context.Player);
-        var signature = (axe.type, (int)axe.prefix, axe.axe, axe.useTime);
+        var signature = (axe.type, (int)axe.prefix, axe.axe, axe.useTime, FindToolAccess.Reach);
         long attempt = context.Companion.Chopper.LastOutcome?.Attempt ?? -1;
         var currentGeometry = (context.Senses.Reach.FloodGeneration, context.Senses.Reach.Complete,
             context.Npc.Center.ToTileCoordinates(), context.Senses.Player.ChoppedTree, context.Senses.Player.IsChoppingTree,
@@ -129,10 +131,24 @@ public sealed class CaptureTreeOpportunities
         if (complete)
         {
             previous = trees.Keys.ToHashSet();
+            // The player's own trunk is work only when nothing else is: while he cuts one tree the companion
+            // chooses another, and shares his only when there is no other. That preference can only be
+            // decided where every trunk is known, which is here — it used to live in chopping's private
+            // search, and when that search was deleted in favour of the course's binding the preference would
+            // have gone with it and the companion would have crowded his tree. Under Mimic his trunk is
+            // already refused one by one in `Admit`; this is the Opportunistic half. It is applied at
+            // publication rather than in `Admit` because it is a fact about the whole census, and it reads
+            // the player's trunk from this capture, so a new player trunk reaches the course on this tick
+            // rather than after a re-answer round.
+            Point? playerTrunk = context.Senses.Player.ChoppedTree;
+            bool anotherIsFree = playerTrunk is Point taken
+                && trees.Any(entry => entry.Key != taken && entry.Value.Admission == "usable");
             foreach (GatheringOpportunityFact tree in trees.Values.OrderBy(tree => tree.Target, StringComparer.Ordinal))
             {
                 double amount = trees.Values.Where(other => other.Material == tree.Material).Sum(other => other.RemainingAmount);
                 GatheringOpportunityFact value = tree with { CensusAmount = amount };
+                if (anotherIsFree && playerTrunk == new Point(tree.TileX, tree.TileY) && value.Admission == "usable")
+                    value = value with { Admission = "unusable", Reason = "player-active-trunk-another-is-free" };
                 facts.Add(Fact(new("chop-target", value.Target, value.Generation), value,
                     value.Admission == "unknown" ? FactEvidence.Unresolved : FactEvidence.Observed));
             }
