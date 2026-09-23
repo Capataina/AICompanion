@@ -60,6 +60,7 @@ internal static class VerifyCollectionContracts
         Each("D2 a drop merged into another world drop", ADropMergedIntoAnotherWorldDropIsNotAPurposeThatWentAway);
         Each("D3 a drop released in the air is offered at its forecast landing", ADropStillFallingIsOfferedAtItsForecastLanding);
         Each("D3b a drop falling through liquid is offered where the liquid will put it", ADropFallingThroughLiquidIsOfferedWhereTheLiquidWillPutIt);
+        Each("D4 a bound drop whose slot now holds another item is refused by name, and the same drop unreplaced is walked to", ABoundDropReplacedByAnotherTypeIsRefused);
         // Timings under the production allowances, printed and never asserted: they describe this machine.
         foreach (bool warmUp in new[] { true, false })
             foreach (bool pit in new[] { false, true })
@@ -637,6 +638,36 @@ internal static class VerifyCollectionContracts
         owner.BeginExecution();
         collect.Execute(ctx);
         return step;
+    }
+
+    /// <summary>
+    /// The hand revalidates a bound drop against its world slot and the item type the census saw there, and refuses a slot
+    /// that holds something else rather than following it. Nothing pinned that guard until 23 September 2026. It is reachable
+    /// only before the hand's first walk opens an attempt, since after that the attempt's own object is what is compared, so
+    /// the slot is replaced between the hand-over and the first execution. The control is the same drop unreplaced, which the
+    /// hand must walk to, because a hand that held on every step would pass the first half.
+    /// </summary>
+    private static void ABoundDropReplacedByAnotherTypeIsRefused()
+    {
+        foreach (bool replace in new[] { false, true })
+        {
+            var ctx = SetUpFloor();
+            Item drop = Drop(ItemID.CopperOre, 5, new Vector2(34 * 16 + 8, 60 * 16));
+            var collect = ctx.Companion.Brain.Actions.OfType<CollectNearbyItems>().Single();
+            string target = $"item:{drop.whoAmI}";
+            var step = VerifyAssistanceTrips.BindCensusSite(ctx, "collect-target", o => o.Key.Target == target, target);
+            var owner = ctx.Companion.Brain.Activity;
+            owner.Select(collect, ctx, step);
+            owner.BeginExecution();
+            if (replace) Drop(ItemID.IronOre, 5, drop.Bottom, drop.whoAmI);
+            var request = collect.Execute(ctx);
+            if (replace)
+                Require(request.Kind == RequestKind.Hold && collect.StepRefusal == "bound-drop-left-world",
+                    $"a bound drop whose slot now holds iron ore must be refused by name, not walked to; request={request.Kind} refusal={collect.StepRefusal ?? "none"}");
+            else
+                Require(request.Kind != RequestKind.Hold && collect.StepRefusal == null,
+                    $"control: the same bound drop unreplaced must be walked to; request={request.Kind} refusal={collect.StepRefusal ?? "none"}");
+        }
     }
 
     internal static ActionContext SetUpFloor()

@@ -77,6 +77,7 @@ internal static class VerifyGatheringCooperation
         Each("policy toggles during every phase", PolicyTogglesDuringEveryToolPhaseStopWorkAndResume);
         Each("D4 Mimic after Disabled reads no stale player hit", AMimicSwitchAfterDisabledReadsNoStalePlayerHit);
         Each("D5 under Mimic the census keeps a trunk for chopping's whole contact window, and not past it", TheCensusKeepsChoppingsMimicWindow);
+        Each("D6 under Mimic the census admits only the ore type the player last hit", MimicAdmitsOnlyThePlayersOreType);
         Each("G01 unmineable ore beside a usable tree", AnUnmineableOreDoesNotMaskAUsableTree);
         Each("G03 one trip unit", MiningAndChoppingPriceTravelInOneUnit);
         if (red == 0) Console.WriteLine("gathering cooperation: actual-reach chopping, trunk hand-over, external felling, protection and policy changes in every phase, and an unmineable ore beside a usable tree pass");
@@ -392,6 +393,35 @@ internal static class VerifyGatheringCooperation
         Require(past?.Reason == "mimic-awaiting-player-tree-contact",
             $"past chopping's contact window the trunk must wait for the player; census={past?.Admission}/{past?.Reason} "
             + $"hand={chop.Eligibility}/{chop.EligibilityReason} policy={WorkPolicies.Chopping} contact={ctx.Companion.Brain.Senses.Player.IsChoppingTree}");
+    }
+
+    /// <summary>
+    /// Mimic mining copies what the player is doing, which is one ore type: a player mining copper beside a tin vein wants
+    /// copper, not tin. The census refuses the other type as `mimic-other-ore-type`, and until 23 September 2026 no row said
+    /// so — the gate could have been deleted with every row here green. Copper and tin both in reach, the player strikes the
+    /// copper: tin must be refused by that name and copper admitted, the second half being what stops a census that refuses
+    /// everything under Mimic from passing.
+    /// </summary>
+    private static void MimicAdmitsOnlyThePlayersOreType()
+    {
+        Point copper = new(22, 59), tin = new(26, 59);
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Mimic, TileID.Copper, copper);
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        Main.tileSolid[TileID.Tin] = true;
+        VerifyOreWork.Place(tin, TileID.Tin);
+        TerrainChanges.Reset();
+        VerifyOreWork.ResettleReach(ctx);
+        var workClock = new TileDamageClock();
+        workClock.OnWorldLoad();
+        bool fail = true, effectOnly = false, noItem = false;
+        new TileDamageWatcher().KillTile(copper.X, copper.Y, TileID.Copper, ref fail, ref effectOnly, ref noItem);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
+        var copperSite = DriveGatheringThroughTheCourse.Site(ctx, "mine-target", copper);
+        var tinSite = DriveGatheringThroughTheCourse.Site(ctx, "mine-target", tin);
+        Require(tinSite?.Reason == "mimic-other-ore-type",
+            $"under Mimic the ore the player is not mining must be refused by type; tin census={tinSite?.Admission}/{tinSite?.Reason}");
+        Require(copperSite?.Admission == "usable",
+            $"under Mimic the ore type the player just hit must be admitted; copper census={copperSite?.Admission}/{copperSite?.Reason}");
     }
 
     /// <summary>Copper the fallback pick cannot damage beside the companion, and a usable tree farther away. The unmineable ore
