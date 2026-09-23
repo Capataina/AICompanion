@@ -148,7 +148,8 @@ public sealed class DecideCourseEachTick
     /// every three-valued answer in this tree exists to preserve.</summary>
     public IReadOnlyList<OpportunityCoverage> Coverage => discovery.Coverage;
 
-    /// <summary>Every candidate discovery is currently serving the search, for a reader that needs the
+    /// <summary>Every candidate discovery is currently holding, before the ones a performing hand refused are withheld
+    /// (<see cref="RefusedByPerformer"/> names those, and the decision's structural tally counts them), for a reader that needs the
     /// individual keys rather than the per-domain counts <see cref="Admitted"/> aggregates. A count says
     /// three combat opportunities are usable; only the keys say which three, and which observation each
     /// was admitted against — which is the difference between diagnosing a census and diagnosing a
@@ -304,9 +305,11 @@ public sealed class DecideCourseEachTick
     /// observation does not carry — a tile edited without an announcement, a placer refusing a site the census
     /// admitted, cargo that stopped taking the drop. Until 23 September 2026 the course never heard, so it bound the
     /// same step again on the next tick and the hand refused it again: 111 invalid attempts in 115 ticks on the lane
-    /// B review's silent-edit scene, with the body parked at the stand. The course is released at once, a decision in
-    /// flight is dropped because it may be about to publish the same step, and the opportunity is withheld until
-    /// something the hand's check reads has changed.
+    /// B review's silent-edit scene, with the body parked at the stand. The course is released at once and the
+    /// opportunity is withheld until something the hand's check reads has changed. The tick only forwards a refusal of a
+    /// step it carried, which happens with no decision in flight, so the in-flight drop inside `Interrupt` is never
+    /// reached from the tick today; it stays because a caller refusing mid-decision would otherwise let that decision
+    /// publish the step just refused (the lone-sentinel review of ad012f2 traced this).
     /// </summary>
     public void PerformerRefused(in ActionContext context, StepBinding step, string reason)
     {
@@ -329,8 +332,24 @@ public sealed class DecideCourseEachTick
             context.Player.GetModPlayer<PlayerIntegration.CompanionPlayer>().Gear, context.Companion.Bag,
             PlayerIntegration.CompanionPreferences.Current);
 
+    /// <summary>The reason candidates withheld after a performer's refusal are written under in the capture's
+    /// `structurally-refused:` entries. It counts candidates rather than orders, which the name says, and it rides the
+    /// structural tally rather than the evidence one because the audit's contracts read only the evidence refusals and a
+    /// withholding is not one. Without it a withheld vein read in the record as usable work beside an empty course with
+    /// no refusal at all, which is the one record nobody could explain after a play.</summary>
+    public const string WithheldAfterPerformerRefusal = "candidates-withheld-after-performer-refusal";
+    private int withheldThisDecision;
+
+    private IReadOnlyDictionary<string, int> WithWithheld(IReadOnlyDictionary<string, int> structural)
+    {
+        if (withheldThisDecision == 0) return structural;
+        var merged = new Dictionary<string, int>(structural, StringComparer.Ordinal) { [WithheldAfterPerformerRefusal] = withheldThisDecision };
+        return merged;
+    }
+
     private IReadOnlyList<Opportunity> WithoutRefusedByPerformer(in ActionContext context, IReadOnlyList<Opportunity> candidates)
     {
+        withheldThisDecision = 0;
         if (refusedByPerformer.Count == 0) return candidates;
         ObservedDecisionCapabilities means = ObserveMeans(context);
         ulong now = Terraria.Main.GameUpdateCount;
@@ -343,7 +362,9 @@ public sealed class DecideCourseEachTick
                 refusedByPerformer.Remove(key);
         }
         if (refusedByPerformer.Count == 0) return candidates;
-        return candidates.Where(candidate => !refusedByPerformer.ContainsKey(candidate.Key)).ToList();
+        var kept = candidates.Where(candidate => !refusedByPerformer.ContainsKey(candidate.Key)).ToList();
+        withheldThisDecision = candidates.Count - kept.Count;
+        return kept;
     }
 
     /// <summary>
@@ -390,7 +411,7 @@ public sealed class DecideCourseEachTick
             Advance(deciding, models, budget);
             LastSearch = (deciding.EvaluatedOrders, deciding.RejectedOrders, deciding.Exhausted);
             LastRefusals = deciding.Refusals;
-            LastStructuralRefusals = deciding.StructuralRefusals;
+            LastStructuralRefusals = WithWithheld(deciding.StructuralRefusals);
             LastLeaders = deciding.Leaders;
             LastRunnerUpOrder = RunnerUpOf(deciding);
             if (!deciding.Exhausted) return Deciding(context);
@@ -468,7 +489,7 @@ public sealed class DecideCourseEachTick
         Advance(search, models, budget);
         LastSearch = (search.EvaluatedOrders, search.RejectedOrders, search.Exhausted);
         LastRefusals = search.Refusals;
-        LastStructuralRefusals = search.StructuralRefusals;
+        LastStructuralRefusals = WithWithheld(search.StructuralRefusals);
         LastLeaders = search.Leaders;
         LastRunnerUpOrder = RunnerUpOf(search);
         deciding = search;

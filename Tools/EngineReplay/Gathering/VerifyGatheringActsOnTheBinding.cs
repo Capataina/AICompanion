@@ -44,7 +44,7 @@ internal static class VerifyGatheringActsOnTheBinding
          + RunOneRow.Case("a bound ore that a home now protects is refused by name and not struck", AProtectedBoundOreIsRefused)
          + RunOneRow.Case("a bound trunk that became another tree is refused by name and not struck", AChangedBoundTrunkIsRefused)
          + RunOneRow.Case("an ore tile changed with no announcement does not starve the rest of its vein", ASilentEditDoesNotStarveTheVein)
-         + RunOneRow.Case("a step the performing hand refuses ends at once and is not ordered again until its census fact changes",
+         + RunOneRow.Case("a step the performing hand refuses ends at once and is not ordered again until an edit within reach of it",
                ARefusedStepEndsAndIsNotOrderedAgain);
 
     /// <summary>A performer that refuses every step it is handed, standing in for a hand whose live check disagrees with the
@@ -70,9 +70,9 @@ internal static class VerifyGatheringActsOnTheBinding
     /// Until 23 September 2026 the course never heard a hand's refusal, so a step the hand could not perform was bound again
     /// on the next tick and refused again for as long as the census went on describing it — the lane B review measured 111
     /// invalid attempts in 115 ticks. The tick now hands the refusal to the course, which releases the course and withholds
-    /// that opportunity until the census publishes it at another revision. Over 120 ticks the refusing hand must be handed the
-    /// vein at most twice; then an announced edit that grows the vein must have it ordered again, because a refusal is a proof
-    /// about the target as the census last described it and no longer.
+    /// that opportunity until something the hand's check reads changes. Over 120 ticks the refusing hand must be handed the
+    /// vein at most twice, and the capture's structural tally must name the withholding; an announced edit far outside tool
+    /// reach of the vein must not release it; and an announced edit that grows the vein must have it ordered again.
     /// </summary>
     private static void ARefusedStepEndsAndIsNotOrderedAgain()
     {
@@ -91,6 +91,17 @@ internal static class VerifyGatheringActsOnTheBinding
             Require(refusing.Handed <= 2,
                 $"a refused step must not be ordered again while its census fact is unchanged; handed {refusing.Handed} times in 120 ticks, "
                 + $"withheld=[{string.Join(", ", brain.Course.RefusedByPerformer)}]");
+            // The withholding must be in the record, or a vein the course ignores reads as usable work beside an empty course.
+            string withheld = live::AICompanion.Companion.Brain.Infrastructure.Selection.DecideCourseEachTick.WithheldAfterPerformerRefusal;
+            Require(brain.Course.LastStructuralRefusals.TryGetValue(withheld, out int count) && count >= 1,
+                $"the decision's structural tally must count the withheld vein; tally=[{string.Join(", ", brain.Course.LastStructuralRefusals.Select(e => e.Key + "=" + e.Value))}]");
+            // An announced edit far outside tool reach of the vein changes nothing the hand's check reads.
+            VerifyOreWork.Place(new Point(80, 40), TileID.Dirt);
+            TerrainChanges.Changed(80, 40);
+            int beforeFar = refusing.Handed;
+            for (int tick = 0; tick < 60; tick++) VerifyOreWork.AdvanceBrain(ctx);
+            Require(refusing.Handed == beforeFar,
+                $"an announced edit far from the vein must not release its withholding; handed {refusing.Handed - beforeFar} more times after it");
             int before = refusing.Handed;
             VerifyOreWork.Place(new Point(25, 59), TileID.Copper);
             TerrainChanges.Changed(25, 59);
