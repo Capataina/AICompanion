@@ -91,7 +91,7 @@ The standalone flags are the fourth row's cause and it is structural rather than
 --retained-course-recording   the bounded ordered diagnostic transport and the native event chronology
 --retained-course-combat      a captured combat use binding and validating, and a planned use carrying simulator damage
 --retained-course-budget      the shared allowance cutting every consumer, and a useful opener surviving a broader cut
---capability           reach and tool power changing what is offered on the next preparation
+--capability           reach and tool power changing what the gathering censuses admit next
 --light-senses         the light field and the reach flood, and their three-valued answers
 --doors                the native door helper, announced toggles, locked doors
 --courtesy             placement and passage footprints moving the body out of the way

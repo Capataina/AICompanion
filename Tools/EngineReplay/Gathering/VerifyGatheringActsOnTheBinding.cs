@@ -40,7 +40,80 @@ internal static class VerifyGatheringActsOnTheBinding
          + RunOneRow.Case("a bound ore that became another ore is refused by name and not struck",
                AChangedBoundOreIsRefused)
          + RunOneRow.Case("a mine step strikes the tile its use names, which is not the vein's identity tile when that one is sealed",
-               AMineStepStrikesItsUseTileNotTheVeinIdentity);
+               AMineStepStrikesItsUseTileNotTheVeinIdentity)
+         + RunOneRow.Case("a bound ore that a home now protects is refused by name and not struck", AProtectedBoundOreIsRefused)
+         + RunOneRow.Case("a bound trunk that became another tree is refused by name and not struck", AChangedBoundTrunkIsRefused);
+
+    /// <summary>
+    /// The course binds an ore, and a bed placed beside it before the swing makes it part of a protected home.
+    /// Protection is observed at the swing rather than trusted from the admission, so the step is refused with
+    /// the protection's own name — the cooperation fixture's W05 proves the hand stops under protection, and this
+    /// row proves which rung of the ladder stopped it.
+    /// </summary>
+    private static void AProtectedBoundOreIsRefused()
+    {
+        Point ore = new(22, 59);
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        try
+        {
+            StepBinding step = BindThroughTheCourse(ctx, "mine");
+            VerifyGatheringCooperation.PlaceBed(new Point(24, 58));
+            live::AICompanion.Companion.Brain.Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.Refresh(ctx.Player.Bottom, ctx.Npc.Bottom);
+            Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(ore),
+                "premise: the bed must protect the bound ore, or the row is about something else");
+            Require(Main.tile[ore.X, ore.Y].TileType == TileID.Copper && FindToolAccess.InReach(ctx.Npc.Center, ore),
+                "premise: the ore must still stand as bound and in reach, so protection is the only thing left to refuse it");
+            var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
+            PerformOnce(ctx, step);
+            Require(ctx.Companion.Miner.LastOutcome == null,
+                $"a bound ore a home now protects must not be struck; the pickaxe struck {Describe(ctx.Companion.Miner.LastOutcome?.Target)}");
+            Require(mine.Status == "bound tile in protected home",
+                $"the refusal must name the protected home; status '{mine.Status}'");
+        }
+        finally
+        {
+            live::AICompanion.Companion.Brain.Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.Reset();
+        }
+    }
+
+    /// <summary>
+    /// The course binds an ordinary trunk, and before the swing its bottom tile becomes a palm. The axe could fell a
+    /// palm, so without the material check the hand would chop a tree nobody bound; the step is refused by name.
+    /// </summary>
+    private static void AChangedBoundTrunkIsRefused()
+    {
+        Point trunk = new(22, 59);
+        Point placeholder = new(40, 59);
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Disabled, TileID.Copper, placeholder);
+        Main.tile[placeholder.X, placeholder.Y].ClearEverything();
+        WorkPolicies.Chopping = WorkPolicy.Opportunistic;
+        foreach (ushort type in new[] { TileID.Trees, TileID.PalmTree })
+        {
+            Main.tileAxe[type] = true;
+            Main.tileSolid[type] = false;
+        }
+        TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
+        VerifyOreWork.Place(trunk, TileID.Trees);
+        TerrainChanges.Reset();
+        VerifyOreWork.ResettleReach(ctx);
+        StepBinding step = BindThroughTheCourse(ctx, "chop");
+        Require(GatheringOpportunityBinder.TryReadUse(step, "chop-target", out Point bound, out _) && bound == trunk,
+            $"premise: the course must bind the only trunk; bound use '{step.NativeUseId}'");
+        Tile changed = Main.tile[trunk.X, trunk.Y];
+        changed.TileType = TileID.PalmTree;
+        TerrainChanges.Changed(trunk.X, trunk.Y);
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping.TileChopper.TreeStands(trunk),
+            "premise: the replacement must still stand as a tree, or the no-longer-stands rung would refuse it first");
+        var chop = ctx.Companion.Brain.Actions.OfType<ChopTree>().Single();
+        ctx.Companion.Brain.Activity.Select(chop, ctx, step);
+        ctx.Companion.Brain.Activity.BeginExecution();
+        chop.Execute(ctx);
+        Require(ctx.Companion.Chopper.LastOutcome == null,
+            $"a bound trunk that became another tree must not be struck; the axe struck {Describe(ctx.Companion.Chopper.LastOutcome?.Target)}");
+        Require(chop.Status == "bound-trunk-material-changed",
+            $"the refusal must say the bound trunk's material changed; status '{chop.Status}'");
+    }
 
     /// <summary>
     /// A two-tile copper vein whose first tile in sorted order is sealed on every open side and whose second is

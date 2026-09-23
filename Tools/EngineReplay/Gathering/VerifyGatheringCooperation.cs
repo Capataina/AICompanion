@@ -465,7 +465,7 @@ internal static class VerifyGatheringCooperation
     }
 
     /// <summary>A four-by-two bed with no enclosing room, which protects its conservative vicinity, announced as a terrain edit.</summary>
-    private static List<Point> PlaceBed(Point origin)
+    internal static List<Point> PlaceBed(Point origin)
     {
         var tiles = new List<Point>();
         for (int x = 0; x < 4; x++)
