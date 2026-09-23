@@ -32,8 +32,9 @@ public readonly record struct IncidentalInteraction(ulong Tick, Point Tile, stri
 /// more whether the use still holds.</para>
 ///
 /// <para>The contract is still mostly what it refuses: an ordinary execution tick whose final grant left the hand Available and whose arm did not
-/// just fire; only within actual reach of the current pose; never the executing step's own target, since that activity will do it and counting
-/// it here would count one benefit twice; and never a position request, a movement write or productive work recorded, so no activity's value or
+/// just fire; only within actual reach of the current pose; never a site the published course holds — the executing step's own, since that
+/// activity will do it and counting it here would count one benefit twice, nor a later step's, since breaking it early would replace the
+/// running course; and never a position request, a movement write or productive work recorded, so no activity's value or
 /// attempt conclusion includes it. A detour that would need a new destination is not incidental; it is a course step.</para>
 /// </summary>
 public sealed class ConsiderIncidentalInteractions
@@ -43,6 +44,7 @@ public sealed class ConsiderIncidentalInteractions
     private readonly LightUsefulArea lighting = new();
     private ulong nextScan;
     private readonly List<(float Distance, FactKey Site, Point Tile, PerformNearbyWorldWork Method)> inReach = new();
+    private readonly HashSet<(string Domain, string Target)> planned = new();
 
     /// <summary>The last incidental interaction that produced its native effect, or none.</summary>
     public IncidentalInteraction? Last { get; private set; }
@@ -60,8 +62,14 @@ public sealed class ConsiderIncidentalInteractions
         if (course.Facts is not { } facts) return;
         nextScan = now + (ulong)Weights.IncidentalScanTicks;
 
-        // The executing step's own site is that activity's to work, and it will.
-        OpportunityKey? own = ctx.Companion.Brain.Activity.Binding?.Opportunity;
+        // Every site the published course holds is the course's to work, in its order: the executing step's because that activity
+        // will do it, and a later step's because breaking it in passing would invalidate that step and replace the running course,
+        // which acceptance is not allowed to do. The executing activity's own binding is added for an unsettled tick, where the
+        // activity may carry a step the course has not published.
+        planned.Clear();
+        if (course.Course.Current is { } published)
+            foreach (StepBinding step in published.Projection.Steps) planned.Add((step.Opportunity.Domain, step.Opportunity.Target));
+        if (ctx.Companion.Brain.Activity.Binding is { } own) planned.Add((own.Opportunity.Domain, own.Opportunity.Target));
         inReach.Clear();
         foreach (DecisionFact fact in facts.Facts)
         {
@@ -76,7 +84,7 @@ public sealed class ConsiderIncidentalInteractions
             };
             if (use is not { } found) continue;
             PerformNearbyWorldWork method = found.Method;
-            if (own is { } bound && bound.Domain == fact.Key.Kind && bound.Target == fact.Key.Identity) continue;
+            if (planned.Contains((fact.Key.Kind, fact.Key.Identity))) continue;
             Point tile = ExecuteCourseBinding.WorkTileOf(new OpportunityKey(fact.Key.Kind, found.Purpose, fact.Key.Identity, fact.Key.Generation));
             if (!FindToolAccess.InReach(ctx.Npc.Center, tile)) continue;
             inReach.Add((Vector2.DistanceSquared(ctx.Npc.Center, tile.ToWorldCoordinates()), fact.Key, tile, method));

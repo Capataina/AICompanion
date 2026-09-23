@@ -73,6 +73,7 @@ internal static class VerifyAssistanceTrips
         Each("A2 the hand walks to the drop the course bound, not the nearer one its own search would take", TheHandTakesTheBoundDrop);
         Each("A2 the hand breaks the pot the course bound, not the nearer one its own search would take", TheHandBreaksTheBoundPot);
         Each("A3 a pot in reach during a recognised encounter is not broken in passing; the same pot with no encounter is", AnEncounterRefusesAPotInPassing);
+        Each("A3 a pot the published course holds as a step is left to the course, not broken in passing", APlannedPotIsLeftToTheCourse);
         if (red == 0) Console.WriteLine("assistance trips: trips need a way in the body fits through, a site above every floor pose is worked from a hover, and a pot on the way breaks incidentally only when permitted");
         return red;
     }
@@ -735,6 +736,33 @@ internal static class VerifyAssistanceTrips
     }
 
     /// <summary>
+    /// A permitted pot within reach that the course has just published as its own step. The in-passing scan must leave it to the course:
+    /// breaking it here would make the course's next use invalid and replace the running course, which an in-passing acceptance may
+    /// not do, and would take a step's benefit away from the activity that is about to perform it.
+    /// </summary>
+    private static void APlannedPotIsLeftToTheCourse()
+    {
+        Point placeholder = new(60, FloorRow - 1);
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
+        Main.tile[placeholder.X, placeholder.Y].ClearEverything();
+        foreach (Item slot in ctx.Companion.Bag.Items) slot.TurnToAir();
+        Preferences.Current.PotBreaking = true;
+        Preferences.Current.TorchPlacement = false;
+        Vector2 feet = ctx.Npc.Bottom;
+        Point pot = PlacePot(new Point((int)(feet.X / 16f) + 1, FloorRow - 2));
+        Point[] footprint = { pot, pot + new Point(1, 0), pot + new Point(0, 1), pot + new Point(1, 1) };
+        VerifyOreWork.ResettleReach(ctx);
+        ObserveForTheCourse(ctx, keepThePublishedCourse: true);
+        var steps = ctx.Companion.Brain.Course.Course.Current?.Projection.Steps;
+        Require(steps != null && steps.Any(s => s.Opportunity.Purpose == "break-pot" && s.Opportunity.Target == $"tile:{pot.X},{pot.Y}"),
+            $"premise: the course must have published the pot as its own step; steps=[{(steps == null ? "none" : string.Join(", ", steps.Select(s => s.Opportunity.ToString())))}]");
+        var incidental = new ConsiderIncidentalInteractions();
+        incidental.Consider(ctx, HandGrant.Available, false, null, 0);
+        Require(footprint.All(t => Main.tile[t.X, t.Y].HasTile) && incidental.Last == null,
+            $"a pot the published course holds must be left to the course; last={incidental.Last} answer={ctx.Companion.Brain.Course.LastIncidental}");
+    }
+
+    /// <summary>
     /// The census's own site as a bound collection step, through the real capture, the real source and the real binder, and the
     /// brain's collection activity to hand it to. The binding is zero-travel: which target the hand works does not depend on how long
     /// the course priced the journey, and synthesising a travel answer here would be a model result nobody computed.
@@ -798,7 +826,7 @@ internal static class VerifyAssistanceTrips
     /// census the scan proposes from and the course accepts against. The decision it starts is the course's own business; the row
     /// selects no activity, so nothing performs whatever it binds.
     /// </summary>
-    internal static void ObserveForTheCourse(ActionContext ctx)
+    internal static void ObserveForTheCourse(ActionContext ctx, bool keepThePublishedCourse = false)
     {
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         // Owned the way the tick owns it, because travel and the census borrow the standing allowance rather than minting one.
@@ -806,6 +834,10 @@ internal static class VerifyAssistanceTrips
         var allowance = LimitPlanningWork.Own(budget);
         try { ctx.Companion.Brain.Course.Decide(ctx, ctx.Companion.Combat, null, budget); }
         finally { allowance.Dispose(); }
+        // The decision may publish a course that plans the very pot the row proposes in passing, and the scan leaves a site the course
+        // holds to the course. The rows using this are about a body passing work nobody planned, so the published course is released
+        // and only the frozen observation is kept.
+        if (!keepThePublishedCourse) ctx.Companion.Brain.Course.Course.Release("fixture-passes-unplanned-work");
         Require(ctx.Companion.Brain.Course.Facts != null, "premise: the course froze no observation");
     }
 
