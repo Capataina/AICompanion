@@ -261,11 +261,11 @@ internal static class WorldRunEntry
         // capture it was built from, because a thin scene and a fixed brain produce the same number.
         if (args.Contains("--print-play"))
         {
-            Console.WriteLine("PLAY tick|reason|activity|step|usable|unresolved|refused|hostiles|drops|decide ms|refusals");
+            Console.WriteLine("PLAY tick|reason|activity|step|usable|unresolved|refused|hostiles|drops|decide ms|soonest arrival at player|refusals|leaders");
             foreach (RunTheWorld.PlayTick t in run.Play)
                 Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                    $"  {t.Tick}|{t.Reason}|{t.Activity}|{(t.HasStep ? "step" : "-")}|{t.UsableAdmitted}|{t.UnresolvedAdmitted}|{t.Refused}|{t.HostilesAlive}|{t.DropsPresent}|{t.DecideMs:0.0}|")
-                    + string.Join(",", t.Refusals.Select(r => $"{r.Key}={r.Value}")));
+                    $"  {t.Tick}|{t.Reason}|{t.Activity}|{(t.HasStep ? "step" : "-")}|{t.UsableAdmitted}|{t.UnresolvedAdmitted}|{t.Refused}|{t.HostilesAlive}|{t.DropsPresent}|{t.DecideMs:0.0}|{(float.IsFinite(t.SoonestArrivalTicks) ? t.SoonestArrivalTicks.ToString("0", CultureInfo.InvariantCulture) : "-")}|")
+                    + string.Join(",", t.Refusals.Select(r => $"{r.Key}={r.Value}")) + "|" + t.Leaders);
         }
 
         int failures = GradeThePlayMeasures.Grade(suite, route, run, stage, cast, preferences);

@@ -109,7 +109,14 @@ internal static class RunTheWorld
         /// one decision and is gone by the time any grader runs.
         /// </summary>
         long DecisionId,
-        int Facts)
+        int Facts,
+        /// <summary>
+        /// The best order each domain led in the decision standing on this tick, as its total and the
+        /// terms it is made of, so a losing fight says which term it lost on rather than only that it
+        /// lost. `task_order_runner_up` in the recorder carries the second-best total alone, and a total
+        /// cannot tell a fight that was too far away from one that could never kill anything.
+        /// </summary>
+        string Leaders)
     {
         /// <summary>
         /// Whether README's fight scenes want a fight on this tick.
@@ -292,6 +299,13 @@ internal static class RunTheWorld
     /// <summary>How many cumulative fired ticks retire the zombie: five arrows over several cooldown cycles, which proves the stance held the fight rather than firing once. Thirty was the first guess; the probe fired nine ticks in three hundred steps, the wooden bow's maximum rate, so thirty needs a thousand-tick slice for nothing the fifth shot does not prove.</summary>
     private const int FiredTicksToKill = 5;
 
+    /// <summary>`domain=total(u useful h harm s self g gap)` per leader, idle first, unknowns named when any.</summary>
+    private static string DescribeLeaders(IReadOnlyDictionary<string, live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.CourseValue> leaders)
+        => string.Join(" ", leaders.OrderBy(pair => pair.Key == "(idle)" ? "" : pair.Key, StringComparer.Ordinal)
+            .Select(pair => string.Create(CultureInfo.InvariantCulture,
+                $"{pair.Key}={pair.Value.Total.Nominal:0.000}(u{pair.Value.UsefulEffects:0.000} h{pair.Value.Harm:0.000} s{pair.Value.CompanionHarm:0.000} g{pair.Value.Companionship:0.000})")
+                + (pair.Value.Unknowns.Count == 0 ? "" : "[" + string.Join(",", pair.Value.Unknowns.Select(u => u.Split(':')[0]).Distinct()) + "]")));
+
     public static Outcome Play(ReadRecordedRoute.Route route, string worldSource, int seed)
     {
         // Unbounded planning, for the reason the suite already established and enforces: the live
@@ -445,7 +459,7 @@ internal static class RunTheWorld
                 companion.Combat.LastFireOutcome == "fired",
                 Actors?.HostilesAlive ?? 0, Actors?.DropsPresent ?? 0,
                 brain.LastAction?.Name == "combat", inRegion, atPlayer, atCompanion, soonest,
-                course.DecisionId, course.Facts?.Facts.Count ?? 0));
+                course.DecisionId, course.Facts?.Facts.Count ?? 0, DescribeLeaders(course.LastLeaders)));
             // Asked after the tick's resolve, because the reach flood is advanced by the
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.
