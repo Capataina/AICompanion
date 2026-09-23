@@ -69,6 +69,33 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     {
         AcceptedUse = null;
         acceptedPlan = null;
+        AcceptOutcome = reason;
+    }
+
+    /// <summary>What adopting the last handed step came to: `accepted`, or why the step names no use
+    /// in the plan this stance holds. A reading for diagnostics; firing does not consult it.</summary>
+    public string AcceptOutcome { get; private set; } = "no-step";
+
+    /// <summary>
+    /// Adopt the course's step by finding its exact native use in the plan this stance already holds —
+    /// the committed plan, else the offered one — and never a lookalike by target.
+    ///
+    /// **Firing does not yet act on the accepted use, and that is deliberate.** <c>FireDueUse</c>'s
+    /// accepted path fires that one use at its own due tick and nothing else, which is right only when
+    /// the course advances to the next use's binding after each shot. It does not yet:
+    /// <c>RetainCourse.ObserveExecution</c> has no production caller, so a course holds its first step
+    /// until that step stops validating. The binder meanwhile credits the step with every use the front
+    /// holds against the target (<c>CombatOpportunityBinder.FightAhead</c>). Routing the hands through
+    /// the accepted path today would fire one shot and then wait for ever inside a fight the course
+    /// priced whole, so <c>Brain.Engage</c> keeps firing the committed plan until step advancement lands.
+    /// </summary>
+    protected override void OnAccept(StepBinding? step)
+    {
+        if (step == null || step.Opportunity.Domain != CombatCourseFacts.Domain) { ClearAcceptedUse("no-step"); return; }
+        if (AcceptedUse?.BindingId == step.Id) return;
+        foreach (AttackPlan? plan in new[] { CommittedPlan, OfferedPlan })
+            if (plan != null && ActivateCourseBinding(step, plan)) { AcceptOutcome = "accepted"; return; }
+        ClearAcceptedUse("step-names-no-use-in-a-held-plan");
     }
     public override string Name => "combat";
     public override PurposeFamily Family => PurposeFamily.Combat;

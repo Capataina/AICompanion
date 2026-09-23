@@ -116,7 +116,10 @@ internal static class RunTheWorld
         /// lost. `task_order_runner_up` in the recorder carries the second-best total alone, and a total
         /// cannot tell a fight that was too far away from one that could never kill anything.
         /// </summary>
-        string Leaders)
+        string Leaders,
+        /// <summary>What the fighting stance made of the step it was last handed: `accepted` when the
+        /// step's exact native use is in a plan it holds, otherwise the reason it is not.</summary>
+        string CombatAccept)
     {
         /// <summary>
         /// Whether README's fight scenes want a fight on this tick.
@@ -459,7 +462,8 @@ internal static class RunTheWorld
                 companion.Combat.LastFireOutcome == "fired",
                 Actors?.HostilesAlive ?? 0, Actors?.DropsPresent ?? 0,
                 brain.LastAction?.Name == "combat", inRegion, atPlayer, atCompanion, soonest,
-                course.DecisionId, course.Facts?.Facts.Count ?? 0, DescribeLeaders(course.LastLeaders)));
+                course.DecisionId, course.Facts?.Facts.Count ?? 0, DescribeLeaders(course.LastLeaders),
+                brain.Fighting?.AcceptOutcome ?? "-"));
             // Asked after the tick's resolve, because the reach flood is advanced by the
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.
