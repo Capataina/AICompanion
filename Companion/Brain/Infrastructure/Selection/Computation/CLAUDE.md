@@ -1,6 +1,6 @@
 # One allowance is borrowed by every decision consumer
 
-These game-free owners separate computation limits from gameplay preference. A native frame owns one `DecisionWorkBudget`; nested discovery, repair, binding, combat and route work borrow it. Operation counts make forced cuts reproducible while a monotonic deadline bounds production slices. Mandatory engine observation and motor work remain separately measured. A deadline can overrun by one atomic operation, which is observable rather than claimed impossible.
+These game-free owners separate computation limits from gameplay preference. A native frame owns one `DecisionWorkBudget`; nested discovery, repair, binding, combat and route work borrow it. Operation counts make forced cuts reproducible while a monotonic deadline bounds production slices. Mandatory engine observation and motor work remain separately measured. A deadline can overrun by up to sixteen atomic operations under the real clock, which is observable in `OverrunMilliseconds` rather than claimed impossible: the clock is read on every sixteenth check because a read per check was 8.4% of the brain thread on the 22 September capture's replay, and once a check sees the deadline passed it stays passed. An injected fixture clock is read on every check, so a row that cuts at an exact tick of its clock still does. Measured 23 September 2026 within one replay basin, the whole-brain p99 fell by 1.5 to 2.3 ms with the stride in, so the overrun has not shown up as a cost.
 
 ```text
 Computation/

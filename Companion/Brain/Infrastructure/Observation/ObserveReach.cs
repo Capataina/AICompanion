@@ -172,16 +172,20 @@ public sealed class ReachSense
         get
         {
             if (flood == null) return tiles ??= new HashSet<Point>();
-            if (tiles != null && tilesBuiltAt == flood.Reached.Count) return tiles;
-            tiles = new HashSet<Point>();
-            foreach (Point corner in flood.Reached)
+            // A flood only ever adds corners, so the set is extended by the corners closed since it was last
+            // read rather than rebuilt; every place that swaps the flood object clears `tiles`, which is what
+            // makes the index below refer to this flood's order.
+            if (tiles == null) { tiles = new HashSet<Point>(); tilesBuiltAt = 0; }
+            IReadOnlyList<Point> inOrder = flood.ReachedInOrder;
+            for (int i = tilesBuiltAt; i < inOrder.Count; i++)
             {
+                Point corner = inOrder[i];
                 tiles.Add(new Point(corner.X - 1, corner.Y - 1));
                 tiles.Add(new Point(corner.X, corner.Y - 1));
                 tiles.Add(new Point(corner.X - 1, corner.Y));
                 tiles.Add(corner);
             }
-            tilesBuiltAt = flood.Reached.Count;
+            tilesBuiltAt = inOrder.Count;
             return tiles;
         }
     }

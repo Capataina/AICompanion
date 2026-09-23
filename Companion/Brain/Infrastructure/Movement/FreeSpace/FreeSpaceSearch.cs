@@ -94,6 +94,13 @@ public sealed class FreeSpaceSearch
     /// <summary>The corners closed so far; for the flood this is the reachable region.</summary>
     public IReadOnlySet<Point> Reached => closed;
 
+    /// <summary>The same corners in the order they were closed, so a consumer deriving something from the
+    /// region can extend it by what was added since it last looked rather than rebuilding it whole. The
+    /// reach sense's tile set is that consumer: rebuilt whole every time a growing flood advanced, it was 5%
+    /// of the brain thread on the replay of the 22 September 2026 capture (profiled 23 September 2026).</summary>
+    public IReadOnlyList<Point> ReachedInOrder => closedInOrder;
+    private readonly List<Point> closedInOrder = new();
+
     /// <summary>
     /// The straight-line distance from the start, in world pixels, beyond which a flood does not reach:
     /// a corner outside the disc is never queued, so <c>Exhausted</c> means every corner reachable
@@ -184,6 +191,7 @@ public sealed class FreeSpaceSearch
             open.TryDequeue(out Point node, out _);
             if (closed.Contains(node)) continue;
             closed.Add(node);
+            closedInOrder.Add(node);
             Expansions++;
             spent++;
             if (Goal != null && Heuristic(node) is float toGoal && toGoal < closestDistance) { closestDistance = toGoal; Closest = node; }

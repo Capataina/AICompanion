@@ -158,6 +158,14 @@ public sealed class DecideCourseEachTick
     /// diagnosed three times and stays unexplained.
     /// </summary>
     public IReadOnlyList<(string Domain, int Usable, int Unresolved, int Unusable, string Reason)> Admitted
+        => admitted ??= CountAdmissions();
+
+    // Candidates change only inside discovery, so the grouping is kept until discovery next runs. The
+    // recorder reads it once per activity per row and the audit once more; recomputed on every read it
+    // was 5.9% of the brain thread on the replay of the 22 September 2026 capture (profiled 23 September).
+    private IReadOnlyList<(string Domain, int Usable, int Unresolved, int Unusable, string Reason)>? admitted;
+
+    private IReadOnlyList<(string Domain, int Usable, int Unresolved, int Unusable, string Reason)> CountAdmissions()
         => discovery.Candidates.GroupBy(candidate => candidate.Key.Domain).OrderBy(group => group.Key)
             .Select(group => (group.Key,
                 group.Count(c => c.Admission == OpportunityAdmission.KnownUsable),
@@ -235,6 +243,7 @@ public sealed class DecideCourseEachTick
 
     public void ResetWorld()
     {
+        admitted = null;
         observation.ResetWorld();
         capabilities.Reset();
         Course.Release("world-reset");
@@ -336,6 +345,7 @@ public sealed class DecideCourseEachTick
         // can only order sites that have been found, and its pinned set keeps whatever the course still
         // holds discoverable even if its source has moved past it.
         discovery.Continue(facts, budget, Course.Current?.Projection.Steps.Select(step => step.Opportunity) ?? Array.Empty<OpportunityKey>());
+        admitted = null;
         IReadOnlyList<Opportunity> candidates = discovery.Candidates;
 
         var episode = new CourseComparisonEpisode(++episodes, facts.WorldEpoch,

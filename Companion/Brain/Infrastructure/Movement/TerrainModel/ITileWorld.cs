@@ -71,4 +71,26 @@ public interface ITileWorld
     /// without quantity/type evidence represent their wet cells as full water or lava.</summary>
     int LiquidKind(int x, int y) => Lava(x, y) ? 1 : 0;
     byte LiquidAmount(int x, int y) => Water(x, y) || Lava(x, y) ? byte.MaxValue : (byte)0;
+
+    /// <summary>
+    /// The world whose tiles this one reports, for a cache keyed on which world it describes. A world is
+    /// its own identity; a wrapper that only *observes* reads — to record a footprint, say — reports its
+    /// source's, so a cache built over the source serves the wrapper and the wrapper's reads are not
+    /// rebuilt from scratch every time a new wrapper is made.
+    ///
+    /// <para>This exists because of a measured cost: every course travel query wraps the live world in a
+    /// fresh read-recording wrapper, the clearance field keyed its chunks on the world object, and so every
+    /// travel query rebuilt every clearance chunk it touched — and the live navigator rebuilt them again
+    /// on its next read. On the replay of the 22 September 2026 capture that rebuild was 17.7% of the
+    /// brain thread's time (profiled 23 September 2026). A wrapper that changes what a tile *is* must not
+    /// forward this, because a cache would then hand it the source's answers.</para>
+    /// </summary>
+    ITileWorld CacheIdentity => this;
+
+    /// <summary>
+    /// A cache has served this world an answer derived from the tiles in this inclusive box. A world that
+    /// records what it read (a travel query's footprint, for invalidation) extends its record here, since
+    /// a served answer reads no tile through it; every other world ignores it.
+    /// </summary>
+    void NoteRead(int left, int top, int right, int bottom) { }
 }

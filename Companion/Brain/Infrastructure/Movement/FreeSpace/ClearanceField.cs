@@ -28,6 +28,11 @@ public sealed class ClearanceField
         public readonly float[] Values = new float[ChunkSize * ChunkSize];
         public int Revision;
         public ITileWorld World = null!;
+        // The bounding box of the tiles Build actually read, which is narrower than the chunk plus its full
+        // margin because a free tile's scan stops at its nearest wall. A served chunk reports this box, not
+        // the margin box, so a recording wrapper's footprint is exactly what building the chunk through it
+        // would have recorded; the margin box would let an edit the query never read invalidate it.
+        public int ReadLeft, ReadTop, ReadRight, ReadBottom;
     }
 
     /// <summary>The field every consumer in the process reads, keyed by the world it was built over.</summary>
@@ -59,26 +64,34 @@ public sealed class ClearanceField
     private Chunk Fetch(ITileWorld world, int cx, int cy)
     {
         var key = (cx, cy);
+        // A chunk's distances can read the chunk and a margin of MaxTiles round it: a wall that far outside
+        // moves a value inside. That box is what the edit record is asked about; a recording world is told
+        // the narrower box the build really read.
+        int x0 = cx * ChunkSize - MaxTiles, y0 = cy * ChunkSize - MaxTiles;
+        int x1 = x0 + ChunkSize + 2 * MaxTiles, y1 = y0 + ChunkSize + 2 * MaxTiles;
+        // Keyed on the world's cache identity rather than the object, so a wrapper that only records its
+        // reads shares its source's chunks instead of rebuilding them — see ITileWorld.CacheIdentity for
+        // the cost that measured.
+        ITileWorld identity = world.CacheIdentity;
         if (chunks.TryGetValue(key, out Chunk? chunk))
         {
-            if (ReferenceEquals(chunk.World, world))
+            if (ReferenceEquals(chunk.World, identity))
             {
                 int revision = world.Revision;
-                if (checkedAt.TryGetValue(key, out int at) && at == revision) return chunk;
-                // The edit record is asked once per revision per chunk, and only about the box the
-                // chunk's distances read: a wall MaxTiles outside the chunk moves a value inside it.
-                int x0 = cx * ChunkSize - MaxTiles, y0 = cy * ChunkSize - MaxTiles;
-                int x1 = x0 + ChunkSize + 2 * MaxTiles, y1 = y0 + ChunkSize + 2 * MaxTiles;
+                if (checkedAt.TryGetValue(key, out int at) && at == revision) { NoteServed(world, chunk); return chunk; }
+                // The edit record is asked once per revision per chunk, and only about the box above.
                 if (world.ChangedSince(chunk.Revision, (tx, ty) => tx >= x0 && tx < x1 && ty >= y0 && ty < y1) == TerrainEditVerdict.Unchanged)
                 {
                     checkedAt[key] = revision;
                     chunk.Revision = revision;
+                    NoteServed(world, chunk);
                     return chunk;
                 }
             }
         }
         chunk ??= new Chunk();
         Build(world, cx, cy, chunk);
+        chunk.World = identity;
         chunks[key] = chunk;
         checkedAt[key] = chunk.Revision;
         return chunk;
@@ -90,6 +103,8 @@ public sealed class ClearanceField
         chunk.World = world;
         chunk.Revision = world.Revision;
         int baseX = cx * ChunkSize, baseY = cy * ChunkSize;
+        // Every tile of the chunk is read; the neighbour scan below widens the box only as far as it went.
+        int readLeft = baseX, readTop = baseY, readRight = baseX + ChunkSize - 1, readBottom = baseY + ChunkSize - 1;
         for (int ly = 0; ly < ChunkSize; ly++)
         {
             for (int lx = 0; lx < ChunkSize; lx++)
@@ -105,14 +120,21 @@ public sealed class ClearanceField
                             if (dx == 0 && dy == 0) continue;
                             float distance = MathF.Sqrt(dx * dx + dy * dy);
                             if (distance >= best) continue;
-                            if (!OrbTerrain.Free(world, x + dx, y + dy)) best = distance;
+                            int nx = x + dx, ny = y + dy;
+                            if (nx < readLeft) readLeft = nx; else if (nx > readRight) readRight = nx;
+                            if (ny < readTop) readTop = ny; else if (ny > readBottom) readBottom = ny;
+                            if (!OrbTerrain.Free(world, nx, ny)) best = distance;
                         }
                     value = best;
                 }
                 chunk.Values[ly * ChunkSize + lx] = value;
             }
         }
+        chunk.ReadLeft = readLeft; chunk.ReadTop = readTop; chunk.ReadRight = readRight; chunk.ReadBottom = readBottom;
     }
+
+    private static void NoteServed(ITileWorld world, Chunk chunk)
+        => world.NoteRead(chunk.ReadLeft, chunk.ReadTop, chunk.ReadRight, chunk.ReadBottom);
 
     private static int FloorDiv(int a, int b) => (int)MathF.Floor(a / (float)b);
 }

@@ -22,6 +22,9 @@ public sealed class DecisionWorkBudget
         if (double.IsNaN(milliseconds) || milliseconds < 0) throw new ArgumentOutOfRangeException(nameof(milliseconds));
         if (operationAllowance < 0) throw new ArgumentOutOfRangeException(nameof(operationAllowance));
         this.timestamp = timestamp ?? Stopwatch.GetTimestamp;
+        // An injected clock is a fixture's reproducible one and is read on every check, so a row that cuts
+        // at an exact tick of it still does; the real clock is read once per stride, below.
+        clockStride = timestamp == null ? RealClockStride : 1;
         this.frequency = frequency == 0 ? Stopwatch.Frequency : frequency;
         if (this.frequency <= 0) throw new ArgumentOutOfRangeException(nameof(frequency));
         started = this.timestamp();
@@ -39,7 +42,29 @@ public sealed class DecisionWorkBudget
     public long RemainingOperations => OperationAllowance - OperationsUsed;
     public bool Cut { get; private set; }
     public string FirstCutSubsystem { get; private set; } = "";
-    public bool Exhausted => RemainingOperations == 0 || timestamp() >= DeadlineTimestamp;
+    public bool Exhausted => RemainingOperations == 0 || DeadlinePassed();
+
+    /// <summary>
+    /// How many deadline checks share one read of the real clock. The course's model scheduler asks
+    /// <see cref="Exhausted"/> once per single operation, and a clock read per ask was 8.4% of the brain
+    /// thread on the replay of the 22 September 2026 capture (profiled 23 September 2026) — the read, not
+    /// the work it guarded. Reading every sixteenth check lets a slice overrun its deadline by at most
+    /// sixteen operations' worth of time, which is microseconds against a millisecond allowance and stays
+    /// visible in <see cref="OverrunMilliseconds"/>; once the deadline is seen passed it stays passed.
+    /// </summary>
+    private const int RealClockStride = 16;
+    private readonly int clockStride;
+    private int checksSinceClock;
+    private bool deadlineSeen;
+
+    private bool DeadlinePassed()
+    {
+        if (deadlineSeen) return true;
+        if (DeadlineTimestamp == long.MaxValue) return false;
+        if (++checksSinceClock < clockStride) return false;
+        checksSinceClock = 0;
+        return deadlineSeen = timestamp() >= DeadlineTimestamp;
+    }
     public double ElapsedMilliseconds => (timestamp() - started) * 1000d / frequency;
     public double OverrunMilliseconds => DeadlineTimestamp == long.MaxValue ? 0d
         : Math.Max(0d, (timestamp() - DeadlineTimestamp) * 1000d / frequency);
@@ -50,7 +75,7 @@ public sealed class DecisionWorkBudget
     {
         if (string.IsNullOrWhiteSpace(subsystem)) throw new ArgumentException("A budget consumer must be named.", nameof(subsystem));
         if (operations <= 0) throw new ArgumentOutOfRangeException(nameof(operations));
-        if (operations > RemainingOperations || timestamp() >= DeadlineTimestamp)
+        if (operations > RemainingOperations || DeadlinePassed())
         {
             if (!Cut) FirstCutSubsystem = subsystem;
             Cut = true;

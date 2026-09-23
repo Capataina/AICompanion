@@ -166,6 +166,11 @@ public sealed class CaptureCourseTravel
         private readonly ITileWorld source;
         private int left = int.MaxValue, top = int.MaxValue, right = int.MinValue, bottom = int.MinValue;
         public ReadTravelTerrain(ITileWorld source) => this.source = source;
+        // It only records what it read, so its answers are its source's, and the clearance field's
+        // chunks built over the source serve it; a served chunk reports its dependency box through
+        // NoteRead, which keeps the footprint exactly what building the chunk through here would record.
+        public ITileWorld CacheIdentity => source.CacheIdentity;
+        public void NoteRead(int left, int top, int right, int bottom) { Touch(left, top); Touch(right, bottom); }
         public int Revision => source.Revision;
         public TerrainEditVerdict ChangedSince(int since, Func<int, int, bool> sensitive) => source.ChangedSince(since, sensitive);
         public bool ReadContains(int x, int y) => x >= left && x <= right && y >= top && y <= bottom;
