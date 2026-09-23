@@ -462,12 +462,14 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
         {
             boundDropSpent = true;
             Release(BoundDropLeftWorld);
+            RefuseStep(BoundDropLeftWorld);
             return PositionRequest.Hold;
         }
         if (ctx.Companion.Bag.AcceptableQuantity(live, ctx.Player) <= 0)
         {
             boundDropSpent = true;
             Release("cargo-takes-none-of-the-bound-drop");
+            RefuseStep("cargo-takes-none-of-the-bound-drop");
             return PositionRequest.Hold;
         }
         // Where the walked-to drop last lay while it was still a world drop, so a drop that vanishes can be checked against

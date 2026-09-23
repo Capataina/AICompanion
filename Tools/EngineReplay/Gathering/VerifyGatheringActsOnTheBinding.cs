@@ -43,7 +43,64 @@ internal static class VerifyGatheringActsOnTheBinding
                AMineStepStrikesItsUseTileNotTheVeinIdentity)
          + RunOneRow.Case("a bound ore that a home now protects is refused by name and not struck", AProtectedBoundOreIsRefused)
          + RunOneRow.Case("a bound trunk that became another tree is refused by name and not struck", AChangedBoundTrunkIsRefused)
-         + RunOneRow.Case("an ore tile changed with no announcement does not starve the rest of its vein", ASilentEditDoesNotStarveTheVein);
+         + RunOneRow.Case("an ore tile changed with no announcement does not starve the rest of its vein", ASilentEditDoesNotStarveTheVein)
+         + RunOneRow.Case("a step the performing hand refuses ends at once and is not ordered again until its census fact changes",
+               ARefusedStepEndsAndIsNotOrderedAgain);
+
+    /// <summary>A performer that refuses every step it is handed, standing in for a hand whose live check disagrees with the
+    /// census. Every production refusal mirrors a census check on purpose, so no honest scene can make the two disagree on
+    /// demand; the channel exists for the day they drift, and this is how a row reaches it through the real tick.</summary>
+    private sealed class RefusingMiner : CompanionAction
+    {
+        public int Handed;
+        public override string Name => "mine";
+        public override live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily Family
+            => live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Gathering;
+        public override string[] CourseDomains => new[] { "mine-target" };
+        public override void Prepare(in ActionContext ctx) { }
+        public override float Score() => 0f;
+        public override live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest Execute(in ActionContext ctx)
+        {
+            if (Bound != null) { Handed++; RefuseStep("fixture-hand-refuses-every-step"); }
+            return live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold;
+        }
+    }
+
+    /// <summary>
+    /// Until 23 September 2026 the course never heard a hand's refusal, so a step the hand could not perform was bound again
+    /// on the next tick and refused again for as long as the census went on describing it — the lane B review measured 111
+    /// invalid attempts in 115 ticks. The tick now hands the refusal to the course, which releases the course and withholds
+    /// that opportunity until the census publishes it at another revision. Over 120 ticks the refusing hand must be handed the
+    /// vein at most twice; then an announced edit that grows the vein must have it ordered again, because a refusal is a proof
+    /// about the target as the census last described it and no longer.
+    /// </summary>
+    private static void ARefusedStepEndsAndIsNotOrderedAgain()
+    {
+        var tiles = new[] { new Point(22, 59), new Point(23, 59), new Point(24, 59) };
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, tiles);
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        var brain = ctx.Companion.Brain;
+        int index = brain.Actions.FindIndex(action => action.Name == "mine");
+        CompanionAction original = brain.Actions[index];
+        var refusing = new RefusingMiner();
+        brain.Actions[index] = refusing;
+        try
+        {
+            for (int tick = 0; tick < 120; tick++) VerifyOreWork.AdvanceBrain(ctx);
+            Require(refusing.Handed >= 1, "premise: the course must bind the vein and hand it to the performer at least once");
+            Require(refusing.Handed <= 2,
+                $"a refused step must not be ordered again while its census fact is unchanged; handed {refusing.Handed} times in 120 ticks, "
+                + $"withheld=[{string.Join(", ", brain.Course.RefusedByPerformer)}]");
+            int before = refusing.Handed;
+            VerifyOreWork.Place(new Point(25, 59), TileID.Copper);
+            TerrainChanges.Changed(25, 59);
+            for (int tick = 0; tick < 120 && refusing.Handed == before; tick++) VerifyOreWork.AdvanceBrain(ctx);
+            Require(refusing.Handed > before,
+                $"a vein the census describes differently must be ordered again; handed {refusing.Handed} before and after the edit");
+            Console.WriteLine($"refused step: handed {before} times in 120 ticks, ordered again after the vein grew");
+        }
+        finally { brain.Actions[index] = original; }
+    }
 
     /// <summary>
     /// A tile the edit record never heard about — another mod writing tiles, a direct world write — used to

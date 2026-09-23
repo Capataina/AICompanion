@@ -76,6 +76,7 @@ internal static class VerifyGatheringCooperation
         Each("W05 protection after approach", ProtectionAddedAfterTheApproachStopsTheTool);
         Each("policy toggles during every phase", PolicyTogglesDuringEveryToolPhaseStopWorkAndResume);
         Each("D4 Mimic after Disabled reads no stale player hit", AMimicSwitchAfterDisabledReadsNoStalePlayerHit);
+        Each("D5 under Mimic the census keeps a trunk for chopping's whole contact window, and not past it", TheCensusKeepsChoppingsMimicWindow);
         Each("G01 unmineable ore beside a usable tree", AnUnmineableOreDoesNotMaskAUsableTree);
         Each("G03 one trip unit", MiningAndChoppingPriceTravelInOneUnit);
         if (red == 0) Console.WriteLine("gathering cooperation: actual-reach chopping, trunk hand-over, external felling, protection and policy changes in every phase, and an unmineable ore beside a usable tree pass");
@@ -348,6 +349,49 @@ internal static class VerifyGatheringCooperation
         chop.Prepare(ctx);
         Require(chop.Eligibility == OfferEligibility.PolicyForbidden && chop.EligibilityReason == "mimic-awaiting-player-tree-contact",
             $"Mimic switched on long after the player's last axe contact must wait for the player; got {chop.Eligibility}/{chop.EligibilityReason}");
+    }
+
+    /// <summary>
+    /// The player hits one trunk under Mimic and stops. The watcher's own memory of the hit lapses after 45 ticks while the
+    /// chopping hand keeps the job for 120, and until 23 September 2026 the census read only the first, so it withdrew the
+    /// other trunk three quarters of a second after his last swing while the hand would still have chopped it. The hand's
+    /// window runs from the last tick the contact was observed, so it closes about 165 ticks after the swing. Eighty ticks
+    /// on, past the watcher's memory and inside the hand's, the other trunk must still be usable; a hundred and eighty ticks
+    /// on it must wait for the player — without that half the first passes on a census that ignores Mimic entirely.
+    /// </summary>
+    private static void TheCensusKeepsChoppingsMimicWindow()
+    {
+        Point hit = new(25, 59), other = new(32, 59);
+        var ctx = SetUpTrees(hit, other);
+        WorkPolicies.Chopping = WorkPolicy.Mimic;
+        VerifyOreWork.ResettleReach(ctx);
+        var workClock = new TileDamageClock();
+        workClock.OnWorldLoad();
+        var chop = ctx.Companion.Brain.Actions.OfType<ChopTree>().Single();
+        bool fail = true, effectOnly = false, noItem = false;
+        new TileDamageWatcher().KillTile(hit.X, hit.Y, TileID.Trees, ref fail, ref effectOnly, ref noItem);
+        void Age(int ticks)
+        {
+            for (int tick = 0; tick < ticks; tick++)
+            {
+                ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
+                chop.Prepare(ctx);
+                workClock.PostUpdateEverything();
+            }
+            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
+            chop.Prepare(ctx);
+        }
+        Age(80);
+        Require(!ctx.Companion.Brain.Senses.Player.IsChoppingTree, "premise: eighty ticks on, the watcher's own memory of the hit must have lapsed");
+        var inside = DriveGatheringThroughTheCourse.Site(ctx, "chop-target", other);
+        Require(inside?.Admission == "usable",
+            $"inside chopping's contact window the other trunk must stay usable; census={inside?.Admission}/{inside?.Reason}");
+        // The hand's 120 ticks run from the last tick the contact was observed, which is the watcher's 45 after the swing.
+        Age(100);
+        var past = DriveGatheringThroughTheCourse.Site(ctx, "chop-target", other);
+        Require(past?.Reason == "mimic-awaiting-player-tree-contact",
+            $"past chopping's contact window the trunk must wait for the player; census={past?.Admission}/{past?.Reason} "
+            + $"hand={chop.Eligibility}/{chop.EligibilityReason} policy={WorkPolicies.Chopping} contact={ctx.Companion.Brain.Senses.Player.IsChoppingTree}");
     }
 
     /// <summary>Copper the fallback pick cannot damage beside the companion, and a usable tree farther away. The unmineable ore

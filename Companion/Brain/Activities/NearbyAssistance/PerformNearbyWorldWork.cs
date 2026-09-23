@@ -508,12 +508,14 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         {
             boundSpent = true;
             Release("method-disabled-at-native-call");
+            RefuseStep("method-disabled-at-native-call");
             return PositionRequest.Hold;
         }
         if (!Candidate(ctx, tile))
         {
             boundSpent = true;
             Release(TargetNoLongerCandidate);
+            RefuseStep(TargetNoLongerCandidate);
             return PositionRequest.Hold;
         }
         if (!FindToolAccess.InReach(ctx.Npc.Center, tile))
@@ -522,7 +524,11 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         retryAfter = Main.GameUpdateCount + 30;
         boundSpent = true;
         if (Perform(ctx, tile)) ctx.Companion.Brain.Activity.RecordWork(tile.ToWorldCoordinates());
-        else Release("native-interaction-refused");
+        else
+        {
+            Release("native-interaction-refused");
+            RefuseStep("native-interaction-refused");
+        }
         return PositionRequest.Hold;
     }
 

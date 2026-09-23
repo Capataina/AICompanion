@@ -9,7 +9,9 @@ using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Activities.Combat;
 using AICompanion.Companion.Brain.Activities.Combat.Planning;
 using AICompanion.Companion.Brain.Activities.Gathering;
+using AICompanion.Companion.Brain.Infrastructure.Interactions;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
+using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Position;
@@ -250,6 +252,7 @@ public sealed class DecideCourseEachTick
     public void ResetWorld()
     {
         admitted = null;
+        refusedByPerformer.Clear();
         observation.ResetWorld();
         capabilities.Reset();
         Course.Release("world-reset");
@@ -275,6 +278,75 @@ public sealed class DecideCourseEachTick
     }
 
     /// <summary>
+    /// Opportunities a performing hand refused, withheld from the search until something the hand's check reads has
+    /// changed: an announced edit within tool reach of the target, the companion's gear, cargo or the player's policies,
+    /// or the wait every proven site refusal in this tree already keeps (`Weights.NearbyWorkNoReturnRetryTicks`), which
+    /// is the backstop for a change nothing announces. It is not keyed on the census fact's revision, and that was tried
+    /// first: an ore fact carries a stand computed from where the body is, so a released body drifting re-published the
+    /// vein at a new revision every few ticks and the refusing hand was handed it 13 times in 120.
+    /// </summary>
+    private readonly record struct PerformerRefusal(Point? Tile, int TerrainRevision, long Capability, long Policy, ulong Until);
+    private readonly Dictionary<OpportunityKey, PerformerRefusal> refusedByPerformer = new();
+    /// <summary>Its own observer rather than the decision's, because advancing the revision the model owner reads would
+    /// change what invalidates a travel query, which is not this mechanism's decision to make.</summary>
+    private readonly ObserveDecisionCapabilities refusalMeans = new();
+    /// <summary>Past this many remembered refusals, those whose opportunity discovery no longer serves are dropped.
+    /// It bounds the pass, not what is remembered about a target still in front of the course.</summary>
+    private const int PruneRefusedAbove = 256;
+
+    /// <summary>The opportunities withheld from the search because a performing hand refused them, for the recorder
+    /// and the fixtures.</summary>
+    public IReadOnlyCollection<OpportunityKey> RefusedByPerformer => refusedByPerformer.Keys;
+
+    /// <summary>
+    /// The hand performing the course's step refused it by name, which is a proof the course cannot reach any other
+    /// way: its own next-use check reads the frozen observation, and a target can stop being workable in ways that
+    /// observation does not carry — a tile edited without an announcement, a placer refusing a site the census
+    /// admitted, cargo that stopped taking the drop. Until 23 September 2026 the course never heard, so it bound the
+    /// same step again on the next tick and the hand refused it again: 111 invalid attempts in 115 ticks on the lane
+    /// B review's silent-edit scene, with the body parked at the stand. The course is released at once, a decision in
+    /// flight is dropped because it may be about to publish the same step, and the opportunity is withheld until
+    /// something the hand's check reads has changed.
+    /// </summary>
+    public void PerformerRefused(in ActionContext context, StepBinding step, string reason)
+    {
+        // Only tile work names a tile; a drop or a hostile is re-admitted by its own identity moving on (a replaced
+        // drop is a new generation, so a new key) or by the means and the wait below.
+        Point? tile = step.Opportunity.Domain is "mine-target" or "chop-target" || step.Opportunity.Target.StartsWith("tile:", StringComparison.Ordinal)
+            ? ExecuteCourseBinding.WorkTileOf(step) : null;
+        ObservedDecisionCapabilities means = ObserveMeans(context);
+        refusedByPerformer[step.Opportunity] = new(tile, TerrainChanges.Revision, means.CapabilityRevision, means.PolicyRevision,
+            Terraria.Main.GameUpdateCount + (ulong)Weights.NearbyWorkNoReturnRetryTicks);
+        if (refusedByPerformer.Count > PruneRefusedAbove)
+            foreach (var (key, entry) in refusedByPerformer.Where(pair => pair.Value.Until <= Terraria.Main.GameUpdateCount).ToList())
+                refusedByPerformer.Remove(key);
+        if (Course.Current != null) Course.InvalidNextUse(reason);
+        Interrupt("performer-refused:" + reason);
+    }
+
+    private ObservedDecisionCapabilities ObserveMeans(in ActionContext context)
+        => refusalMeans.Observe(CollectNativeEffectReceipts.WorldEpoch,
+            context.Player.GetModPlayer<PlayerIntegration.CompanionPlayer>().Gear, context.Companion.Bag,
+            PlayerIntegration.CompanionPreferences.Current);
+
+    private IReadOnlyList<Opportunity> WithoutRefusedByPerformer(in ActionContext context, IReadOnlyList<Opportunity> candidates)
+    {
+        if (refusedByPerformer.Count == 0) return candidates;
+        ObservedDecisionCapabilities means = ObserveMeans(context);
+        ulong now = Terraria.Main.GameUpdateCount;
+        var (reachX, reachY) = FindToolAccess.Reach;
+        foreach (var (key, entry) in refusedByPerformer.ToList())
+        {
+            bool edited = entry.Tile is Point tile && TerrainChanges.Edits.ChangedSince(entry.TerrainRevision,
+                (x, y) => Math.Abs(x - tile.X) <= reachX && Math.Abs(y - tile.Y) <= reachY) != TerrainEditVerdict.Unchanged;
+            if (edited || now >= entry.Until || means.CapabilityRevision != entry.Capability || means.PolicyRevision != entry.Policy)
+                refusedByPerformer.Remove(key);
+        }
+        if (refusedByPerformer.Count == 0) return candidates;
+        return candidates.Where(candidate => !refusedByPerformer.ContainsKey(candidate.Key)).ToList();
+    }
+
+    /// <summary>
     /// Decide what the body should be doing, from this tick's world alone.
     /// </summary>
     /// <param name="budget">The tick's own shared allowance. Observation, discovery, binding, the
@@ -292,6 +364,7 @@ public sealed class DecideCourseEachTick
         if (epoch != CollectNativeEffectReceipts.WorldEpoch)
         {
             epoch = CollectNativeEffectReceipts.WorldEpoch;
+            refusedByPerformer.Clear();
             observation.ResetWorld();
             capabilities.Reset();
             // A decision in flight is priced against a world that no longer exists, so it is abandoned
@@ -371,7 +444,7 @@ public sealed class DecideCourseEachTick
         // holds discoverable even if its source has moved past it.
         discovery.Continue(facts, budget, Course.Current?.Projection.Steps.Select(step => step.Opportunity) ?? Array.Empty<OpportunityKey>());
         admitted = null;
-        IReadOnlyList<Opportunity> candidates = discovery.Candidates;
+        IReadOnlyList<Opportunity> candidates = WithoutRefusedByPerformer(context, discovery.Candidates);
 
         var episode = EpisodeFor(context, ++episodes, facts.WorldEpoch, candidates.SelectMany(candidate => candidate.Needs),
             censusComplete: discovery.Coverage.All(coverage => coverage.Exhausted));
@@ -473,6 +546,8 @@ public sealed class DecideCourseEachTick
         if (site.Kind is not ("collect-target" or "light-target")) return Refuse("incidental-not-assistance-work");
         if (!facts.TryRead(site, out DecisionFact fact) || fact.Evidence != FactEvidence.Observed)
             return Refuse("incidental-site-not-observed");
+        if (site.Kind == "light-target" && SpoilsAHeldLightSite(context, site))
+            return Refuse(IncidentalTorchSpoilsHeldSite);
         Opportunity opportunity = DiscoverAssistanceOpportunities.Read(facts, site.Kind, site);
         if (opportunity.Admission != OpportunityAdmission.KnownUsable) return Refuse(opportunity.Reason);
         var body = new CoursePoint(context.Npc.Center.X, context.Npc.Center.Y);
@@ -491,6 +566,30 @@ public sealed class DecideCourseEachTick
     /// <summary>The refusal an in-passing use gets when the danger the course prices optional work against leaves its
     /// need worth nothing — the same rule that stops a course choosing that work, applied to the hand.</summary>
     public const string OptionalWorkSuppressed = "incidental-optional-work-suppressed-by-danger";
+
+    /// <summary>The refusal an in-passing torch gets when it would sit within the placer's spacing of a light site the
+    /// course holds, which would make the placer refuse that held site and so replace the running course from the hand —
+    /// the one thing acceptance may not do. Torches are the one domain where a use in passing can spoil a held step: a pot
+    /// broken on the way changes no other pot and no drop.</summary>
+    public const string IncidentalTorchSpoilsHeldSite = "incidental-torch-would-spoil-a-held-light-site";
+
+    private bool SpoilsAHeldLightSite(in ActionContext context, FactKey site)
+    {
+        Point tile = ExecuteCourseBinding.WorkTileOf(new OpportunityKey(site.Kind, OpportunityPurposes.Light, site.Identity, site.Generation));
+        IEnumerable<StepBinding> held = Course.Current?.Projection.Steps ?? (IEnumerable<StepBinding>)Array.Empty<StepBinding>();
+        // An unsettled tick's executing activity may carry a step the course has not published, the same case the scan
+        // itself adds to its planned set.
+        if (context.Companion.Brain.Activity.Binding is { } own) held = held.Append(own);
+        foreach (StepBinding step in held)
+        {
+            if (step.Opportunity.Domain != "light-target" || step.Opportunity.Target == site.Identity) continue;
+            Point other = ExecuteCourseBinding.WorkTileOf(step);
+            if (Math.Abs(other.X - tile.X) <= Interactions.Torch.CompanionTorches.SpacingTiles
+                && Math.Abs(other.Y - tile.Y) <= Interactions.Torch.CompanionTorches.SpacingTiles)
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>Keep the answer for readers, and write it to the course trace when it differs from the last one, so a
     /// pot in reach refused every scan through a boss fight is one record rather than one per scan.</summary>

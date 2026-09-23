@@ -57,7 +57,7 @@ public sealed class CaptureTreeOpportunities
         var signature = (axe.type, (int)axe.prefix, axe.axe, axe.useTime, FindToolAccess.Reach);
         long attempt = context.Companion.Chopper.LastOutcome?.Attempt ?? -1;
         var currentGeometry = (context.Senses.Reach.FloodGeneration, context.Senses.Reach.Complete,
-            context.Npc.Center.ToTileCoordinates(), context.Senses.Player.ChoppedTree, context.Senses.Player.IsChoppingTree,
+            context.Npc.Center.ToTileCoordinates(), context.Senses.Player.ChoppedTree, PlayerChopContactLive(context),
             PlayerIntegration.CompanionPreferences.Current.NewActivityRadius);
         bool changed = area != wanted || tool != signature || policy != WorkPolicies.Chopping || attempt != lastAttempt;
         // Tested against what the census holds rather than what it swept. `TreeFinder.TrunkAt` walks down
@@ -168,6 +168,12 @@ public sealed class CaptureTreeOpportunities
     /// sweep that finds a trunk and by the re-answer a moved body forces on a trunk already found — the ore
     /// census's <c>Admit</c> and its reason, which is that two copies of an admission ladder drift.
     /// </summary>
+    /// <summary>The Mimic contact the chopping hand keeps, read from that hand rather than kept a second time here, so the
+    /// census cannot withdraw a trunk the hand would still chop; see <see cref="ChopTree.MimicContactLive"/>.</summary>
+    private static bool PlayerChopContactLive(in ActionContext context)
+        => context.Senses.Player.IsChoppingTree
+            || context.Companion.Brain.Actions.OfType<ChopTree>().FirstOrDefault()?.MimicContactLive == true;
+
     private static GatheringOpportunityFact Admit(in ActionContext context, Item axe, Point bottom, int material, long generation)
     {
         WorkPolicy policy = WorkPolicies.Chopping;
@@ -177,7 +183,7 @@ public sealed class CaptureTreeOpportunities
         bool local = Vector2.DistanceSquared(bottom.ToWorldCoordinates(), context.Senses.Intent.Region.Heading) <= allowance * allowance;
         bool protectedHome = ProtectCompanionHomes.IsProtected(bottom);
         bool mimic = policy == WorkPolicy.Mimic;
-        bool triggered = !mimic || context.Senses.Player.IsChoppingTree;
+        bool triggered = !mimic || PlayerChopContactLive(context);
         bool playerTree = mimic && context.Senses.Player.ChoppedTree == bottom;
         string reason = policy == WorkPolicy.Disabled ? "chopping-disabled"
             : !triggered ? "mimic-awaiting-player-tree-contact" : playerTree ? "player-active-trunk"

@@ -74,6 +74,9 @@ internal static class VerifyAssistanceTrips
         Each("A2 the hand breaks the pot the course bound, not the nearer one its own search would take", TheHandBreaksTheBoundPot);
         Each("A3 a pot in reach during a recognised encounter is not broken in passing; the same pot with no encounter is", AnEncounterRefusesAPotInPassing);
         Each("A3 a pot the published course holds as a step is left to the course, not broken in passing", APlannedPotIsLeftToTheCourse);
+        Each("torch placement switched off orders no light site; the same dark shelf with it on is bound", TorchPlacementOffOrdersNoLight);
+        Each("a torch in passing within spacing of a light site the course holds is refused; the same site with no course is not refused for it",
+            ATorchInPassingDoesNotSpoilAHeldLightSite);
         if (red == 0) Console.WriteLine("assistance trips: trips need a way in the body fits through, a site above every floor pose is worked from a hover, and a pot on the way breaks incidentally only when permitted");
         return red;
     }
@@ -307,6 +310,105 @@ internal static class VerifyAssistanceTrips
             Require(incidentalAtBreak != null && incidentalAtBreak.ToString()!.Contains("Method = collect") && incidentalAtBreak.ToString()!.Contains("DuringActivity = place-torches"),
                 $"the incidental record must name the pot method and the activity it happened during; {ledger}");
         Console.WriteLine($"incidental pot: broken at tick {brokenAt} during place-torches, torch at tick {torchAt}; decide max {decideMax:0.000} ms, finalise max {finaliseMax:0.000} ms (this machine, never asserted)");
+    }
+
+    /// <summary>
+    /// A torch placed in passing within the placer's spacing of a light site the course holds would make the placer refuse
+    /// that held site, replacing the running course from the hand. The shelf's two dark sites are one tile apart, so whichever
+    /// the course holds, the other is within spacing of it: asked about in passing it must be refused by name, and asked again
+    /// once the course is released it must not be refused for that reason — without the second half the first passes on a
+    /// course that refuses every torch in passing.
+    /// </summary>
+    private static void ATorchInPassingDoesNotSpoilAHeldLightSite()
+    {
+        int shelfRow = 51;
+        Point placeholder = new(60, FloorRow - 1);
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
+        Main.tile[placeholder.X, placeholder.Y].ClearEverything();
+        for (int i = 0; i < ctx.Player.inventory.Length; i++) ctx.Player.inventory[i] = new Item();
+        foreach (Item slot in ctx.Companion.Bag.Items) slot.TurnToAir();
+        VerifyOreWork.Place(new Point(31, shelfRow), TileID.Dirt);
+        VerifyOreWork.Place(new Point(32, shelfRow), TileID.Dirt);
+        GiveTorches(ctx);
+        Preferences.Current.TorchPlacement = true;
+        VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(0, 0, 100, 100), (x, y) => y is >= 57 and <= 60 ? .9f : .02f);
+        TerrainChanges.Reset();
+        MovementQueries.World = new GameTileWorld();
+        VerifyOreWork.ResettleReach(ctx);
+        ObserveForTheCourse(ctx, keepThePublishedCourse: true);
+        var course = ctx.Companion.Brain.Course;
+        var held = course.Course.Current?.Projection.Steps.FirstOrDefault(step => step.Opportunity.Domain == "light-target");
+        Require(held != null, "premise: the course must hold a light step on the dark shelf");
+        // A light site's identity is `tile:x,y`; the mod's own reader of it is internal to the mod.
+        static Point TileOf(string identity)
+        {
+            string[] parts = identity["tile:".Length..].Split(',');
+            return new Point(int.Parse(parts[0]), int.Parse(parts[1]));
+        }
+        Point heldTile = TileOf(held!.Opportunity.Target);
+        var neighbour = course.Facts!.Facts.Select(fact => fact.Key)
+            .Where(key => key.Kind == "light-target" && key.Identity != held!.Opportunity.Target)
+            .Select(key => (Key: key, Tile: TileOf(key.Identity)))
+            .Where(site => Math.Abs(site.Tile.X - heldTile.X) <= 8 && Math.Abs(site.Tile.Y - heldTile.Y) <= 8)
+            .Select(site => (live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.FactKey?)site.Key).FirstOrDefault();
+        Require(neighbour != null, $"premise: a published light site within spacing of the held one at {heldTile}");
+        var answer = course.AcceptIncidental(ctx, neighbour!.Value);
+        Require(answer.Reason == live::AICompanion.Companion.Brain.Infrastructure.Selection.DecideCourseEachTick.IncidentalTorchSpoilsHeldSite,
+            $"a torch in passing at {neighbour.Value.Identity} within spacing of the held {held!.Opportunity.Target} must be refused; answered {answer.Reason}");
+        course.Course.Release("fixture-drops-the-held-site");
+        var unheld = course.AcceptIncidental(ctx, neighbour.Value);
+        Require(unheld.Reason != live::AICompanion.Companion.Brain.Infrastructure.Selection.DecideCourseEachTick.IncidentalTorchSpoilsHeldSite,
+            $"control: with no course holding a light site the same torch must not be refused for spoiling one; answered {unheld.Reason}");
+        Console.WriteLine($"torch in passing: {neighbour.Value.Identity} refused beside held {held.Opportunity.Target}; unheld answered {unheld.Reason}");
+    }
+
+    /// <summary>
+    /// The shelf scene's dark sites with torch placement switched off. The census is the only discovery and the lighting activity
+    /// only the hand, so a census that published sites the hand's own switch refuses had the course bind a light step, fly to it
+    /// and hover with nothing placed. Three hundred ticks off must bind no light step and place no torch; then, in the same scene,
+    /// switching it on must bind one within as many ticks again — without that half the first passes on a scene that had nothing
+    /// to light.
+    /// </summary>
+    private static void TorchPlacementOffOrdersNoLight()
+    {
+        int shelfRow = 51;
+        Point placeholder = new(60, FloorRow - 1);
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
+        Main.tile[placeholder.X, placeholder.Y].ClearEverything();
+        for (int i = 0; i < ctx.Player.inventory.Length; i++) ctx.Player.inventory[i] = new Item();
+        foreach (Item slot in ctx.Companion.Bag.Items) slot.TurnToAir();
+        VerifyOreWork.Place(new Point(31, shelfRow), TileID.Dirt);
+        VerifyOreWork.Place(new Point(32, shelfRow), TileID.Dirt);
+        GiveTorches(ctx);
+        Preferences.Current.TorchPlacement = false;
+        VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(0, 0, 100, 100), (x, y) => y is >= 57 and <= 60 ? .9f : .02f);
+        TerrainChanges.Reset();
+        MovementQueries.World = new GameTileWorld();
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
+        VerifyOreWork.ResettleReach(ctx);
+        var brain = ctx.Companion.Brain;
+        bool AnyTorch() => Enumerable.Range(20, 40).Any(x => Enumerable.Range(40, 20).Any(y =>
+            Main.tile[x, y].HasTile && TileID.Sets.Torch[Main.tile[x, y].TileType]));
+        string lightStep = "";
+        int boundAt = -1;
+        for (int tick = 0; tick < 300 && boundAt < 0; tick++)
+        {
+            VerifyOreWork.AdvanceBrain(ctx);
+            if (brain.Course.Last.Binding is { } step && step.Opportunity.Domain == "light-target")
+            {
+                lightStep = step.Opportunity.ToString(); boundAt = tick;
+            }
+        }
+        Require(boundAt < 0 && !AnyTorch(),
+            $"with torch placement off no light site may be ordered or lit; bound {lightStep} at tick {boundAt}, torch placed={AnyTorch()}, action={brain.LastAction?.Name}");
+        Preferences.Current.TorchPlacement = true;
+        for (int tick = 0; tick < 300 && boundAt < 0; tick++)
+        {
+            VerifyOreWork.AdvanceBrain(ctx);
+            if (brain.Course.Last.Binding is { } step && step.Opportunity.Domain == "light-target") boundAt = tick;
+        }
+        Require(boundAt >= 0, $"control: with torch placement on the same dark shelf must be bound as a light step; action={brain.LastAction?.Name}");
+        Console.WriteLine($"torch switch: off bound nothing in 300 ticks; on bound a light site at tick {boundAt}");
     }
 
     /// <summary>

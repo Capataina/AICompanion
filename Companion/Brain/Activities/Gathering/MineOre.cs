@@ -351,6 +351,7 @@ public sealed class MineOre : CompanionAction
         attemptSetback = (attemptStatus, cause);
         status = text;
         refusals++;
+        RefuseStep(cause);
         ReleaseActivity();
         Classify(cause is "work-disabled" or "mimic-awaiting-player-ore-contact" or "ore-left-by-mining-list"
             ? OfferEligibility.PolicyForbidden : OfferEligibility.KnownUnusable, cause);

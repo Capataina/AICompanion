@@ -84,7 +84,25 @@ public abstract class CompanionAction
     public void Accept(Infrastructure.Selection.Courses.StepBinding? step)
     {
         Bound = step;
+        StepRefusal = null;
         OnAccept(step);
+    }
+
+    /// <summary>
+    /// Why this activity refused the step it was handed on the execution since its last selection, or null when it
+    /// did not. The tick hands it to the course, which is the only thing that can stop the step being ordered again:
+    /// the hand refuses by name and never substitutes, but a refusal the course never hears leaves the same step bound
+    /// on the next tick and refused again — 111 invalid attempts in 115 ticks on the lane B review's silent-edit scene.
+    /// It is set only for a proof that this target cannot be worked as bound, never for a step that is merely not yet
+    /// in reach; combat does not set it, because its activation refusals say the binding names an older plan rather
+    /// than that the target cannot be fought, and the course's own next-use validation already retires those.
+    /// </summary>
+    public string? StepRefusal { get; private set; }
+
+    /// <summary>Record that the step this activity was handed cannot be performed as bound.</summary>
+    protected void RefuseStep(string reason)
+    {
+        if (Bound != null) StepRefusal = reason;
     }
 
     /// <summary>What an activity does when handed a step: adopt its target. Default does nothing, which

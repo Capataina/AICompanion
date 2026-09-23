@@ -309,6 +309,10 @@ public sealed class Brain
         // from him. Rejoining from behind a wall has to aim at the player's side; a request that roams the
         // pocket it is sealed in moves it away from him by construction.
         _ = action?.Execute(ctx);
+        // A hand that refused the step it was handed says so, and the course is the only thing that can stop the step
+        // being ordered again; `DecideCourseEachTick.PerformerRefused` owns why.
+        if (action?.StepRefusal is { } refusal && decision.Binding is { } refusedStep)
+            Course.PerformerRefused(ctx, refusedStep, refusal);
         DecideMs = Lap();
         // The rule lives in `RecoverDistantCompanion.ReunionRequested`, which owns why each of its three
         // conditions is there. It is a named predicate rather than an expression here so that it can be

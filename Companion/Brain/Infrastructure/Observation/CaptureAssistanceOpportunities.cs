@@ -270,6 +270,17 @@ public sealed class CaptureAssistanceOpportunities
         Rectangle area = new(heading.X - work, heading.Y - work, 2 * work + 1, 2 * work + 1);
         LightSense.Coverage coverage = LightSense.Coverage.Current();
         if (!coverage.Legacy) area = Rectangle.Intersect(area, coverage.Area);
+        // Torch placement switched off is a finished sweep holding no site, asked here with the same
+        // preference `LightUsefulArea.Enabled` asks, because the census is the only discovery and the
+        // activity is only the hand: a census that published sites the hand then refused had the course
+        // bind a light step, fly to it and hover there with nothing placed, for as long as the site stayed
+        // dark. Publishing nothing also retires a site a course was already working when the switch flips,
+        // since an absent unpinned admission is exactly what the retirement sweep removes.
+        if (!PlayerIntegration.CompanionPreferences.Current.TorchPlacement)
+        {
+            facts.Add(Coverage("light-coverage", area, area.Width > 0 && area.Height > 0, 0));
+            return;
+        }
         // Chosen once for the sweep rather than per tile: which torch goes in does not vary by site, and
         // the step reads the item only for its tile and style. It is the same choice the placer makes,
         // through the same function, so the census cannot admit a site against a torch the placer would

@@ -264,13 +264,26 @@ internal static class VerifyCompanionActivities
             ctx.Senses.Loot.Pickups.Add(new(item, 1f, 0f));
             var collect = new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems();
             collect.Prepare(ctx);
+            // The hand works only the step it is handed since 23 September 2026, so the drop is bound through the census and
+            // the real binder and handed over the way the tick hands it; executing an activity handed nothing watches a hand
+            // that does nothing, which is how this row stood red behind the whole-suite hang.
+            var step = VerifyAssistanceTrips.BindCensusSite(ctx, "collect-target", o => o.Key.Target == "item:5", "item:5");
+            var owner = ctx.Companion.Brain.Activity;
+            owner.Select(collect, ctx, step);
+            owner.BeginExecution();
             Require(collect.Method == "known-drop" && collect.Execute(ctx).Kind != RequestKind.Hold,
                 "the captured live world drop must be usable before slot replacement");
             var replacement = new Item(); replacement.SetDefaults(ItemID.CopperOre);
             replacement.active = true; replacement.whoAmI = 5; replacement.Bottom = item.Bottom;
             Main.item[5] = replacement;
+            // Two owners hold this now: the hand stops on the object it walked toward leaving the slot, which this row asserts,
+            // and the census names the object now in the slot as a new generation, so the course's key for the old drop no
+            // longer matches — `G08 replacement generation is a new opportunity` holds that half, because a census built
+            // fresh for one check, as `VerifyAssistanceTrips.Revalidate` builds it, has no memory of the object it replaced.
             Require(collect.Execute(ctx).Kind == RequestKind.Hold,
                 "an active detached item must not remain executable after its world slot is replaced by the same type");
+            // The rest reads the activity's own offer, and a bound step is the activity's identity while it holds one.
+            collect.Accept(null);
             collect.Prepare(ctx);
             Require(collect.Score() == 0,
                 "stale sensed drops must not produce offers after their world slot is replaced");

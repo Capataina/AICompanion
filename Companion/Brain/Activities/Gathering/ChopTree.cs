@@ -57,6 +57,13 @@ public sealed class ChopTree : CompanionAction
     private ((Point Trunk, Point Body, int Revision, (int X, int Y) Reach) Key, Reachability.Reach Verdict)? approachProof;
     // Starts expired: no player axe contact has been observed, so nothing is being mimicked yet.
     private int sincePlayerHit = KeepJobTicks + 1;
+
+    /// <summary>Whether the player's axe contact still licenses Mimic chopping: his current contact, or one within
+    /// <see cref="KeepJobTicks"/>. The trunk census reads this rather than keeping a window of its own, because until
+    /// 23 September 2026 it read only the watcher's 45-tick current contact while this hand kept the job for 120, so under
+    /// Mimic the census withdrew the trunk three quarters of a second after his last swing and the companion stopped.
+    /// Read after <see cref="Prepare"/>, which ages it, and the tick prepares every activity before it decides.</summary>
+    internal bool MimicContactLive => sincePlayerHit <= KeepJobTicks;
     /// <summary>What the last swing did or why it refused, for the record and for rows that read the refusal by name.</summary>
     public string Status { get; private set; } = "idle";
     /// <summary>The native work left on the bound trunk at this tick's swing, or null with nothing bound.</summary>
@@ -252,6 +259,7 @@ public sealed class ChopTree : CompanionAction
         if (release != "player-took-trunk" || cause == "player-took-trunk") release = cause;
         Status = cause;
         refusals++;
+        RefuseStep(cause);
         ReleaseActivity();
         Classify(cause is "work-disabled" or "mimic-awaiting-player-tree-contact" or "player-took-trunk"
             ? OfferEligibility.PolicyForbidden : OfferEligibility.KnownUnusable, cause);
