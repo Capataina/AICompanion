@@ -227,16 +227,20 @@ internal static class VerifyGatheringCooperation
         {
             Point far = new(50, 59);
             var (mine, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, far);
+            WorkPolicies.Chopping = WorkPolicy.Disabled;
             VerifyOreWork.EmptyTheReachRegion(ctx);
-            Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0f && mine.Status == "approach unknown",
-                $"the undecided case must not be a plan; status={mine.Status} score={mine.Score()}");
+            var undecided = DriveGatheringThroughTheCourse.Site(ctx, "mine-target", far);
+            Require(undecided is { Admission: "unknown" } && DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null,
+                $"the undecided case must not be a plan; census={undecided}; {DriveGatheringThroughTheCourse.Account(ctx)}");
             Require(mine.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
                 "the undecided case must not walk at the ore");
             Protection.Reset();
             PlaceBed(new Point(52, 58));
             Protection.Refresh(ctx.Player.Bottom, ctx.Npc.Bottom);
             Require(Protection.IsProtected(far), "the fixture bed must protect the undecided ore");
-            Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0f, "a protected undecided ore must still not be offered");
+            Require(DriveGatheringThroughTheCourse.Decide(ctx, "mine") == null
+                    && DriveGatheringThroughTheCourse.Site(ctx, "mine-target", far) is { Admission: "unusable" },
+                $"a protected undecided ore must still not be offered; census={DriveGatheringThroughTheCourse.Site(ctx, "mine-target", far)}");
         }
         finally
         {
@@ -357,50 +361,46 @@ internal static class VerifyGatheringCooperation
         MakeTree(trunk);
         WorkPolicies.Chopping = WorkPolicy.Opportunistic;
         TerrainChanges.Reset();
-        var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
-        bool mineRuledOut = false;
+        // The census is what rules the ore out now, so it is asked before the run: a proven refusal naming the
+        // pickaxe, rather than an ore nobody looked at.
+        var refused = DriveGatheringThroughTheCourse.Site(ctx, "mine-target", ore);
+        Require(refused is { Admission: "unusable", Reason: "pickaxe-cannot-damage" },
+            $"the unmineable ore must be classified as known-unusable work; census={refused}");
         var before = Snapshot();
-        var run = RunBrain(ctx, 900, () =>
-        {
-            mineRuledOut |= mine.Eligibility == OfferEligibility.KnownUnusable;
-            return !TileChopper.TreeStands(trunk);
-        });
+        var run = RunBrain(ctx, 900, () => !TileChopper.TreeStands(trunk));
         Require(!TileChopper.TreeStands(trunk) && run.ChopStrikes.Count > 0 && run.MineStrikes.Count == 0 && Main.tile[ore.X, ore.Y].HasTile,
-            $"an ore the pick cannot damage must not mask a usable tree; felled={!TileChopper.TreeStands(trunk)} chop strikes={run.ChopStrikes.Count} mine strikes={run.MineStrikes.Count} mine={mine.Eligibility}/{mine.EligibilityReason}");
-        Require(mineRuledOut, $"the unmineable ore must be classified as known-unusable work while the tree was chosen; last={mine.Eligibility}/{mine.EligibilityReason}");
+            $"an ore the pick cannot damage must not mask a usable tree; felled={!TileChopper.TreeStands(trunk)} chop strikes={run.ChopStrikes.Count} mine strikes={run.MineStrikes.Count}");
         RequireOnlyChanged(before, trunk);
     }
 
-    /// <summary>An ore and a tree either side of the companion, neither in reach. Mining and chopping must price the walk in the
-    /// same unit: each forecast less its native remaining work is the distance from the feet to that activity's own working
-    /// pose over walking speed. The two walks differ, because a solid ore offers one face and a trunk either side.</summary>
+    /// <summary>An ore and a tree either side of the companion, neither in reach. Mining and chopping must be priced in the same
+    /// unit: the course's travel for each bound step, per pixel from the body to that step's own working pose, must agree. The
+    /// two walks differ, because a solid ore offers one face and a trunk either side, so the rate is what is compared.
+    ///
+    /// <para>It compared each activity's own trip forecast until 23 September 2026, when those forecasts went with the private
+    /// searches that produced them; the travel a course prices is the binder's, which is what the body is sent on.</para></summary>
     private static void MiningAndChoppingPriceTravelInOneUnit()
     {
         // Clear of the ten-tile world margin TreeFinder refuses to search.
         Point ore = new(40, 59), trunk = new(16, 59);
-        var (mine, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         MakeTree(trunk);
-        WorkPolicies.Chopping = WorkPolicy.Opportunistic;
         // A hover one radius clear of the floor, and every distance below measured from the same centre the
-        // activities price from. Writing `Bottom` put half the circle inside the floor and priced the walk from a
-        // point ten pixels under the one the forecast used, which is why the two sides disagreed by a fraction of
-        // a tick rather than by anything structural.
+        // course prices from. Writing `Bottom` put half the circle inside the floor and priced the walk from a
+        // point ten pixels under the one the forecast used.
         ctx.Npc.Center = new Vector2(28 * 16 + 8, 60 * 16 - live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Radius);
         TerrainChanges.Reset();
-        var chop = new ChopTree();
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0 && VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0
-            && mine.RemainingWork is { } oreWork && chop.RemainingWork is { } treeWork,
-            "the unit fixture needs both a proven ore job and a proven trunk");
-        float walkSpeed = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace.MaxSpeed;
-        float mineWalk = mine.ForecastTicks() - mine.RemainingWork!.Value.Ticks;
-        float chopWalk = chop.ForecastTicks() - chop.RemainingWork!.Value.Ticks;
-        float expectedMine = Vector2.Distance(ctx.Npc.Center, mine.TargetStandPosition!.Value) / walkSpeed;
-        // The trunk's working pose from the same shared query and the same body point that chopping's discovery asks.
-        Require(FindToolAccess.Approach(trunk, ctx.Npc.Center, ctx.Companion.Brain.Senses.Reach, out Vector2 chopStand) == live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach.Yes,
-            "the unit fixture needs a proven working pose for the trunk");
-        float expectedChop = Vector2.Distance(ctx.Npc.Center, chopStand) / walkSpeed;
-        Require(MathF.Abs(mineWalk - expectedMine) < 0.01f && MathF.Abs(chopWalk - expectedChop) < 0.01f && chopWalk > 0 && mineWalk > 0,
-            $"mining and chopping must price the walk in one unit, pixels to their own working pose over walking speed; mine walk={mineWalk:0.00} (expected {expectedMine:0.00}) chop walk={chopWalk:0.00} (expected {expectedChop:0.00})");
+        VerifyOreWork.ResettleReach(ctx);
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        var mineStep = DriveGatheringThroughTheCourse.Bind(ctx, "mine", "the unit fixture needs a bound ore");
+        WorkPolicies.Mining = WorkPolicy.Disabled;
+        WorkPolicies.Chopping = WorkPolicy.Opportunistic;
+        var chopStep = DriveGatheringThroughTheCourse.Bind(ctx, "chop", "the unit fixture needs a bound trunk");
+        double Rate(live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.StepBinding step)
+            => step.TravelTicks / Vector2.Distance(ctx.Npc.Center, new Vector2((float)step.Pose.X, (float)step.Pose.Y));
+        double mineRate = Rate(mineStep), chopRate = Rate(chopStep);
+        Require(mineStep.TravelTicks > 0 && chopStep.TravelTicks > 0 && Math.Abs(mineRate / chopRate - 1) < 0.25,
+            $"mining and chopping must price the walk in one unit; mine {mineStep.TravelTicks:0.00} ticks at {mineRate:0.0000}/px, chop {chopStep.TravelTicks:0.00} ticks at {chopRate:0.0000}/px");
     }
 
     private readonly record struct BrainRun(List<Vector2> ChopStrikes, List<Vector2> MineStrikes);

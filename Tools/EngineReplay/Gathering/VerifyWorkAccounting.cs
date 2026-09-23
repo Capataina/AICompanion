@@ -47,7 +47,8 @@ internal static class VerifyWorkAccounting
     {
         Point a = new(24, 59), b = new(25, 59), added = new(26, 59);
         var (mine, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, a, b);
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0 && mine.RemainingTiles == 2, "the continuing-vein fixture needs a two-tile job");
+        VerifyOreWork.AcceptBoundOre(ctx, mine, "the continuing-vein fixture needs a bound vein");
+        Require(mine.RemainingTiles == 2, $"the continuing-vein fixture needs a two-tile job; remaining={mine.RemainingTiles}");
         int job = mine.JobId;
         mine.BeginAttempt();
         VerifyOreWork.Place(added, TileID.Copper);
@@ -60,7 +61,7 @@ internal static class VerifyWorkAccounting
         var conclusion = mine.ConcludeAttempt(effects);
         Require(conclusion is { Status: AttemptStatus.Partial, Cause: "tracked-portion-clear-vein-continues" },
             $"a cleared tracked portion of a vein that continues is partial work, not a completion; got {conclusion}");
-        for (int i = 0; i < 61 && mine.JobId <= job; i++) VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        VerifyOreWork.AcceptBoundOre(ctx, mine, "the tile the vein continues into must be bound");
         Require(mine.JobId > job && mine.TargetTile == added, $"the tile the vein continues into must become new work; job={mine.JobId} target={mine.TargetTile}");
     }
 
@@ -76,12 +77,16 @@ internal static class VerifyWorkAccounting
     {
         Point remaining = new(24, 89), removed = new(25, 89);
         Vector2 feet = new(20 * 16 + 8, 90 * 16);
-        (float Value, float Forecast, int Tiles, Point? Target, int? Hits) Scene(string remover)
+        // What the course offers for the remaining tile is compared, because the course is what offers work now:
+        // its worth for mining, the step's travel and use, the job's remaining count, the bound tile and the
+        // census's own remaining damage on it.
+        (float Value, double Travel, double Use, int Tiles, Point? Target, int? Damage) Scene(string remover)
         {
             var (mine, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, remaining, removed);
             ctx.Npc.Bottom = feet;
             TerrainChanges.Reset();
-            Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0 && mine.RemainingTiles == 2, $"{remover}: the scene needs a two-tile job");
+            VerifyOreWork.AcceptBoundOre(ctx, mine, $"{remover}: the scene needs a bound vein");
+            Require(mine.RemainingTiles == 2, $"{remover}: the scene needs a two-tile job; remaining={mine.RemainingTiles}");
             Item pick = TileMiner.PickaxeFor(ctx.Player);
             if (remover == "companion")
             {
@@ -106,8 +111,11 @@ internal static class VerifyWorkAccounting
             Require(!Main.tile[removed.X, removed.Y].HasTile && Main.tile[remaining.X, remaining.Y].HasTile, $"{remover}: exactly one tile must be gone");
             TerrainChanges.Changed(removed.X, removed.Y);
             ctx.Npc.Bottom = feet;
-            float value = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-            return (value, mine.ForecastTicks(), mine.RemainingTiles, mine.TargetTile, mine.RemainingWork?.Hits);
+            var step = DriveGatheringThroughTheCourse.Bind(ctx, "mine", $"{remover}: the remaining tile must be bound");
+            ctx.Companion.Brain.Activity.Select(mine, ctx, step);
+            float value = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReadCourseWorthPerActivity.Of(ctx.Companion.Brain, mine).Raw;
+            int? damage = DriveGatheringThroughTheCourse.Site(ctx, "mine-target", remaining)?.Work?.DamageRemaining;
+            return (value, step.TravelTicks, step.UseTicks, mine.RemainingTiles, mine.TargetTile, damage);
         }
         var byCompanion = Scene("companion");
         var byPlayer = Scene("player");
@@ -168,15 +176,16 @@ internal static class VerifyWorkAccounting
     private static int MineUntilGone(MineOre mine, ActionContext ctx, params Point[] tiles)
     {
         int effects = 0;
+        // Each tick asks the course for its step and hands it to mining, as the tick does, with the body held still.
         for (int tick = 0; tick < 900 && tiles.Any(p => Main.tile[p.X, p.Y].HasTile); tick++)
         {
-            VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+            if (DriveGatheringThroughTheCourse.Decide(ctx, "mine") is { } step) ctx.Companion.Brain.Activity.Select(mine, ctx, step);
             long before = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
             mine.Execute(ctx);
             if (ctx.Companion.Miner.LastOutcome is { Productive: true } outcome && outcome.Attempt != before) effects++;
             ctx.Companion.Miner.Tick();
         }
-        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        mine.Prepare(ctx);
         return effects;
     }
 

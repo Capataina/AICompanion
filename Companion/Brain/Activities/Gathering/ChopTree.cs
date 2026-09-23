@@ -1,10 +1,12 @@
 #nullable enable
 
+using System;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Courses;
 using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping;
@@ -13,65 +15,109 @@ using AICompanion.Companion.Brain.Infrastructure.Interactions;
 namespace AICompanion.Companion.Brain.Activities.Gathering;
 
 /// <summary>
-/// Retains one tree job. Mimic mode keeps the player-hit trigger and excludes that tree;
-/// opportunistic mode uses the existing nearby-tree finder without inventing a second
-/// chopping mechanism.
+/// Swings the axe at the one trunk the course bound. It does not look for trees: the trunk census is the
+/// only discovery, and the preference for a trunk the player is not cutting is decided there, where every
+/// trunk is known (<see cref="CaptureTreeOpportunities"/>).
+///
+/// <para>Until 23 September 2026 this ran its own nearest-trunk search from two origins and swung at what it
+/// found while the body flew to the course's trunk; <see cref="MineOre"/> carries the account of why two
+/// choosers were the defect. What stays here is what is not choosing: the player's axe contact ageing under
+/// every policy, the Mimic and policy gates at the swing, home protection and actual tool reach at the native
+/// call, the hand reserved only while the axe is out, and the evidence an attempt concludes from.</para>
 /// </summary>
 public sealed class ChopTree : CompanionAction
 {
     public override string Name => "chop";
     public override PurposeFamily Family => PurposeFamily.Gathering;
     public override string[] CourseDomains => new[] { "chop-target" };
-    public override Vector2? ActivityTarget => prepared?.Target;
-    public override object? ActivityIdentity => prepared?.Binding;
-    public override string PreparedTargetRejection => WorkPolicies.Chopping == WorkPolicy.Disabled ? "work-disabled" : prepared is { } candidate
-        ? tree?.Bottom != candidate.Binding.Tile ? "prepared-target-changed" : candidate.Binding.Rejection : "";
-    /// <summary>True only while the axe is actually out; the whole walk to the tree is empty-handed.</summary>
+    public override Vector2? ActivityTarget => bound?.Bottom.ToWorldCoordinates();
+    /// <summary>
+    /// The bound trunk and its material, and how many steps on it were refused. The course binds one swing per
+    /// step, so consecutive swings at one trunk are one attempt; the material is part of it because a different
+    /// tree type at the same coordinate is a different tree. A refusal is part of it so the refused step's
+    /// attempt closes with that cause even when the course binds the same trunk again.
+    /// </summary>
+    public override object? ActivityIdentity => bound is { } b ? (b.Bottom, b.Material, refusals) : null;
+    /// <summary>True only while the axe is actually out; the whole flight to the tree is empty-handed.</summary>
     public override bool HandsBusy => swinging;
     private bool swinging;
-    public override void Exit(in ActionContext ctx) => swinging = false; // Retain the tree, release its tool phase.
-    private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
-
-    private const int KeepJobTicks = 120;
-    internal const int SearchRadiusTiles = 40;
-    private const int SearchEveryTicks = 60;
-
-    private TreeFinder.ChoppableTree? tree;
-    private Point? lastSearchedFor;
-    // Starts expired: no player axe contact has been observed, so nothing is being mimicked yet.
-    private int sincePlayerHit = KeepJobTicks + 1;
-    private int sinceSearch = SearchEveryTicks;
-    private (Point from, Point goal, int revision, int reachX, int reachY)? reachKey;
-    private Reachability.Reach approachReach;
-    private int sinceReach = SearchEveryTicks;
-    // The reach the approach deferrals and the last "no admissible tree" search were made under.
-    private (int X, int Y) deferredReach;
-    private readonly record struct Candidate(Vector2 Target, float Value, float TripTicks, BindTileTarget Binding);
-    private Candidate? prepared;
-    public Infrastructure.Interactions.RemainingToolWork? RemainingWork { get; private set; }
-
-    public override void Prepare(in ActionContext ctx)
+    /// <summary>Retain the tree, release its tool phase; the next step arrives with the next selection.</summary>
+    public override void Exit(in ActionContext ctx)
     {
-        float value = DiscoverValue(ctx);
-        RemainingWork = value > 0 && tree is { } workTarget
-            ? ctx.Companion.Chopper.EstimateRemaining(workTarget.Bottom, TileChopper.AxeFor(ctx.Player)) : null;
-        prepared = value > 0 && RemainingWork is { } remaining && tree is { } found
-            && BindTileTarget.Capture(found.Bottom) is { } binding
-            ? new(found.Bottom.ToWorldCoordinates(), value,
-                Vector2.Distance(ctx.Npc.Center, found.StandPosition) / OrbPace.MaxSpeed + remaining.Ticks, binding)
-            : null;
-        if (value > 0 && prepared == null)
-            Classify(OfferEligibility.KnownUnusable, RemainingWork == null ? "axe-cannot-damage-trunk" : "trunk-binding-unavailable");
+        swinging = false;
+        bound = null;
     }
 
-    public override float Score() => prepared?.Value ?? 0f;
+    /// <summary>How long the player's axe contact keeps Mimic chopping live after his last hit.</summary>
+    private const int KeepJobTicks = 120;
+
+    private (Point Bottom, int Material)? bound;
+    private int refusals;
+    /// <summary>The last approach verdict and the body, terrain and reach it was proved under, reused while they hold.</summary>
+    private ((Point Trunk, Point Body, int Revision, (int X, int Y) Reach) Key, Reachability.Reach Verdict)? approachProof;
+    // Starts expired: no player axe contact has been observed, so nothing is being mimicked yet.
+    private int sincePlayerHit = KeepJobTicks + 1;
+    /// <summary>What the last swing did or why it refused, for the record and for rows that read the refusal by name.</summary>
+    public string Status { get; private set; } = "idle";
+    /// <summary>The native work left on the bound trunk at this tick's swing, or null with nothing bound.</summary>
+    public RemainingToolWork? RemainingWork { get; private set; }
+
+    protected override void OnAccept(StepBinding? step)
+    {
+        if (step == null)
+        {
+            bound = null;
+            Status = "no course step";
+            return;
+        }
+        if (!GatheringOpportunityBinder.TryReadUse(step, "chop-target", out Point bottom, out int material))
+            throw new InvalidOperationException(
+                $"Chopping was handed a step it cannot perform: domain '{step.Opportunity.Domain}', use '{step.NativeUseId}', "
+                + $"opportunity '{step.Opportunity.Target}'. A chop step is bound by GatheringOpportunityBinder and names its trunk as 'chop-target:x,y:material'.");
+        if (bound != (bottom, material)) refusals = 0;
+        bound = (bottom, material);
+    }
+
+    /// <summary>
+    /// Ages the player's axe contact, which has to happen on every tick under every policy — Disabled included —
+    /// because it starts expired and a contact made just before chopping was switched off must have aged by the
+    /// time Mimic comes back. It chooses nothing.
+    /// </summary>
+    public override void Prepare(in ActionContext ctx)
+    {
+        var p = ctx.Senses.Player;
+        if (p.IsChoppingTree) sincePlayerHit = 0;
+        else if (sincePlayerHit <= KeepJobTicks) sincePlayerHit++;
+        // Evidence, not a choice. Whatever makes the bound trunk stop being work — the player starting on it, a bed
+        // placed beside it, the policy switched, a wall put up mid-flight — usually makes the course drop the step
+        // on this same tick, before the swing can see it, and an attempt closed by that replacement would read as
+        // work abandoned rather than say why. The preparation runs before the decision, so it records the reason
+        // here with the same ladder the swing refuses by; it never picks another trunk.
+        if (bound is { } held && release == null)
+        {
+            if (p.ChoppedTree == held.Bottom) release = "player-took-trunk";
+            else if (RefusalAtTheSwing(ctx, held) is { } reason) release = reason;
+            else if (!FindToolAccess.InReach(ctx.Npc.Center, held.Bottom) && ApproachVerdict(ctx, held.Bottom) == Reachability.Reach.No)
+                release = "approach-not-established";
+        }
+        if (p.IsDead) Classify(OfferEligibility.NoOpportunity, "player-dead");
+        else if (WorkPolicies.Chopping == WorkPolicy.Disabled) Classify(OfferEligibility.PolicyForbidden, "chopping-disabled");
+        else if (WorkPolicies.Chopping == WorkPolicy.Mimic && !p.IsChoppingTree && sincePlayerHit > KeepJobTicks)
+            Classify(OfferEligibility.PolicyForbidden, "mimic-awaiting-player-tree-contact");
+        else Classify(bound != null ? OfferEligibility.Usable : OfferEligibility.NoOpportunity, bound != null ? "trunk-bound" : "no-course-step");
+    }
+
+    /// <summary>The course prices chopping; this activity offers no worth of its own, and nothing on the tick reads one.</summary>
+    public override float Score() => 0f;
+
+    /// <summary>The bound step's own forecast: its travel and its use, as the binder priced them.</summary>
+    public override float ForecastTicks() => Bound is { } step ? (float)(step.TravelTicks + step.UseTicks) : 0f;
 
     // Attempt-local evidence, cleared when an attempt opens: the trunk this attempt swung at, whether
     // its own strike removed it, and the last way it gave the tree up.
     private Point? attemptTrunk;
     private bool attemptFelled;
     private string? release;
-    private void Release(string reason) => release = reason;
 
     public override void BeginAttempt()
     {
@@ -98,212 +144,116 @@ public sealed class ChopTree : CompanionAction
             : new(AttemptStatus.Attempted, "replaced-before-productive-effect");
     }
 
-    private float DiscoverValue(in ActionContext ctx)
-    {
-        var p = ctx.Senses.Player;
-        if (p.IsDead)
-        {
-            Classify(OfferEligibility.NoOpportunity, "player-dead");
-            return 0f;
-        }
-        sinceSearch++;
-        sinceReach++;
-        // A trunk deferred because no pose reached it was deferred under the reach of that moment. The approach key below
-        // already re-derives a retained trunk's stand when reach changes; the deferral and the search wait did not, so a
-        // larger reach left a trunk it could now reach refused until the deferral expired.
-        if (FindToolAccess.Reach != deferredReach)
-        {
-            deferredReach = FindToolAccess.Reach;
-            deferred.Clear();
-            sinceSearch = SearchEveryTicks;
-        }
-        if (tree is { } retained && (!AllowsTarget(ctx, retained.Bottom.ToWorldCoordinates())
-            || Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(retained.Bottom)))
-        { tree = null; ReleaseActivity(); sinceSearch = SearchEveryTicks; Release("outside-allowance-or-protected-home"); }
-        var context = ctx;
-        bool Accept(Point bottom) => AllowsTarget(context, bottom.ToWorldCoordinates(), BindTileTarget.Capture(bottom))
-            && !Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(bottom)
-            && (!deferred.TryGetValue(bottom, out ulong until) || Main.GameUpdateCount >= until);
-
-        // The player's axe contact ages under every policy, Disabled included, so it is aged before any policy returns. Aged
-        // only inside Mimic, a job begun opportunistically read as one the player had triggered this very tick when the policy
-        // changed to Mimic, and kept swinging; frozen while Disabled, a contact made just before chopping was switched off
-        // read as a moment old whenever Mimic came back.
-        if (p.IsChoppingTree) sincePlayerHit = 0;
-        else if (sincePlayerHit <= KeepJobTicks) sincePlayerHit++;
-        if (WorkPolicies.Chopping == WorkPolicy.Disabled)
-        {
-            if (tree != null) Release("work-disabled");
-            tree = null;
-            lastSearchedFor = null;
-            ReleaseActivity();
-            Classify(OfferEligibility.PolicyForbidden, "chopping-disabled");
-            return 0f;
-        }
-        if (WorkPolicies.Chopping == WorkPolicy.Mimic)
-        {
-            if (p.IsChoppingTree)
-            {
-                if (tree is TreeFinder.ChoppableTree t && (!TileChopper.TreeStands(t.Bottom) || t.Bottom == p.ChoppedTree))
-                {
-                    if (TileChopper.TreeStands(t.Bottom)) Release("player-took-trunk");
-                    tree = null;
-                }
-                bool newTree = lastSearchedFor != p.ChoppedTree;
-                if (tree == null && (newTree || sinceSearch >= SearchEveryTicks))
-                {
-                    tree = TreeFinder.FindNearest(ctx.Npc.Center, ctx.Npc.Bottom, ctx.Senses.Reach, SearchRadiusTiles, p.ChoppedTree, Accept);
-                    lastSearchedFor = p.ChoppedTree;
-                    sinceSearch = 0;
-                }
-            }
-            else
-            {
-                // Between two swings the hit flag is down; retain this mimic job long enough
-                // for a slow player swing, then release it rather than becoming a mission.
-                if (sincePlayerHit > KeepJobTicks)
-                {
-                    if (tree != null) Release("mimic-awaiting-player-tree-contact");
-                    tree = null;
-                    lastSearchedFor = null;
-                }
-                else if (tree is TreeFinder.ChoppableTree t && !TileChopper.TreeStands(t.Bottom))
-                    tree = null;
-            }
-        }
-        else
-        {
-            if (tree is TreeFinder.ChoppableTree t && !TileChopper.TreeStands(t.Bottom))
-                tree = null;
-            // A changed player worksite can overlap our retained trunk before the next
-            // periodic discovery. Prefer a separate job, but Opportunistic may share the only tree.
-            if (lastSearchedFor != p.ChoppedTree)
-            {
-                if (tree?.Bottom == p.ChoppedTree) { tree = null; Release("player-took-trunk"); }
-                lastSearchedFor = p.ChoppedTree;
-                sinceSearch = SearchEveryTicks;
-            }
-            if (tree == null && sinceSearch >= SearchEveryTicks)
-            {
-                TreeFinder.ChoppableTree? Find(Point? exclude)
-                    => Nearest(context.Npc.Center,
-                        TreeFinder.FindNearest(context.Npc.Center, context.Npc.Bottom, context.Senses.Reach, SearchRadiusTiles, exclude, Accept),
-                        // "A tree near the player" is measured from his intent region, as every work radius is
-                        // (see MineOre): a tree a few tiles ahead of a walking player is behind the search
-                        // centre the moment he starts walking towards it.
-                        TreeFinder.FindNearest(context.Senses.Intent.Region.Heading, context.Npc.Bottom, context.Senses.Reach, SearchRadiusTiles, exclude, Accept));
-                tree = Find(p.ChoppedTree);
-                if (tree == null && p.ChoppedTree != null) tree = Find(null);
-                sinceSearch = 0;
-            }
-        }
-
-        if (tree == null)
-        {
-            ReleaseActivity();
-            bool awaitingPlayer = WorkPolicies.Chopping == WorkPolicy.Mimic && !p.IsChoppingTree && sincePlayerHit > KeepJobTicks;
-            Classify(awaitingPlayer ? OfferEligibility.PolicyForbidden : OfferEligibility.NoOpportunity,
-                awaitingPlayer ? "mimic-awaiting-player-tree-contact" : "no-admissible-tree");
-            return 0f;
-        }
-        // Retained work must still have a useful position after the body, terrain or
-        // effective reach changes. Actual current access needs no representative node.
-        var key = (MovementQueries.Tile(ctx.Npc.Center),
-            tree.Value.Bottom, TerrainChanges.Revision, FindToolAccess.Reach.X, FindToolAccess.Reach.Y);
-        if (FindToolAccess.InReach(ctx.Npc.Center, tree.Value.Bottom))
-        {
-            tree = tree.Value with { StandPosition = ctx.Npc.Center };
-            approachReach = Reachability.Reach.Yes;
-            reachKey = null;
-        }
-        else if (reachKey != key || sinceReach >= SearchEveryTicks)
-        {
-            approachReach = FindToolAccess.Approach(tree.Value.Bottom, ctx.Npc.Center, ctx.Senses.Reach, out Vector2 stand);
-            if (approachReach == Reachability.Reach.Yes)
-                tree = tree.Value with { StandPosition = stand };
-            reachKey = key;
-            sinceReach = 0;
-        }
-        if (approachReach != Reachability.Reach.Yes)
-        {
-            if (deferred.Count > 64) deferred.Clear();
-            deferred[tree.Value.Bottom] = Main.GameUpdateCount + 300;
-            tree = null;
-            ReleaseActivity();
-            Release("approach-not-established");
-            bool undecided = approachReach == Reachability.Reach.Unknown;
-            Classify(undecided ? OfferEligibility.Unresolved : OfferEligibility.KnownUnusable,
-                undecided ? "trunk-approach-undecided" : "trunk-has-no-approach");
-            return 0f;
-        }
-        Classify(OfferEligibility.Usable, "reachable-trunk");
-        return 0.7f;
-    }
-
-    public override float ForecastTicks()
-        => prepared?.TripTicks ?? 0f;
-
     public override PositionRequest Execute(in ActionContext ctx)
     {
-        Item axe = TileChopper.AxeFor(ctx.Player);
-        // The axe comes out only in position; on the walk there the hand stays empty, so the
+        // The axe comes out only in position; on the flight there the hand stays empty, so the
         // torch can hold it in the dark.
         ctx.Companion.HoldItem(ItemID.None);
         swinging = false;
-        if (WorkPolicies.Chopping == WorkPolicy.Disabled)
+        RemainingWork = null;
+        if (bound is not { } b)
         {
-            tree = null;
-            lastSearchedFor = null;
-            sinceSearch = SearchEveryTicks;
-            ReleaseActivity();
+            Status = "no course step";
             return PositionRequest.Hold;
         }
-        if (prepared == null || tree is not TreeFinder.ChoppableTree t)
-            return PositionRequest.Hold;
-        if (PreparedTargetRejection.Length > 0)
+        attemptTrunk = b.Bottom;
+        // A trunk the player has started on is recorded as his by the preparation, so an attempt the course moves
+        // off it concludes with that cause. Under Opportunistic the census withdraws his trunk when another is
+        // free and the course moves; when his is the only tree the companion shares it, which is the census's
+        // call rather than this one's, so only Mimic refuses it at the swing.
+        if (RefusalAtTheSwing(ctx, b) is { } refusal)
         {
-            Release(PreparedTargetRejection);
-            tree = null;
-            sinceSearch = SearchEveryTicks;
-            ReleaseActivity();
+            Refuse(refusal);
             return PositionRequest.Hold;
         }
-        attemptTrunk = t.Bottom;
-
-        if (FindToolAccess.InReach(ctx.Npc.Center, t.Bottom))
+        Item axe = TileChopper.AxeFor(ctx.Player);
+        RemainingWork = ctx.Companion.Chopper.EstimateRemaining(b.Bottom, axe);
+        if (!FindToolAccess.InReach(ctx.Npc.Center, b.Bottom))
         {
-            ctx.Companion.HoldItem(axe.type);
-            swinging = true;
-            ctx.Companion.Motor.Face(t.Bottom.X * 16f + 8f);
-            ctx.Companion.ShowBeam(t.Bottom.ToWorldCoordinates(8f, 8f));
-            if (ctx.Companion.Chopper.Swing(t.Bottom, axe))
+            // A trunk walled off mid-flight is a failed method, named, rather than a body pressing at a wall
+            // until the course notices; the check never picks another tree.
+            if (ApproachVerdict(ctx, b.Bottom) == Reachability.Reach.No)
             {
-                ctx.Companion.StartAnimation(axe.type, axe.useAnimation);
-                if (ctx.Companion.Chopper.LastOutcome is { } outcome)
-                {
-                    var owner = ctx.Companion.Brain.Activity;
-                    // The course's decision identity, which is the same `choice_id` the recorder's rows carry
-                    // since schema 0.43.0. This passed `Chooser.EvaluationId` until 22 September 2026, and the
-                    // chooser stopped advancing that counter when `0bb2c8a` took it off the tick, so any
-                    // `tool-effect` occurrence written after that carried identity zero and could not be joined
-                    // to the decision that caused it. **No capture demonstrates it**: all 43 event sidecars since
-                    // the switch contain zero `tool-effect` occurrences, the last one carrying any being
-                    // `2026-09-16_09-44-42-164`, pre-switch, where the id equals the tick. So this is a defect
-                    // reasoned from the source with no observed instance, and the row that would have caught it
-                    // does not exist — it would assert that a session in which the companion breaks a tile writes
-                    // a `tool-effect` naming the decision that bound the work, which is one assertion over the
-                    // mining evidence scene's existing capture in `VerifyAttemptEvidenceProducers`.
-                    Infrastructure.Diagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "axe", outcome, ctx.Companion.Brain.Course.DecisionId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
-                    if (outcome.Effect == Infrastructure.Interactions.TileToolEffect.Removed && outcome.Target == t.Bottom) attemptFelled = true;
-                    if (outcome.Productive) ctx.Companion.Brain.Activity.RecordWork(t.Bottom.ToWorldCoordinates());
-                }
+                Refuse("approach-not-established");
+                return PositionRequest.Hold;
             }
-            return PositionRequest.Hold;
+            Status = "approaching";
+            Vector2 pose = Bound is { } step ? new Vector2((float)step.Pose.X, (float)step.Pose.Y) : ctx.Npc.Center;
+            return PositionRequest.ExactAt(pose, b.Bottom);
         }
-        return PositionRequest.ExactAt(t.StandPosition, t.Bottom);
+        Status = "chopping";
+        ctx.Companion.HoldItem(axe.type);
+        swinging = true;
+        ctx.Companion.Motor.Face(b.Bottom.X * 16f + 8f);
+        ctx.Companion.ShowBeam(b.Bottom.ToWorldCoordinates(8f, 8f));
+        if (ctx.Companion.Chopper.Swing(b.Bottom, axe))
+        {
+            ctx.Companion.StartAnimation(axe.type, axe.useAnimation);
+            if (ctx.Companion.Chopper.LastOutcome is { } outcome)
+            {
+                var owner = ctx.Companion.Brain.Activity;
+                // The course's decision identity, which is the same `choice_id` the recorder's rows carry
+                // since schema 0.43.0. This passed `Chooser.EvaluationId` until 22 September 2026, and the
+                // chooser stopped advancing that counter when `0bb2c8a` took it off the tick, so any
+                // `tool-effect` occurrence written after that carried identity zero and could not be joined
+                // to the decision that caused it. **No capture demonstrates it**: all 43 event sidecars since
+                // the switch contain zero `tool-effect` occurrences, the last one carrying any being
+                // `2026-09-16_09-44-42-164`, pre-switch, where the id equals the tick. So this is a defect
+                // reasoned from the source with no observed instance, and the row that would have caught it
+                // does not exist — it would assert that a session in which the companion breaks a tile writes
+                // a `tool-effect` naming the decision that bound the work, which is one assertion over the
+                // mining evidence scene's existing capture in `VerifyAttemptEvidenceProducers`.
+                Infrastructure.Diagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "axe", outcome, ctx.Companion.Brain.Course.DecisionId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
+                if (outcome.Effect == Infrastructure.Interactions.TileToolEffect.Removed && outcome.Target == b.Bottom) attemptFelled = true;
+                if (outcome.Productive) ctx.Companion.Brain.Activity.RecordWork(b.Bottom.ToWorldCoordinates());
+            }
+        }
+        return PositionRequest.Hold;
     }
 
-    private static TreeFinder.ChoppableTree? Nearest(Vector2 from, TreeFinder.ChoppableTree? a, TreeFinder.ChoppableTree? b)
-        => a == null ? b : b == null ? a
-            : Vector2.DistanceSquared(from, a.Value.StandPosition) <= Vector2.DistanceSquared(from, b.Value.StandPosition) ? a : b;
+    /// <summary>
+    /// Whether the bound trunk may still be struck: the work was switched off, Mimic has nothing to mimic or
+    /// the trunk is the player's, the tree is gone or has become another tree, it sits in a protected home, or
+    /// it has left the allowance. Each is observed at the call, and none of them is answered by picking a
+    /// different tree.
+    /// </summary>
+    private string? RefusalAtTheSwing(in ActionContext ctx, (Point Bottom, int Material) b)
+    {
+        var p = ctx.Senses.Player;
+        if (WorkPolicies.Chopping == WorkPolicy.Disabled) return "work-disabled";
+        if (WorkPolicies.Chopping == WorkPolicy.Mimic)
+        {
+            if (!p.IsChoppingTree && sincePlayerHit > KeepJobTicks) return "mimic-awaiting-player-tree-contact";
+            if (p.ChoppedTree == b.Bottom) return "player-took-trunk";
+        }
+        if (!TileChopper.TreeStands(b.Bottom)) return "bound-trunk-no-longer-stands";
+        if (Main.tile[b.Bottom.X, b.Bottom.Y].TileType != b.Material) return "bound-trunk-material-changed";
+        if (Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(b.Bottom)) return "outside-allowance-or-protected-home";
+        if (!AllowsTarget(ctx, b.Bottom.ToWorldCoordinates())) return "outside-allowance-or-protected-home";
+        return null;
+    }
+
+    /// <summary>Whether any free cell still reaches the bound trunk, reused while the body's tile, the terrain and
+    /// the reach are unchanged. Its only use is to refuse this trunk; it never picks another.</summary>
+    private Reachability.Reach ApproachVerdict(in ActionContext ctx, Point trunk)
+    {
+        var key = (trunk, MovementQueries.Tile(ctx.Npc.Center), TerrainChanges.Revision, FindToolAccess.Reach);
+        if (approachProof?.Key != key)
+            approachProof = (key, FindToolAccess.Approach(trunk, ctx.Npc.Center, ctx.Senses.Reach, out _));
+        return approachProof.Value.Verdict;
+    }
+
+    /// <summary>Refuse the bound step by name: the attempt records why, the admission is released, and the next
+    /// selection closes the attempt with that cause even if the course binds this trunk again.</summary>
+    private void Refuse(string cause)
+    {
+        // The player's claim on the trunk is the more specific account when both hold, so a refusal only
+        // overwrites a release that is not already his.
+        if (release != "player-took-trunk" || cause == "player-took-trunk") release = cause;
+        Status = cause;
+        refusals++;
+        ReleaseActivity();
+        Classify(cause is "work-disabled" or "mimic-awaiting-player-tree-contact" or "player-took-trunk"
+            ? OfferEligibility.PolicyForbidden : OfferEligibility.KnownUnusable, cause);
+    }
 }

@@ -54,56 +54,63 @@ internal static class VerifyMiningList
         MiningList list = Fresh();
         Require(list.Mode == ListMode.SkipMarked && list.Known.Count == 0 && list.Allows(TileID.Copper) && list.Allows(TileID.Iron),
             $"a new list must skip nothing and know nothing; mode={list.Mode} known={list.Known.Count}");
-        var (action, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
-        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score > 0f && action.Eligibility == OfferEligibility.Usable,
-            $"exposed copper under a fresh list must be usable work; score={score} {action.Eligibility}/{action.EligibilityReason}");
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
+        Require(Bound(ctx) == new Point(25, 59),
+            $"exposed copper under a fresh list must be bound work; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
+
+    // The list is honoured where work is found, which is the census now: a left ore is published refused by
+    // `mining-list` and never bound, and a changed mark or mode reopens the census, so the control half of each
+    // row is answered by the very next decision.
+    private static Point? Bound(live::AICompanion.Companion.Brain.Activities.ActionContext ctx)
+        => DriveGatheringThroughTheCourse.Decide(ctx, "mine") is { } step ? DriveGatheringThroughTheCourse.Tile(step) : null;
+
+    private static string CensusReason(live::AICompanion.Companion.Brain.Activities.ActionContext ctx, Point ore)
+        => DriveGatheringThroughTheCourse.Site(ctx, "mine-target", ore) is { } site ? $"{site.Admission}/{site.Reason}" : "absent";
 
     private static void AMarkedOreUnderSkipIsNotOffered()
     {
         MiningList list = Fresh();
         list.SetMarked(TileID.Copper, true);
-        var (action, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
-        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score == 0f && action.TargetTile == null && action.JobId == 0,
-            $"marked copper under Skip marked must not become a job; score={score} target={action.TargetTile} job={action.JobId}");
-        Require(action.Eligibility == OfferEligibility.PolicyForbidden && action.EligibilityReason == "ore-left-by-mining-list",
-            $"the refusal must name the list rather than absent ore; got {action.Eligibility}/{action.EligibilityReason}");
-        // The control, on the next preparation rather than after the search cadence: clearing the mark is new
-        // evidence about which ores are work, exactly as a change of pick is.
+        Point ore = new(25, 59);
+        var (action, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        Require(Bound(ctx) == null && action.JobId == 0,
+            $"marked copper under Skip marked must not become a job; {DriveGatheringThroughTheCourse.Account(ctx)} job={action.JobId}");
+        Require(CensusReason(ctx, ore) == "unusable/mining-list",
+            $"the refusal must name the list rather than absent ore; got {CensusReason(ctx, ore)}");
+        // The control, on the next decision rather than after any cadence: clearing the mark is new evidence about
+        // which ores are work, exactly as a change of pick is.
         list.SetMarked(TileID.Copper, false);
-        score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score > 0f && action.TargetTile == new Point(25, 59),
-            $"the same copper must be work on the preparation after its mark is cleared; score={score} target={action.TargetTile} status={action.Status}");
+        Require(Bound(ctx) == ore,
+            $"the same copper must be bound on the decision after its mark is cleared; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void AnUnmarkedOreUnderOnlyIsNotOffered()
     {
         MiningList list = Fresh();
         list.Mode = ListMode.OnlyMarked;
-        var (action, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
-        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score == 0f && action.TargetTile == null && action.EligibilityReason == "ore-left-by-mining-list",
-            $"unmarked copper under Only marked must not be offered; score={score} {action.Eligibility}/{action.EligibilityReason}");
+        Point ore = new(25, 59);
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        Require(Bound(ctx) == null && CensusReason(ctx, ore) == "unusable/mining-list",
+            $"unmarked copper under Only marked must not be bound; census {CensusReason(ctx, ore)}; {DriveGatheringThroughTheCourse.Account(ctx)}");
         list.SetMarked(TileID.Copper, true);
-        score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score > 0f && action.TargetTile == new Point(25, 59),
-            $"marking the copper under Only marked must make it work on the next preparation; score={score} status={action.Status}");
+        Require(Bound(ctx) == ore,
+            $"marking the copper under Only marked must make it bound on the next decision; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void AJobUnderWayEndsWhenItsOreIsMarked()
     {
         MiningList list = Fresh();
         var (action, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59), new Point(26, 59));
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.JobId > 0 && action.RemainingTiles == 2,
-            $"premise: a two-tile copper vein must start a job; job={action.JobId} remaining={action.RemainingTiles}");
+        VerifyOreWork.AcceptBoundOre(ctx, action, "premise: a two-tile copper vein must start a job");
+        Require(action.RemainingTiles == 2, $"premise: the job must hold both tiles; remaining={action.RemainingTiles}");
         list.SetMarked(TileID.Copper, true);
-        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score == 0f && action.RemainingTiles == 0 && action.JobId == 0,
-            $"marking the job's ore must end the job on the next preparation; score={score} job={action.JobId} remaining={action.RemainingTiles}");
+        action.Prepare(ctx);
+        Require(action.RemainingTiles == 0 && action.JobId == 0,
+            $"marking the job's ore must end the job on the next preparation; job={action.JobId} remaining={action.RemainingTiles}");
         Require(action.LastConclusion is { } end && end.Reason == "ore left by mining list",
             $"the ended job must name the list as its reason; got '{action.LastConclusion?.Reason}'");
+        Require(Bound(ctx) == null, $"a marked vein must not be bound again; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void MimicDoesNotHelpWithALeftOre()
@@ -111,35 +118,32 @@ internal static class VerifyMiningList
         MiningList list = Fresh();
         list.SetMarked(TileID.Copper, true);
         Point ore = new(25, 59);
-        var (action, ctx) = VerifyOreWork.SetUp(WorkPolicy.Mimic, TileID.Copper, ore, playerHit: ore);
-        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score == 0f && action.TargetTile == null,
-            $"the player mining a marked ore must not start mimic help; score={score} target={action.TargetTile}");
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Mimic, TileID.Copper, ore, playerHit: ore);
+        Require(Bound(ctx) == null,
+            $"the player mining a marked ore must not start mimic help; {DriveGatheringThroughTheCourse.Account(ctx)}");
         list.SetMarked(TileID.Copper, false);
-        score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score > 0f && action.TargetTile == ore,
-            $"with the mark cleared the same mimic scene must help; score={score} target={action.TargetTile} status={action.Status}");
+        Require(Bound(ctx) == ore,
+            $"with the mark cleared the same mimic scene must help; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void AnAllowedOreBesideALeftOneIsWork()
     {
-        // The premise first: in this scene the nearer copper is the one a list-blind search takes, so the row below
-        // cannot pass by the iron simply being nearest.
+        // The premise first: in this scene the nearer copper is the one the course binds with nothing marked, so
+        // the row below cannot pass by the iron simply being the one it would bind anyway.
         Fresh();
-        var (plain, plainCtx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
+        var (_, plainCtx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
         PlaceOre(TileID.Iron, new Point(29, 59));
         VerifyOreWork.ResettleReach(plainCtx);
-        Require(VerifyPreparedActivities.PrepareAndScore(plain, plainCtx) > 0f && plain.TargetTile == new Point(25, 59),
-            $"premise: with nothing marked the nearer copper must be taken first; target={plain.TargetTile}");
+        Require(Bound(plainCtx) == new Point(25, 59),
+            $"premise: with nothing marked the nearer copper must be bound first; {DriveGatheringThroughTheCourse.Account(plainCtx)}");
 
         MiningList list = Fresh();
         list.SetMarked(TileID.Copper, true);
-        var (action, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
         PlaceOre(TileID.Iron, new Point(29, 59));
         VerifyOreWork.ResettleReach(ctx);
-        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-        Require(score > 0f && action.TargetTile == new Point(29, 59),
-            $"marking copper must leave the iron beside it as work; score={score} target={action.TargetTile} status={action.Status}");
+        Require(Bound(ctx) == new Point(29, 59),
+            $"marking copper must leave the iron beside it as work; {DriveGatheringThroughTheCourse.Account(ctx)}");
     }
 
     private static void PlaceOre(ushort type, Point at)

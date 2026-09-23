@@ -231,6 +231,7 @@ internal static class VerifyEngineMotion
         // means renaming cases that have baselines, which the scoreboard reads as `gone` plus `new` for each.
         // These three are new on this branch and have no baseline, so the prefix costs nothing today.
         ("a vein's remaining work is answered or refused by name, never left unknown", VerifyVeinRemainingWork.Run),
+        ("the gathering hand works the target the course bound and refuses a stale one by name", VerifyGatheringActsOnTheBinding.Run),
         ("G13 an encounter suppresses work and orders feasible fights by what the companion survives", VerifyEncounterConduct.Run),
         ("G10 no domain recomputes a spatial fact the senses already publish", VerifySharedSpatialFacts.Run),
         // Last because the cause of an in-suite red near here is still open, and **not because this case

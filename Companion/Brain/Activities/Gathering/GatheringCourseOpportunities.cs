@@ -66,8 +66,27 @@ public sealed class CaptureGatheringOpportunities
     private readonly Dictionary<string, ObservedOre> observedOres = new(StringComparer.Ordinal);
     private readonly HashSet<Point> oreVisited = new();
     private int terrainRevision;
-    private (int Type, int Prefix, int Power) pickSignature;
-    private (WorkPolicy Policy, object List, int Revision) policySignature;
+    /// <summary>The pick and the player's tool reach the admissions were proved under. Reach belongs here beside the pick
+    /// because every stand this census publishes is a cell within reach of its tile: a smaller reach strands the
+    /// published stand out of range, and a larger one leaves ore it now reaches refused. Mining's private search
+    /// keyed its own approach on reach and held that property until 23 September 2026, when it went and the census
+    /// became the only discovery.</summary>
+    private (int Type, int Prefix, int Power, (int X, int Y) Reach) pickSignature;
+    private (WorkPolicy Policy, object List, int Revision, MimicGate Mimic) policySignature;
+    /// <summary>
+    /// What Mimic allows right now: whether the player's ore contact is live, and the ore he last hit.
+    ///
+    /// <para>The census is the only discovery, so it is the only place Mimic can be honoured. Until 23 September
+    /// 2026 it admitted ore under Mimic exactly as under Opportunistic, and Mimic was enforced by mining's own
+    /// private search declining to start — so the course bound the ore, the body flew to it, and the hand did
+    /// nothing, which is the "flew to a pot and hovered" shape one domain over. The ore type is remembered here
+    /// rather than read from the watcher, because the watcher's recent-hit answer lasts three quarters of a second
+    /// while the contact that keeps Mimic live lasts <see cref="MineOre.MimicContactTicks"/>.</para>
+    /// </summary>
+    private readonly record struct MimicGate(bool Live, int OreType);
+    private int lastPlayerOreType = -1;
+    /// <summary>The gate of the capture in progress, read by <see cref="Admit"/> from the sweep and the re-answer alike.</summary>
+    private MimicGate currentMimic = new(true, -1);
     private long minerAttempt = -1;
     /// <summary>
     /// The reach the ore admissions were proved under. An admission of "no approach" is a claim about the
@@ -106,7 +125,7 @@ public sealed class CaptureGatheringOpportunities
     {
         seen.Clear(); factCache.Clear(); visibleLastCapture.Clear(); visibleThisCapture.Clear(); observedOres.Clear(); oreVisited.Clear(); oreArea = null;
         oreOffset = 0; oreReanswer = 0; oreReanswerKeys = null; oreBlockPaidThrough = 0; oreHeld = default;
-        nextGeneration = 0; version = 0;
+        nextGeneration = 0; version = 0; lastPlayerOreType = -1;
         trees.ResetWorld();
     }
 
@@ -115,7 +134,15 @@ public sealed class CaptureGatheringOpportunities
         Rectangle area = SearchArea(context.Senses.Intent.Region.Heading,
             PlayerIntegration.CompanionPreferences.Current.WorkCensusRadiusTiles);
         Item pick = TileMiner.PickaxeFor(context.Player);
-        var policy = (WorkPolicies.Mining, WorkPolicies.MiningListVersion.List, WorkPolicies.MiningListVersion.Revision);
+        if (context.Senses.Player.MinedOre is (Point _, int hitType)) lastPlayerOreType = hitType;
+        // Outside Mimic the gate is one constant value, so turning Mimic contact on and off while mining is
+        // Opportunistic never reopens the sweep.
+        MimicGate mimic = WorkPolicies.Mining == WorkPolicy.Mimic
+            ? new(context.Senses.Player.MinedOre != null || Infrastructure.Observation.TileDamageWatcher.TicksSinceOreHit <= MineOre.MimicContactTicks,
+                lastPlayerOreType)
+            : new(true, -1);
+        var policy = (WorkPolicies.Mining, WorkPolicies.MiningListVersion.List, WorkPolicies.MiningListVersion.Revision, mimic);
+        currentMimic = mimic;
         // The edits that matter are the ones touching tiles this census *holds*, which is not the same
         // rectangle it swept. `OreFinder.Vein` floods a connected component with no spatial bound — only
         // a 400-tile cap — so a vein seeded a cell inside the window's edge can reach well outside it,
@@ -130,7 +157,7 @@ public sealed class CaptureGatheringOpportunities
         // which is exact rather than a margin: those tiles are precisely what `Admit` re-reads.
         bool spatialEdit = oreArea == area && TerrainChanges.Edits.ChangedSince(terrainRevision,
             (x, y) => x >= oreHeld.Left && x < oreHeld.Right && y >= oreHeld.Top && y < oreHeld.Bottom) != TerrainEditVerdict.Unchanged;
-        bool changedInputs = pickSignature != (pick.type, pick.prefix, pick.pick) || policySignature != policy
+        bool changedInputs = pickSignature != (pick.type, pick.prefix, pick.pick, FindToolAccess.Reach) || policySignature != policy
             || minerAttempt != (context.Companion.Miner.LastOutcome?.Attempt ?? -1);
         long cells = (long)area.Width * area.Height;
         var geometry = (context.Senses.Reach.FloodGeneration, context.Senses.Reach.Complete,
@@ -174,7 +201,7 @@ public sealed class CaptureGatheringOpportunities
                 string key = oreReanswerKeys[oreReanswer];
                 // A site the sweep has since dropped is simply skipped; the round is about what is held.
                 if (!observedOres.TryGetValue(key, out ObservedOre? stale)) { oreReanswer++; continue; }
-                observedOres[key] = Admit(context, pick, stale.Identity, stale.Material, stale.Generation,
+                observedOres[key] = Admit(context, pick, currentMimic, stale.Identity, stale.Material, stale.Generation,
                     stale.Tiles, stale.VeinComplete, stale.ReplacementGap);
                 oreReanswer++;
             }
@@ -186,7 +213,7 @@ public sealed class CaptureGatheringOpportunities
             oreHeld = area;
             observedOres.Clear(); oreVisited.Clear(); visibleThisCapture.Clear();
             terrainRevision = TerrainChanges.Revision;
-            pickSignature = (pick.type, pick.prefix, pick.pick);
+            pickSignature = (pick.type, pick.prefix, pick.pick, FindToolAccess.Reach);
             policySignature = policy;
             minerAttempt = context.Companion.Miner.LastOutcome?.Attempt ?? -1;
             oreGeometry = geometry;
@@ -239,7 +266,7 @@ public sealed class CaptureGatheringOpportunities
             foreach (Point tile in tiles) oreHeld = Rectangle.Union(oreHeld, new Rectangle(tile.X, tile.Y, 1, 1));
             string identity = $"ore:{material}:{tiles[0].X},{tiles[0].Y}";
             long generation = Generation(identity, material, visible, out bool replacementGap);
-            observedOres[identity] = Admit(context, pick, identity, material, generation, tiles, vein.Complete, replacementGap);
+            observedOres[identity] = Admit(context, pick, currentMimic, identity, material, generation, tiles, vein.Complete, replacementGap);
         }
         bool complete = oreOffset == cells;
         // A partial scan proves no denominator.  It publishes only coverage, so it cannot rescale
@@ -270,7 +297,7 @@ public sealed class CaptureGatheringOpportunities
     /// already discovered — and two copies of an admission ladder is how the two answers drift into
     /// disagreeing about the same ore.
     /// </summary>
-    private static ObservedOre Admit(in ActionContext context, Item pick, string identity, int material,
+    private static ObservedOre Admit(in ActionContext context, Item pick, MimicGate mimic, string identity, int material,
         long generation, Point[] tiles, bool veinComplete, bool replacementGap)
     {
         var miner = context.Companion.Miner;
@@ -280,19 +307,29 @@ public sealed class CaptureGatheringOpportunities
             Reachability.Reach approach = FindToolAccess.Approach(tile, context.Npc.Center, context.Senses.Reach, out Vector2 pose);
             approaches.Add((tile, approach, pose));
         }
-        var chosen = approaches.FirstOrDefault(candidate => candidate.Reach == Reachability.Reach.Yes);
-        if (chosen.Reach != Reachability.Reach.Yes)
-            chosen = approaches.FirstOrDefault(candidate => candidate.Reach == Reachability.Reach.Unknown);
-        Point target = chosen.Tile == default ? tiles[0] : chosen.Tile;
-        Reachability.Reach reach = chosen.Tile == default ? Reachability.Reach.No : chosen.Reach;
-        Vector2 stand = chosen.Tile == default ? default : chosen.Pose;
+        // Found by index, never by FirstOrDefault. `Reach.Yes` is the enum's zero, so the default tuple a
+        // FirstOrDefault returns when nothing matches *reads as Yes*: until 23 September 2026 a vein with no
+        // proven approach skipped the Unknown fallback below it and was published as `approach-unreachable` — a
+        // proven refusal — whenever its tiles were merely not yet reached by the flood. The re-answer on a new
+        // flood hid it by correcting the fact once the flood finished; mining's own private search, which
+        // answered Unknown correctly, hid it from every whole-brain scene until that search was deleted.
+        int chosen = approaches.FindIndex(candidate => candidate.Reach == Reachability.Reach.Yes);
+        if (chosen < 0) chosen = approaches.FindIndex(candidate => candidate.Reach == Reachability.Reach.Unknown);
+        Point target = chosen < 0 ? tiles[0] : approaches[chosen].Tile;
+        Reachability.Reach reach = chosen < 0 ? Reachability.Reach.No : approaches[chosen].Reach;
+        Vector2 stand = chosen < 0 ? default : approaches[chosen].Pose;
         bool listed = WorkPolicies.MinesOre(material);
         bool policyEnabled = WorkPolicies.Mining != WorkPolicy.Disabled;
+        // Mimic helps with the ore the player is mining, while he is mining it: his contact is live and the
+        // vein is his ore type. Opportunistic passes a gate that admits everything.
+        bool mimicked = mimic.Live && (mimic.OreType < 0 && WorkPolicies.Mining != WorkPolicy.Mimic || mimic.OreType == material);
         bool allowed = InNewActivityAllowance(context, target) && !ProtectCompanionHomes.IsProtected(target);
         bool mineable = miner.CanMine(target, pick.pick);
-        string admission = !policyEnabled || !listed || !allowed || !mineable ? "unusable"
+        string admission = !policyEnabled || !listed || !mimicked || !allowed || !mineable ? "unusable"
             : reach == Reachability.Reach.Unknown ? "unknown" : reach == Reachability.Reach.Yes ? "usable" : "unusable";
-        string reason = !policyEnabled ? "mining-disabled" : !listed ? "mining-list" : !allowed ? "outside-allowance-or-protected"
+        string reason = !policyEnabled ? "mining-disabled" : !listed ? "mining-list"
+            : !mimicked ? (mimic.Live && mimic.OreType >= 0 ? "mimic-other-ore-type" : "mimic-awaiting-player-ore-contact")
+            : !allowed ? "outside-allowance-or-protected"
             : !mineable ? "pickaxe-cannot-damage" : reach == Reachability.Reach.Unknown ? "approach-not-yet"
             : reach == Reachability.Reach.Yes ? "observed-native-ore" : "approach-unreachable";
         if (replacementGap) reason += ";replacement-observation-gap";
