@@ -158,7 +158,26 @@ public sealed class BrainTelemetry : ModSystem
     // `reunion_delay_cost_per_tick`, and the board's `regroup=` and `return-ticks=`. Those were never the
     // chooser's — `ObserveCompanionship` runs them on every brain tick and `KeepCompany` reads the regroup
     // urgency — and the day they *looked* like the chooser's is the reason this folder's first trap exists.
-    private const string Schema = "0.46.0";
+    //
+    // 0.47.0 is one version for the whole of wave 1 on 23 September 2026, where every work activity was
+    // moved onto the course's bound step and pots were folded into collection. No TSV column moves.
+    //
+    //   removed   the `pot-target` domain. Domains are dynamic in the record, so what vanishes is every
+    //             `course-admitted:pot-target=`, `course:pot-target=` and `<activity>_offer` reading of
+    //             it; a pot is a `collect-target` opportunity whose need is a Container. A removal is the
+    //             one change the append convention cannot carry, so the version moves.
+    //   added     `binding-id`, `binding-origin` (activity, incidental, none, or not-an-effect /
+    //             not-claimed for an occurrence that is not a decision's effect) and `binding-verdict`
+    //             (bound, effect-without-binding, effect-off-binding, unaudited) at the end of every
+    //             `tool-effect`, `world-interaction` and `pickup` detail, so a reader joins an effect to
+    //             the step that chose it; the `contract-violation` occurrence's two new kinds of the same
+    //             names; `container-usable:N` inside each `course-admitted:` entry, the usable candidates
+    //             of that domain carrying a Container need, which is how a pot is still countable once
+    //             it shares a domain with drops; and `effects-audited` on the `# closing=` line.
+    //
+    // A reader gates the pot witness on this version: below it a pot is `pot-target`'s usable count, from
+    // it the Container count; a capture on either side reads as it was written.
+    private const string Schema = "0.47.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -433,7 +452,9 @@ public sealed class BrainTelemetry : ModSystem
             // the count of `course-decision` occurrences: decisions with nothing audited is the hook
             // gone from `RecordCourseTrace.Record`, and decisions audited with nothing read is
             // `ReadLiveCourseForAudit.Install` never having run. Both are silent in play otherwise.
-            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead}");
+            // `effects-audited` (0.47.0) is the effect contract's denominator: a session whose hand did
+            // nothing has two zero violation counts that mean nothing, and this is what says so.
+            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead};effects-audited={AuditDecisionContracts.EffectsAudited}");
             diagnosticWriter.Stop(TimeSpan.FromMilliseconds(100), reason, rowsWritten);
         }
         catch (Exception e)
@@ -897,9 +918,27 @@ public sealed class BrainTelemetry : ModSystem
             //       .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
             //       .Select(g => g.Key).FirstOrDefault() ?? "-";
             //
+            // `container-usable` (0.47.0) is how many of a domain's usable candidates are containers — a pot,
+            // an opportunity with unknown contents — counted by the need the candidate carries rather than by
+            // the domain it sits in, because the owner ruled on 23 September 2026 that pots are a collection
+            // task and moved them from `pot-target` into `collect-target`, where the domain alone no longer
+            // tells a pot from a drop. Read from the need kind, the count is the same whichever domain
+            // publishes the pot, so the witness reading it survives the move in either direction.
+            var containers = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var candidate in course.Candidates)
+            {
+                if (candidate.Admission != Selection.Opportunities.OpportunityAdmission.KnownUsable) continue;
+                foreach (var need in candidate.Needs)
+                {
+                    if (need.Key.Kind != Selection.Opportunities.NeedKind.Container) continue;
+                    containers[candidate.Key.Domain] = containers.TryGetValue(candidate.Key.Domain, out int had) ? had + 1 : 1;
+                    break;
+                }
+            }
             foreach (var domain in course.Admitted)
                 board.Append(CultureInfo.InvariantCulture,
-                    $";course-admitted:{domain.Domain}=usable:{domain.Usable},unknown:{domain.Unresolved},unusable:{domain.Unusable},reason:{(domain.Reason.Length == 0 ? "-" : domain.Reason)}");
+                    $";course-admitted:{domain.Domain}=usable:{domain.Usable},unknown:{domain.Unresolved},unusable:{domain.Unusable},reason:{(domain.Reason.Length == 0 ? "-" : domain.Reason)}"
+                    + $",container-usable:{(containers.TryGetValue(domain.Domain, out int pots) ? pots : 0)}");
             foreach (var refusal in course.LastRefusals.OrderByDescending(entry => entry.Value))
                 board.Append(CultureInfo.InvariantCulture, $";course-refused:{refusal.Key}={refusal.Value}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;

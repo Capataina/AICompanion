@@ -107,6 +107,35 @@ public static class WriteBehaviourParity
             return any ? false : (bool?)null;
         });
 
+    /// <summary>
+    /// A pot admitted as work, read the way the capture's own schema wrote it.
+    ///
+    /// Below 0.47.0 a pot was its own `pot-target` domain and its usable count is that domain's. From
+    /// 0.47.0 the owner's ruling of 23 September 2026 folded pots into collection, so `pot-target` is
+    /// written nowhere and reading it would answer "never" on every new capture — a silent no wearing the
+    /// shape of a finding. The recorder counts a domain's usable candidates carrying a Container need as
+    /// `container-usable:N` inside each `course-admitted:` entry, and that is what this reads, from any
+    /// domain, so the witness survives the pot moving domains again.
+    /// </summary>
+    private static Witness PotAdmitted()
+        => new("a pot admitted as work", session =>
+        {
+            if (!CompletedTransferClaimsWereReceived.SchemaAtLeast(session, EveryEffectWasTheAcceptedStep.First))
+                return Admitted("a pot admitted as work", "pot-target").Occurred(session);
+            GodsEyeEventLog log = ReadGodsEyeEvents.Read(session.Path);
+            if (!log.Present) return null;
+            bool any = false;
+            foreach (GodsEyeEvent e in log.Events)
+            {
+                if (!string.Equals(e.kind, "decision", StringComparison.Ordinal)) continue;
+                var containers = ACensusAdmissionSurvivesItsBinder.ReadContainerAdmissions(e.detail);
+                if (containers.Count == 0) continue;
+                any = true;
+                if (containers.Values.Any(usable => usable > 0)) return true;
+            }
+            return any ? false : (bool?)null;
+        });
+
     private static readonly Mapped[] Mapping =
     {
         new("Getting out of the player's way",
@@ -189,8 +218,8 @@ public static class WriteBehaviourParity
             new[] { typeof(AHittingFightKeptItsScore), typeof(CombatWasPricedInACrowd) }),
         new("Breaking containers",
             new[] { "collecting, lighting and pot breaking bind steps a course can hold" },
-            new[] { typeof(CompletedTransferClaimsWereReceived) },
-            Admitted("a pot admitted as work", "pot-target")),
+            new[] { typeof(CompletedTransferClaimsWereReceived), typeof(EveryEffectWasTheAcceptedStep) },
+            PotAdmitted()),
         new("Dodging and kiting",
             new[] { "a dodge bends mining without stopping it", "safety bends the body inside its job and never takes it: an enemy beside a leaving player, firing on, a bent guard, an intervening hostile" },
             Array.Empty<Type>()),
