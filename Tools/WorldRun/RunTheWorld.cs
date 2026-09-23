@@ -463,7 +463,8 @@ internal static class RunTheWorld
                 Actors?.HostilesAlive ?? 0, Actors?.DropsPresent ?? 0,
                 brain.LastAction?.Name == "combat", inRegion, atPlayer, atCompanion, soonest,
                 course.DecisionId, course.Facts?.Facts.Count ?? 0, DescribeLeaders(course.LastLeaders),
-                brain.Fighting?.AcceptOutcome ?? "-"));
+                brain.Fighting is { } stance
+                    ? stance.AcceptOutcome + "/" + stance.EligibilityReason + "/" + companion.Combat.LastFireOutcome : "-"));
             // Asked after the tick's resolve, because the reach flood is advanced by the
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.

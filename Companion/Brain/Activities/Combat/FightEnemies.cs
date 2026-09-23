@@ -40,7 +40,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     public bool ActivateCourseBinding(StepBinding binding, AttackPlan plan)
     {
         if (binding.Method != CombatCourseFacts.Method || binding.Opportunity.Domain != CombatCourseFacts.Domain || combat == null)
-            return false;
+            return Refuse("step-is-not-a-combat-use");
         PlannedUse use = default;
         int segmentIndex = -1, useIndex = -1;
         for (int segment = 0; segment < plan.Segments.Length && segmentIndex < 0; segment++)
@@ -52,18 +52,25 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
                     useIndex = index;
                     break;
                 }
-        if (segmentIndex < 0 || use.TargetSlot < 0 || use.TargetSlot >= Main.maxNPCs
-            || (uint)use.WeaponSlot >= (uint)combat.Weapons.Count)
-            return false;
+        if (segmentIndex < 0) return Refuse("use-id-not-in-plan");
+        if (use.TargetSlot < 0 || use.TargetSlot >= Main.maxNPCs) return Refuse("target-slot-out-of-range");
+        if ((uint)use.WeaponSlot >= (uint)combat.Weapons.Count) return Refuse("weapon-slot-out-of-range");
         int generation = HostileAttackSources.Generation(Main.npc[use.TargetSlot]);
         int prefix = Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Gear[(GearSlot)use.WeaponSlot].prefix;
         if (binding.Tool != CombatCourseFacts.ToolId(use.WeaponSlot, combat.Weapons[use.WeaponSlot].ItemType, prefix))
-            return false;
+            return Refuse("tool-changed");
         AcceptedUse = new(binding.Id, binding.SnapshotId, use.TargetSlot, generation, use.WeaponSlot,
             binding.NativeUseId, segmentIndex, useIndex, binding.Method);
         acceptedPlan = plan;
+        ActivationRefusal = "";
         return true;
     }
+
+    /// <summary>Why the last <see cref="ActivateCourseBinding"/> returned false, empty after a success —
+    /// so a step the stance could not adopt says which of its five reasons it was.</summary>
+    public string ActivationRefusal { get; private set; } = "";
+
+    private bool Refuse(string reason) { ActivationRefusal = reason; return false; }
 
     public void ClearAcceptedUse(string reason)
     {
@@ -92,10 +99,17 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     protected override void OnAccept(StepBinding? step)
     {
         if (step == null || step.Opportunity.Domain != CombatCourseFacts.Domain) { ClearAcceptedUse("no-step"); return; }
-        if (AcceptedUse?.BindingId == step.Id) return;
+        // Re-checked on every tick rather than kept once accepted: combat re-searches, so a plan that held
+        // the use last tick may not hold it now, and an outcome that stuck at `accepted` would count ticks
+        // since the first adoption rather than ticks on which the use is actually in a held plan.
+        string refusal = "no-plan-held";
         foreach (AttackPlan? plan in new[] { CommittedPlan, OfferedPlan })
-            if (plan != null && ActivateCourseBinding(step, plan)) { AcceptOutcome = "accepted"; return; }
-        ClearAcceptedUse("step-names-no-use-in-a-held-plan");
+        {
+            if (plan == null) continue;
+            if (ActivateCourseBinding(step, plan)) { AcceptOutcome = "accepted"; return; }
+            refusal = ActivationRefusal;
+        }
+        ClearAcceptedUse(refusal);
     }
     public override string Name => "combat";
     public override PurposeFamily Family => PurposeFamily.Combat;
@@ -308,19 +322,19 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
 
         if (!PlayerIntegration.CompanionPreferences.Current.Combat)
         {
-            ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "combat-disabled");
+            Decline(ctx, positioner, allows, enemies, running, "combat-disabled");
             Classify(OfferEligibility.PolicyForbidden, "combat-disabled");
             return;
         }
         if (combat.Weapons.Count == 0)
         {
-            ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "no-weapon");
+            Decline(ctx, positioner, allows, enemies, running, "no-weapon");
             Classify(OfferEligibility.NoOpportunity, "no-weapon");
             return;
         }
         if (ctx.Senses.Player.IsDead)
         {
-            ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "player-dead");
+            Decline(ctx, positioner, allows, enemies, running, "player-dead");
             Classify(OfferEligibility.NoOpportunity, "player-dead");
             return;
         }
@@ -355,7 +369,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         admissible.Sort();
         if (eligible.Count == 0)
         {
-            ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "no-eligible-target");
+            Decline(ctx, positioner, allows, enemies, running, "no-eligible-target");
             preparedPlan = null;
             preparedSearch = null;
             Classify(OfferEligibility.NoOpportunity, "no-eligible-target");
@@ -561,6 +575,26 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// plan itself; a plan that still validates but solves nothing more ends as uses-stopped-solving;
     /// only a plan that still solves is ended by the refusal, under the refusal's own name. Never offers.
     /// </summary>
+    /// <summary>
+    /// The stance declines every target this tick, so it publishes no front either.
+    ///
+    /// The course discovers combat's shots from <see cref="LastSearch"/>, and that was assigned only when a
+    /// fresh search returned and never cleared. So a stance that had since declined every body — deferred by
+    /// its own stall clock, or outside the allowance — kept offering the course the uses of a fight it had
+    /// abandoned. The course's step went on validating against them, and the body held a stand the hands had
+    /// no plan to fire from. Measured 23 September 2026 on the world run of the 22 September capture from
+    /// tick 3: 510 consecutive ticks (980–1488) with combat bound, the stance reading `no-eligible-target`,
+    /// no plan held and no shot fired, while the fight verdict passed because the activity was combat.
+    /// A front the stance would not act on is not an opportunity, so dropping it lets the course's
+    /// `ValidateNextUse` refuse the step (`accepted-use-not-present`) and decide again.
+    /// </summary>
+    private void Decline(in ActionContext ctx, Positioner positioner,
+        Func<Vector2, bool> inAllowance, IReadOnlyList<EnemyForecast> enemies, bool running, string refusal)
+    {
+        lastSearch = null;
+        ReleaseCommitmentForRefusal(ctx, positioner, inAllowance, enemies, running, refusal);
+    }
+
     private static void ReleaseCommitmentForRefusal(in ActionContext ctx, Positioner positioner,
         Func<Vector2, bool> inAllowance, IReadOnlyList<EnemyForecast> enemies, bool running, string refusal)
     {

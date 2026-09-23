@@ -35,6 +35,7 @@ internal static class VerifyTheCensusFrontIsCurrent
         red += Row("a hostile that arrives after the search is still minted a use", ANewHostileIsPublished);
         red += Row("a hostile flickering in and out of the set cannot buy a search a tick", ChurnIsRateLimited);
         red += Row("a hostile arriving just after a forced search waits the bar and no longer", ArrivalBehindTheBarIsBounded);
+        red += Row("a stance that declines every target publishes no front", ADeclinedStancePublishesNothing);
         return red;
     }
 
@@ -282,6 +283,37 @@ internal static class VerifyTheCensusFrontIsCurrent
     /// <summary>Every distinct hostile the frozen observation currently carries a priced use for. This is
     /// the census's own input: `CombatOpportunitySource` walks these facts and mints one opportunity per
     /// distinct target, so a hostile absent here is a hostile the course cannot order a shot at.</summary>
+    /// <summary>
+    /// The course discovers combat's shots from the stance's last search, which stood uncleared after the
+    /// stance declined every body. On the 22 September capture's world run that held a bound fight for
+    /// 510 ticks with no plan and no shot. Switching combat off is one of the stance's refusal exits and
+    /// the one a scene can arrange exactly; every refusal exit goes through the same drop.
+    /// </summary>
+    private static void ADeclinedStancePublishesNothing()
+    {
+        ActionContext ctx = FloorWhereCollectingWins();
+        Brain brain = ctx.Companion.Brain;
+        FightEnemies fight = brain.Actions.OfType<FightEnemies>().Single();
+        for (int tick = 0; tick < 120 && PublishedTargets(brain).Count == 0; tick++) Tick(ctx);
+        Require(PublishedTargets(brain).Count > 0,
+            $"premise: combat must be publishing uses before it declines, or there is nothing to withdraw; offer={fight.Eligibility}/{fight.EligibilityReason}");
+        var preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current;
+        bool before = preferences.Combat;
+        try
+        {
+            preferences.Combat = false;
+            Tick(ctx);
+            Tick(ctx);
+            Require(fight.EligibilityReason == "combat-disabled",
+                $"premise: the stance must have declined through a refusal exit; offer={fight.Eligibility}/{fight.EligibilityReason}");
+            IReadOnlyCollection<int> published = PublishedTargets(brain);
+            Require(published.Count == 0,
+                $"the stance declined every target and the course still discovers uses against {published.Count} of them, "
+                + "so a step bound to them validates against a fight nothing will fire");
+        }
+        finally { preferences.Combat = before; }
+    }
+
     private static IReadOnlyCollection<int> PublishedTargets(Brain brain)
     {
         DecisionFactSnapshot? facts = brain.Course.Facts;

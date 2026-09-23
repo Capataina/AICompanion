@@ -264,7 +264,7 @@ internal static class WorldRunEntry
             Console.WriteLine("PLAY tick|reason|activity|step|usable|unresolved|refused|hostiles|drops|decide ms|soonest arrival at player|combat accept|refusals|leaders");
             foreach (RunTheWorld.PlayTick t in run.Play)
                 Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                    $"  {t.Tick}|{t.Reason}|{t.Activity}|{(t.HasStep ? "step" : "-")}|{t.UsableAdmitted}|{t.UnresolvedAdmitted}|{t.Refused}|{t.HostilesAlive}|{t.DropsPresent}|{t.DecideMs:0.0}|{(float.IsFinite(t.SoonestArrivalTicks) ? t.SoonestArrivalTicks.ToString("0", CultureInfo.InvariantCulture) : "-")}|{t.CombatAccept}|")
+                    $"  {t.Tick}|{t.Reason}|{t.Activity}|{(t.HasStep ? "step" : "-")}|{t.UsableAdmitted}|{t.UnresolvedAdmitted}|{t.Refused}|{t.HostilesAlive}|{t.DropsPresent}|{t.DecideMs:0.0}|{(float.IsFinite(t.SoonestArrivalTicks) ? t.SoonestArrivalTicks.ToString("0", CultureInfo.InvariantCulture) : "-")}|{t.CombatAccept}{(t.Fired ? "+fired" : "")}|")
                     + string.Join(",", t.Refusals.Select(r => $"{r.Key}={r.Value}")) + "|" + t.Leaders);
         }
 
