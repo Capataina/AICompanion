@@ -20,9 +20,16 @@ using AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
 /// <summary>One data-only assistance site. Native capture owns its construction; course discovery
-/// receives only its serialized value through <see cref="DecisionFactSnapshot"/>.</summary>
+/// receives only its serialized value through <see cref="DecisionFactSnapshot"/>.
+///
+/// <para><c>Purpose</c> is what the hand does there, written by the census that found the site. It is a
+/// field rather than something a reader works out from the domain because one domain holds two acts since
+/// 23 September 2026: collection takes a drop by contact and breaks a pot with its hand, both under
+/// `collect-target`, and the two differ in the need they satisfy, whether the hand is reserved and what
+/// the binding names as its tool. Working the act out from the target's spelling (`item:` against
+/// `tile:`) would be a second vocabulary nobody declared.</para></summary>
 [method: System.Text.Json.Serialization.JsonConstructor]
-public sealed record AssistanceOpportunityFact(string Domain, string Target, long Generation, int ItemType, int Stack,
+public sealed record AssistanceOpportunityFact(string Domain, string Purpose, string Target, long Generation, int ItemType, int Stack,
     double X, double Y, double? LandingX, double? LandingY, double? ContactX, double? ContactY, string Approach,
     bool WorkAllowed, double Amount, double CensusAmount, string Admission, string Reason, string Detail, int Prefix = 0)
 {
@@ -30,11 +37,16 @@ public sealed record AssistanceOpportunityFact(string Domain, string Target, lon
     /// while it does, and the two are different points for any tile with terrain beside it. A null
     /// contact means no pose within the tool's reach could hold the body, which is a site the binder
     /// must refuse rather than one it may fly into.</summary>
-    public AssistanceOpportunityFact(string domain, string target, long generation, double x, double y, double amount,
+    public AssistanceOpportunityFact(string domain, string purpose, string target, long generation, double x, double y, double amount,
         double censusAmount, string admission, string reason, string detail, (double X, double Y)? contact = null)
-        : this(domain, target, generation, 0, 0, x, y, null, null, contact?.X, contact?.Y, "Unknown", false,
+        : this(domain, purpose, target, generation, 0, 0, x, y, null, null, contact?.X, contact?.Y, "Unknown", false,
             amount, censusAmount, admission, reason, detail) { }
 }
+
+/// <summary>What one pot sweep covered. The sweep reads its whole window in one pass with no cursor and no
+/// borrowed allowance, so <see cref="Complete"/> is true whenever the sweep ran; it is carried rather than
+/// assumed so that collection's coverage fact states both halves of what it is complete about.</summary>
+public sealed record PotSweep(IReadOnlyList<DecisionFact> Facts, Rectangle Area, bool Complete);
 public readonly record struct AssistanceCaptureCoverage(string Source, long Examined, long Total, bool Exhausted, bool BudgetCut);
 public sealed record AssistanceCaptureSlice(IReadOnlyList<DecisionFact> Facts, AssistanceCaptureCoverage Coverage);
 
@@ -105,8 +117,9 @@ public sealed class CaptureAssistanceOpportunities
     public IReadOnlyList<DecisionFact> Capture(Senses senses, ActionContext context)
     {
         var captured = new List<DecisionFact>();
-        captured.AddRange(CaptureDrops(senses, context, new(double.PositiveInfinity)).Facts);
-        CapturePots(senses, context, captured);
+        PotSweep pots = CapturePots(senses, context);
+        captured.AddRange(pots.Facts);
+        captured.AddRange(CaptureDrops(senses, context, new(double.PositiveInfinity), pots).Facts);
         CaptureLighting(senses, context, captured);
         return captured.OrderBy(fact => fact.Key).ToArray();
     }
@@ -114,8 +127,14 @@ public sealed class CaptureAssistanceOpportunities
     public void ResetWorld() { itemGenerations.Reset(); factVersions.Clear(); frozenDrops = null; capturedDrops.Clear(); drops = new(); dropCensusRevision = 0; version = 0; }
 
     /// <summary>Resumable native drop capture. The cursor advances only after a concrete item was
-    /// observed, so a borrowed-budget cut reports partial coverage rather than an empty census.</summary>
-    public AssistanceCaptureSlice CaptureDrops(Senses senses, ActionContext context, DecisionWorkBudget budget)
+    /// observed, so a borrowed-budget cut reports partial coverage rather than an empty census.
+    ///
+    /// <para>The coverage fact it publishes is collection's, and collection is two sweeps since pots became
+    /// collection work on 23 September 2026: the drop census and <paramref name="pots"/>. It reads complete
+    /// only when both are, because a completeness fact that says complete while one half of the domain was
+    /// never swept is the silent absence every three-valued answer here exists to refuse — a pot nobody
+    /// looked for would read as "looked, nothing there".</para></summary>
+    public AssistanceCaptureSlice CaptureDrops(Senses senses, ActionContext context, DecisionWorkBudget budget, PotSweep pots)
     {
         var facts = new List<DecisionFact>();
         if (frozenDrops == null)
@@ -154,11 +173,15 @@ public sealed class CaptureAssistanceOpportunities
         }
         var coverage = new AssistanceCaptureCoverage("capture-drops", drops.Offset, candidates.Length, drops.Exhausted,
             budget.Cut && drops.Offset < candidates.Length);
-        string coverageText = JsonSerializer.Serialize(coverage with { BudgetCut = false });
+        // Both halves are named in the text, so a reader can tell which world a complete answer is complete
+        // about: the drop cursor's own coverage, then the pot window.
+        string coverageText = JsonSerializer.Serialize(coverage with { BudgetCut = false })
+            + $";pots={(pots.Complete ? "exhaustive" : "unscanned")};pot-area={pots.Area.Left},{pots.Area.Top}:{pots.Area.Width}x{pots.Area.Height}";
         var coverageKey = new FactKey("collect-coverage", "native-census");
         long coverageVersion = factVersions.TryGetValue(coverageKey, out var previous) && previous.Text == coverageText ? previous.Version : ++version;
         factVersions[coverageKey] = (coverageText, coverageVersion);
-        facts.Add(new(coverageKey, coverageVersion, new(Text: coverageText), drops.Exhausted ? FactEvidence.Observed : FactEvidence.Unresolved));
+        facts.Add(new(coverageKey, coverageVersion, new(Text: coverageText),
+            drops.Exhausted && pots.Complete ? FactEvidence.Observed : FactEvidence.Unresolved));
         return new(facts, coverage);
     }
 
@@ -185,22 +208,29 @@ public sealed class CaptureAssistanceOpportunities
             : contact is null || approach == Reachability.Reach.No ? "unusable" : approach == Reachability.Reach.Unknown ? "unknown" : "usable";
         string reason = accepted <= 0 ? "cargo-capacity" : !workAllowed ? "outside-work-allowance" : touching ? "observed-contact"
             : landing is null ? "landing-undecided" : contact is null ? "no-contact-pose" : approach == Reachability.Reach.Unknown ? "approach-undecided" : approach == Reachability.Reach.No ? "unreachable" : "observed-drop";
-        var value = new AssistanceOpportunityFact("collect-target", $"item:{item.whoAmI}", generation, item.type, item.stack, target.X, target.Y,
+        var value = new AssistanceOpportunityFact("collect-target", OpportunityPurposes.Collect, $"item:{item.whoAmI}", generation, item.type, item.stack, target.X, target.Y,
             landing?.X, landing?.Y, !touching && contact is null ? null : hover.X, !touching && contact is null ? null : hover.Y, approach.ToString(), workAllowed,
             Math.Max(0, accepted), item.stack, admission, reason, "identity=observed-slot;replacement-between-observations=unknown", item.prefix);
         return value;
     }
 
-    private void CapturePots(Senses senses, Activities.ActionContext context, List<DecisionFact> facts)
+    /// <summary>
+    /// Every pot in the window around the body, published as collection work: a pot is a container whose
+    /// contents are unknown until the native break produces them, and collection is the job that goes and
+    /// gets things (the owner's ruling of 23 September 2026). It publishes under `collect-target` with the
+    /// purpose `break-pot`, so the course prices a pot against drops and everything else in one domain and
+    /// the activity that performs a drop performs a pot.
+    ///
+    /// The scan sweeps its whole window with no cursor and no borrowed allowance, so unlike the drop census
+    /// it cannot stop part-way; the sweep it returns is complete, and collection's coverage fact carries that
+    /// beside the drop cursor's own. There is no `pot-coverage` fact any more — a second completeness for
+    /// one domain is the fact a reader would consult for the wrong half.
+    /// </summary>
+    public PotSweep CapturePots(Senses senses, Activities.ActionContext context)
     {
+        var facts = new List<DecisionFact>();
         Point centre = context.Npc.Center.ToTileCoordinates();
         Rectangle scanned = new(centre.X - 18, centre.Y - 14, 37, 29);
-        // The scan sweeps its whole window with no cursor and no borrowed allowance, so unlike the
-        // drop census it cannot stop part-way and its coverage is observed rather than unresolved.
-        // Without this fact DiscoverAssistanceOpportunities("pot-target") reads pot-coverage as
-        // Missing, never reports an exhausted census, and — by the rule that optional work does not
-        // start on an unanswered search — no pot is ever broken.
-        facts.Add(Coverage("pot-coverage", scanned));
         for (int x = centre.X - 18; x <= centre.X + 18; x++)
             for (int y = centre.Y - 14; y <= centre.Y + 14; y++)
             {
@@ -224,10 +254,12 @@ public sealed class CaptureAssistanceOpportunities
                     : protectedHome ? "protected" : contact == null ? "no-pose-holds-the-body-within-reach"
                     : reach == ReachVerdict.NotYet ? "reach-not-yet"
                     : reach == ReachVerdict.Unreachable ? "reach-unreachable" : "observed-pot-contents-unknown";
-                var value = new AssistanceOpportunityFact("pot-target", $"tile:{point.X},{point.Y}", 0, point.X * 16 + 16, point.Y * 16 + 16,
+                var value = new AssistanceOpportunityFact("collect-target", OpportunityPurposes.BreakPot, $"tile:{point.X},{point.Y}", 0,
+                    point.X * 16 + 16, point.Y * 16 + 16,
                     1, 1, admission, reason, "contents=unknown;policy=" + enabled + ";capacity=" + capacity + ";origin=2x2", contact);
-                facts.Add(Fact("pot-target", value.Target, 0, value));
+                facts.Add(Fact("collect-target", value.Target, 0, value));
             }
+        return new PotSweep(facts, scanned, Complete: true);
     }
 
     private void CaptureLighting(Senses senses, Activities.ActionContext context, List<DecisionFact> facts)
@@ -338,7 +370,7 @@ public sealed class CaptureAssistanceOpportunities
                     : reach == ReachVerdict.NotYet ? "reach-not-yet" : reach == ReachVerdict.Unreachable ? "reach-unreachable"
                     : stepAnswer == null ? "placement-step-not-yet-asked"
                     : stepAnswer == false ? "the-placement-step-refuses-this-tile" : "observed-persistent-darkness";
-                var value = new AssistanceOpportunityFact("light-target", $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8,
+                var value = new AssistanceOpportunityFact("light-target", OpportunityPurposes.Light, $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8,
                     reading.IsDark ? 1 : 0, reading.IsDark ? 1 : 0, admission, reason, $"light={reading.Light};brightness={reading.Brightness:R};coverage={coverage.Area}", contact);
                 // Ranked by darkness rather than by `Amount`, because a light site's `Amount` is the
                 // binary `IsDark` the need arithmetic wants — every usable site scores exactly 1, so a

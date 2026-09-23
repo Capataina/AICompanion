@@ -85,7 +85,7 @@ internal static class VerifyCourseSnapshotAssembly
         // Observed for all five passed only because the capture used to publish Observed unconditionally,
         // which is a finished census of a world nobody looked at. Unresolved here is the honest answer
         // and the row now demands that the two agree with each other.
-        foreach (string coverage in new[] { "collect-coverage", "light-coverage", "pot-coverage", "mine-coverage", "chop-coverage" })
+        foreach (string coverage in new[] { "collect-coverage", "light-coverage", "mine-coverage", "chop-coverage" })
         {
             Require(snapshot.TryRead(new FactKey(coverage, "native-census"), out DecisionFact fact),
                 $"the assembled snapshot carries no {coverage} at all, so that domain can never finish a census");

@@ -42,7 +42,7 @@ public static class ReadLiveCourseForAudit
     /// here can never have one afterwards.</summary>
     private static bool IsTargetKind(string kind) => kind switch
     {
-        "combat-target" or "collect-target" or "light-target" or "pot-target" or "mine-target" or "chop-target" => true,
+        "combat-target" or "collect-target" or "light-target" or "mine-target" or "chop-target" => true,
         _ => false,
     };
 

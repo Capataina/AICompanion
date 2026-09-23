@@ -505,7 +505,7 @@ public static class AuditDecisionContracts
     private static string RefusalFor(string domain) => domain switch
     {
         "combat" => CombatNotObserved,
-        "collect-target" or "light-target" or "pot-target" => AssistanceNotObserved,
+        "collect-target" or "light-target" => AssistanceNotObserved,
         _ => "",
     };
 

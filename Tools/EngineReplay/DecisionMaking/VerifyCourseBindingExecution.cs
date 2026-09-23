@@ -58,9 +58,11 @@ internal static class VerifyCourseBindingExecution
         ("fire", "Companion/Brain/Activities/Combat/CombatCourseOpportunity.cs"),
         ("mine", "Companion/Brain/Activities/Gathering/GatheringCourseOpportunities.cs"),
         ("chop", "Companion/Brain/Activities/Gathering/CaptureTreeOpportunities.cs"),
-        ("collect", "Companion/Brain/Infrastructure/Selection/Opportunities/DiscoverAssistanceOpportunities.cs"),
-        ("light", "Companion/Brain/Infrastructure/Selection/Opportunities/DiscoverAssistanceOpportunities.cs"),
-        ("break-pot", "Companion/Brain/Infrastructure/Selection/Opportunities/DiscoverAssistanceOpportunities.cs"),
+        // The assistance census writes each site's purpose (drops, pots and torch sites alike, since pots became collection work on
+        // 23 September 2026); discovery only reads it back, so the census is the file to open when one loses its executor.
+        ("collect", "Companion/Brain/Infrastructure/Observation/CaptureAssistanceOpportunities.cs"),
+        ("light", "Companion/Brain/Infrastructure/Observation/CaptureAssistanceOpportunities.cs"),
+        ("break-pot", "Companion/Brain/Infrastructure/Observation/CaptureAssistanceOpportunities.cs"),
     };
 
     /// <summary>

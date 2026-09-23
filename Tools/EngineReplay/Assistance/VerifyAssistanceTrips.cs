@@ -65,11 +65,15 @@ internal static class VerifyAssistanceTrips
         Each("L05 darkness in a chamber the body cannot fit into is not offered; the same chamber with a two-wide shaft is", DarknessInAnUnreachableChamber);
         Each("I03 a pot in a chamber the body cannot fit into is not offered; the same pot with a two-wide shaft is", APotInAnUnreachableChamber);
         Each("hover torch: a site no floor pose reaches is offered with a hover beside it and placed", () => ASiteNoFloorPoseReaches(lighting: true));
-        Each("hover pot: a pot no floor pose reaches is offered with a hover beside it and broken in passing, never as a trip", () => ASiteNoFloorPoseReaches(lighting: false));
+        Each("hover pot: a pot no floor pose reaches is a collection trip, broken from a hover beside it and credited to collection", () => ASiteNoFloorPoseReaches(lighting: false));
         Each("J08 a lighting trip breaks a permitted pot in passing, with no detour and no second movement owner", () => ALightingTripPassesAPot(potBreaking: true));
         Each("J08 the same pot with pot breaking disabled is left alone", () => ALightingTripPassesAPot(potBreaking: false));
         Each("J08 a tick whose planning allowance is spent skips the incidental scan without losing its turn", AnExpiredAllowanceDefersTheIncidentalScan);
-        Each("J08 a pot is never a course step of its own, however little else there is to do", APotIsNeverACourseStep);
+        Each("J08 a pot the course binds is a trip collection performs: an attempt, the break and its credit", APotIsATripCollectionPerforms);
+        Each("A2 the hand walks to the drop the course bound, not the nearer one its own search would take", TheHandTakesTheBoundDrop);
+        Each("A2 the hand breaks the pot the course bound, not the nearer one its own search would take", TheHandBreaksTheBoundPot);
+        Each("A3 a pot in reach during a recognised encounter is not broken in passing; the same pot with no encounter is", AnEncounterRefusesAPotInPassing);
+        Each("A3 a pot the published course holds as a step is left to the course, not broken in passing", APlannedPotIsLeftToTheCourse);
         if (red == 0) Console.WriteLine("assistance trips: trips need a way in the body fits through, a site above every floor pose is worked from a hover, and a pot on the way breaks incidentally only when permitted");
         return red;
     }
@@ -93,6 +97,9 @@ internal static class VerifyAssistanceTrips
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         Point[] footprint = { pot, pot + new Point(1, 0), pot + new Point(0, 1), pot + new Point(1, 1) };
         Require(footprint.Any(t => FindToolAccess.InReach(feet, t)), $"the pot must be within reach where the companion stands; feet={feet} pot={pot}");
+        // The scan proposes the census's own sites to the course, so the course needs an observation holding the pot.
+        VerifyOreWork.ResettleReach(ctx);
+        ObserveForTheCourse(ctx);
         var incidental = new ConsiderIncidentalInteractions();
         LimitPlanningWork.Unbounded = false;
         try
@@ -111,28 +118,20 @@ internal static class VerifyAssistanceTrips
     }
 
     /// <summary>
-    /// The structural half of J08, driven through the whole tick: a pot may be discovered, admitted and
-    /// priced, and it may never become the step a course binds.
+    /// A pot the course binds is a trip collection performs, driven through the whole tick: the census admits
+    /// the pot as collection work, the course binds it, collection holds the body, the hand breaks exactly that
+    /// pot, and collection's attempt completes with the break as its one productive effect.
     ///
-    /// The row above says a permitted pot in reach is broken *in passing*. It cannot say the companion
-    /// never makes a trip of one, because in that scene a lighting site always wins and the pot is
-    /// passed rather than chosen. This scene removes every rival — torch placement off, both work
-    /// policies disabled, no hostiles and no drops — so the pot is the only usable opportunity in the
-    /// world and wins any comparison it is allowed to enter.
+    /// The scene removes every rival — torch placement off, both work policies disabled, no hostiles and no
+    /// drops — so the pot is the only usable opportunity in the world. Until 23 September 2026 this row asserted
+    /// the opposite, that a pot was never a course step, because no activity performed one: a bound pot flew the
+    /// body with no attempt and no credit (`3826d32` measured thirty ticks of `bound=pot-target:tile:27,58
+    /// action=none`). The owner then ruled a pot a collection task, so the same scene asks for the trip — and the
+    /// thing it guards is unchanged in kind: a bound step that nothing performs, or that a hand performs against a
+    /// target of its own choosing, fails here by name.
     ///
-    /// **What it caught.** `break-pot` used to map to the empty string in `ExecuteCourseBinding`, and
-    /// the tick read the blank as "no activity change" rather than as a refusal, so the search could
-    /// order a dedicated trip to a pot: measured whole-tick on the lighting scene while the census was
-    /// briefly over-bounded, thirty consecutive ticks of `bound=pot-target:tile:27,58 action=none`, the
-    /// body travelling with no activity, no attempt and no credit. The class is wider than the pot —
-    /// any domain whose discovery lands before its executor fails this way and fails silently — which
-    /// is why the refusal is written against the executor map in `SearchCourseOrders` and why the pure
-    /// half of the pin, in `../DecisionMaking/VerifyCourseBindingExecution.cs`, enumerates every purpose
-    /// a source can mint against that map.
-    ///
-    /// The premise is the load-bearing part: a scene where the pot is never admitted would pass this row
-    /// while proving nothing, so the pot must be admitted usable on some tick before the absence of a
-    /// pot step means anything. Restoring `["break-pot"] = ""` to the map reds it by name.
+    /// The premise is the load-bearing part: a scene where the pot is never admitted would fail for a reason that
+    /// has nothing to do with the performer, so the admission is asserted first.
     /// </summary>
     /// <summary>
     /// Restores what the scene below writes, because none of it is this case's to leave behind.
@@ -146,7 +145,7 @@ internal static class VerifyAssistanceTrips
     /// for the same reason the deadline regime is: a literal here is the current default written down a
     /// second place, and it goes stale silently.
     /// </summary>
-    private static void APotIsNeverACourseStep()
+    private static void APotIsATripCollectionPerforms()
     {
         bool torchPlacement = Preferences.Current.TorchPlacement, potBreaking = Preferences.Current.PotBreaking;
         Policy chopping = Preferences.Current.Chopping;
@@ -187,42 +186,34 @@ internal static class VerifyAssistanceTrips
 
         var brain = ctx.Companion.Brain;
         bool admitted = false;
-        string bound = "";
-        int boundAt = -1, refusedOn = 0;
-        var reasons = new SortedSet<string>(StringComparer.Ordinal);
-        for (int tick = 0; tick < 600; tick++)
+        string bound = "", actionWhileBound = "";
+        int boundAt = -1, brokenAt = -1;
+        for (int tick = 0; tick < 600 && brokenAt < 0; tick++)
         {
             VerifyOreWork.AdvanceBrain(ctx);
-            if (brain.Course.Last.Binding is { } step && step.Opportunity.Purpose == "break-pot" && boundAt < 0)
+            if (brain.Course.Candidates.Any(c => c.Key.Purpose == "break-pot" && c.Admission == live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.OpportunityAdmission.KnownUsable))
+                admitted = true;
+            if (brain.Course.Last.Binding is { } step && step.Opportunity.Purpose == "break-pot")
             {
-                bound = step.Opportunity.ToString(); boundAt = tick;
+                if (boundAt < 0) { bound = step.Opportunity.ToString(); boundAt = tick; }
+                actionWhileBound = brain.LastAction?.Name ?? "none";
             }
-            if (brain.Course.Admitted.Any(a => a.Domain == "pot-target" && a.Usable > 0)) admitted = true;
-            // Accumulated across the run rather than read at the end, because the tally belongs to the
-            // last search and a run ends on whichever tick it ends on — usually one carrying a retained
-            // course that searched nothing. Reading it once at the end reported an empty dictionary on a
-            // run whose every search had refused the pot.
-            // The structural tally, not the evidence one: a refusal proved by the executor map is kept
-            // apart from refusals about what an observation holds, because the audit's contracts ask
-            // whether every *evidence* refusal was a not-observed one and a structural reason mixed into
-            // that answer silences them.
-            foreach (string reason in brain.Course.LastRefusals.Keys) reasons.Add(reason);
-            foreach (string reason in brain.Course.LastStructuralRefusals.Keys)
-            {
-                reasons.Add(reason);
-                if (reason == "step-purpose-has-no-executor") refusedOn++;
-            }
+            if (footprint.Any(t => !Main.tile[t.X, t.Y].HasTile)) brokenAt = tick;
         }
-        string refusals = $"[{string.Join(", ", reasons)}] over {refusedOn} tick(s) naming no executor";
-        Require(admitted,
-            $"premise: the pot census never admitted this pot as usable, so nothing was ever available to bind and the "
-            + $"absence of a pot step says nothing; refusals: {refusals}");
-        Require(boundAt < 0,
-            $"a pot was bound as a course step at tick {boundAt} ({bound}), so the companion makes a trip for a pot — "
-            + $"which no activity performs, so it travels with no attempt and no credit; refusals: {refusals}");
-        Require(refusedOn > 0,
-            $"no search refused the pot for having no executor, so it is absent from every course for some other "
-            + $"reason and this row is green by accident; refusals: {refusals}");
+        // One more tick, so the replacement that follows a finished pot closes its attempt.
+        for (int tick = 0; tick < 30; tick++) VerifyOreWork.AdvanceBrain(ctx);
+        string attempts = string.Join("; ", brain.Activity.RecentAttempts.Select(a => $"{a.Activity}:{a.Status}:{a.Cause}:effects={a.ProductiveEffects}"));
+        string ledger = $"bound={bound} at tick {boundAt}; action while bound={actionWhileBound}; broken at tick {brokenAt}; attempts=[{attempts}]";
+        Require(admitted, $"premise: the census never admitted this pot as usable collection work; {ledger}");
+        Require(boundAt >= 0, $"the course never bound the only usable work in the world, a pot; {ledger}");
+        Require(actionWhileBound == "collect",
+            $"a bound pot must be performed by collection, and '{actionWhileBound}' held the body — a step with no performer is a "
+            + $"trip with no attempt and no credit; {ledger}");
+        Require(brokenAt >= 0, $"the pot collection flew to was never broken; {ledger}");
+        Require(brain.Activity.RecentAttempts.Any(a => a.Activity == "collect" && a.Status.ToString() == "Complete" && a.ProductiveEffects == 1
+                && a.Cause == "pot-broken-contents-unobserved"),
+            $"collection's attempt must complete with the broken pot as its one productive effect; {ledger}");
+        Console.WriteLine($"pot trip: bound at tick {boundAt}, broken at tick {brokenAt} under collect (this machine, never asserted); world drops now {Main.item.Count(i => i.active)}");
     }
 
     /// <summary>
@@ -382,8 +373,11 @@ internal static class VerifyAssistanceTrips
         // The pot is done when any tile of its footprint is gone: headless KillTile removes the tile struck, which is also what the
         // method's own Perform reads as a break, and a retried attempt may strike a different tile of the same pot than the first
         // preparation named. The rest of the two-by-two footprint is not this fixture's question.
+        // A torch on any shelf site, not only on the one this activity's own search offered above: the site the hand
+        // works is the one the course bound, and the two need not be the same tile of a two-tile shelf.
         bool Done() => lighting
-            ? Main.tile[target.X, target.Y].HasTile && TileID.Sets.Torch[Main.tile[target.X, target.Y].TileType]
+            ? Enumerable.Range(29, 6).Any(x => Enumerable.Range(shelfRow - 3, 3).Any(y =>
+                Main.tile[x, y].HasTile && TileID.Sets.Torch[Main.tile[x, y].TileType]))
             : Enumerable.Range(0, 4).Any(i => !Main.tile[interaction.X + i % 2, interaction.Y + i / 2].HasTile);
         int tick = 0;
         float highest = float.MaxValue, atDone = 0f;
@@ -421,34 +415,25 @@ internal static class VerifyAssistanceTrips
         // was retried would still finish the job eventually — so the attempts are read for a failed method
         // as well as the tile being read for the effect.
         //
-        // A pot is not a trip, by the owner's ruling that a pot is broken in passing, which
-        // `SearchCourseOrders` now enforces by refusing any purpose with no executor. So the pot arm must
-        // reach its hover under some *other* job and break the pot incidentally from there, and the row
-        // asserts exactly that: no attempt of the method ran at all. Before the refusal the pot was a
-        // course step and this scene finished at tick 46 under a bound trip; it finishes at 226 under
-        // companionship now, with `attempts=[]` and one trace entry, `t0:keep-company/WithPlayer`. Both
-        // numbers are this machine's and neither is asserted — what is asserted is which route did it.
-        if (lighting)
-            Require(!brain.Activity.RecentAttempts.Any(a => a.Activity == methodName && a.Status.ToString() == "Failed"),
-                $"the trip must reach its hover and work from it, never fail a method on the way; attempts=[{attempts}] trace:{trace}");
-        else
+        // Both arms are trips now. A pot was broken only in passing from 22 to 23 September 2026, because no activity
+        // performed a bound pot; the owner then ruled a pot a collection task, so a pot the course binds is a trip
+        // collection performs, the same shape as a torch trip lighting performs.
+        Require(!brain.Activity.RecentAttempts.Any(a => a.Activity == methodName && a.Status.ToString() == "Failed"),
+            $"the trip must reach its hover and work from it, never fail a method on the way; attempts=[{attempts}] trace:{trace}");
+        if (!lighting)
         {
-            // **Three assertions rather than one, because the first of them is also the defect's own
-            // signature.** "No attempt of the method ran" is what a pot broken in passing looks like and
-            // it is equally what a pot nobody ever reached looks like, so on its own it would stay green
-            // against a companion that never got near the shelf. The other two are positive: no course
-            // ever bound a `break-pot` step — read off the published course while the run goes, which is
-            // what the executor refusal in `SearchCourseOrders.Begin` exists to guarantee — and some
-            // other job owned the body on the tick the pot broke, which is what "in passing" means.
-            Require(!brain.Activity.RecentAttempts.Any(a => a.Activity == methodName),
-                $"the pot was worked by an attempt of '{methodName}', so something made a trip of it — a pot is broken "
-                + $"in passing by whatever job already has the body; attempts=[{attempts}] trace:{trace}");
-            Require(potStepAt < 0,
-                $"a course bound a break-pot step at tick {potStepAt} ({potStep}), so the companion made a trip of a pot "
-                + $"no activity performs; attempts=[{attempts}] trace:{trace}");
-            Require(ownerAtDone != "none" && ownerAtDone != methodName,
-                $"the pot broke with '{ownerAtDone}' owning the body, so nothing was already carrying the body past it and "
-                + $"the break was not incidental to another job; attempts=[{attempts}] trace:{trace}");
+            // Three positive assertions, because each one alone is satisfied by a wrong route. The course bound the
+            // pot — read off the published course while the run goes; collection owned the body on the tick the pot
+            // broke, so the break was the bound step being performed and not a pass-by; and collection's attempt
+            // completed with the break as its one productive effect, which is what makes the trip credited work.
+            Require(potStepAt >= 0,
+                $"no course ever bound the pot, so whatever broke it did not break it as a collection trip; attempts=[{attempts}] trace:{trace}");
+            Require(ownerAtDone == methodName,
+                $"the pot broke with '{ownerAtDone}' owning the body; a bound pot is performed by '{methodName}'; attempts=[{attempts}] trace:{trace}");
+            for (int settle = 0; settle < 30; settle++) VerifyOreWork.AdvanceBrain(ctx);
+            attempts = string.Join("; ", brain.Activity.RecentAttempts.Select(a => $"{a.Activity}:{a.Status}:{a.Cause}:effects={a.ProductiveEffects}"));
+            Require(brain.Activity.RecentAttempts.Any(a => a.Activity == methodName && a.Status.ToString() == "Complete" && a.ProductiveEffects == 1),
+                $"collection's attempt must complete with the broken pot as its one productive effect; attempts=[{attempts}] trace:{trace}");
         }
         Console.WriteLine($"hover {(lighting ? "torch" : "pot")}: performed at tick {tick} from centre y {atDone:0}, highest {highest:0}, hover offered {hover}");
     }
@@ -628,6 +613,233 @@ internal static class VerifyAssistanceTrips
     internal static void LightIslandOnly()
         => VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(0, 0, 100, 100),
             (x, y) => x >= PitLeft && x <= PitRight && y > FloorRow && y < PitFloor ? .02f : .9f);
+
+    /// <summary>
+    /// Two drops on the floor, the near one where collection's own search would take it and the far one the course binds. The
+    /// step is handed to collection the way the tick hands it — built by the real binder from the real census, then
+    /// `OwnCurrentActivity.Select` — and the hand must walk to the bound drop: its request is the bound step's pose and the attempt
+    /// claims the far drop and not the near one. Until 23 September 2026 the hand worked its own search's nearest drop whatever
+    /// the course had bound, so the body flew to one drop while the attempt walked toward another.
+    /// </summary>
+    private static void TheHandTakesTheBoundDrop()
+    {
+        Item old7 = Main.item[7], old8 = Main.item[8];
+        try
+        {
+            var ctx = VerifyCollectionContracts.SetUpFloor();
+            Vector2 centre = ctx.Npc.Center;
+            Item near = VerifyCollectionContracts.Drop(ItemID.CopperOre, 3, new Vector2(centre.X + 2 * 16, 60 * 16), 7);
+            Item far = VerifyCollectionContracts.Drop(ItemID.CopperOre, 3, new Vector2(centre.X + 9 * 16, 60 * 16), 8);
+            VerifyOreWork.ResettleReach(ctx);
+            var (step, collect) = BindTheCensusSite(ctx, "item:8");
+            collect.Prepare(ctx);
+            Require(ReferenceEquals(collect.ActivityIdentity, near),
+                $"premise: collection's own search must prefer the near drop, or the row cannot tell the two choosers apart; offer={collect.ActivityIdentity}");
+            var owner = ctx.Companion.Brain.Activity;
+            owner.Select(collect, ctx, step);
+            owner.BeginExecution();
+            var request = collect.Execute(ctx);
+            string ledger = $"request={request.Kind}@{request.Anchor} step pose={step.Pose} near={near.Center} far={far.Center}";
+            Require(Equals(owner.Current?.ActivityIdentity, step.Opportunity),
+                $"the activity's purpose identity must be the bound opportunity, so a new target is a new attempt; identity={owner.Current?.ActivityIdentity}; {ledger}");
+            Require(collect.ClaimsDrop(far) && !collect.ClaimsDrop(near),
+                $"the attempt must walk toward the drop the course bound and never the one its own search preferred; {ledger}");
+            Require(Math.Abs(request.Anchor.X - step.Pose.X) < 1 && Math.Abs(request.Anchor.Y - step.Pose.Y) < 1,
+                $"the hand must ask for the bound step's own pose; {ledger}");
+        }
+        finally { Main.item[7] = old7; Main.item[8] = old8; }
+    }
+
+    /// <summary>
+    /// Two pots both within the tool's reach of the body, the near one first in collection's own search and the far one bound by the
+    /// course. The hand must break the far pot and leave the near one standing; a hand that searched for its own target breaks the
+    /// near pot on the first swing.
+    /// </summary>
+    private static void TheHandBreaksTheBoundPot()
+    {
+        Point placeholder = new(60, FloorRow - 1);
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
+        Main.tile[placeholder.X, placeholder.Y].ClearEverything();
+        foreach (Item slot in ctx.Companion.Bag.Items) slot.TurnToAir();
+        Preferences.Current.PotBreaking = true;
+        Point body = MovementQueries.Tile(ctx.Npc.Center);
+        Point near = PlacePot(new Point(body.X + 1, FloorRow - 2));
+        Point far = PlacePot(new Point(body.X + 4, FloorRow - 2));
+        Require(FindToolAccess.InReach(ctx.Npc.Center, near) && FindToolAccess.InReach(ctx.Npc.Center, far),
+            $"premise: both pots must be within reach of the body, so the choice is the only difference; body={body} near={near} far={far}");
+        VerifyOreWork.ResettleReach(ctx);
+        var (step, collect) = BindTheCensusSite(ctx, $"tile:{far.X},{far.Y}");
+        collect.Prepare(ctx);
+        Require(collect.ActivityIdentity is Point offered && Math.Abs(offered.X - near.X) <= 1,
+            $"premise: collection's own search must prefer the near pot; offer={collect.ActivityIdentity}");
+        var owner = ctx.Companion.Brain.Activity;
+        owner.Select(collect, ctx, step);
+        owner.BeginExecution();
+        for (int tick = 0; tick < 3; tick++) collect.Execute(ctx);
+        bool Standing(Point origin) => Enumerable.Range(0, 4).All(i => Main.tile[origin.X + i % 2, origin.Y + i / 2].HasTile);
+        string ledger = $"near {near} standing={Standing(near)}; far {far} standing={Standing(far)}; step={step.Opportunity}";
+        Require(!Standing(far), $"the hand must break the pot the course bound; {ledger}");
+        Require(Standing(near), $"the hand must leave the pot the course did not bind; {ledger}");
+    }
+
+    /// <summary>
+    /// A permitted pot within reach of the body, proposed in passing by the grant-boundary scan: with no encounter the course accepts a
+    /// one-step binding for it and the pot breaks, the effect carrying the binding's id; under a blood moon over the surface — a
+    /// recognised encounter — the course refuses it by the same relevance that stops a course choosing optional work, and the pot
+    /// stands. Until 23 September 2026 the scan broke the pot either way, because it priced nothing.
+    /// </summary>
+    private static void AnEncounterRefusesAPotInPassing()
+    {
+        bool bloodMoon = Main.bloodMoon;
+        double surface = Main.worldSurface;
+        try
+        {
+            foreach (bool encounter in new[] { true, false })
+            {
+                Point placeholder = new(60, FloorRow - 1);
+                var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
+                Main.tile[placeholder.X, placeholder.Y].ClearEverything();
+                foreach (Item slot in ctx.Companion.Bag.Items) slot.TurnToAir();
+                Preferences.Current.PotBreaking = true;
+                Main.bloodMoon = encounter;
+                // The game runs a blood moon only over players at or above the surface line.
+                Main.worldSurface = encounter ? Main.maxTilesY : surface;
+                Vector2 feet = ctx.Npc.Bottom;
+                Point pot = PlacePot(new Point((int)(feet.X / 16f) + 1, FloorRow - 2));
+                Point[] footprint = { pot, pot + new Point(1, 0), pot + new Point(0, 1), pot + new Point(1, 1) };
+                Require(footprint.Any(t => FindToolAccess.InReach(ctx.Npc.Center, t)), $"premise: the pot must be within reach; pot={pot}");
+                VerifyOreWork.ResettleReach(ctx);
+                ObserveForTheCourse(ctx);
+                float intensity = ctx.Companion.Brain.Senses.Encounter.Intensity;
+                Require(encounter ? intensity == 1f : intensity == 0f,
+                    $"premise: the encounter sense must read {(encounter ? "a recognised blood moon" : "nothing")}; intensity={intensity} source={ctx.Companion.Brain.Senses.Encounter.Source}");
+                var incidental = new ConsiderIncidentalInteractions();
+                incidental.Consider(ctx, HandGrant.Available, false, null, 0);
+                var answer = ctx.Companion.Brain.Course.LastIncidental;
+                bool broken = footprint.Any(t => !Main.tile[t.X, t.Y].HasTile);
+                string ledger = $"encounter={encounter} broken={broken} answer={answer} last={incidental.Last}";
+                if (encounter)
+                {
+                    Require(!broken, $"a pot in reach must not be broken in passing during a recognised encounter; {ledger}");
+                    Require(answer is { Accepted: false } refused && refused.Reason == live::AICompanion.Companion.Brain.Infrastructure.Selection.DecideCourseEachTick.OptionalWorkSuppressed,
+                        $"the course must refuse the in-passing pot for the danger, by name; {ledger}");
+                }
+                else
+                {
+                    Require(broken, $"the same pot with no encounter must be broken in passing; {ledger}");
+                    Require(answer is { Accepted: true } accepted && incidental.Last is { } done && done.BindingId == accepted.Binding!.Id,
+                        $"the break must carry the id of the one-step binding the course accepted for it; {ledger}");
+                }
+            }
+        }
+        finally { Main.bloodMoon = bloodMoon; Main.worldSurface = surface; }
+    }
+
+    /// <summary>
+    /// A permitted pot within reach that the course has just published as its own step. The in-passing scan must leave it to the course:
+    /// breaking it here would make the course's next use invalid and replace the running course, which an in-passing acceptance may
+    /// not do, and would take a step's benefit away from the activity that is about to perform it.
+    /// </summary>
+    private static void APlannedPotIsLeftToTheCourse()
+    {
+        Point placeholder = new(60, FloorRow - 1);
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
+        Main.tile[placeholder.X, placeholder.Y].ClearEverything();
+        foreach (Item slot in ctx.Companion.Bag.Items) slot.TurnToAir();
+        Preferences.Current.PotBreaking = true;
+        Preferences.Current.TorchPlacement = false;
+        Vector2 feet = ctx.Npc.Bottom;
+        Point pot = PlacePot(new Point((int)(feet.X / 16f) + 1, FloorRow - 2));
+        Point[] footprint = { pot, pot + new Point(1, 0), pot + new Point(0, 1), pot + new Point(1, 1) };
+        VerifyOreWork.ResettleReach(ctx);
+        ObserveForTheCourse(ctx, keepThePublishedCourse: true);
+        var steps = ctx.Companion.Brain.Course.Course.Current?.Projection.Steps;
+        Require(steps != null && steps.Any(s => s.Opportunity.Purpose == "break-pot" && s.Opportunity.Target == $"tile:{pot.X},{pot.Y}"),
+            $"premise: the course must have published the pot as its own step; steps=[{(steps == null ? "none" : string.Join(", ", steps.Select(s => s.Opportunity.ToString())))}]");
+        var incidental = new ConsiderIncidentalInteractions();
+        incidental.Consider(ctx, HandGrant.Available, false, null, 0);
+        Require(footprint.All(t => Main.tile[t.X, t.Y].HasTile) && incidental.Last == null,
+            $"a pot the published course holds must be left to the course; last={incidental.Last} answer={ctx.Companion.Brain.Course.LastIncidental}");
+    }
+
+    /// <summary>
+    /// The census's own site as a bound collection step, through the real capture, the real source and the real binder, and the
+    /// brain's collection activity to hand it to. The binding is zero-travel: which target the hand works does not depend on how long
+    /// the course priced the journey, and synthesising a travel answer here would be a model result nobody computed.
+    /// </summary>
+    private static (live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.StepBinding Step, CollectNearbyItems Collect)
+        BindTheCensusSite(ActionContext ctx, string target)
+        => (BindCensusSite(ctx, "collect-target", o => o.Key.Target == target, target),
+            ctx.Companion.Brain.Actions.OfType<CollectNearbyItems>().Single());
+
+    /// <summary>
+    /// A census site as a bound step, through the real capture, the real source and the real binder, for any fixture that hands an
+    /// assistance activity the step it performs. The first usable site matching <paramref name="pick"/> is bound; the binding is
+    /// zero-travel, because which target the hand works does not depend on how long the course priced the journey and a travel
+    /// answer synthesised here would be a model result nobody computed.
+    /// </summary>
+    /// <summary>A fresh observation of the census, as the course takes one every tick it carries a step.</summary>
+    internal static live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.DecisionFactSnapshot ObserveTheCensus(ActionContext ctx)
+    {
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
+        var capture = new live::AICompanion.Companion.Brain.Infrastructure.Observation.CaptureAssistanceOpportunities();
+        return new live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.DecisionFactSnapshot(
+            501, 1, ctx.Companion.Brain.Senses.Tick, 1, 0, capture.Capture(ctx.Companion.Brain.Senses, ctx));
+    }
+
+    /// <summary>Whether a bound step still holds against a fresh observation, by the binder's own `ValidateNextUse` — the check
+    /// the course makes every tick it carries the step, and the one that retires an application whose target moved.</summary>
+    internal static live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.BindingValidation Revalidate(ActionContext ctx,
+        live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.StepBinding step)
+        => new live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.AssistanceOpportunityBinder(step.Opportunity.Domain)
+            .ValidateNextUse(step, ObserveTheCensus(ctx));
+
+    /// <summary>The census's own fact for one site, as published on a fresh observation, or null when it published none.</summary>
+    internal static live::AICompanion.Companion.Brain.Infrastructure.Observation.AssistanceOpportunityFact? CensusFact(ActionContext ctx, string domain, string target)
+    {
+        var snapshot = ObserveTheCensus(ctx);
+        var fact = snapshot.Facts.FirstOrDefault(f => f.Key.Kind == domain && f.Key.Identity == target);
+        return fact?.Value.Text is { Length: > 0 } text
+            ? System.Text.Json.JsonSerializer.Deserialize<live::AICompanion.Companion.Brain.Infrastructure.Observation.AssistanceOpportunityFact>(text)
+            : null;
+    }
+
+    internal static live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.StepBinding BindCensusSite(ActionContext ctx, string domain,
+        Func<live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.Opportunity, bool> pick, string wanted)
+    {
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
+        var capture = new live::AICompanion.Companion.Brain.Infrastructure.Observation.CaptureAssistanceOpportunities();
+        var snapshot = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.DecisionFactSnapshot(
+            501, 1, ctx.Companion.Brain.Senses.Tick, 1, 0, capture.Capture(ctx.Companion.Brain.Senses, ctx));
+        var source = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.DiscoverAssistanceOpportunities(domain);
+        var found = source.Continue(snapshot, new(), new(double.PositiveInfinity)).Examined;
+        var usable = live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.OpportunityAdmission.KnownUsable;
+        var site = found.FirstOrDefault(o => o.Admission == usable && pick(o))
+            ?? throw new InvalidOperationException($"premise: the census admitted no usable {domain} site {wanted}; found=[{string.Join(", ", found.Take(12).Select(o => o.Key.Target + ":" + o.Admission + "/" + o.Reason))}]");
+        var bound = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.AssistanceOpportunityBinder(domain)
+            .BindInPlace(site, snapshot, new(ctx.Npc.Center.X, ctx.Npc.Center.Y));
+        return bound.Binding ?? throw new InvalidOperationException($"premise: the binder refused {site.Key}: {bound.Reason}");
+    }
+
+    /// <summary>
+    /// Freeze one observation for the course without running a tick, so a row that drives the in-passing scan directly has the
+    /// census the scan proposes from and the course accepts against. The decision it starts is the course's own business; the row
+    /// selects no activity, so nothing performs whatever it binds.
+    /// </summary>
+    internal static void ObserveForTheCourse(ActionContext ctx, bool keepThePublishedCourse = false)
+    {
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
+        // Owned the way the tick owns it, because travel and the census borrow the standing allowance rather than minting one.
+        var budget = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation.DecisionWorkBudget(double.PositiveInfinity);
+        var allowance = LimitPlanningWork.Own(budget);
+        try { ctx.Companion.Brain.Course.Decide(ctx, ctx.Companion.Combat, null, budget); }
+        finally { allowance.Dispose(); }
+        // The decision may publish a course that plans the very pot the row proposes in passing, and the scan leaves a site the course
+        // holds to the course. The rows using this are about a body passing work nobody planned, so the published course is released
+        // and only the frozen observation is kept.
+        if (!keepThePublishedCourse) ctx.Companion.Brain.Course.Course.Release("fixture-passes-unplanned-work");
+        Require(ctx.Companion.Brain.Course.Facts != null, "premise: the course froze no observation");
+    }
 
     internal static Point PlacePot(Point origin)
     {

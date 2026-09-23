@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
@@ -24,10 +25,12 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
 {
     public override string Name => "collect";
     public override PurposeFamily Family => PurposeFamily.NearbyAssistance;
-    /// <summary>Two domains, because this activity performs two methods: a known drop and a pot whose
-    /// contents are unknown. The course prices them separately and the record shows the better of the two
-    /// under this activity's name, which is the same shape the offer already had.</summary>
-    public override string[] CourseDomains => new[] { CollectDomain, PotDomain };
+    /// <summary>One domain holding two acts: a known drop, taken by contact, and a pot whose contents are unknown,
+    /// broken by the hand. Pots were their own `pot-target` domain until the owner ruled on 23 September 2026 that a pot
+    /// is a collection task; the census publishes them under this domain with the purpose `break-pot`, so the course
+    /// prices a drop and a pot against each other and against everything else in one pass, and this activity performs
+    /// whichever the step names.</summary>
+    public override string[] CourseDomains => new[] { CollectDomain };
 
     /// <summary>A drop chosen for collection: the item object and its type, where it lay when proven, the contact pose the
     /// companion walks to, the quantity the cargo can take, and what that quantity and walk are worth.</summary>
@@ -35,9 +38,74 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
     private DropCandidate? candidate;
     private bool collectDrop;
     private float preparedValue, preparedTrip;
-    public string Method => collectDrop ? "known-drop" : base.Score() > 0 ? "potential-pot-contents" : "none";
-    public override Vector2? ActivityTarget => collectDrop ? candidate?.Position : base.ActivityTarget;
-    public override object? ActivityIdentity => collectDrop ? candidate?.Item : base.ActivityIdentity;
+    /// <summary>Which of the two acts is in force: the bound step's while one is handed, otherwise the offer the last
+    /// preparation described.</summary>
+    public string Method => Bound?.Opportunity.Purpose switch
+    {
+        OpportunityPurposes.Collect => "known-drop",
+        OpportunityPurposes.BreakPot => "potential-pot-contents",
+        _ => collectDrop ? "known-drop" : base.Score() > 0 ? "potential-pot-contents" : "none",
+    };
+    public override Vector2? ActivityTarget => BoundDrop is { } bound ? bound.Center
+        : Bound != null ? base.ActivityTarget
+        : collectDrop ? candidate?.Position : base.ActivityTarget;
+    /// <summary>The bound step's opportunity for either act, so a new drop or a new pot is a new purpose for the attempt
+    /// lifecycle; the offer's own target stands in only where no step was handed.</summary>
+    public override object? ActivityIdentity => Bound is { } step ? step.Opportunity
+        : collectDrop ? candidate?.Item : base.ActivityIdentity;
+
+    /// <summary>The hand breaks a pot the course bound; a drop is taken by contact and is not tile work.</summary>
+    protected override bool WorksTileFor(string purpose) => purpose == OpportunityPurposes.BreakPot;
+
+    // ---- the drop the course bound ----------------------------------------------------------------------------------
+
+    private long boundDropStep;
+    private int boundDropSlot = -1, boundDropType;
+    /// <summary>Whether the bound drop has been given up on for this step — gone from its slot, or the cargo can take none
+    /// of it. The hand does nothing more for the step, and never walks to whatever else now lies nearby.</summary>
+    private bool boundDropSpent;
+
+    /// <summary>The world item the bound step names while it is still that drop, or null.</summary>
+    private Item? BoundDrop => boundDropStep != 0 && !boundDropSpent && boundDropSlot >= 0 && boundDropSlot < Main.item.Length
+        && LootSense.IsWorldDrop(Main.item[boundDropSlot]) && Main.item[boundDropSlot].type == boundDropType
+        ? Main.item[boundDropSlot] : null;
+
+    protected override void OnAccept(Infrastructure.Selection.Courses.StepBinding? step)
+    {
+        base.OnAccept(step);
+        if (step == null || step.Opportunity.Purpose != OpportunityPurposes.Collect)
+        {
+            boundDropStep = 0;
+            boundDropSlot = -1;
+            return;
+        }
+        if (step.Id == boundDropStep) return;
+        boundDropStep = step.Id;
+        boundDropSpent = false;
+        (boundDropSlot, boundDropType) = DropOf(step);
+    }
+
+    /// <summary>
+    /// The world slot and item type a drop step names: the slot from the opportunity's own target, `item:N`, and the type
+    /// from the step's tool, which the binder writes as the type the census saw in that slot. Both are needed because the
+    /// slot is the drop's only identity in the world and Terraria reuses it, so a slot now holding something else must be
+    /// refused rather than walked to. An unrecognised shape throws rather than guessing a slot, for the same reason
+    /// `ExecuteCourseBinding.WorkTileOf` does.
+    /// </summary>
+    private static (int Slot, int Type) DropOf(Infrastructure.Selection.Courses.StepBinding step)
+    {
+        const string SlotPrefix = "item:";
+        string target = step.Opportunity.Target;
+        string expectedTool = AssistanceOpportunityBinder.DropTool(0);
+        string toolPrefix = expectedTool[..^1];
+        if (target.StartsWith(SlotPrefix, StringComparison.Ordinal)
+            && int.TryParse(target.AsSpan(SlotPrefix.Length), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int slot)
+            && step.Tool.StartsWith(toolPrefix, StringComparison.Ordinal)
+            && int.TryParse(step.Tool.AsSpan(toolPrefix.Length), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int type))
+            return (slot, type);
+        throw new ArgumentOutOfRangeException(nameof(step), $"{target} / {step.Tool}",
+            "A drop step must name its slot as 'item:N' and its type as the binder's drop tool.");
+    }
 
     /// <summary>The companion takes a world item whose hitbox meets its own hitbox grown by this many pixels on every side. It
     /// mirrors <c>CompanionNPC.PickupReach</c>, the contact pickup's own reach: if the two drift, a pose proven here either
@@ -52,14 +120,8 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
     /// <summary>How far from a drop's own tile a contact cell can lie: the body's radius and the pickup reach, in tiles.</summary>
     private static readonly int ContactSearchTiles = (int)MathF.Ceiling((CircleContact.Radius + PickupContactReach) / 16f);
 
-    /// <summary>A drop that has moved more than a tile from where it was proven is not where the proof applies; a tile is the
-    /// resolution the contact pose was chosen at.</summary>
-    private const float MovedDropPixels = 16f;
-
-    /// <summary>The two course domains this activity performs, named where they are read so the mapping
-    /// from a bound opportunity to a method lives beside the method rather than in a table elsewhere.</summary>
+    /// <summary>The course domain this activity performs, named where it is read.</summary>
     private const string CollectDomain = "collect-target";
-    private const string PotDomain = "pot-target";
 
     public override void Prepare(in ActionContext ctx)
     {
@@ -78,15 +140,15 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
         // has already weighed exactly these two against each other, against everything else, and against
         // the cost of going; re-deciding here could bind a pot and then break for a drop.
         //
-        // `CourseOpportunityDomain` is read from the live binding rather than from a table in this file,
-        // so an activity that gains a third method gains it by the course discovering a third domain.
-        // The fallback is target existence rather than a value comparison — a fact, not a policy — and it
-        // applies only where the course bound some other activity entirely, in which case this one is not
-        // acting and its method describes the record rather than driving anything.
-        collectDrop = ctx.Companion.Brain.Course.Last.Binding?.Opportunity.Domain switch
+        // The act is read from the last published step's purpose, since both acts share one domain. It is one tick
+        // old by construction — preparation runs before the decision — which is harmless because this describes the
+        // offer and never the hand: the hand reads the step it is handed in `OnAccept`. The fallback is target
+        // existence rather than a value comparison — a fact, not a policy — and it applies only where the course
+        // bound some other activity entirely.
+        collectDrop = ctx.Companion.Brain.Course.Last.Binding?.Opportunity switch
         {
-            CollectDomain => true,
-            PotDomain => false,
+            { Domain: CollectDomain, Purpose: OpportunityPurposes.Collect } => true,
+            { Domain: CollectDomain, Purpose: OpportunityPurposes.BreakPot } => false,
             _ => candidate != null,
         };
         preparedValue = collectDrop ? dropValue : potValue;
@@ -373,30 +435,47 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunne
     public override float ForecastTicks()
         => preparedTrip;
 
+    /// <summary>
+    /// Perform the step the course handed: break the bound pot through the shared tile hand, or walk to the bound drop so
+    /// contact pickup takes it. Nothing here chooses — a drop the step does not name is never walked to, however near.
+    ///
+    /// <para>The moved-drop guard that stood here went with the private offer it guarded: a drop that rolls moves its
+    /// contact pose, the census publishes the new pose, and the binder's `ValidateNextUse` retires the application for
+    /// `assistance-application-changed` so the course binds it again where it now lies. The course carries the body there
+    /// through `ExecuteCourseBinding.RequestFor`; the request returned here is discarded by the tick.</para>
+    /// </summary>
     public override PositionRequest Execute(in ActionContext ctx)
     {
-        if (!collectDrop) return base.Execute(ctx);
+        if (Bound is not { } step || step.Opportunity.Purpose != OpportunityPurposes.Collect) return base.Execute(ctx);
         ctx.Companion.HoldItem(ItemID.None);
-        if (candidate is not { } prepared || !LootSense.IsWorldDrop(prepared.Item)
-            || prepared.Item.type != prepared.Type || ctx.Companion.Bag.AcceptableQuantity(prepared.Item, ctx.Player) <= 0)
+        if (boundDropSpent || boundDropSlot < 0 || boundDropSlot >= Main.item.Length) return PositionRequest.Hold;
+        Item live = Main.item[boundDropSlot];
+        // The drop this attempt already walked toward has left its slot — taken by contact, by the player, merged or
+        // despawned. The conclusion reads what the cargo received from that object, so there is nothing to refuse here,
+        // and the slot is not followed to whatever occupies it now.
+        if (dropAttempt is { } walking && !ReferenceEquals(walking.Item, live))
+        {
+            boundDropSpent = true;
             return PositionRequest.Hold;
-        // A drop that rolled or fell after it was proven is not where its reach and return were proven: hold this tick, and the
-        // next preparation proves it where it now lies instead of walking to where it was.
-        // Where the walked-to drop last lay while it was still a world drop, so a drop that vanishes can be checked against the
-        // world drops that could have absorbed it.
-        if (dropAttempt is { } walking && ReferenceEquals(walking.Item, prepared.Item))
-            dropAttempt = walking with { LastCentre = prepared.Item.Center };
-        // The guard is on the forecast, not on the live position. A falling drop has always moved more
-        // than a tile since it was proven, so comparing live positions held the body on every tick of
-        // every fall; what actually invalidates the walk is the *landing* moving — the item bouncing
-        // off a slope, being knocked sideways, or landing somewhere the forecast did not expect. A
-        // landing that can no longer be forecast at all is a hold for the same reason.
-        if (ForecastDropLanding(prepared.Item) is not Vector2 landing
-            || Vector2.DistanceSquared(landing, prepared.Position) > MovedDropPixels * MovedDropPixels)
+        }
+        if (!LootSense.IsWorldDrop(live) || live.type != boundDropType)
+        {
+            boundDropSpent = true;
+            Release(BoundDropLeftWorld);
             return PositionRequest.Hold;
-        if (dropAttempt is not { } open || !ReferenceEquals(open.Item, prepared.Item))
-            dropAttempt = new(prepared.Item, prepared.Type, prepared.Item.stack, ctx.Companion.Bag, ctx.Companion.Bag.TransferSequence, prepared.Item.Center);
-        return PositionRequest.ExactAt(prepared.Pose);
+        }
+        if (ctx.Companion.Bag.AcceptableQuantity(live, ctx.Player) <= 0)
+        {
+            boundDropSpent = true;
+            Release("cargo-takes-none-of-the-bound-drop");
+            return PositionRequest.Hold;
+        }
+        // Where the walked-to drop last lay while it was still a world drop, so a drop that vanishes can be checked against
+        // the world drops that could have absorbed it.
+        dropAttempt = dropAttempt is { } open
+            ? open with { LastCentre = live.Center }
+            : new(live, live.type, live.stack, ctx.Companion.Bag, ctx.Companion.Bag.TransferSequence, live.Center);
+        return PositionRequest.ExactAt(new Vector2((float)step.Pose.X, (float)step.Pose.Y));
     }
 
     /// <summary>The drop this attempt walked toward, its stack when the walk began, the cargo's transfer mark then, and the

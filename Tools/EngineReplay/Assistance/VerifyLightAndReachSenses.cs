@@ -514,7 +514,13 @@ internal static class VerifyLightAndReachSenses
         // The site is admitted through the reach sense rather than through a round trip of its own, so the
         // destination the positioner resolves for it must be one the sense itself calls Reachable — not
         // NotYet, which is the answer a flood that has not settled gives and which lighting must refuse.
-        var request = action.Execute(ctx);
+        // The destination is the course's: the census's site in the dark wing, bound by the real binder, and the
+        // request `ExecuteCourseBinding` makes of that step — the activity's own `Execute` names no destination
+        // since the course took the body.
+        var step = VerifyAssistanceTrips.BindCensusSite(ctx, "light-target",
+            // A light site's target is `tile:x,y`, the tile the torch goes on.
+            o => int.Parse(o.Key.Target["tile:".Length..].Split(',')[0], System.Globalization.CultureInfo.InvariantCulture) >= 40, "in the dark wing");
+        var request = live::AICompanion.Companion.Brain.Infrastructure.Selection.ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center);
         Vector2? destination = brain.Positioner.Resolve(request, brain.Senses);
         Require(destination is { } stand && brain.Senses.Reach.Reachable(MovementQueries.Tile(stand)) == ReachVerdict.Reachable,
             $"the lighting destination must be a tile the reach sense calls Reachable; destination={destination} "

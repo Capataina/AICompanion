@@ -249,7 +249,7 @@ internal static class VerifyTheCensusPublishesItsBestSites
 
     private static RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact> LightSite(int x, int y, double darkness, double cost)
         => new(new Point(x, y), 0, darkness, cost,
-            new AssistanceOpportunityFact("light-target", $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8, 1, 1,
+            new AssistanceOpportunityFact("light-target", "light", $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8, 1, 1,
                 "usable", "fixture", "fixture"));
 
     /// <summary>The placer's own exclusion, read from it rather than written here, because a fixture

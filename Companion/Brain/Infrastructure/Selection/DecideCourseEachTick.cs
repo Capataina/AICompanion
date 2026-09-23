@@ -38,6 +38,14 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection;
 public readonly record struct CourseDecision(string Activity, StepBinding? Binding, string Reason, bool Settled,
     PositionRequest? Request = null);
 
+/// <summary>The course's answer about one in-passing use: the census site proposed, the one-step binding accepted for
+/// it or null, and the reason. An accepted binding's id is what the interaction event names, so a reader can join the
+/// native effect back to the step that licensed it.</summary>
+public readonly record struct IncidentalAcceptance(FactKey Site, StepBinding? Binding, string Reason)
+{
+    public bool Accepted => Binding != null;
+}
+
 /// <summary>
 /// The course owner on the live tick: one frozen observation, one discovery pass, one bounded order
 /// search, and one published course whose next step the rest of the tick carries out.
@@ -93,7 +101,6 @@ public sealed class DecideCourseEachTick
         new GatheringOpportunitySource("chop-target"),
         new DiscoverAssistanceOpportunities("collect-target"),
         new DiscoverAssistanceOpportunities("light-target"),
-        new DiscoverAssistanceOpportunities("pot-target"),
         new CombatOpportunitySource(),
     };
 
@@ -104,7 +111,6 @@ public sealed class DecideCourseEachTick
         new GatheringOpportunityBinder("chop-target"),
         new AssistanceOpportunityBinder("collect-target"),
         new AssistanceOpportunityBinder("light-target"),
-        new AssistanceOpportunityBinder("pot-target"),
         new CombatOpportunityBinder(),
     };
 
@@ -367,35 +373,8 @@ public sealed class DecideCourseEachTick
         admitted = null;
         IReadOnlyList<Opportunity> candidates = discovery.Candidates;
 
-        var episode = new CourseComparisonEpisode(++episodes, facts.WorldEpoch,
-            // The time scale is what makes a near opportunity and a far one comparable at all: it is how
-            // long crossing the player's own resting region takes at cruising speed, so an effect a
-            // region away and an effect here are discounted against the same journey rather than against
-            // a constant somebody chose.
-            // The resting half-size and not the current one: the intent region grows with the player's
-            // lead, and a time scale that moved because he broke into a run would re-price every
-            // opportunity on the board for a reason that has nothing to do with any of them. The speed is
-            // the motor's own answer rather than the arithmetic behind it, so a body multiplier or a pair
-            // of boots changes both together.
-            CourseComparisonEpisode.TimeScaleFor(
-                context.Senses.Intent.BaseRestingHalfSize.X * 2, context.Senses.Intent.BaseRestingHalfSize.Y * 2,
-                context.Companion.Motor.LiveMaxSpeed, shortestLocalCycle: 1),
-            candidates.SelectMany(candidate => candidate.Needs),
-            censusComplete: discovery.Coverage.All(coverage => coverage.Exhausted),
-            // The sense's own reading, passed as the float it is: one for any recognised boss or event,
-            // a ramp for inferred pressure. It reaches optional work through `RelevanceFor`, beside the
-            // player's urgency and under a max rather than a product, because a boss raises both and
-            // multiplying would charge one danger twice. Passed as a boolean before 21 September 2026,
-            // which is why a blood moon over the player valued his copper exactly as a quiet sky did.
-            encounterIntensity: context.Senses.Encounter.Intensity,
-            relevanceFingerprint: CourseComparisonEpisode.Policy,
-            // The one route by which the player's danger reaches optional work. Without it the course
-            // has no term for him being hurt at all — its need kinds are illumination, loot, native
-            // work, a hostile's life and a container, and none of them says anything about the player —
-            // so a zombie standing on a wounded player was worth exactly what one across the room was
-            // worth and the companion kept mining. This is the threat sense's own urgency, the same
-            // quantity the family chooser discounted excursions by, read rather than recomputed.
-            protectionUrgency: context.Senses.Threats.ProtectionUrgency);
+        var episode = EpisodeFor(context, ++episodes, facts.WorldEpoch, candidates.SelectMany(candidate => candidate.Needs),
+            censusComplete: discovery.Coverage.All(coverage => coverage.Exhausted));
 
         models = new RetainCourseModelQueries(facts, MovementQueries.World,
             capabilities.CapabilityRevision, ModelQueueCapacity);
@@ -424,6 +403,129 @@ public sealed class DecideCourseEachTick
         decidingEpisode = episode;
         if (!search.Exhausted) return Deciding(context);
         return Settle();
+    }
+
+    /// <summary>
+    /// The comparison episode a decision prices against, built in one place so the in-passing acceptance below reads
+    /// optional work's relevance from exactly the inputs a course decision does — the same encounter intensity and the
+    /// same protection urgency, through the same <see cref="CourseComparisonEpisode.RelevanceFor"/>.
+    /// </summary>
+    private static CourseComparisonEpisode EpisodeFor(in ActionContext context, long id, long worldEpoch,
+        IEnumerable<UsefulNeed> needs, bool censusComplete)
+        => new(id, worldEpoch,
+            // The time scale is what makes a near opportunity and a far one comparable at all: it is how
+            // long crossing the player's own resting region takes at cruising speed, so an effect a
+            // region away and an effect here are discounted against the same journey rather than against
+            // a constant somebody chose.
+            // The resting half-size and not the current one: the intent region grows with the player's
+            // lead, and a time scale that moved because he broke into a run would re-price every
+            // opportunity on the board for a reason that has nothing to do with any of them. The speed is
+            // the motor's own answer rather than the arithmetic behind it, so a body multiplier or a pair
+            // of boots changes both together.
+            CourseComparisonEpisode.TimeScaleFor(
+                context.Senses.Intent.BaseRestingHalfSize.X * 2, context.Senses.Intent.BaseRestingHalfSize.Y * 2,
+                context.Companion.Motor.LiveMaxSpeed, shortestLocalCycle: 1),
+            needs,
+            censusComplete: censusComplete,
+            // The sense's own reading, passed as the float it is: one for any recognised boss or event,
+            // a ramp for inferred pressure. It reaches optional work through `RelevanceFor`, beside the
+            // player's urgency and under a max rather than a product, because a boss raises both and
+            // multiplying would charge one danger twice. Passed as a boolean before 21 September 2026,
+            // which is why a blood moon over the player valued his copper exactly as a quiet sky did.
+            encounterIntensity: context.Senses.Encounter.Intensity,
+            relevanceFingerprint: CourseComparisonEpisode.Policy,
+            // The one route by which the player's danger reaches optional work. Without it the course
+            // has no term for him being hurt at all — its need kinds are illumination, loot, native
+            // work, a hostile's life and a container, and none of them says anything about the player —
+            // so a zombie standing on a wounded player was worth exactly what one across the room was
+            // worth and the companion kept mining. This is the threat sense's own urgency, the same
+            // quantity the family chooser discounted excursions by, read rather than recomputed.
+            protectionUrgency: context.Senses.Threats.ProtectionUrgency);
+
+    /// <summary>What the course last answered about an in-passing use: the one-step binding it accepted, or why it
+    /// refused. Null before anything has been proposed.</summary>
+    public IncidentalAcceptance? LastIncidental { get; private set; }
+
+    /// <summary>
+    /// Accept or refuse one in-passing use — a pot broken or a torch placed from where the body already is, with no
+    /// journey — before its native call. This is the plan's grants row: an incidental interaction needs an accepted
+    /// one-step binding, so the post-grant scan is a proposal source the course answers rather than a second chooser
+    /// acting on its own.
+    ///
+    /// <para>Three things must hold, and each is the course's own test rather than a copy of it. The site's binding is
+    /// built by the domain's real binder from the current frozen observation and validated by the same
+    /// <c>ValidateNextUse</c> a retained course step is held to, so a pot the census no longer holds, or holds as unusable,
+    /// is refused exactly as a planned visit to it would be. Its need must be relevant under the danger the course prices
+    /// optional work against — the same <see cref="CourseComparisonEpisode.RelevanceFor"/> over the same encounter
+    /// intensity and protection urgency a decision reads — so a boss, a blood moon over the surface or a threatened player
+    /// that stops the course breaking a pot stops the hand breaking one in passing. And the hand must be free, which the
+    /// caller has already read off the grant.</para>
+    ///
+    /// <para>What acceptance does not do is as deliberate. It does not replace the running course or change the
+    /// activity holding the body: the step is zero travel from the current pose, so nothing about where the body goes is
+    /// decided here, and a mid-course replacement is the unbuilt reprojection this owner names as out of scope.</para>
+    /// </summary>
+    /// <param name="site">The census fact of the site, under its own domain.</param>
+    public IncidentalAcceptance AcceptIncidental(in ActionContext context, FactKey site)
+    {
+        IncidentalAcceptance Refuse(string reason) => Record(new IncidentalAcceptance(site, null, reason));
+        if (observation.Current is not { } facts) return Refuse("incidental-no-observation");
+        if (site.Kind is not ("collect-target" or "light-target")) return Refuse("incidental-not-assistance-work");
+        if (!facts.TryRead(site, out DecisionFact fact) || fact.Evidence != FactEvidence.Observed)
+            return Refuse("incidental-site-not-observed");
+        Opportunity opportunity = DiscoverAssistanceOpportunities.Read(facts, site.Kind, site);
+        if (opportunity.Admission != OpportunityAdmission.KnownUsable) return Refuse(opportunity.Reason);
+        var body = new CoursePoint(context.Npc.Center.X, context.Npc.Center.Y);
+        BindingResult bound = new AssistanceOpportunityBinder(site.Kind).BindInPlace(opportunity, facts, body);
+        if (bound.Binding is not { } step) return Refuse(bound.Reason);
+        BindingValidation validation = binder.ValidateNextUse(step, facts);
+        if (!validation.CanUse) return Refuse(validation.Reason);
+        // Relevance is priced for this one site's need and nothing else, so the episode holds that need alone; the
+        // census-completeness flag feeds normalisation, which relevance does not read.
+        CourseComparisonEpisode episode = EpisodeFor(context, episodes, facts.WorldEpoch, opportunity.Needs, censusComplete: true);
+        if (opportunity.Needs.Any(need => episode.RelevanceFor(need.Key.Kind) <= 0))
+            return Refuse(OptionalWorkSuppressed);
+        return Record(new IncidentalAcceptance(site, step, "incidental-accepted"));
+    }
+
+    /// <summary>The refusal an in-passing use gets when the danger the course prices optional work against leaves its
+    /// need worth nothing — the same rule that stops a course choosing that work, applied to the hand.</summary>
+    public const string OptionalWorkSuppressed = "incidental-optional-work-suppressed-by-danger";
+
+    /// <summary>Keep the answer for readers, and write it to the course trace when it differs from the last one, so a
+    /// pot in reach refused every scan through a boss fight is one record rather than one per scan.</summary>
+    private IncidentalAcceptance Record(IncidentalAcceptance answer)
+    {
+        bool changed = LastIncidental is not { } last || last.Site != answer.Site || last.Reason != answer.Reason
+            || (last.Binding == null) != (answer.Binding == null);
+        LastIncidental = answer;
+        if (!changed || observation.Current is not { } facts) return answer;
+        RetainedCourse? course = Course.Current;
+        var context = new CourseTraceContext(
+            SourceTick: facts.Tick,
+            NativePhase: "grant-incidental",
+            CourseId: course?.Id ?? 0,
+            CourseRevision: course?.Revision ?? 0,
+            StepId: answer.Binding?.Id ?? 0,
+            BindingId: answer.Binding?.Id ?? 0,
+            AttemptId: 0,
+            Producer: nameof(DecideCourseEachTick),
+            ObservationOrdinal: facts.ObservationOrdinal,
+            ReceiptWatermark: facts.ReceiptWatermark,
+            WorldEpoch: facts.WorldEpoch.ToString(CultureInfo.InvariantCulture),
+            SourceRevision: facts.Id.ToString(CultureInfo.InvariantCulture),
+            PolicyFingerprint: CourseComparisonEpisode.Policy,
+            ConfigurationFingerprint: MotionModelFingerprint);
+        RecordCourseTrace.Record(CourseTracePhase.Brain, context, new CourseTracePayload("incidental-acceptance", 1,
+            new List<KeyValuePair<string, CourseTraceValue>>
+            {
+                new("reason", CourseTraceValue.TextValue(answer.Reason)),
+                new("accepted", CourseTraceValue.Flag(answer.Binding != null)),
+                new("domain", CourseTraceValue.TextValue(answer.Site.Kind)),
+                new("target", CourseTraceValue.TextValue(answer.Site.Identity)),
+                new("purpose", CourseTraceValue.TextValue(answer.Binding?.Opportunity.Purpose ?? "")),
+            }));
+        return answer;
     }
 
     /// <summary>

@@ -41,9 +41,9 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     // A placed torch is observed; whether it lit anything useful is not measured by this method.
     protected override string CompletedEffect => "torch-placed-coverage-unmeasured";
 
-    /// <summary>Lighting keeps its job after a placement instead of ending the attempt, so a region needing
-    /// several torches is worked through rather than visited once per search cadence.</summary>
-    protected override bool ContinueAfterInteraction => true;
+    /// <summary>Lighting's hand works a torch site the course bound. A region needing several torches is several
+    /// steps of one course, which the course chains; the activity no longer re-searches after a placement.</summary>
+    protected override bool WorksTileFor(string purpose) => purpose == Infrastructure.Selection.Opportunities.OpportunityPurposes.Light;
 
     // Lighting's own candidate stages, in the order a tile meets them.
     private const string StageOutsideWorkArea = "outside-work-area";
