@@ -250,6 +250,25 @@ public sealed class DecideCourseEachTick
     }
 
     /// <summary>
+    /// Something outside the course has taken the body — downing, or recovery flight home — so the
+    /// course and any decision in flight are dropped, and the next ordinary tick decides afresh from
+    /// where the body actually is. Kept, a course would resume a step chosen from where the companion
+    /// used to be, and a decision in flight would publish against an observation frozen before the
+    /// body was carried somewhere else. Physical effects already launched survive the release, as they
+    /// do for any release. Cheap when there is nothing to drop, so the owner of the body calls it on
+    /// every tick it holds it.
+    /// </summary>
+    public void Interrupt(string reason)
+    {
+        if (deciding != null || models != null)
+        {
+            models?.Abandon();
+            deciding = null; models = null; decidingFacts = null; decidingEpisode = null;
+        }
+        if (Course.Current != null) Course.Release(reason);
+    }
+
+    /// <summary>
     /// Decide what the body should be doing, from this tick's world alone.
     /// </summary>
     /// <param name="budget">The tick's own shared allowance. Observation, discovery, binding, the

@@ -168,6 +168,7 @@ public sealed class Brain
     public void ApplyDownedControls(CompanionNPC companion)
     {
         SuspendActivity(companion, "downed");
+        Course.Interrupt("downed");
         LastRequest = PositionRequest.Hold;
         FinaliseControls(companion, new ActivityControlRequest(Movement.Hold(companion.Motor.State, preemptedBy: "downed"), "downed", HandGrant.Unavailable));
     }
@@ -300,6 +301,13 @@ public sealed class Brain
                 ExecuteCourseBinding.Companionship(Senses.Intent.Region.Centre);
         // The activity still runs its own tick, for the hand it reserves and the state it keeps; its
         // returned request is discarded, because the course already said where the body goes.
+        //
+        // That includes keeping company's own request, whose meeting place and stranded roam are therefore
+        // not reached in play. Using it for the empty course was tried on 23 September 2026 and refused:
+        // `a companion sealed off from the player does not travel away from him` went red, the meeting
+        // place carrying the sealed body west from column 38.6 to 16.0 and the roam then taking it 90 tiles
+        // from him. Rejoining from behind a wall has to aim at the player's side; a request that roams the
+        // pocket it is sealed in moves it away from him by construction.
         _ = action?.Execute(ctx);
         DecideMs = Lap();
         // The rule lives in `RecoverDistantCompanion.ReunionRequested`, which owns why each of its three
@@ -341,6 +349,7 @@ public sealed class Brain
                 && player.velocity.Y == 0f && companion.NPC.Center.Y <= player.Center.Y)) return false;
         LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
         Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
+        Course.Interrupt("follow-recovery-flight");
         Movement.Hold(companion.Motor.State, preemptedBy: "follow-recovery-flight");
         request = new ActivityControlRequest(Controls.None, "follow-recovery-flight", RecoveryVelocity:
             FollowRecovery.Steer(companion.NPC.Center, companion.NPC.velocity, player.Center, player.velocity));

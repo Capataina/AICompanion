@@ -17,6 +17,7 @@ DecisionMaking/
 ├─ VerifyADecisionInFlightKeepsTheFight.cs the whole tick with the decision held open: an unsettled tick keeps the fight rather than exiting it
 ├─ VerifyWhatEachDecisionCosts.cs what a decision costs to assemble and to carry, in bytes and counts rather than milliseconds
 ├─ VerifyTheSearchRetainsItsRunnerUp.cs the best order the winner beat, kept through the search rather than discarded
+├─ VerifyATakenBodyDropsItsCourse.cs downing releases the course the body was performing, beside the control that an ordinary tick keeps it
 ├─ VerifyEncounterConduct.cs gate G13: an encounter suppresses a whole optional course without repricing a fight,
 │                            among two feasible fights the survivable one wins while it is on, and the player's
 │                            death leaves it standing
