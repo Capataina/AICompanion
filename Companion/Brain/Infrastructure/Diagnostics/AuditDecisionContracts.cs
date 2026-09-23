@@ -508,12 +508,12 @@ public static class AuditDecisionContracts
     public static EffectVerdict ObserveEffect(string effect, string operation, int? tileX, int? tileY, int? itemSlot, long tick)
     {
         if (BindingSource == null) return new EffectVerdict(0, "unread", "unaudited");
-        EffectsAudited++;
         BoundStepForAudit? activity;
         try { activity = BindingSource(); }
         // A reader that throws is a wiring fault, not a companion acting without a step; it is reported
-        // as unaudited so the violation counts stay about the brain.
+        // as unaudited so the violation counts stay about the brain, and it is not counted as judged.
         catch (Exception) { return new EffectVerdict(0, "unread", "unaudited"); }
+        EffectsAudited++;
         BoundStepForAudit? incidental = acceptedIncidentalTick == tick ? AcceptedIncidental : null;
 
         if (incidental is { } accepted && Lands(accepted, operation, tileX, tileY, itemSlot))

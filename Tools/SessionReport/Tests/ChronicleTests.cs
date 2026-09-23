@@ -975,12 +975,12 @@ public static class ChronicleTests
                     ["occurrences-total"] = Field("integer", total.ToString(CultureInfo.InvariantCulture)),
                 } } });
 
-        void Drive(string schema, string[] records, Action<Session> assert)
+        void Drive(string schema, string[] records, Action<Session> assert, string closing = "")
         {
             string tsv = Path.GetTempFileName(), sidecar = Path.ChangeExtension(tsv, null) + "-events.jsonl";
             try
             {
-                File.WriteAllText(tsv, $"# schema={schema}\ntick\n1\n# end=fixture;rows=1\n");
+                File.WriteAllText(tsv, $"# schema={schema}\ntick\n1\n{closing}# end=fixture;rows=1\n");
                 var lines = new List<string> { Marker(0, "session") };
                 lines.AddRange(records);
                 lines.Add(Marker(records.Length + 1, "session-end"));
@@ -1014,6 +1014,13 @@ public static class ChronicleTests
             Require(!found.Any(f => f.Title.Contains("with no accepted step", StringComparison.Ordinal)),
                 "a kind that never fired was reported");
         });
+
+        // A capture that closed carries the contract's own count of judged effects, and the finding's
+        // denominator is that count rather than the occurrences that reached the sidecar.
+        Drive("0.47.0", new[] { Effect(1, 100, "tool-effect", EveryEffectWasTheAcceptedStep.OffBinding, 41) },
+            session => Require(Run(session).Any(f => f.Detail.Contains("of the 9 effect(s) the contract judged", StringComparison.Ordinal)),
+                "the closing line's `effects-audited` was not the finding's denominator"),
+            closing: "# closing=world-unload;rows=1;decisions-audited=3;audit-observations-read=3;effects-audited=9\n");
 
         // The quiet half: bound effects only, nothing named.
         Drive("0.47.0", new[] { Effect(1, 100, "tool-effect", "bound", 41), Effect(2, 101, "pickup", "not-claimed", 0) },

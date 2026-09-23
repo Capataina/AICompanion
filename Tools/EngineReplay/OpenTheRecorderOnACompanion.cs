@@ -98,6 +98,8 @@ internal static class OpenTheRecorderOnACompanion
     {
         sourceBeforeThisFixture = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
             .AuditDecisionContracts.Source;
+        bindingSourceBeforeThisFixture = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics
+            .AuditDecisionContracts.BindingSource;
         if (ModContent.GetInstance<CompanionNPC>() == null) ContentInstance.Register(companion);
         companion.NPC.type = ModContent.NPCType<CompanionNPC>();
         companion.NPC.active = true;
@@ -131,6 +133,11 @@ internal static class OpenTheRecorderOnACompanion
     /// next. Null is the ordinary prior value and restoring null is the point.</summary>
     private static Func<live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.DecisionInputs?>? sourceBeforeThisFixture;
 
+    /// <summary>The same for the effect contract's binding reader, which <c>ReadLiveCourseForAudit.Install</c>
+    /// sets beside the source: left standing, it audits every later case's strikes and pickups against a body
+    /// that case never placed, and writes the violations into whatever stream that case has open.</summary>
+    private static Func<live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BoundStepForAudit?>? bindingSourceBeforeThisFixture;
+
     /// <summary>
     /// Takes the body back out and gives the audit's source back.
     ///
@@ -147,6 +154,9 @@ internal static class OpenTheRecorderOnACompanion
         live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Source
             = sourceBeforeThisFixture;
         sourceBeforeThisFixture = null;
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.BindingSource
+            = bindingSourceBeforeThisFixture;
+        bindingSourceBeforeThisFixture = null;
     }
 
     /// <summary>The recorder's own close, which takes the reason it writes into the end marker; a fixture

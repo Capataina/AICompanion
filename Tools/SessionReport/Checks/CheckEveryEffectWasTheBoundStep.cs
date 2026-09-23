@@ -65,7 +65,11 @@ public sealed class EveryEffectWasTheAcceptedStep : ICheck, ICheckCoverage
             list.Add(e);
         }
         IReadOnlyDictionary<string, long> totals = ViolationTotals(log);
-        int judged = byVerdict.Where(pair => pair.Key is "bound" or WithoutBinding or OffBinding).Sum(pair => pair.Value.Count);
+        // The denominator is the recorder's own `effects-audited` from the closing line where the capture
+        // closed, because it counts every effect the contract judged including any whose occurrence the
+        // transport dropped; a capture killed before its closing line falls back to the occurrences seen.
+        long judged = ClosingEffectsAudited(session)
+            ?? byVerdict.Where(pair => pair.Key is "bound" or WithoutBinding or OffBinding).Sum(pair => pair.Value.Count);
 
         foreach (string kind in new[] { WithoutBinding, OffBinding })
         {
@@ -77,7 +81,7 @@ public sealed class EveryEffectWasTheAcceptedStep : ICheck, ICheckCoverage
                 : "native effect(s) that landed beside the accepted step they were performed under: the hand worked a target of its own choosing";
             string examples = string.Join("; ", hits.Take(3).Select(Describe));
             yield return new Finding(Severity.Definitive, Name, $"{Math.Max(hits.Count, total).ToString(CultureInfo.InvariantCulture)} {what}",
-                $"{hits.Count.ToString(CultureInfo.InvariantCulture)} of the {judged.ToString(CultureInfo.InvariantCulture)} effect occurrence(s) the contract judged read `{kind}`, "
+                $"{hits.Count.ToString(CultureInfo.InvariantCulture)} effect occurrence(s) of the {judged.ToString(CultureInfo.InvariantCulture)} effect(s) the contract judged read `{kind}`, "
                     + $"and the recorder's own `contract-violation` records count {total.ToString(CultureInfo.InvariantCulture)} in total"
                     + (hits.Count > 0 ? $". First: {examples}." : ".")
                     + " An effect performed off the course's step leaves the course believing a different action happened, which is the plan's tick step 9.",
@@ -104,6 +108,18 @@ public sealed class EveryEffectWasTheAcceptedStep : ICheck, ICheckCoverage
             : string.Create(CultureInfo.InvariantCulture, $"tile {(int)(e.expected_x / 16)},{(int)(e.expected_y / 16)}");
         return string.Create(CultureInfo.InvariantCulture,
             $"tick {e.tick} {e.kind} {e.label} on {where} under step {ReadGodsEyeEvents.Field(e.detail, "binding-id") ?? "?"} ({ReadGodsEyeEvents.Field(e.detail, "binding-origin") ?? "?"})");
+    }
+
+    /// <summary>The effect contract's own count of judged effects, from the `# closing=` line (0.47.0), or
+    /// null where the capture never closed or predates it.</summary>
+    internal static long? ClosingEffectsAudited(Session session)
+    {
+        if (!session.Metadata.TryGetValue("closing", out string? closing)) return null;
+        foreach (string part in closing.Split(';'))
+            if (part.StartsWith("effects-audited=", StringComparison.Ordinal)
+                && long.TryParse(part["effects-audited=".Length..], NumberStyles.Integer, CultureInfo.InvariantCulture, out long value))
+                return value;
+        return null;
     }
 
     /// <summary>The largest running total each effect kind's `contract-violation` records reached, which is
