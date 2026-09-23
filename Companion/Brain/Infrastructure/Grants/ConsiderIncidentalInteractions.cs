@@ -97,6 +97,10 @@ public sealed class ConsiderIncidentalInteractions
             if (answer.Binding is not { } step) continue;
             // The acceptance was against the frozen observation; the native call is against the live world, which may have moved since.
             if (!method.MayActIncidentally(ctx, tile)) continue;
+            // Announced to the effect audit before the native call, because the audit holds every native effect to the step
+            // it was accepted to perform, and an accepted in-passing use is a step the course's published course does not
+            // contain; unannounced, every pot or torch the course licensed in passing read as an effect with no binding.
+            Diagnostics.ReadLiveCourseForAudit.AcceptIncidental(step);
             string note = $"incidental;during={executing?.Name ?? "none"};activity-id={activityId};binding-id={step.Id};credited-to=none;";
             if (!method.PerformIncidental(ctx, tile, note)) continue;
             Last = new IncidentalInteraction(now, tile, method.Name, executing?.Name, activityId, step.Id);

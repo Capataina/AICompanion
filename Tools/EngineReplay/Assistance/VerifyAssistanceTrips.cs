@@ -309,6 +309,11 @@ internal static class VerifyAssistanceTrips
         if (incidental != null)
             Require(incidentalAtBreak != null && incidentalAtBreak.ToString()!.Contains("Method = collect") && incidentalAtBreak.ToString()!.Contains("DuringActivity = place-torches"),
                 $"the incidental record must name the pot method and the activity it happened during; {ledger}");
+        // The effect audit holds a pot break to the step it was accepted for, so the scan must announce the accepted
+        // in-passing step to it before the native call; unannounced, every licensed pot read as an effect with no binding.
+        var announced = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.AcceptedIncidental;
+        Require(announced is { Incidental: true } held && held.TileX == pot.X && held.TileY == pot.Y,
+            $"the pot broken in passing must be announced to the effect audit as its accepted step; announced={announced}; {ledger}");
         Console.WriteLine($"incidental pot: broken at tick {brokenAt} during place-torches, torch at tick {torchAt}; decide max {decideMax:0.000} ms, finalise max {finaliseMax:0.000} ms (this machine, never asserted)");
     }
 

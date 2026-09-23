@@ -90,7 +90,9 @@ public static class ReadLiveCourseForAudit
         // pot is ordered under is moving between domains while its target shape is not.
         if (key.Purpose is "mine" or "chop" or "light" || key.Target.StartsWith("tile:", StringComparison.Ordinal))
         {
-            try { Microsoft.Xna.Framework.Point tile = ExecuteCourseBinding.WorkTileOf(key); x = tile.X; y = tile.Y; }
+            // The step overload, not the key's: a mine step strikes the tile its use names, which is not the vein's
+            // identity tile when that one is sealed, and reading the identity audited every such strike as off its step.
+            try { Microsoft.Xna.Framework.Point tile = ExecuteCourseBinding.WorkTileOf(binding); x = tile.X; y = tile.Y; }
             // An unparseable tile target leaves the step without a work tile, and every tile effect under
             // it is then off its step — which is the right reading of a step nobody can locate.
             catch (ArgumentOutOfRangeException) { }

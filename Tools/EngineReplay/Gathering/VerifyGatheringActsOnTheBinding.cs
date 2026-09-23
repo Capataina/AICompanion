@@ -239,6 +239,13 @@ internal static class VerifyGatheringActsOnTheBinding
             + $"opportunity '{step.Opportunity.Target}'");
         var strike = PerformOnce(ctx, step);
         Require(strike == exposed, $"the pickaxe struck {Describe(strike)} while the step's use names {exposed}");
+        // The effect audit holds each strike to its step's work tile, so it must read the same tile the hand strikes;
+        // reading the identity audited every strike on such a vein as off its step. Asked through the audit's own
+        // seam, which flattens a real binding exactly as the live reader does.
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReadLiveCourseForAudit.AcceptIncidental(step);
+        var flattened = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.AcceptedIncidental;
+        Require(flattened?.TileX == exposed.X && flattened?.TileY == exposed.Y,
+            $"the effect audit reads the step's work tile as {flattened?.TileX},{flattened?.TileY} while the hand strikes {exposed}");
     }
 
     /// <summary>

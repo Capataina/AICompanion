@@ -249,6 +249,16 @@ internal static class ResetProcessState
         live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current =
             new live::AICompanion.Companion.PlayerIntegration.CompanionPreferences();
 
+        // The decision audit's session memory and both of its readers. `OpenTheRecorderOnACompanion.Clear`
+        // hands the readers back for a fixture that opened a recording through the seam, but a case that
+        // threw before its `finally`, or that drove the audit without the seam, left them standing, and the
+        // next case's audit then read through a body that case never placed — a pass or a fail decided by
+        // run order. The audit's own `Reset` deliberately keeps its readers because in play they are wiring;
+        // between cases they are the previous case's wiring, so they go too.
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Source = null;
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.BindingSource = null;
+
         // The map before the search policy, because the policy plugs a fresh world wrapper over
         // whatever map is standing, and the wrapper has to wrap the empty one.
         RebuildTheMiniatureWorld();
