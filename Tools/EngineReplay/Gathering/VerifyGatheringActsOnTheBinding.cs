@@ -121,9 +121,9 @@ internal static class VerifyGatheringActsOnTheBinding
     /// through the second, so the step's use — and its stand — are about the exposed tile. The pickaxe must strike
     /// the use's tile.
     ///
-    /// <para>It also prints the work tile the tick's position request carries for the same step, because
-    /// `ExecuteCourseBinding.WorkTileOf` reads the opportunity's identity rather than its use: on this scene the two
-    /// disagree, which is a property of that reader (outside this lane) and is printed here rather than asserted.</para>
+    /// <para>It also requires the tick's position request to carry the same tile as its work tile. Until 23 September
+    /// 2026 `ExecuteCourseBinding.WorkTileOf` read the opportunity's identity, so on this scene the request aimed the
+    /// tool-reach proof at the sealed tile while the hand struck the exposed one; it reads a gathering step's use now.</para>
     /// </summary>
     private static void AMineStepStrikesItsUseTileNotTheVeinIdentity()
     {
@@ -145,8 +145,9 @@ internal static class VerifyGatheringActsOnTheBinding
         Require(step.Opportunity.Target.EndsWith($":{sealedFirst.X},{sealedFirst.Y}", StringComparison.Ordinal) && named && use == exposed,
             $"premise: the opportunity must be named by the sealed tile and its use must be the exposed one; opportunity '{step.Opportunity.Target}' use '{step.NativeUseId}'");
         var request = live::AICompanion.Companion.Brain.Infrastructure.Selection.ExecuteCourseBinding.RequestFor(step, new Vector2(0, 0));
-        AICompanion.Tools.Ledger.EmitLedgerRows.Detail(
-            $"MEASURE mine step on a sealed-first vein: use tile {use}, position request work tile {request.WorkTile?.ToString() ?? "none"}, opportunity '{step.Opportunity.Target}'");
+        Require(request.WorkTile == exposed,
+            $"the position request aims the tool-reach proof at {request.WorkTile?.ToString() ?? "none"} while the hand strikes the use tile {exposed}; "
+            + $"opportunity '{step.Opportunity.Target}'");
         var strike = PerformOnce(ctx, step);
         Require(strike == exposed, $"the pickaxe struck {Describe(strike)} while the step's use names {exposed}");
     }

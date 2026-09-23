@@ -105,7 +105,7 @@ public static class ExecuteCourseBinding
         // and the positioner applies the same tool-reach proof. A drop is not, because pickup is by contact.
         if (binding.Opportunity.Purpose is not ("mine" or "chop" or "light" or OpportunityPurposes.BreakPot))
             return PositionRequest.ExactAt(pose);
-        Point work = WorkTileOf(binding.Opportunity);
+        Point work = WorkTileOf(binding);
         // A stand the body has already satisfied is not a journey. The stand in the binding came from a
         // capture that scans its area in budgeted slices and restarts on every strike, so the tile the
         // body is about to hit is usually re-read several ticks after the strike that restarted the
@@ -150,6 +150,20 @@ public static class ExecuteCourseBinding
     /// tile is a different opportunity. An unrecognised shape throws rather than guessing a tile,
     /// because a silently wrong work tile is what this replaced.
     /// </summary>
+    internal static Point WorkTileOf(StepBinding step)
+    {
+        // A gathering step's hand strikes the tile its use names, and that can differ from the tile the
+        // opportunity's identity names. The ore census keys a vein by its first sorted tile but binds the
+        // use at the first tile with a proven approach, so on a vein whose first sorted tile is sealed the
+        // identity names a tile the pickaxe never touches (measured by lane B on 23 September 2026: use
+        // 24,59 against identity ore:7:23,59). The position request's tool-reach proof and the effect
+        // audit both have to aim where the hand does, so a gathering step is read through its use.
+        if (step.Opportunity.Domain is "mine-target" or "chop-target"
+            && Activities.Gathering.GatheringOpportunityBinder.TryReadUse(step, step.Opportunity.Domain, out Point used, out _))
+            return used;
+        return WorkTileOf(step.Opportunity);
+    }
+
     internal static Point WorkTileOf(OpportunityKey opportunity)
     {
         string target = opportunity.Target;
