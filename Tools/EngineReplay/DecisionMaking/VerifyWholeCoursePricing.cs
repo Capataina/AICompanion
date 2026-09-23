@@ -289,8 +289,10 @@ internal static class VerifyWholeCoursePricing
         return (victim, motion);
     }
 
-    // A real purpose, because the search refuses any whose executor the map does not name.
-    private static Opportunity Site() => new(new("fixture", "collect", "whole-course", 1), 1, default,
+    // A real domain and a real purpose, because the search refuses a domain no registered activity
+    // declares and `Opportunity` refuses an undeclared purpose; the pose binder answers for the same domain.
+    private const string FixtureDomain = "collect-target";
+    private static Opportunity Site() => new(new(FixtureDomain, "collect", "whole-course", 1), 1, default,
         OpportunityAdmission.KnownUsable, "fixture", new[] { new UsefulNeed(new(NeedKind.Loot, "whole-course"), 1, 1, 1) },
         new[] { "use" }, DependencyManifest.Empty, default);
 
@@ -320,7 +322,7 @@ internal static class VerifyWholeCoursePricing
     {
         private readonly CoursePoint pose;
         public PoseBinder(CoursePoint pose) => this.pose = pose;
-        public string Domain => "fixture";
+        public string Domain => FixtureDomain;
         public BindingValidation ValidateNextUse(StepBinding binding, DecisionFactSnapshot facts)
             => new(OpportunityAdmission.KnownUsable, "fixture", false);
         public BindingResult Bind(Opportunity opportunity, ProjectedCourseState state, TrackedFactReader facts,

@@ -620,7 +620,8 @@ internal static class VerifyCourseCore
     }
     private static void ConcreteOrders()
     {
-        var source = new FixtureSource("collect", 7);
+        // A declared domain, because the search refuses one no registered activity performs.
+        var source = new FixtureSource("collect-target", 7);
         var opportunities = source.Continue(Facts(), new(), new(double.PositiveInfinity, 20)).Examined;
         // This projector takes one operation per concrete step and retains its offset across
         // cuts. Search calls the production objective, not a fixture ranking function.
