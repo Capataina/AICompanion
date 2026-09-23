@@ -165,7 +165,7 @@ The whole check, and the one nearly every commit body in this repository cites a
 sh Tools/verify.sh
 ```
 
-It builds without packaging, proves the DLL is newer than every source file that feeds it rather than trusting "Build succeeded", runs `check-navigation-boundary.sh`'s three boundaries, then the ledger, NavReplay, SessionReport and CombatAudit self-tests, then the native engine suite, then the world runs, and finally the ledger's scoreboard, whose exit code is the script's. Every instrument runs to the end whatever the one before it did.
+It builds without packaging, proves the DLL is newer than every source file that feeds it rather than trusting "Build succeeded", runs `check-navigation-boundary.sh`'s four boundaries, then the ledger, NavReplay, SessionReport and CombatAudit self-tests, then the native engine suite, then the world runs, and finally the ledger's scoreboard, whose exit code is the script's. Every instrument runs to the end whatever the one before it did.
 
 **Exit 0 means no row went red, and that is less than "everything passed".** A case that stopped reporting — skipped, or filing no row at all — is not a red row, so the scoreboard names it in its own block and carries the count on the closing line, and the closing line is therefore the thing to read rather than the exit code. That is deliberate rather than a gap: a fresh clone has no capture for the play measures, because `Telemetry/` is gitignored, and failing the run for that would punish the clone for the store's shape. Exit 2 still means a check could not be asked at all, which is the absent-ripgrep case and is neither a pass nor a violation.
 

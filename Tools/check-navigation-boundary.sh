@@ -1,5 +1,7 @@
 #!/bin/sh
-# Two architecture boundaries, both of which a compiler is happy to let anyone cross.
+# Four architecture boundaries, every one of which a compiler is happy to let anyone cross: the
+# movement core, reach, verdicts and the course core. The first two are described here; the last
+# two carry their reasons above their own sections below.
 #
 # The navigation core names no Terraria type outside the one file that reads the live world,
 # because the replay tool compiles the core without the game and because the motor is the only
@@ -15,7 +17,7 @@
 # saying the question could not be finished while a settled flood sat beside it holding the answer.
 # A job written later inherits the rule by failing this check rather than by reading a folder file.
 #
-# Exit 0 when both boundaries hold; otherwise every offending line, and exit 1.
+# Exit 0 when all four boundaries hold; otherwise every offending line of the first that fails, and exit 1.
 # Run from the repository root:  sh Tools/check-navigation-boundary.sh
 cd "$(dirname "$0")/.." || exit 2
 # Comment lines are prose and may say "NPC"; only code lines count.
@@ -104,3 +106,31 @@ if [ -n "$verdict_hits" ]; then
   exit 1
 fi
 echo "verdict boundary holds: no fixture outside Tools/Ledger prints its own PASS or FAIL"
+
+# The course boundary: the search, the objective, the binders and the discovery sources decide from
+# the frozen observation and nothing else. A decision spans ticks by design, so a binder that read the
+# live game would price one order against the world as it was when the decision froze and the next
+# against the world a tick later, and nothing in the comparison could tell the two apart — the
+# observation's identity check (`IsModelExtensionOf`) only guards what arrives through the snapshot.
+# Everything live is captured under Observation and handed in as facts. Held on 23 September 2026 with
+# zero reads in either folder; this arm keeps it that way.
+course_dirs='Companion/Brain/Infrastructure/Selection/Courses Companion/Brain/Infrastructure/Selection/Opportunities'
+course_pattern='using Terraria|Terraria\.|(^|[^A-Za-z0-9_])Main\.|(^|[^A-Za-z0-9_])NPC([^A-Za-z0-9_]|$)'
+for dir in $course_dirs; do
+  test -d "$dir" || { echo "course boundary source directory missing: $dir"; exit 1; }
+done
+if command -v rg >/dev/null 2>&1; then
+  course_found=$(rg -n "$course_pattern" $course_dirs -g '*.cs')
+elif command -v grep >/dev/null 2>&1; then
+  course_found=$(grep -rnE "$course_pattern" --include='*.cs' $course_dirs)
+else
+  echo 'course boundary NOT checked: neither ripgrep nor grep is available'; exit 2
+fi
+course_hits=$(printf '%s\n' "$course_found" | grep -v -E '^[^:]*:[0-9]+:[[:space:]]*(///|//)')
+if [ -n "$course_hits" ]; then
+  echo "the course core reads the live game instead of the frozen observation:"
+  echo "$course_hits"
+  echo "capture it under Observation as a fact and read it through the tracked reader."
+  exit 1
+fi
+echo "course boundary holds: the search, objective, binders and sources read only the frozen observation"
