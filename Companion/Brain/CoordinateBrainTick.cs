@@ -283,7 +283,11 @@ public sealed class Brain
             LimitPlanningWork.Current);
         CompanionAction? action = decision.Activity.Length == 0 ? null
             : Actions.Find(candidate => candidate.Name == decision.Activity);
-        Activity.Select(action, ctx);
+        // The step goes to the activity with the selection, so the hand works the target the course
+        // chose. Until 23 September 2026 only the position request carried it and every work activity
+        // swung at a target of its own search — two choosers that agreed only when both picked the same
+        // nearest thing.
+        Activity.Select(action, ctx, decision.Binding);
         ChoiceEvaluated = true;
         Activity.BeginExecution();
         LastRequest = decision.Binding is { } step ? ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center)

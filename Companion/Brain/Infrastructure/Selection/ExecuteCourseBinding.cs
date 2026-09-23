@@ -29,61 +29,63 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection;
 public static class ExecuteCourseBinding
 {
     /// <summary>
-    /// The activity that performs each bound purpose, by the name it registers under, and the whole of
-    /// what a course may bind.
+    /// Which registered activity performs each opportunity domain, built from the activities' own
+    /// <see cref="CompanionAction.CourseDomains"/> rather than written out a second time here.
     ///
-    /// The mapping is explicit rather than derived from the domain string because the two vocabularies
-    /// genuinely differ and each difference is a decision: combat's opportunities are minted per *use*
-    /// with the purpose "fire" while the activity is "combat", and lighting's activity is
-    /// "place-torches" while its domain is "light-target".
+    /// <para>**There is one source for "who performs this kind of work", and holding it is the whole
+    /// reason this map is derived.** Until 23 September 2026 this was a hand-written table keyed by
+    /// purpose, beside the activities' own declarations, and the two disagreed about pots:
+    /// `CollectNearbyItems` declared `pot-target` and carried the whole pot method, while the table left
+    /// the purpose out. A course that bound a pot therefore reached the tick with no activity, and the
+    /// body flew thirty ticks to a pot with nothing to do on arrival; the repair of 22 September refused
+    /// every pot rather than asking why the performer and the table disagreed. Derived, a domain nobody
+    /// declares cannot be bound and a domain somebody declares cannot be refused, so the two cannot
+    /// drift apart again.</para>
     ///
-    /// <para>**`break-pot` is deliberately absent, and its absence is now load-bearing rather than a
-    /// note.** A pot is broken in passing by whatever activity is already travelling, through the shared
-    /// nearby-work adapter — that is the owner's ruling, `J08` asserts it, and the root guide states it.
-    /// The purpose used to map to the empty string with the caller reading that as "no activity change",
-    /// which made a pot bindable as a course step: the search would order a dedicated trip to a pot, the
-    /// tick would carry it, and the body would fly there with no activity, no attempt, no credit and
-    /// nothing in the record saying anything was running. Measured over a whole-tick probe, thirty ticks
-    /// of `bound=pot-target:tile:27,58 action=none` before the lighting trip the row was about could
-    /// start. So the map is the single fact of which purposes are executable, `SearchCourseOrders`
-    /// refuses any opportunity whose purpose is not in it before enumeration, and this throws for a pot
-    /// like any other unmapped purpose rather than answering with a blank.</para>
-    ///
-    /// <para>What a future pot executor would need, so nobody re-adds the blank: an activity registered
-    /// under its own name that reserves the hand on arrival, opens and concludes an attempt so the work
-    /// is credited to something, and declares `CourseDomains` for `pot-target` — at which point the
-    /// entry goes in this map and the exemption in `VerifyCourseBindingExecution` goes out. That is a
-    /// product decision about whether the companion should make trips for pots, not a wiring gap.</para>
+    /// <para>It is keyed by domain rather than purpose because the domain is what a census publishes and
+    /// an activity declares, while the purpose is what the hand does, and one activity may do more than
+    /// one thing. It is built from `RegisterActivities.All()`, the production set, so a fixture that
+    /// registers a narrower list on its brain still reads the same performer for a domain;
+    /// `CoordinateBrainTick` then finds no instance and runs nothing, which is what a restricted scene
+    /// means.</para>
     /// </summary>
-    private static readonly Dictionary<string, string> Executors =
-        new(StringComparer.Ordinal)
-        {
-            ["fire"] = "combat",
-            ["mine"] = "mine",
-            ["chop"] = "chop",
-            ["collect"] = "collect",
-            ["light"] = "place-torches",
-        };
+    private static readonly IReadOnlyDictionary<string, string> Executors = BuildExecutors();
 
-    /// <summary>Whether a purpose has an executor at all, which is what makes an unexecutable step a
-    /// *proven* refusal rather than an unanswered question: the map is a fact of this tree and nothing
-    /// about the world can change the answer.</summary>
-    public static bool HasExecutor(string purpose) => Executors.ContainsKey(purpose);
+    private static IReadOnlyDictionary<string, string> BuildExecutors()
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (CompanionAction activity in RegisterActivities.All())
+            foreach (string domain in activity.CourseDomains)
+            {
+                // Two performers for one domain would make the binding's owner a matter of list order,
+                // which is the silent fallback this map replaced; it is refused where the map is built.
+                if (map.TryGetValue(domain, out string? other))
+                    throw new InvalidOperationException(
+                        $"The domain '{domain}' is declared by both '{other}' and '{activity.Name}'; one domain has one performer.");
+                map[domain] = activity.Name;
+            }
+        return map;
+    }
 
-    /// <summary>Every purpose a course may bind, for the row that checks the producers against it.</summary>
-    public static IReadOnlyCollection<string> ExecutablePurposes => Executors.Keys;
+    /// <summary>Whether a domain has a performer at all, which is what makes an unexecutable step a
+    /// *proven* refusal rather than an unanswered question: the registered activities are a fact of this
+    /// tree and nothing about the world can change the answer.</summary>
+    public static bool HasExecutor(string domain) => Executors.ContainsKey(domain);
+
+    /// <summary>Every domain a course may bind, for the row that checks the producers against it.</summary>
+    public static IEnumerable<string> ExecutableDomains => Executors.Keys;
 
     /// <summary>
-    /// The activity that performs a bound purpose. A silent fallback here would route unknown work to
-    /// whichever activity sorted first, so an unmapped purpose throws — a new domain must name its
-    /// executor rather than inherit one, and a purpose the search should have refused must not reach
-    /// the body wearing a blank activity name.
+    /// The activity that performs a bound opportunity's domain. A silent fallback here would route
+    /// unknown work to whichever activity sorted first, so an undeclared domain throws — a new domain
+    /// must be declared by the activity that performs it, and a domain the search should have refused
+    /// must not reach the body wearing a blank activity name.
     /// </summary>
-    public static string ActivityFor(string purpose) => Executors.TryGetValue(purpose, out string? activity)
+    public static string ActivityFor(string domain) => Executors.TryGetValue(domain, out string? activity)
         ? activity
-        : throw new ArgumentOutOfRangeException(nameof(purpose), purpose,
-            "A bound purpose must name the activity that performs it; SearchCourseOrders refuses a "
-            + "purpose with no executor before it can be ordered.");
+        : throw new ArgumentOutOfRangeException(nameof(domain), domain,
+            "A bound domain must be declared by the activity that performs it (CompanionAction.CourseDomains); "
+            + "SearchCourseOrders refuses an undeclared domain before it can be ordered.");
 
     /// <summary>
     /// Where the body is asked to be for this binding.
@@ -99,9 +101,9 @@ public static class ExecuteCourseBinding
         var pose = new Vector2((float)binding.Pose.X, (float)binding.Pose.Y);
         if (binding.Opportunity.Purpose == "fire")
             return new PositionRequest(RequestKind.FireFrom, pose);
-        // `break-pot` was in this list and is orphaned by the executor map refusing it before a step can
-        // exist: a pot can no longer be a binding, so a branch for one is a branch nothing reaches.
-        if (binding.Opportunity.Purpose is not ("mine" or "chop" or "light"))
+        // A pot is tile work like a vein or a torch site: the hand acts on a tile, so the request names it
+        // and the positioner applies the same tool-reach proof. A drop is not, because pickup is by contact.
+        if (binding.Opportunity.Purpose is not ("mine" or "chop" or "light" or OpportunityPurposes.BreakPot))
             return PositionRequest.ExactAt(pose);
         Point work = WorkTileOf(binding.Opportunity);
         // A stand the body has already satisfied is not a journey. The stand in the binding came from a

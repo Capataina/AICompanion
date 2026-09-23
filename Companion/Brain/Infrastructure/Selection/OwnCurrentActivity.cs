@@ -39,8 +39,22 @@ public sealed class OwnCurrentActivity
     private object? identity;
     private int generation;
 
-    public void Select(CompanionAction? next, in ActionContext context)
+    /// <summary>The course step the current activity was selected to perform, or null when it runs with
+    /// none — keeping company, or combat's continuation while a decision is still in flight.</summary>
+    public Courses.StepBinding? Binding { get; private set; }
+
+    /// <summary>
+    /// Select the activity that holds the body, and hand it the accepted step it is there to perform.
+    ///
+    /// The step is handed over before the purpose identity is read, because an activity performing a
+    /// bound step derives its identity from that step: the plan's rule is that the executor performs the
+    /// accepted use and never a target of its own choosing, and an identity read before the step arrived
+    /// would describe the target the activity found for itself.
+    /// </summary>
+    public void Select(CompanionAction? next, in ActionContext context, Courses.StepBinding? binding = null)
     {
+        next?.Accept(binding);
+        Binding = next == null ? null : binding;
         bool changedExecutor = !ReferenceEquals(Current, next);
         bool resuming = Phase == ActivityPhase.Suspended;
         object? nextIdentity = next?.ActivityIdentity;

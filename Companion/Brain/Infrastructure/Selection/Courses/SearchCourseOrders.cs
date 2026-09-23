@@ -173,26 +173,25 @@ public sealed class SearchCourseOrders
         this.facts = facts; this.episode = episode; this.projector = projector;
         // An episode is frozen even as the game proceeds; publication separately revalidates
         // the resulting prefix. Restart only when a read dependency actually changed.
-        // A purpose with no executor cannot be a step, and that is a proven refusal rather than the
-        // middle value: `ExecuteCourseBinding`'s map is a fact of this tree, so nothing about the world,
-        // the allowance or a later slice can turn a no into a yes, and reading it as unresolved would
-        // park the opportunity for ever instead of dropping it.
+        // A domain no registered activity declares cannot be a step, and that is a proven refusal rather
+        // than the middle value: `ExecuteCourseBinding`'s map is built from the activities' own
+        // declarations, a fact of this tree, so nothing about the world, the allowance or a later slice
+        // can turn a no into a yes, and reading it as unresolved would park the opportunity for ever
+        // instead of dropping it. The reason string keeps its old wording because captures carry it.
         //
         // It is refused here, before enumeration, rather than inside the projection, because an
         // unexecutable opportunity may sit at any position of any order: filtering the candidate set
         // removes it from every order at once where a per-step check would have to run inside each
         // projection and would still admit the order until it reached that step.
         //
-        // The defect it closes is a pot. `break-pot` mapped to a blank activity and the caller read the
-        // blank as "no activity change", so the search would order a dedicated trip to a pot and the
-        // tick would carry it — measured, thirty ticks of `action=none` with no attempt and no credit,
-        // on a scene whose whole point was that a pot is broken *in passing*. The class is wider than
-        // the pot and that is why the refusal is written against the map rather than against the
-        // purpose: any domain that gains discovery before it gains an executor fails exactly this way,
+        // The class it closes: any domain that gains discovery before an activity declares it fails
         // silently, because a course that publishes work nothing performs looks from outside like a
-        // companion that decided something and then stood there.
+        // companion that decided something and then stood there. A pot was the instance, when a
+        // hand-written purpose table disagreed with the activity that performed pots; the table is
+        // derived from the declarations now, so this filter only ever refuses a domain that truly has
+        // no performer.
         var executable = opportunities.Where(o => o.Admission == OpportunityAdmission.KnownUsable
-            && ExecuteCourseBinding.HasExecutor(o.Key.Purpose)).ToArray();
+            && ExecuteCourseBinding.HasExecutor(o.Key.Domain)).ToArray();
         int unexecutable = opportunities.Count(o => o.Admission == OpportunityAdmission.KnownUsable) - executable.Length;
         var usable = executable.OrderBy(o => o.Key).ToArray();
         DepthTruncated = usable.Length > MaxDepth;

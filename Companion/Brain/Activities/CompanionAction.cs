@@ -70,6 +70,27 @@ public abstract class CompanionAction
         return sameJob ? preferences.ActiveActivityRadius : preferences.NewActivityRadius;
     }
 
+    /// <summary>
+    /// The course step this activity was selected to perform on this tick, or null when it runs with
+    /// none. An activity that performs course work acts on this step's target and on nothing else: the
+    /// course chose the target, and an activity that searched for its own would put a second chooser
+    /// behind the first — the body flying to the course's vein while the hand swung at the activity's.
+    /// </summary>
+    public Infrastructure.Selection.Courses.StepBinding? Bound { get; private set; }
+
+    /// <summary>Hand this activity the step it is selected to perform. Called by the activity owner on
+    /// every selection, before the purpose identity is read, so an activity that derives its identity
+    /// from the step reads the step it was given.</summary>
+    public void Accept(Infrastructure.Selection.Courses.StepBinding? step)
+    {
+        Bound = step;
+        OnAccept(step);
+    }
+
+    /// <summary>What an activity does when handed a step: adopt its target. Default does nothing, which
+    /// is right only for an activity that never performs course work.</summary>
+    protected virtual void OnAccept(Infrastructure.Selection.Courses.StepBinding? step) { }
+
     public void AdmitActivity() => admittedIdentity = ActivityIdentity;
     protected void ReleaseActivity() => admittedIdentity = null;
     internal void ReleaseAdmission() => admittedIdentity = null;

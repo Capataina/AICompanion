@@ -80,7 +80,14 @@ public sealed class DecideCourseEachTick
     // One instance per source and per binder, held rather than rebuilt, because each keeps a cursor that
     // resumes a sliced census across ticks. Rebuilding them per tick would restart every census every
     // tick and no slow one would ever finish.
-    private readonly DiscoverOpportunities discovery = new(new IOpportunitySource[]
+    private readonly DiscoverOpportunities discovery = new(ProductionSources(), capacity: 64);
+
+    private readonly BindOpportunity binder = new(ProductionBinders());
+
+    /// <summary>The sources the live brain discovers through, fresh instances each call. Public so a pin
+    /// can ask the production list rather than keep a second copy of it: two hand-kept lists of the same
+    /// domains are how the executor table and the activities came to disagree about pots.</summary>
+    public static IOpportunitySource[] ProductionSources() => new IOpportunitySource[]
     {
         new GatheringOpportunitySource("mine-target"),
         new GatheringOpportunitySource("chop-target"),
@@ -88,9 +95,10 @@ public sealed class DecideCourseEachTick
         new DiscoverAssistanceOpportunities("light-target"),
         new DiscoverAssistanceOpportunities("pot-target"),
         new CombatOpportunitySource(),
-    }, capacity: 64);
+    };
 
-    private readonly BindOpportunity binder = new(new IOpportunityBinder[]
+    /// <summary>The binders the live brain binds through, one per source domain; public for the same reason.</summary>
+    public static IOpportunityBinder[] ProductionBinders() => new IOpportunityBinder[]
     {
         new GatheringOpportunityBinder("mine-target"),
         new GatheringOpportunityBinder("chop-target"),
@@ -98,7 +106,7 @@ public sealed class DecideCourseEachTick
         new AssistanceOpportunityBinder("light-target"),
         new AssistanceOpportunityBinder("pot-target"),
         new CombatOpportunityBinder(),
-    });
+    };
 
     private readonly AssembleCourseSnapshot observation = new();
     private readonly ObserveDecisionCapabilities capabilities = new();
@@ -501,7 +509,7 @@ public sealed class DecideCourseEachTick
 
     private CourseDecision Carry(StepBinding step, string reason)
     {
-        string activity = ExecuteCourseBinding.ActivityFor(step.Opportunity.Purpose);
+        string activity = ExecuteCourseBinding.ActivityFor(step.Opportunity.Domain);
         Course.BeginExecution(step.Id);
         return Trace(Last = new(activity, step, reason, Settled: true));
     }

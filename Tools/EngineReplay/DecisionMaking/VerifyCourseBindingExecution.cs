@@ -30,11 +30,11 @@ internal static class VerifyCourseBindingExecution
             try { test(); Console.WriteLine("GREEN " + name); }
             catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
         }
-        Row("G01 every purpose discovery can publish has an executor or a written exemption", EveryPurposeHasAnExecutor);
-        Row("G01 a purpose with no executor is refused before the search can order it", AnExemptPurposeIsRefusedBeforeItIsOrdered);
+        Row("G01 every domain discovery can publish is performed by exactly one registered activity", EveryDomainHasAPerformer);
+        Row("G01 a domain no activity declares is refused before the search can order it", AnUndeclaredDomainIsRefusedBeforeItIsOrdered);
         Row("G03 every discovered domain has a binder that can turn it into a step", EveryDomainCanBind);
         Row("G01 a firing stand keeps its own request kind", StandsAndTilesKeepTheirKinds);
-        Row("G01 an unmapped purpose refuses rather than defaulting", UnknownPurposeRefuses);
+        Row("G01 an undeclared domain refuses rather than defaulting", UnknownDomainRefuses);
         return red;
     }
 
@@ -64,30 +64,18 @@ internal static class VerifyCourseBindingExecution
     };
 
     /// <summary>
-    /// The purposes deliberately outside `ExecuteCourseBinding`'s map, with the ruling that puts each
-    /// there. An exemption is a written decision rather than a gap, and it is a *list* so that adding to
-    /// it is a visible edit somebody has to justify in a diff.
-    /// </summary>
-    private static readonly (string Purpose, string Ruling)[] ExemptPurposes =
-    {
-        ("break-pot", "a pot is broken in passing by whatever activity is already travelling, by the "
-            + "owner's ruling, which J08 and the root guide both state; it is not a trip of its own"),
-    };
-
-    /// <summary>
-    /// Every purpose discovery can publish either has an executor the brain registers, or is exempt by a
-    /// named ruling and is refused by the search before it can become a step.
+    /// Every domain the production sources publish is performed by exactly one activity the brain
+    /// registers, and every declared purpose is one the opportunity constructor accepts.
     ///
-    /// The middle clause is what the row gained on 22 September 2026, and it is a defect rather than a
-    /// tidy-up. `break-pot` mapped to the empty string and the caller read that as "no activity change",
-    /// so the search could order a dedicated trip to a pot and the tick carried it: measured whole-tick,
-    /// thirty consecutive ticks of `bound=pot-target:tile:27,58 action=none` — the body flying to a pot
-    /// with no activity, no attempt and no credit, on the very scene whose contract is that a pot is
-    /// broken in passing. The class is wider than the pot: any domain that gains discovery before it
-    /// gains an executor fails exactly this way and fails silently, because a course publishing work
-    /// nothing performs reads from outside as a companion that decided something and then stood there.
+    /// This row pinned a hand-written purpose table until 23 September 2026, with pots on a written
+    /// exemption list — and the table was the defect: `CollectNearbyItems` declared `pot-target` and
+    /// carried the pot method while the table left the purpose out, so a bound pot reached the tick with
+    /// no activity. The executor map is derived from the activities' own `CourseDomains` now, so what
+    /// this row checks is the production source list against the production activity list, with no
+    /// third list of its own in between. A domain that gains discovery before any activity declares it
+    /// fails this row by name, which is the silent class the pot was an instance of.
     /// </summary>
-    private static void EveryPurposeHasAnExecutor()
+    private static void EveryDomainHasAPerformer()
     {
         // **The set under test is the declaration, not a sweep and not this file's table.** Every
         // opportunity a course can hold is built through `Opportunity`, which refuses a purpose outside
@@ -123,26 +111,20 @@ internal static class VerifyCourseBindingExecution
         HashSet<string> registered = brain.Actions.Select(action => action.Name).ToHashSet(StringComparer.Ordinal);
         Require(registered.Count > 0, "the brain registered no activities, so this row proves nothing");
 
-        foreach (string purpose in declared)
+        string[] published = DecideCourseEachTick.ProductionSources().Select(s => s.Name).Distinct(StringComparer.Ordinal).ToArray();
+        Require(published.Length > 0, "premise: the production source list is empty, so this row proves nothing");
+        foreach (string domain in published)
         {
-            string producer = MintedPurposes.FirstOrDefault(p => p.Purpose == purpose).Producer ?? "a producer this row does not name";
-            if (!ExecuteCourseBinding.HasExecutor(purpose))
-            {
-                (string Purpose, string Ruling) exemption = ExemptPurposes.FirstOrDefault(e => e.Purpose == purpose);
-                Require(exemption.Purpose != null,
-                    $"the purpose '{purpose}', minted by {producer}, has no executor and no written exemption — a "
-                    + "course would bind it, the tick would carry it, and nothing would perform it");
-                continue;
-            }
-            string executor = ExecuteCourseBinding.ActivityFor(purpose);
+            Require(ExecuteCourseBinding.HasExecutor(domain),
+                $"the domain '{domain}' is published by a production source and no registered activity declares it in "
+                + "CourseDomains — a course would bind it, the tick would carry it, and nothing would perform it");
+            string executor = ExecuteCourseBinding.ActivityFor(domain);
             Require(registered.Contains(executor),
-                $"the purpose '{purpose}' maps to the activity '{executor}', which the brain does not register — bound work of that kind would publish and never run. Registered: {string.Join(", ", registered.OrderBy(name => name))}");
+                $"the domain '{domain}' is performed by '{executor}', which the brain does not register — bound work of that kind would publish and never run. Registered: {string.Join(", ", registered.OrderBy(name => name))}");
+            int declaring = brain.Actions.Count(action => action.CourseDomains.Contains(domain, StringComparer.Ordinal));
+            Require(declaring == 1,
+                $"the domain '{domain}' is declared by {declaring} registered activities; one domain has one performer");
         }
-
-        foreach ((string purpose, string ruling) in ExemptPurposes)
-            Require(!ExecuteCourseBinding.HasExecutor(purpose),
-                $"'{purpose}' is exempt because {ruling}, and it has an executor again — either the exemption is "
-                + "stale or a course can now make a trip of it");
 
         // **The arm that makes the list above complete, driven rather than searched for.** A seventh
         // purpose is exactly what the old sweep could not see: a sentinel minted one into a fact record
@@ -183,26 +165,29 @@ internal static class VerifyCourseBindingExecution
     }
 
     /// <summary>
-    /// The exempt purpose is refused by name before the search can order it, which is the structural
-    /// half: the row above says a pot must not be executable, and this one says the search acts on that
-    /// rather than leaving it to whoever reads the map next.
+    /// A domain no activity declares is refused by name before the search can order it, which is the
+    /// structural half: the row above says every production domain has a performer, and this one says
+    /// the search acts on a domain without one rather than binding work nothing performs.
     ///
-    /// It is a *proven* refusal and not the middle value, and the distinction is the reason it is
-    /// written here: `ExecuteCourseBinding`'s map is a fact of this tree, so no later slice, no larger
-    /// allowance and nothing about the world can turn the answer into a yes. Reading it as unresolved
-    /// would park the opportunity for ever, re-offering it on every observation, which is the starvation
-    /// shape this tree keeps refusing everywhere else.
+    /// It is a *proven* refusal and not the middle value: the executor map is derived from the registered
+    /// activities, a fact of this tree, so no later slice, no larger allowance and nothing about the
+    /// world can turn the answer into a yes. Reading it as unresolved would park the opportunity for
+    /// ever, re-offering it on every observation, which is the starvation shape this tree keeps refusing
+    /// everywhere else. The fixture domain carries a declared purpose, so the refusal can only be about
+    /// the domain.
     /// </summary>
-    private static void AnExemptPurposeIsRefusedBeforeItIsOrdered()
+    private static void AnUndeclaredDomainIsRefusedBeforeItIsOrdered()
     {
         string source = File.ReadAllText(Path.Combine(RepositoryRoot(),
             "Companion/Brain/Infrastructure/Selection/Courses/SearchCourseOrders.cs"));
         Require(source.Contains($"\"{SearchCourseOrders.StepPurposeHasNoExecutor}\"", StringComparison.Ordinal),
             $"premise: '{SearchCourseOrders.StepPurposeHasNoExecutor}' is no longer written by the search, so a "
             + "capture's refusal tally cannot name this reason and nothing downstream can count it");
+        Require(!ExecuteCourseBinding.HasExecutor("orphan-target"),
+            "premise: the fixture's orphan domain has a performer, so this row cannot show the refusal");
 
         var search = new SearchCourseOrders(3);
-        search.Begin(EmptyFacts(), Episode(), new[] { Usable("pot-target", "break-pot"), Usable("light-target", "light") },
+        search.Begin(EmptyFacts(), Episode(), new[] { Usable("orphan-target", "collect"), Usable("light-target", "light") },
             Array.Empty<OpportunityKey>(), new RefuseEverything());
         // The structural tally rather than the evidence one. A refusal proved by the executor map is kept
         // apart from refusals about what an observation holds, because the audit's contracts ask whether
@@ -210,12 +195,12 @@ internal static class VerifyCourseBindingExecution
         // silences them — so this row reads the field the search actually writes it to, and a reason that
         // moved back into the evidence tally reds here rather than silently disarming contract two.
         Require(search.StructuralRefusals.TryGetValue(SearchCourseOrders.StepPurposeHasNoExecutor, out int refused) && refused == 1,
-            $"the pot was not refused for having no executor before enumeration; structural refusals: "
+            $"the undeclared domain was not refused for having no performer before enumeration; structural refusals: "
             + $"{string.Join(", ", search.StructuralRefusals.Select(r => r.Key + "=" + r.Value))}; evidence refusals: "
             + $"{string.Join(", ", search.Refusals.Select(r => r.Key + "=" + r.Value))}");
         Require(!search.Refusals.ContainsKey(SearchCourseOrders.StepPurposeHasNoExecutor),
             "the executor refusal is also in the evidence tally, which is what puts contract two out of reach on "
-            + "every decision that admits a usable pot");
+            + "every decision that admits usable work nothing performs");
     }
 
     /// <summary>
@@ -238,29 +223,14 @@ internal static class VerifyCourseBindingExecution
         // was tried first and quietly under-reported — it skipped every binder without a parameterless
         // constructor and so claimed gathering had none, which is the instrument lying in the direction
         // that looks like a finding. Constructing them explicitly cannot do that.
-        var binders = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.IOpportunityBinder[]
-        {
-            new live::AICompanion.Companion.Brain.Activities.Gathering.GatheringOpportunityBinder("mine-target"),
-            new live::AICompanion.Companion.Brain.Activities.Gathering.GatheringOpportunityBinder("chop-target"),
-            new live::AICompanion.Companion.Brain.Activities.Combat.CombatOpportunityBinder(),
-            new AssistanceOpportunityBinder("collect-target"),
-            new AssistanceOpportunityBinder("light-target"),
-            new AssistanceOpportunityBinder("pot-target"),
-        };
-        HashSet<string> implemented = binders.Select(b => b.Domain).ToHashSet(StringComparer.Ordinal);
+        // Both sides are the lists the live brain itself constructs, asked through the public factories
+        // on `DecideCourseEachTick`, so this row cannot drift from production by keeping its own copy —
+        // which is the shape of defect the executor table had with the activities over pots.
+        HashSet<string> implemented = DecideCourseEachTick.ProductionBinders().Select(b => b.Domain).ToHashSet(StringComparer.Ordinal);
 
-        // The other side of the comparison, asked of the sources themselves. Combat's source names its
-        // own domain; the other two take theirs, exactly as production constructs them. Keeping company
-        // is the sixth job and deliberately has no source at all: an empty order *is* companionship.
-        var sources = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Opportunities.IOpportunitySource[]
-        {
-            new live::AICompanion.Companion.Brain.Activities.Gathering.GatheringOpportunitySource("mine-target"),
-            new live::AICompanion.Companion.Brain.Activities.Gathering.GatheringOpportunitySource("chop-target"),
-            new live::AICompanion.Companion.Brain.Activities.Combat.CombatOpportunitySource(),
-            new DiscoverAssistanceOpportunities("collect-target"),
-            new DiscoverAssistanceOpportunities("light-target"),
-            new DiscoverAssistanceOpportunities("pot-target"),
-        };
+        // Keeping company is the sixth job and deliberately has no source at all: an empty order *is*
+        // companionship.
+        var sources = DecideCourseEachTick.ProductionSources();
         Require(sources.Length > 0, "no source was constructed, so this row proves nothing");
 
         foreach (string domain in sources.Select(s => s.Name).Distinct(StringComparer.Ordinal))
@@ -311,12 +281,12 @@ internal static class VerifyCourseBindingExecution
             + "given; an anchor the positioner falls back to must be where the player is, because SeekDestination flies at it");
     }
 
-    private static void UnknownPurposeRefuses()
+    private static void UnknownDomainRefuses()
     {
         bool refused = false;
-        try { ExecuteCourseBinding.ActivityFor("forage"); }
+        try { ExecuteCourseBinding.ActivityFor("forage-target"); }
         catch (ArgumentOutOfRangeException) { refused = true; }
-        Require(refused, "an unmapped purpose was silently given an executor, so a new domain would inherit somebody else's activity");
+        Require(refused, "an undeclared domain was silently given a performer, so a new domain would inherit somebody else's activity");
     }
 
     private static StepBinding Binding(string purpose, double x, double y, string target = "target")
