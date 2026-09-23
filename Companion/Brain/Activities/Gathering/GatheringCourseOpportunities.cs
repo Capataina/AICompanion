@@ -175,7 +175,17 @@ public sealed class CaptureGatheringOpportunities
         // every tick and the capture would never publish anything at all, and the binder revalidates each
         // site at its own boundary in any case.
         bool changedGeometry = oreOffset == cells && oreGeometry != geometry;
-        if (oreOffset > 0 && (spatialEdit || changedInputs)) oreArea = null;
+        // An edit nobody announced — another mod writing tiles, a direct world write — never reaches the
+        // edit record, so the sweep would keep publishing a vein at a tile that is no longer that ore. The
+        // hand refuses such a step by name, but a refusal does not reach the course, so the course re-bound
+        // the same stale tile every tick: measured by the lane B review on 23 September 2026, 111 invalid
+        // attempts in 115 ticks and no strike on the four good tiles beside it. The tile each usable vein is
+        // bound through is re-read every capture instead — one tile per vein — and a mismatch is treated as
+        // the edit it is. The private search mining used to run re-read live tiles every preparation, which
+        // is what covered for this before the census became the only discovery.
+        bool silentEdit = oreOffset == cells && observedOres.Values.Any(ore => ore.Admission == "usable"
+            && !OreFinder.IsOreOfType(ore.Tile.X, ore.Tile.Y, ore.Material));
+        if (oreOffset > 0 && (spatialEdit || changedInputs || silentEdit)) oreArea = null;
         else if (changedGeometry)
         {
             // Resumable, because the re-answer shares the decision's allowance like everything else, and

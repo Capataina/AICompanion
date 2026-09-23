@@ -42,7 +42,39 @@ internal static class VerifyGatheringActsOnTheBinding
          + RunOneRow.Case("a mine step strikes the tile its use names, which is not the vein's identity tile when that one is sealed",
                AMineStepStrikesItsUseTileNotTheVeinIdentity)
          + RunOneRow.Case("a bound ore that a home now protects is refused by name and not struck", AProtectedBoundOreIsRefused)
-         + RunOneRow.Case("a bound trunk that became another tree is refused by name and not struck", AChangedBoundTrunkIsRefused);
+         + RunOneRow.Case("a bound trunk that became another tree is refused by name and not struck", AChangedBoundTrunkIsRefused)
+         + RunOneRow.Case("an ore tile changed with no announcement does not starve the rest of its vein", ASilentEditDoesNotStarveTheVein);
+
+    /// <summary>
+    /// A tile the edit record never heard about — another mod writing tiles, a direct world write — used to
+    /// leave the ore census publishing the old vein, so the course re-bound the stale tile every tick and the
+    /// hand refused it every tick while four good tiles sat beside it. Reproduced by the lane B review on
+    /// 23 September 2026 as 111 invalid attempts in 115 ticks and no strike on the rest of the vein; the
+    /// census now re-reads each usable vein's bound tile every capture and reopens its sweep on a mismatch.
+    /// </summary>
+    private static void ASilentEditDoesNotStarveTheVein()
+    {
+        var tiles = new[] { new Point(22, 59), new Point(23, 59), new Point(24, 59), new Point(25, 59), new Point(26, 59) };
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, tiles);
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        long lastAttempt = -1;
+        int strikesAfterEdit = 0;
+        for (int tick = 0; tick < 150; tick++)
+        {
+            // Silent on purpose: the type changes and nothing tells `TerrainChanges`.
+            if (tick == 5) Main.tile[22, 59].TileType = TileID.Tin;
+            VerifyOreWork.AdvanceBrain(ctx);
+            if (ctx.Companion.Miner.LastOutcome is { } outcome && outcome.Attempt != lastAttempt)
+            {
+                lastAttempt = outcome.Attempt;
+                if (tick > 5 && tiles.Skip(1).Contains(outcome.Target)) strikesAfterEdit++;
+            }
+        }
+        int invalid = ctx.Companion.Brain.Activity.RecentAttempts.Count(a => a.Activity == "mine" && a.Status.ToString() == "Invalid");
+        Require(strikesAfterEdit > 0,
+            $"after (22,59) silently became tin the pickaxe struck none of the four copper tiles beside it in 145 ticks; "
+            + $"recent invalid mining attempts {invalid}");
+    }
 
     /// <summary>
     /// The course binds an ore, and a bed placed beside it before the swing makes it part of a protected home.
