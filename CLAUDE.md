@@ -214,6 +214,28 @@ Read a playtest with `sh Tools/build.sh session-report` then `dotnet Tools/Sessi
 - **A number in any of these folder files is either a fact of the world or a dated measurement.** The behaviour tunables are the `Weights` class in `Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs` — the class and the file are not named the same thing, which is worth knowing before searching for `Weights.cs`, because there is no such file. A threshold quoted in prose anywhere else is a documentation defect rather than the current value.
 
 
+## Current state — 2026-09-23
+
+**The hands now perform exactly what the course chose, and nothing else anywhere in the brain chooses a target.** Until `04f9df2` the course bound a target and flew the body to its pose while every work activity swung at the nearest target of its own private search, so the body and the hand had two choosers that agreed only by coincidence. The course's step now reaches the activity (`OwnCurrentActivity.Select` → `CompanionAction.Accept`). Mining and chopping strike the tile the step's use names (`e6f977f6`, `812766d7`), collection and lighting work only their bound drop, pot or site (`c5cb40bb`), and combat adopts the step by finding its exact native use in a plan it holds (`2658041d`). Who performs a domain is read from the activities' own `CourseDomains`. **A pot is collection work** by the owner's ruling (`collect-target`, purpose `break-pot`). A pot or torch in passing is performed only once the course accepts a one-step binding for it, priced under the same encounter and protection relevance a decision reads. Downing and recovery flight drop the course and any decision in flight (`3ea60e37`).
+
+**The seams between the census and the hand were then closed one by one, because every disagreement between them ends the same way in play: the body flies to work and the hand does nothing.** A hand's refusal now reaches the course, which withholds that opportunity until something the hand's check reads changes (`ad012f22`; `Companion/Brain/Infrastructure/Selection/CLAUDE.md` owns the mechanism). The light census reads the torch switch. The trunk census reads chopping's own Mimic window. An in-passing torch never spoils a held light site. The ore census re-reads each usable vein's bound tile, so an unannounced edit reopens it (`e60bdc52`). A stance that declines every target stops publishing the front it abandoned, which was the "hollow fight" the replay had been scoring as a good basin (`33d0f110`). And the seventh decision contract audits every native effect against the step it was accepted to perform (lane D, merged `bec06055`, fixed `79019c23`), so a hand acting off its step is a named `contract-violation` in the capture rather than something a reader reconstructs.
+
+**Measured on the play-measures replay of `Telemetry/2026-09-22_10-05-56-125` at `987319df`, production clock**, from ticks 1 and 400:
+
+| measure | from 1 | from 400 |
+|---|---|---|
+| orders refused for a target the census admitted | 0 | 0 |
+| native effects audited / violations | 2 / 0 | 1 / 0 |
+| decide p50 / p99 | 4.1 / 12.0 ms | 4.4 / 12.5 ms |
+| whole brain p50 / p99, against a 16.67 ms frame | 4.8 / 13.0 ms | 5.3 / 13.5 ms |
+| wanted-fight ticks not fighting | 76.8 % | 74.0 % |
+
+The one red verdict, a fight README wants becoming a bound step within three seconds, is **a product question rather than a defect**, and `Tools/WorldRun/CLAUDE.md` carries the evidence. The fights README wants in that capture are threats seven to nine seconds from the player, and the stance, the objective and the allowance all decline them. Whether the companion should engage a threat that far out is the owner's call.
+
+**Parked, so nobody looks for these as bugs.** Harm is priced over each course's own duration rather than one common window (`Selection/Courses/CLAUDE.md`). Keeping company's own request, with its meeting place and stranded roam, is discarded by the tick, because using it reddened the sealed-off row (`CoordinateBrainTick.cs` at the Execute call). Combat's hands still fire the committed plan rather than strictly the accepted use, which waits on step advancement (`Activities/Combat/CLAUDE.md`). The course owner's own capability observer is never observed (`Selection/CLAUDE.md`).
+
+**Not proven headlessly, and owed to the play:** a pot's drops being collected, since a headless pot break spawns no items; and everything about how any of this feels. The tree is **0.40.0**. The whole-suite run that gates the package is the one this section's commit files beside it.
+
 ## Current state — 2026-09-22
 
 **The course brain was played once, for one minute, on 0.38.13, and the play was bad: constant lag, a companion that collected nothing and fought nothing while the player stood among five to seven hostiles, and an orb that sat too close to the floor.** The capture is `Telemetry/2026-09-22_10-05-56-125`, schema 0.44.0, and everything on this tree since `9dd7b27` is the answer to it. Six independent readings of that minute, then a plan of six instruments and twenty fixes, dispatched as eight lanes in waves with a sentinel reviewing every return, landed as the merges `dc6bd10` (C), `6bb9186` (A), `82f0580` (B), `57db4da` (D), `019909b`/`9dd7b27`/`9804007`/`00faffb` (C and B follow-ups), `c24b642` (G), `e275c46` (C round five), `6a0e2ac` (F), `c31094c` (E), `c80addf` (I), `3213fc6` (H) and `d3b18c6` (E round three), and the version moved from 0.38.13 to 0.39.1 across them. **The tree has not been played since**, and the next play is what grades it; the instruments below are what grade it before that.
