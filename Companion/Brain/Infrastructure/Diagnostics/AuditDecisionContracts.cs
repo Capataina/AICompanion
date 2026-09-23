@@ -21,6 +21,25 @@ public sealed record DecisionInputs(IReadOnlyList<CensusAdmission> Admitted, IRe
     IReadOnlyDictionary<string, int>? FactsByKind = null);
 
 /// <summary>
+/// One accepted course step, flattened to values for the effect contract. <paramref name="TileX"/> and
+/// <paramref name="TileY"/> are the step's work tile as <c>ExecuteCourseBinding.WorkTileOf</c> reads it,
+/// present only for a step whose hand acts on a tile; the reader computes them on the mod side, because
+/// this file is compiled a second time without <c>Selection/</c> and cannot call that parser itself.
+/// </summary>
+public readonly record struct BoundStepForAudit(long Id, string Domain, string Purpose, string Target,
+    int? TileX, int? TileY, bool Incidental = false);
+
+/// <summary>What the effect contract concluded about one native effect, for the occurrence that records it.
+/// <see cref="Verdict"/> is <c>bound</c>, one of the two violation kinds, or <c>unaudited</c> where no
+/// binding source is installed and the question could not be asked.</summary>
+public readonly record struct EffectVerdict(long BindingId, string Origin, string Verdict)
+{
+    /// <summary>The fields every audited effect occurrence carries, so a reader joins the effect to the
+    /// decision that chose it. Appended to the occurrence's own detail with a leading separator.</summary>
+    public string Fields => $";binding-id={BindingId.ToString(CultureInfo.InvariantCulture)};binding-origin={Origin};binding-verdict={Verdict}";
+}
+
+/// <summary>
 /// Audits every recorded decision against the contracts the brain is supposed to keep, and writes a
 /// typed <c>contract-violation</c> occurrence when one breaks.
 ///
@@ -49,7 +68,9 @@ public sealed record DecisionInputs(IReadOnlyList<CensusAdmission> Admitted, IRe
 /// they would fire once a tick for the life of one decision and report a single contradiction as five
 /// hundred. Contracts three and four are transitions between decisions. Contract six is a per-tick
 /// cost and is audited from the recorder, because the phase timing does not exist yet when the
-/// decision records itself.
+/// decision records itself. Contract seven is per native effect and hangs off the effect recorders
+/// rather than off the decision record — see <see cref="ObserveEffect"/> — and it is the one contract
+/// that counts whether or not a recording is open.
 ///
 /// <b>Bounded output.</b> A pathological session breaks one contract on most of its ticks, and the
 /// sidecar's optional partition is two megabytes: writing every violation would exhaust it and mark
@@ -151,6 +172,60 @@ public static class AuditDecisionContracts
     /// decision and reads no observation, which is <see cref="ObservationsRead"/> at zero.</summary>
     public static Func<DecisionInputs?>? Source;
 
+    /// <summary>
+    /// Where the effect contract reads the step the current activity was handed — the companion's
+    /// <c>Brain.Activity.Binding</c>, flattened. Installed beside <see cref="Source"/> by
+    /// <c>ReadLiveCourseForAudit.Install</c> for the same compile-boundary reason, and replaced by a
+    /// fixture to drive one effect with no world. Null means the question cannot be asked, which the
+    /// contract reports as <c>unaudited</c> and never as a violation: an unwired reader is not a
+    /// companion acting without a step.
+    /// </summary>
+    public static Func<BoundStepForAudit?>? BindingSource;
+
+    /// <summary>
+    /// The one-step binding the course accepted for an in-passing interaction, and the tick it was
+    /// accepted on.
+    ///
+    /// <b>This is the seam the incidental acceptance writes and the effect contract reads.</b> An in-passing
+    /// pot break or torch placement is performed by the grant boundary rather than by the activity holding
+    /// the body, so the activity's own binding is the wrong step to judge it against; the plan's grants row
+    /// requires that such an effect have "an accepted one-step binding before the native call", and this is
+    /// where that binding becomes visible to the audit. The contract, for whoever sets it:
+    /// call <see cref="AcceptIncidental"/> (or <c>ReadLiveCourseForAudit.AcceptIncidental</c>, which takes a
+    /// <c>StepBinding</c>) on the tick the course accepts the step and before the native call that performs
+    /// it; it is honoured for effects recorded on that same tick only, so a stale acceptance can never
+    /// excuse a later effect, and the next acceptance replaces it. Nothing needs clearing.
+    /// </summary>
+    public static BoundStepForAudit? AcceptedIncidental { get; private set; }
+    private static long acceptedIncidentalTick = long.MinValue;
+
+    /// <summary>How many native effects reached the effect contract with a binding source to read. A row
+    /// that grades the two effect kinds at zero needs this above zero, or it passes for a run that
+    /// performed nothing.</summary>
+    public static long EffectsAudited { get; private set; }
+
+    /// <summary>Records an accepted incidental step for the tick it was accepted on. See
+    /// <see cref="AcceptedIncidental"/> for the whole contract.</summary>
+    public static void AcceptIncidental(BoundStepForAudit step, long tick)
+    {
+        AcceptedIncidental = step with { Incidental = true };
+        acceptedIncidentalTick = tick;
+    }
+
+    /// <summary>The two operations <c>GodsEyeEvents.RecordWorldInteraction</c> carries that are native
+    /// effects; its other operations (<c>placement-refused</c>, <c>approach-abandoned</c>) record a hand that
+    /// did nothing, which no binding needs to cover. Both literals are the performers' own, in
+    /// <c>LightUsefulArea.Perform</c> and <c>CollectNearbyItems.Perform</c>, and
+    /// <c>VerifyEveryEffectIsTheBoundStep</c> pins them against those files by path.</summary>
+    public const string PlaceTorchOperation = "place-torch";
+    public const string BreakPotOperation = "break-pot";
+
+    /// <summary>The two effect contract kinds, named apart because they are different defects: a hand
+    /// acting with no step at all is a second chooser; a hand acting beside its step is an executor
+    /// that searched for its own target.</summary>
+    public const string EffectWithoutBinding = "effect-without-binding";
+    public const string EffectOffBinding = "effect-off-binding";
+
     private static readonly Dictionary<string, long> lastObserved = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, Record> written = new(StringComparer.Ordinal);
     private static long auditedOrdinal = -1;
@@ -218,6 +293,10 @@ public static class AuditDecisionContracts
         lastDecisionTick = long.MinValue;
         LastTargetEvidence = LastTargetEvidenceAge = "";
         Audited = ObservationsRead = 0;
+        AcceptedIncidental = null;
+        acceptedIncidentalTick = long.MinValue;
+        EffectsAudited = 0;
+        LastEffectViolation = "";
     }
 
     /// <summary>
@@ -401,6 +480,102 @@ public static class AuditDecisionContracts
     }
 
     /// <summary>
+    /// Contract seven: every native world effect the companion causes names the accepted step it
+    /// performed, and lands on that step's target.
+    ///
+    /// <b>Why it exists.</b> Until 23 September 2026 the course chose a target and flew the body to its
+    /// pose, while every work activity acted on a target from its own private search, and an in-passing
+    /// scan at the grant boundary broke pots and placed torches with no step at all. Both halves were in
+    /// the record — the decision named one tile and the `tool-effect` another — and nothing said they
+    /// disagreed. The plan's tick step 9 is the rule: perform the accepted use, and "no tactical fallback
+    /// may secretly fire and leave the course believing a different action happened".
+    ///
+    /// <b>Where it hangs.</b> In the effect recorders themselves, which every effect site already calls,
+    /// so no performer has to remember to report and a new performer is audited the moment it records
+    /// its effect. It is called above the recorders' own stream gate and counts whether or not a session
+    /// is open, because the fixtures, the fuzzer and the world run read <see cref="Counts"/> rather than a
+    /// file; only the occurrence waits on the stream.
+    ///
+    /// <b>How a target is matched.</b> A tile effect lands on the step's work tile exactly — a tool
+    /// binding is one native application to one tile, and the vein is worked one binding per tile — except
+    /// a pot break, which may strike any tile of the two-by-two whose origin the step names, because
+    /// <c>WorldGen.KillTile</c> on any of the four breaks the pot. An item effect lands on the step whose
+    /// target is <c>item:&lt;slot&gt;</c> for the slot that transferred. An accepted incidental step
+    /// recorded on this tick is consulted before the activity's step, and matching either is bound.
+    /// </summary>
+    /// <param name="tileX">The tile the effect landed on, for a tile effect; null for an item effect.</param>
+    /// <param name="itemSlot">The <c>Main.item</c> slot that transferred, for an item effect.</param>
+    public static EffectVerdict ObserveEffect(string effect, string operation, int? tileX, int? tileY, int? itemSlot, long tick)
+    {
+        if (BindingSource == null) return new EffectVerdict(0, "unread", "unaudited");
+        BoundStepForAudit? activity;
+        try { activity = BindingSource(); }
+        // A reader that throws is a wiring fault, not a companion acting without a step; it is reported
+        // as unaudited so the violation counts stay about the brain, and it is not counted as judged.
+        catch (Exception) { return new EffectVerdict(0, "unread", "unaudited"); }
+        EffectsAudited++;
+        BoundStepForAudit? incidental = acceptedIncidentalTick == tick ? AcceptedIncidental : null;
+
+        if (incidental is { } accepted && Lands(accepted, operation, tileX, tileY, itemSlot))
+            return new EffectVerdict(accepted.Id, "incidental", "bound");
+        if (activity is { } step && Lands(step, operation, tileX, tileY, itemSlot))
+            return new EffectVerdict(step.Id, "activity", "bound");
+
+        string where = itemSlot is { } slot ? $"item:{slot.ToString(CultureInfo.InvariantCulture)}"
+            : $"tile:{tileX?.ToString(CultureInfo.InvariantCulture)},{tileY?.ToString(CultureInfo.InvariantCulture)}";
+        BoundStepForAudit? held = activity ?? incidental;
+        if (held is not { } nearest)
+        {
+            FireEffect(EffectWithoutBinding, tick, 0,
+                $"{effect}/{operation} landed on {where} on tick {tick} with no accepted step: the activity holding the body was"
+                    + " handed none and no incidental step was accepted this tick",
+                $"{effect}:{operation}");
+            return new EffectVerdict(0, "none", EffectWithoutBinding);
+        }
+        string origin = nearest.Incidental ? "incidental" : "activity";
+        string target = nearest.TileX is { } x && nearest.TileY is { } y
+            ? $"work tile {x.ToString(CultureInfo.InvariantCulture)},{y.ToString(CultureInfo.InvariantCulture)}" : nearest.Target;
+        FireEffect(EffectOffBinding, tick, nearest.Id,
+            $"{effect}/{operation} landed on {where} on tick {tick} while the {origin} step {nearest.Id.ToString(CultureInfo.InvariantCulture)}"
+                + $" ({nearest.Domain}/{nearest.Purpose}) named {target}",
+            // Which kind of effect under which purpose, never the tiles: a private search walking a vein
+            // moves its tile every strike, and a signature that moves with it writes a record a strike.
+            $"{effect}:{operation}:{nearest.Purpose}");
+        return new EffectVerdict(nearest.Id, origin, EffectOffBinding);
+    }
+
+    /// <summary>Whether an effect landed on a step's own target. See <see cref="ObserveEffect"/> for the rules.</summary>
+    private static bool Lands(BoundStepForAudit step, string operation, int? tileX, int? tileY, int? itemSlot)
+    {
+        if (itemSlot is { } slot)
+            return step.Target == $"item:{slot.ToString(CultureInfo.InvariantCulture)}";
+        if (tileX is not { } x || tileY is not { } y || step.TileX is not { } workX || step.TileY is not { } workY) return false;
+        if (operation == BreakPotOperation)
+            return x >= workX && x <= workX + 1 && y >= workY && y <= workY + 1;
+        return x == workX && y == workY;
+    }
+
+    /// <summary>An effect violation, counted whether or not a session is open. The record needs a course
+    /// context and an effect can precede every recorded decision — the whole point of
+    /// <c>effect-without-binding</c> — so one is minted when none has been seen, carrying the binding
+    /// the effect was judged against.</summary>
+    private static void FireEffect(string kind, long tick, long bindingId, string detail, string signature)
+    {
+        LastEffectViolation = detail;
+        Fire(kind, tick, EffectContext(tick, bindingId), detail, signature);
+    }
+
+    /// <summary>The detail of the last effect violation counted this session, so an in-process reader —
+    /// the fuzzer, the world run — can say which effect beside which step rather than only that one fired.
+    /// The recorded occurrence carries the same text; this exists for the runs that open no recording.</summary>
+    public static string LastEffectViolation { get; private set; } = "";
+
+    private static CourseTraceContext EffectContext(long tick, long bindingId)
+        => lastContext is { } context
+            ? context with { SourceTick = tick, BindingId = bindingId }
+            : new CourseTraceContext(tick, "native-effect", 0, 0, 0, bindingId, 0, "effect-audit", -1, 0, "", "", "", "");
+
+    /// <summary>
     /// Writes one closing record per kind whose count has moved since its last record, so a session's
     /// total survives the coalescing.
     ///
@@ -413,7 +588,10 @@ public static class AuditDecisionContracts
     /// </summary>
     public static void Flush()
     {
-        if (lastContext is not { } context) return;
+        if (written.Count == 0) return;
+        // An effect violation can be the only thing a session recorded, so the closing records mint the
+        // same context the effect contract does rather than going quiet for want of a decision.
+        CourseTraceContext context = lastContext ?? EffectContext(0, 0);
         foreach (string kind in new List<string>(written.Keys))
         {
             Record had = written[kind];

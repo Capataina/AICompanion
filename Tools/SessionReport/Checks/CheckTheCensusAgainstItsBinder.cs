@@ -68,7 +68,11 @@ public sealed class ACensusAdmissionSurvivesItsBinder : ICheck, ICheckCoverage
     internal static readonly IReadOnlyDictionary<string, string[]> DomainsBehind = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
         ["target-capture-missing"] = new[] { "combat" },
-        ["assistance-target-unresolved"] = new[] { "collect-target", "light-target", "pot-target" },
+        // `pot-target` left this list with schema 0.47.0, when pots were folded into `collect-target`: the
+        // self-test pins every domain here against the recorder's refusal map and the binder, and neither
+        // names it any more. A pre-0.47.0 capture's pot refusals are therefore not attributed by this check,
+        // which loses a contradiction nobody observed on a pot rather than keeping a pin that cannot hold.
+        ["assistance-target-unresolved"] = new[] { "collect-target", "light-target" },
     };
 
     public string Name => "did a census admission survive the binder in its own decision";
@@ -276,25 +280,45 @@ public sealed class ACensusAdmissionSurvivesItsBinder : ICheck, ICheckCoverage
     /// pairs, which is a second format inside the first and is why this does not go through
     /// <c>ReadGodsEyeEvents.Field</c>.</summary>
     internal static Dictionary<string, (long Usable, string Reason)> ReadAdmissions(string detail)
+        => ReadAdmissionFields(detail).ToDictionary(pair => pair.Key,
+            pair => (pair.Value.TryGetValue("usable", out string? usable) && long.TryParse(usable, NumberStyles.Integer, CultureInfo.InvariantCulture, out long count) ? count : 0,
+                pair.Value.TryGetValue("reason", out string? reason) ? reason : ""),
+            StringComparer.Ordinal);
+
+    /// <summary>
+    /// The usable containers each domain admitted, from the <c>container-usable:N</c> value schema 0.47.0
+    /// writes inside each <c>course-admitted:</c> entry. A domain whose entry carries no such value — every
+    /// capture before 0.47.0 — is absent from the result rather than zero, because "this capture cannot
+    /// say" and "no pot" are opposite answers to the parity witness that reads this.
+    /// </summary>
+    internal static Dictionary<string, long> ReadContainerAdmissions(string detail)
     {
-        var admitted = new Dictionary<string, (long, string)>(StringComparer.Ordinal);
+        var containers = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach ((string domain, Dictionary<string, string> values) in ReadAdmissionFields(detail))
+            if (values.TryGetValue("container-usable", out string? text)
+                && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long usable))
+                containers[domain] = usable;
+        return containers;
+    }
+
+    /// <summary>Every admission entry's comma-separated <c>key:value</c> pairs, by domain.</summary>
+    private static Dictionary<string, Dictionary<string, string>> ReadAdmissionFields(string detail)
+    {
+        var admitted = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
         foreach (string part in detail.Split(';'))
         {
             if (!part.StartsWith(AdmittedPrefix, StringComparison.Ordinal)) continue;
             int equals = part.IndexOf('=', AdmittedPrefix.Length);
             if (equals < 0) continue;
             string domain = part[AdmittedPrefix.Length..equals];
-            long usable = 0;
-            string reason = "";
+            var values = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (string field in part[(equals + 1)..].Split(','))
             {
                 int colon = field.IndexOf(':');
                 if (colon <= 0) continue;
-                string key = field[..colon], value = field[(colon + 1)..];
-                if (key == "usable") long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out usable);
-                else if (key == "reason") reason = value;
+                values[field[..colon]] = field[(colon + 1)..];
             }
-            if (domain.Length > 0) admitted[domain] = (usable, reason);
+            if (domain.Length > 0) admitted[domain] = values;
         }
         return admitted;
     }

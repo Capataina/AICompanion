@@ -83,6 +83,7 @@ public static class Program
         new EveryCourseDecisionAccountsForItsOwnSearch(),
         new ACensusAdmissionSurvivesItsBinder(),
         new TheDecisionAuditRanOnTheDecisionsTheCaptureHolds(),
+        new EveryEffectWasTheAcceptedStep(),
         new BeingUnableToReachHimGetsNoticed(),
         new FollowingMakesRouteProgress(),
         new ArrivalDoesNotStrandFollowing(),

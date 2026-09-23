@@ -73,6 +73,7 @@ public static class ChronicleTests
             CourseReaderRejectsMixedAndDigestOnlySnapshots();
             CourseDecisionsAreReadCheckedAndNarrated();
             ACensusAdmissionMustSurviveItsOwnBinder();
+            EveryEffectMustBeTheAcceptedStep();
             ASyntheticCaptureIsNotReadAsPlay();
             TheCourseTimelineIsOneRowPerDecisionAndFoldsWhatRepeats();
             TheBehaviourParityTableStillNamesRealBehavioursAndRealFixtures();
@@ -918,6 +919,117 @@ public static class ChronicleTests
         Drive("0.41.0", new[] { Admission(1, 100, ("combat", 3)), Refusal(2, 100, ("target-capture-missing", 12)) },
             session => Require(Program.Evaluate(session).Skipped.Any(s => s.Name == new ACensusAdmissionSurvivesItsBinder().Name),
                 "a capture from before the census admissions existed was graded rather than skipped by name"));
+    }
+
+    /// <summary>
+    /// The effect check reads what the recorder's effect contract wrote, and the pot witness reads the
+    /// Container count from 0.47.0: both pinned against their producers by path, then driven on a
+    /// synthetic capture in each direction — an off-step effect named with the recorder's own total, an
+    /// unjudged effect named as a wiring fault, a capture of bound effects quiet, and a 0.46.0 capture
+    /// skipped by name rather than graded clean.
+    /// </summary>
+    private static void EveryEffectMustBeTheAcceptedStep()
+    {
+        string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));
+        string events = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordGodsEyeEvents.cs");
+        string audit = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "AuditDecisionContracts.cs");
+        string recorder = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
+        Require(audit.Contains("binding-verdict=", StringComparison.Ordinal) && events.Contains("verdict.Fields", StringComparison.Ordinal),
+            "the effect recorders no longer append the step's `binding-verdict`, so the effect check reads a field nobody writes");
+        foreach (string kind in new[] { EveryEffectWasTheAcceptedStep.WithoutBinding, EveryEffectWasTheAcceptedStep.OffBinding })
+            Require(audit.Contains($"\"{kind}\"", StringComparison.Ordinal),
+                $"the recorder's effect contract no longer names `{kind}`; the effect check reads a kind nobody writes");
+        Require(recorder.Contains("container-usable:", StringComparison.Ordinal),
+            "the recorder no longer writes `container-usable:`, so the pot witness reads nothing from a 0.47.0 capture");
+
+        var containers = ACensusAdmissionSurvivesItsBinder.ReadContainerAdmissions(
+            $"scores=;{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}collect-target=usable:5,unknown:0,unusable:0,reason:-,container-usable:2;");
+        Require(containers.TryGetValue("collect-target", out long pots) && pots == 2 && containers.Count == 1,
+            "the Container count inside a 0.47.0 admission entry was misread");
+        Require(ACensusAdmissionSurvivesItsBinder.ReadContainerAdmissions(
+                $"{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}pot-target=usable:1,unknown:0,unusable:0,reason:-;").Count == 0,
+            "an admission entry with no Container count was read as zero pots rather than as a capture that cannot say");
+        Require(ACensusAdmissionSurvivesItsBinder.ReadAdmissions(
+                $"{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}collect-target=usable:5,unknown:0,unusable:0,reason:-,container-usable:2;")["collect-target"].Usable == 5,
+            "the extra Container value disturbed the usable count the census check reads");
+
+        object Field(string kind, string text) => new { Kind = kind, Text = text };
+        string Marker(int seq, string kind) => JsonSerializer.Serialize(new { v = 1, seq, tick = 0, wall_elapsed_ms = 0d,
+            kind, subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+            expected_x = 0f, expected_y = 0f, amount = 0, detail = "" });
+        string Effect(int seq, long tick, string kind, string verdict, long step)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind, subject = 0, related = "7000001",
+                label = "pickaxe", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 26 * 16 + 8f, expected_y = 59 * 16 + 8f, amount = 0,
+                detail = $"effect=Damaged;binding-id={step};binding-origin=activity;binding-verdict={verdict}" });
+        string Violation(int seq, long tick, string kind, long total)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = 0d, kind = "course-contract-violation",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+                payload_kind = "contract-violation", payload_version = 1, phase = "brain",
+                observation_ordinal = tick, receipt_watermark = 0L,
+                payload = new { Kind = "contract-violation", Version = 1, Fields = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["violation"] = Field("text", kind),
+                    ["signature"] = Field("text", "tool-effect:pickaxe:mine"),
+                    ["occurrences-total"] = Field("integer", total.ToString(CultureInfo.InvariantCulture)),
+                } } });
+
+        void Drive(string schema, string[] records, Action<Session> assert, string closing = "")
+        {
+            string tsv = Path.GetTempFileName(), sidecar = Path.ChangeExtension(tsv, null) + "-events.jsonl";
+            try
+            {
+                File.WriteAllText(tsv, $"# schema={schema}\ntick\n1\n{closing}# end=fixture;rows=1\n");
+                var lines = new List<string> { Marker(0, "session") };
+                lines.AddRange(records);
+                lines.Add(Marker(records.Length + 1, "session-end"));
+                File.WriteAllLines(sidecar, lines);
+                assert(Session.Load(tsv));
+            }
+            finally { File.Delete(tsv); if (File.Exists(sidecar)) File.Delete(sidecar); }
+        }
+
+        Finding[] Run(Session session) => new EveryEffectWasTheAcceptedStep().Run(session).ToArray();
+
+        // One strike beside its step, one on it, one unjudged, and the recorder's own total of four for the
+        // off-step kind: the finding is graded on the kind and counts the recorder's total, because the
+        // coalescing keeps fewer occurrences than it counts.
+        Drive("0.47.0", new[]
+        {
+            Effect(1, 100, "tool-effect", EveryEffectWasTheAcceptedStep.OffBinding, 41),
+            Effect(2, 101, "tool-effect", "bound", 41),
+            Effect(3, 102, "world-interaction", "unaudited", 0),
+            Violation(4, 100, EveryEffectWasTheAcceptedStep.OffBinding, 4),
+        }, session =>
+        {
+            Finding[] found = Run(session);
+            Finding? off = found.FirstOrDefault(f => f.Title.Contains("beside the accepted step", StringComparison.Ordinal));
+            Require(off != null && off.Severity == Severity.Definitive && off.Rows == 4,
+                $"an off-step strike with a recorder total of four was not one Definitive finding of four: {string.Join(" | ", found.Select(f => f.Title + " rows=" + f.Rows))}");
+            Require(off!.Detail.Contains("tile 26,59", StringComparison.Ordinal) && off.Detail.Contains("under step 41", StringComparison.Ordinal),
+                "the off-step finding lost where the effect landed or the step it was judged against: " + off.Detail);
+            Require(found.Any(f => f.Title.Contains("went unjudged", StringComparison.Ordinal)),
+                "an effect the contract could not judge was not reported as the reader's wiring fault");
+            Require(!found.Any(f => f.Title.Contains("with no accepted step", StringComparison.Ordinal)),
+                "a kind that never fired was reported");
+        });
+
+        // A capture that closed carries the contract's own count of judged effects, and the finding's
+        // denominator is that count rather than the occurrences that reached the sidecar.
+        Drive("0.47.0", new[] { Effect(1, 100, "tool-effect", EveryEffectWasTheAcceptedStep.OffBinding, 41) },
+            session => Require(Run(session).Any(f => f.Detail.Contains("of the 9 effect(s) the contract judged", StringComparison.Ordinal)),
+                "the closing line's `effects-audited` was not the finding's denominator"),
+            closing: "# closing=world-unload;rows=1;decisions-audited=3;audit-observations-read=3;effects-audited=9\n");
+
+        // The quiet half: bound effects only, nothing named.
+        Drive("0.47.0", new[] { Effect(1, 100, "tool-effect", "bound", 41), Effect(2, 101, "pickup", "not-claimed", 0) },
+            session => Require(Run(session).Length == 0, "a capture whose every effect was bound reported a finding"));
+
+        // A capture from before the step rode on its effects skips by name rather than reading clean.
+        Drive("0.46.0", new[] { Effect(1, 100, "tool-effect", EveryEffectWasTheAcceptedStep.OffBinding, 41) },
+            session => Require(Program.Evaluate(session).Skipped.Any(s => s.Name == new EveryEffectWasTheAcceptedStep().Name),
+                "a capture from before effect occurrences named their step was graded rather than skipped by name"));
     }
 
     private static void CourseDecisionsAreReadCheckedAndNarrated()

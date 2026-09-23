@@ -87,6 +87,11 @@ internal static class FuzzTheDecisionContracts
         "activity-exited-during-decision",
         "fact-count-above-bound",
         "decide-overran-allowance",
+        // The seventh contract, per native effect rather than per decision. Nothing this generator injects
+        // can explain either kind — a strike, a torch, a pot or a claimed pickup beside its step is the
+        // hand choosing for itself — so both are asserted on in full, and neither needs a recording open.
+        Audit.EffectWithoutBinding,
+        Audit.EffectOffBinding,
     };
 
     /// <summary>The two whose firings a world event legitimately explains, so the assertion is on the
@@ -170,10 +175,14 @@ internal static class FuzzTheDecisionContracts
 
         long decisions = sequences.Sum(s => s.Decisions), observations = sequences.Sum(s => s.Observations);
         long unsettled = sequences.Sum(s => s.UnsettledTicks), cuts = sequences.Sum(s => s.AllowanceCuts);
+        long effects = sequences.Sum(s => s.EffectsAudited);
         string header = $"{seeds.Length} seeded sequence(s) of {TicksPerSequence} ticks "
             + $"(seeds {string.Join(",", seeds)}, the last from the clock unless AIC_FUZZ_SEEDS named them): "
             + $"{decisions} decision(s) audited, {observations} frozen observation(s) read, "
-            + $"{unsettled} unsettled tick(s), {cuts} allowance cut(s)";
+            + $"{unsettled} unsettled tick(s), {cuts} allowance cut(s), {effects} native effect(s) audited against their step "
+            + $"({firings.Count(f => f.Kind == Audit.EffectWithoutBinding)} tick(s) firing {Audit.EffectWithoutBinding}, "
+            + $"{firings.Count(f => f.Kind == Audit.EffectOffBinding)} firing {Audit.EffectOffBinding}; "
+            + "zero effects means the two effect rows below asked nothing and pass for want of a strike, a torch, a pot or a claimed pickup)";
         AICompanion.Tools.Ledger.EmitLedgerRows.Detail(Family + ": " + header);
 
         int failed = 0;
@@ -194,7 +203,7 @@ internal static class FuzzTheDecisionContracts
 
     /// <summary>What one sequence established, kept so the rows can say whether the fuzzer reached the
     /// thing it claims to have found nothing in.</summary>
-    private readonly record struct SequenceOutcome(int Seed, long Decisions, long Observations, int UnsettledTicks, int AllowanceCuts);
+    private readonly record struct SequenceOutcome(int Seed, long Decisions, long Observations, int UnsettledTicks, int AllowanceCuts, long EffectsAudited);
 
     /// <summary>
     /// The premises, asserted rather than assumed.
@@ -315,7 +324,7 @@ internal static class FuzzTheDecisionContracts
             recorder.OnWorldUnload();
             ClearTheScene();
         }
-        return new SequenceOutcome(seed, Audit.Audited, Audit.ObservationsRead, unsettled, cuts);
+        return new SequenceOutcome(seed, Audit.Audited, Audit.ObservationsRead, unsettled, cuts, Audit.EffectsAudited);
     }
 
     /// <summary>
@@ -338,9 +347,13 @@ internal static class FuzzTheDecisionContracts
             if (total <= had) continue;
             counts[kind] = total;
             var nearby = recentEvents.Where(e => tick - e.Tick <= WorldEventWindow).ToList();
-            firings.Add(new Firing(seed, tick, kind, nearby.Count > 0,
-                nearby.Count == 0 ? "no injected event in the window"
-                    : string.Join("; ", nearby.Select(e => $"t{e.Tick} {e.What}"))));
+            string context = nearby.Count == 0 ? "no injected event in the window"
+                : string.Join("; ", nearby.Select(e => $"t{e.Tick} {e.What}"));
+            // An effect kind names the effect and the step it missed, because "a strike fired" without which
+            // tile against which step leaves the reader to reconstruct the one fact the contract read.
+            if (kind is Audit.EffectWithoutBinding or Audit.EffectOffBinding)
+                context = Audit.LastEffectViolation + "; " + context;
+            firings.Add(new Firing(seed, tick, kind, nearby.Count > 0, context));
         }
         recentEvents.RemoveAll(e => tick - e.Tick > WorldEventWindow);
     }

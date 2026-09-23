@@ -154,6 +154,7 @@ internal static class GradeThePlayMeasures
         if (stepCannotGrade != null) EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, StepVerdict, stepCannotGrade);
         else failures += AWantedFightIsBegun(suite, play, scene);
         failures += TheAuditRanOnTheseDecisions(suite, run, play.Count, scene);
+        failures += EveryEffectWasTheAcceptedSteps(suite, run, scene);
         failures += TheObservationsFloorDoesNotClimb(suite, play, scene);
         if (play.Count > 0) Measures(suite, play, route, stage, cast, shortScene);
         return failures;
@@ -199,6 +200,53 @@ internal static class GradeThePlayMeasures
             // observation honest" wants both answers from one place.
             + CountTheFrozenObservationByKind.GradeTheWindow(suite, scene, new[] { SampleTag },
                 mode: "production-clock");
+    }
+
+    /// <summary>
+    /// The effect verdict: every native effect the replayed companion caused — a strike, a torch, a pot,
+    /// a claimed pickup — was the step the course accepted, and landed on that step's target.
+    ///
+    /// It reads the audit's own two counts rather than the capture, for the reason the wiring row above
+    /// gives: a verdict that holds under `--no-recorder` grades the run rather than the recorder's file.
+    /// The denominator is `EffectsAudited`, and **zero effects is a skip, never a pass**: a replay that
+    /// struck, placed, broke and claimed nothing has not shown that its hand obeys the course, and this is
+    /// the grader's standing trap — a verdict green for want of anything to judge. Zero also covers a run
+    /// whose binding reader was never installed, which the audit reports as unaudited rather than as a
+    /// companion acting without a step.
+    ///
+    /// **Its ground on this capture is thin, and it says so.** On `04f9df2`, where every work activity still
+    /// chose its own target, the whole replay produced one native effect the audit could judge and it was
+    /// bound, so this row passed on the tree it was built to catch; the red-before for the contract is the
+    /// seeded fuzzer's (`effect-off-binding` on seed 7: claimed pickups of `item:10`/`item:11` under a step
+    /// naming `item:12`). The count rides in the message and as the measure beside it, so a pass on one
+    /// effect reads as one effect rather than as a clean hand.
+    /// </summary>
+    private static int EveryEffectWasTheAcceptedSteps(string suite, RunTheWorld.Outcome run, string scene)
+    {
+        const string name = "every effect the companion caused was the accepted step's";
+        long without = run.ContractViolations.TryGetValue("effect-without-binding", out long w) ? w : 0;
+        long off = run.ContractViolations.TryGetValue("effect-off-binding", out long o) ? o : 0;
+        string counts = string.Create(CultureInfo.InvariantCulture,
+            $"{run.EffectsAudited} native effect(s) audited against their step: {without} effect-without-binding, {off} effect-off-binding");
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "native effects audited against the accepted step", run.EffectsAudited,
+            "effects", "up", "production-clock", new[] { SampleTag },
+            message: "the denominator of the effect verdict; zero skips it by name");
+        if (run.EffectsAudited == 0)
+        {
+            EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name,
+                "the replay caused no native effect the audit could judge — no strike, torch, pot or claimed pickup — or ran with no binding reader "
+                + "installed, so this verdict would pass for want of an effect rather than because the hand obeyed the course");
+            return 0;
+        }
+        if (without + off > 0)
+        {
+            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
+                $"{counts}; the last named was: {run.LastEffectViolation}; {scene}", mode: "production-clock");
+            return 1;
+        }
+        EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, name, $"{counts}; {scene}", mode: "production-clock",
+            killedBy: "an executor searching for its own target, or an in-passing interaction performed with no accepted step");
+        return 0;
     }
 
     /// <summary>

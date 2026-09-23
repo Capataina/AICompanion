@@ -84,19 +84,35 @@ public static class GodsEyeEvents
             overruns, FormattableString.Invariant($"worst-frame-ms={worstMilliseconds:0.00};window-ticks={windowTicks};overruns={overruns};{split}"));
     }
 
+    /// <summary>
+    /// One world interaction. The two operations that are native effects — a torch placed, a pot broken —
+    /// are audited against the accepted step (<c>AuditDecisionContracts.ObserveEffect</c>) before the stream
+    /// gate, so the contract counts with no session open; every occurrence then carries the step it was
+    /// performed under (schema 0.47.0). A refusal or an abandoned approach did nothing to the world and
+    /// carries <c>binding-verdict=not-an-effect</c> beside the step that was held.
+    /// </summary>
     public static void RecordWorldInteraction(NPC companion, Point tile, string operation, string detail)
-        => Write("world-interaction", companion.whoAmI, "", operation, "", companion.Bottom, Vector2.Zero,
-            tile.ToWorldCoordinates(), 0, detail);
+    {
+        EffectVerdict verdict = operation is AuditDecisionContracts.PlaceTorchOperation or AuditDecisionContracts.BreakPotOperation
+            ? AuditDecisionContracts.ObserveEffect("world-interaction", operation, tile.X, tile.Y, null, Main.GameUpdateCount)
+            : new EffectVerdict(0, "not-an-effect", "not-an-effect");
+        Write("world-interaction", companion.whoAmI, "", operation, "", companion.Bottom, Vector2.Zero,
+            tile.ToWorldCoordinates(), 0, detail + verdict.Fields);
+    }
 
     /// <summary>One strike. <c>attempt=</c> is the tool instance's own counter and names nothing the activity owner knows;
-    /// <paramref name="activityAttemptId"/> is the owner's attempt open when Execute struck, zero when none was, and is what a reader joins on.</summary>
+    /// <paramref name="activityAttemptId"/> is the owner's attempt open when Execute struck, zero when none was, and is what a reader joins on.
+    /// Every strike is audited against the accepted step before the stream gate, whether or not it damaged the tile:
+    /// the hand acting beside its step is the defect, and a strike that did nothing is still the hand acting.</summary>
     public static void RecordToolEffect(NPC companion, string tool, in Infrastructure.Interactions.TileToolObservation outcome, long choiceId, long activityId, long activityAttemptId)
     {
+        EffectVerdict verdict = AuditDecisionContracts.ObserveEffect("tool-effect", tool, outcome.Target.X, outcome.Target.Y, null, Main.GameUpdateCount);
         if (!Accepting()) return;
         Write("tool-effect", Stable(npcGenerations, companion.whoAmI), "", tool,
             $"attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId};activity-attempt-id={activityAttemptId}", companion.Bottom, Vector2.Zero, outcome.Target.ToWorldCoordinates(),
             outcome.Effect == Infrastructure.Interactions.TileToolEffect.Damaged ? outcome.After.Damage - outcome.Before.Damage : 0,
-            FormattableString.Invariant($"observation-tick={outcome.Tick};tool-item={outcome.ToolItem};effect={outcome.Effect};before-present={outcome.Before.Present};before-type={outcome.Before.Type};before-frame={outcome.Before.FrameX},{outcome.Before.FrameY};before-damage={outcome.Before.Damage};after-present={outcome.After.Present};after-type={outcome.After.Type};after-frame={outcome.After.FrameX},{outcome.After.FrameY};after-damage={outcome.After.Damage};damage-scope=tool-owned-hit-table;yield=unobserved"));
+            FormattableString.Invariant($"observation-tick={outcome.Tick};tool-item={outcome.ToolItem};effect={outcome.Effect};before-present={outcome.Before.Present};before-type={outcome.Before.Type};before-frame={outcome.Before.FrameX},{outcome.Before.FrameY};before-damage={outcome.Before.Damage};after-present={outcome.After.Present};after-type={outcome.After.Type};after-frame={outcome.After.FrameX},{outcome.After.FrameY};after-damage={outcome.After.Damage};damage-scope=tool-owned-hit-table;yield=unobserved")
+                + verdict.Fields);
     }
 
     public static void RecordActivity(NPC companion, long id, string name, string phase, string reason,
@@ -320,9 +336,17 @@ public static class GodsEyeEvents
     }
 
     /// <summary>One accepted contact pickup. <paramref name="collectionAttemptId"/> is the open collection attempt when this item is
-    /// the drop that attempt walked toward, zero for every other pickup, so a reader sums an attempt's received quantity by identity.</summary>
+    /// the drop that attempt walked toward, zero for every other pickup, so a reader sums an attempt's received quantity by identity.
+    /// A claimed pickup is the collection's native effect and is audited against the accepted step before the stream gate; a
+    /// pickup no attempt claimed is the body brushing a drop in passing, which no decision chose, and carries
+    /// <c>binding-verdict=not-claimed</c>.</summary>
     public static void RecordPickup(NPC companion, Item item, int amount, string destination, long collectionAttemptId)
-        => Write("pickup", Stable(npcGenerations, companion.whoAmI), ItemIdentity(item).ToString(CultureInfo.InvariantCulture), item.type.ToString(CultureInfo.InvariantCulture), destination, item.Center, Vector2.Zero, Vector2.Zero, amount, $"stack={item.stack};collection-attempt-id={collectionAttemptId}");
+    {
+        EffectVerdict verdict = collectionAttemptId != 0
+            ? AuditDecisionContracts.ObserveEffect("pickup", "claimed-pickup", null, null, item.whoAmI, Main.GameUpdateCount)
+            : new EffectVerdict(0, "not-claimed", "not-claimed");
+        Write("pickup", Stable(npcGenerations, companion.whoAmI), ItemIdentity(item).ToString(CultureInfo.InvariantCulture), item.type.ToString(CultureInfo.InvariantCulture), destination, item.Center, Vector2.Zero, Vector2.Zero, amount, $"stack={item.stack};collection-attempt-id={collectionAttemptId}" + verdict.Fields);
+    }
 
     /// <summary>One drop the loot sense has just admitted for the first time, so a reader can stage a
     /// drop the companion saw and never reached. Before it, the only items a capture named were the
