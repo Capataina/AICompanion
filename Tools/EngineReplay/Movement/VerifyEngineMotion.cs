@@ -85,6 +85,7 @@ internal static class VerifyEngineMotion
         ("an enemy's observed motion is forecast from what it actually did", VerifyObservedMotion.Run),
         ("the god's-eye occurrence stream records what it claims", VerifyGodsEyeEvents.Run),
         ("a decision that contradicts itself is named while it happens", VerifyDecisionTripwires.Run),
+        ("every native effect the companion causes is the accepted step's", VerifyEveryEffectIsTheBoundStep.Run),
         ("a census over a moving window publishes its best sites and counts what it withheld", VerifyTheCensusPublishesItsBestSites.Run),
         // Registered on 22 September 2026, having only ever been reachable through
         // `--retained-course-opportunities` — which `verify.sh` never runs, so every row in it, including
