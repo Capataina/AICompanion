@@ -801,6 +801,7 @@ internal static class VerifyTorchPlacementRule
         protected override bool Enabled(in ActionContext ctx) => true;
         protected override bool Candidate(in ActionContext ctx, Point tile) => Tiles.Contains(tile);
         protected override bool Perform(in ActionContext ctx, Point tile) => false;
+        protected override bool WorksTileFor(string purpose) => false;
         protected override void GatherSearchTiles(in ActionContext ctx, List<(float Cost, int Order, Point Tile)> into)
         {
             foreach (Point p in Tiles)

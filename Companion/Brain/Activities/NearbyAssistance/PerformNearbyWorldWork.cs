@@ -11,12 +11,22 @@ using AICompanion.Companion.Brain.Activities;
 
 namespace AICompanion.Companion.Brain.Activities.NearbyAssistance;
 
-/// <summary>One bounded interaction search shared by pot breaking and permanent lighting.</summary>
+/// <summary>
+/// The tile hand shared by pot breaking and permanent lighting: it works the tile the course's step names, and it
+/// still runs the bounded interaction search that describes the method's offer to the fixtures and the recorder.
+///
+/// <para>**The search chooses nothing the hand does, since 23 September 2026.** Until then `Execute` swung at the
+/// search's own `target` while the course flew the body to the census's site, so the hand and the body agreed only
+/// when both happened to pick the same nearest thing. What the search still produces is the offer classification, the
+/// candidate funnel and `LightUsefulArea`'s player-cursor reference; it and `Score` go together with
+/// `VerifyPreparedActivities.PrepareAndScore`, whose fixtures are what still read them.</para>
+/// </summary>
 public abstract class PerformNearbyWorldWork : CompanionAction
 {
     public override Infrastructure.Selection.PurposeFamily Family => Infrastructure.Selection.PurposeFamily.NearbyAssistance;
+    /// <summary>The site the last preparation's search would offer. Never what the hand works: that is
+    /// <see cref="BoundTile"/>.</summary>
     protected Point? target;
-    private Vector2 stand;
     private ulong nextSearch, retryAfter;
     private bool eligibleLastObservation;
     /// <summary>Whether this search passed over a site because the reach flood had not settled on its working
@@ -55,10 +65,6 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     /// the search has not run since. Never a funnel stage, because a searched candidate that passes everything is offered.</summary>
     protected const string StagePassedEveryStage = "passed-every-stage";
 
-    // Tiles whose approach was tried and did not arrive, with the tick they may be offered again.
-    private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
-    private Vector2 approachOrigin;
-    private int approachTicks;
     private (int X, int Y) derivedReach;
     private Vector2? preparedTarget;
     private float preparedValue;
@@ -66,16 +72,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     // The last way this method gave up on a target during the current attempt, so the attempt is
     // concluded from what happened to it rather than from the absence of a target afterwards.
     private string? release;
-    public override Vector2? ActivityTarget => preparedTarget;
-    public override object? ActivityIdentity => target;
+    public override Vector2? ActivityTarget => BoundTile?.ToWorldCoordinates() ?? preparedTarget;
+    /// <summary>The bound step's opportunity, so a new target the course hands over is a new purpose for the attempt
+    /// lifecycle and the same step carried across ticks is the same purpose. The search's offered tile stands in only
+    /// where no step was handed, which is never on a tick this activity holds the body.</summary>
+    public override object? ActivityIdentity => Bound is { } step && WorksTileFor(step.Opportunity.Purpose) ? step.Opportunity : target;
     protected abstract bool Enabled(in ActionContext ctx);
     protected abstract bool Candidate(in ActionContext ctx, Point tile);
     protected abstract bool Perform(in ActionContext ctx, Point tile);
     protected abstract float Utility { get; }
-    /// <summary>Whether a productive interaction keeps this method's job rather than ending it. Lighting a dark
-    /// region takes several torches, so it re-nominates from where it now stands instead of releasing the
-    /// target and waiting out the search cadence; one pot is one pot, so pot collection does not.</summary>
-    protected virtual bool ContinueAfterInteraction => false;
     /// <summary>Why this search found no site, where the subclass knows something more specific than "nothing
     /// in the window". Null keeps the shared answer. Every exit about a site's stand is the executor's and has one
     /// shared name; this is for what the subclass's own gathering found.</summary>
@@ -100,10 +105,6 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         => ctx.Player.dead ? (OfferEligibility.NoOpportunity, "player-dead") : (OfferEligibility.PolicyForbidden, "interaction-disabled");
     /// <summary>What one observed productive interaction means for this purpose.</summary>
     protected virtual string CompletedEffect => "interaction-effect-observed";
-    /// <summary>How long a tile whose approach never arrived stays out of the candidate set. Long
-    /// enough that the companion leaves the area and does something else, short enough that a tile
-    /// made reachable by the player digging through becomes available again in the same visit.</summary>
-    private const int DeferFailedApproachTicks = 1800;
     protected virtual float CandidateCost(Vector2 feet, Point tile) => Vector2.DistanceSquared(feet, tile.ToWorldCoordinates());
 
     /// <summary>Tiles this search will consider, nearest-first by <see cref="CandidateCost"/>. Pots keep a small
@@ -120,17 +121,12 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             }
     }
 
-    /// <summary>Whether this tile is currently deferred for a failed approach or a proven refusal of its stand.</summary>
-    protected bool SearchTileDeferred(Point tile)
-    {
-        if (deferred.TryGetValue(tile, out ulong until) && Main.GameUpdateCount < until) return true;
-        return RefusalDeferred(tile);
-    }
+    /// <summary>Whether this tile is currently deferred for a proven refusal of its stand.</summary>
+    protected bool SearchTileDeferred(Point tile) => RefusalDeferred(tile);
 
     /// <summary>The funnel stage a deferred tile was set aside at, or null when it is not deferred.</summary>
     protected string? DeferredStage(Point tile)
     {
-        if (deferred.TryGetValue(tile, out ulong until) && Main.GameUpdateCount < until) return "approach-abandoned";
         if (!RefusalDeferred(tile)) return null;
         return refused[tile].BeyondKnownRadius ? StageStandBeyondKnownRadius : StageStandUnreachable;
     }
@@ -291,13 +287,57 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         // The companion's own native call produced the credited effect, so the completion is its own.
         if (productiveEffects > 0) return new(AttemptStatus.Complete, CompletedEffect, AttemptAttribution.Companion);
         if (release is string reason)
-            return new(reason == "target-no-longer-candidate" ? AttemptStatus.Invalid : AttemptStatus.Failed, reason);
+            return new(InvalidReleases.Contains(reason) ? AttemptStatus.Invalid : AttemptStatus.Failed, reason);
         return new(AttemptStatus.Attempted, "replaced-before-interaction");
     }
 
     public override void BeginAttempt() => release = null;
 
-    private void Release(string reason) => release = reason;
+    /// <summary>The give-ups that mean the target itself stopped qualifying, which is an invalid attempt rather than a
+    /// failed method: nothing the hand could have done differently would have worked a target that is gone.</summary>
+    private static readonly System.Collections.Generic.HashSet<string> InvalidReleases = new(StringComparer.Ordinal)
+    {
+        TargetNoLongerCandidate, BoundDropLeftWorld,
+    };
+
+    /// <summary>The bound tile no longer passes the method's own candidate check at the native call: the pot was broken
+    /// by somebody else, the tile is lit now, a torch went in beside it.</summary>
+    protected const string TargetNoLongerCandidate = "target-no-longer-candidate";
+    /// <summary>The bound drop's world slot no longer holds the drop the course bound.</summary>
+    protected const string BoundDropLeftWorld = "bound-drop-left-world";
+
+    protected void Release(string reason) => release = reason;
+
+    // ---- the course's step ------------------------------------------------------------------------------------------
+
+    /// <summary>The tile the step this activity was handed names, or null when it was handed none or a step that is not
+    /// tile work. The hand works this tile and no other: the course chose it, and a hand that searched for its own would
+    /// put a second chooser behind the first, the body flying to the course's site while the hand swung at another.</summary>
+    protected Point? BoundTile { get; private set; }
+    private long boundStep;
+    /// <summary>Whether this step's one interaction has been made, or its native call refused. One interaction is the
+    /// whole job of a pot or a torch, so the hand does nothing more for the step: the course's next observation retires
+    /// it, and a refused call is not retried against a site the placer has already said no to.</summary>
+    private bool boundSpent;
+
+    /// <summary>Whether this method performs a step of this purpose with its tile hand. Collection answers only for pots,
+    /// because a drop is taken by contact; lighting answers for torch sites.</summary>
+    protected abstract bool WorksTileFor(string purpose);
+
+    protected override void OnAccept(Infrastructure.Selection.Courses.StepBinding? step)
+    {
+        if (step == null || !WorksTileFor(step.Opportunity.Purpose))
+        {
+            BoundTile = null;
+            boundStep = 0;
+            return;
+        }
+        if (step.Id == boundStep) return;
+        boundStep = step.Id;
+        boundSpent = false;
+        retryAfter = 0;
+        BoundTile = Infrastructure.Selection.ExecuteCourseBinding.WorkTileOf(step.Opportunity);
+    }
 
     private bool RefreshEligibility(in ActionContext ctx)
     {
@@ -319,18 +359,16 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         enabledAtPreparation = RefreshEligibility(ctx);
         if (!enabledAtPreparation) return 0f;
         floodGeneration = ctx.Senses.Reach.FloodGeneration;
-        // Everything this executor retains about a site was derived under the reach it was computed with: the held stand, the
-        // wait before the next search, the failed-approach deferrals, and the refused stands. A smaller reach walked to a
-        // stand it could no longer swing from; a larger one waited out the cadence, and kept refusing a site whose pit-floor
-        // pose had no return although the larger reach works it from the rim. So a reach change releases every store
-        // together and this preparation searches again. The capability is this one comparison: a capability added to it
-        // releases all of them, where a key added to one store and not the other refuses under the old value for its hold time.
+        // Everything this search retains about a site was derived under the reach it was computed with: the offered site,
+        // the wait before the next search, and the refused stands. A larger reach kept refusing a site whose pit-floor pose
+        // had no return although it works the site from the rim. So a reach change releases every store together and this
+        // preparation searches again. The capability is this one comparison: a capability added to it releases all of
+        // them, where a key added to one store and not the other refuses under the old value for its hold time.
         if (FindToolAccess.Reach != derivedReach)
         {
             derivedReach = FindToolAccess.Reach;
             target = null;
             nextSearch = 0;
-            deferred.Clear();
             refused.Clear();
         }
         if (target is Point old && (!Candidate(ctx, old) || !AllowsTarget(ctx, old.ToWorldCoordinates())))
@@ -432,8 +470,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                         continue;
                     }
                 }
-                target = p; stand = candidateStand;
-                approachOrigin = ctx.Npc.Center; approachTicks = 0;
+                target = p;
                 offeredPending = funnel != null;
                 offeredCost = cost;
                 offeredReadings = readings;
@@ -450,86 +487,57 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             if (target == null && (standUnresolved || searchCut || SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved }))
                 nextSearch = Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkUnresolvedRetryTicks;
         }
-        if (deferred.Count > 0)
-        {
-            ulong now = Main.GameUpdateCount;
-            foreach (Point expired in new System.Collections.Generic.List<Point>(deferred.Keys))
-                if (now >= deferred[expired]) deferred.Remove(expired);
-        }
         return target == null ? 0f : Utility;
     }
+    /// <summary>
+    /// Work the tile the course bound, and nothing else. The body is the course's: `ExecuteCourseBinding.RequestFor`
+    /// already asked for this step's pose, and the request returned here is discarded by the tick. What is this
+    /// activity's is the hand — revalidating the native preconditions against the live world at the moment of the call
+    /// (plan tick-order step 9), refusing with a named reason when the bound target has stopped qualifying, and never
+    /// substituting another target for it.
+    ///
+    /// <para>The approach-progress watchdog and the failed-approach deferral that stood here went with the private
+    /// search they fed: the deferral only ever kept a tile out of that search, and the watchdog's hold was discarded by
+    /// the tick since the course took the body on 21 September 2026, so neither could reach the body any more.</para>
+    /// </summary>
     public override PositionRequest Execute(in ActionContext ctx)
     {
         ctx.Companion.HoldItem(ItemID.None);
-        if (!RefreshEligibility(ctx)) return PositionRequest.Hold;
-        if (target is not Point tile) return PositionRequest.Hold;
-        if (!Candidate(ctx, tile)) { target = null; Release("target-no-longer-candidate"); return PositionRequest.Hold; }
+        if (Bound is not { } step || BoundTile is not Point tile || boundSpent) return PositionRequest.Hold;
+        if (!Enabled(ctx) || ctx.Player.dead)
+        {
+            boundSpent = true;
+            Release("method-disabled-at-native-call");
+            return PositionRequest.Hold;
+        }
+        if (!Candidate(ctx, tile))
+        {
+            boundSpent = true;
+            Release(TargetNoLongerCandidate);
+            return PositionRequest.Hold;
+        }
         if (!FindToolAccess.InReach(ctx.Npc.Center, tile))
-        {
-            // Flying to the working cell. The approach can fail, and until this existed nothing said so. Score() only ever
-            // dropped a target that vanished or left the activity envelope, so a cached stand
-            // the body could not walk to was held for ever: on 2026-09-11 that was ticks 18,501
-            // to 21,531 on one pot, 3,031 unbroken ticks with the movement system reporting
-            // itself stalled on 1,826 of them, which was 97% of every stalled tick in the run.
-            // An intent that cannot fail is an intent that cannot be given up, so covering no
-            // ground for a full progress window defers this tile and hands the tick back.
-            if (Vector2.DistanceSquared(approachOrigin, ctx.Npc.Center)
-                >= Infrastructure.Selection.Weights.ObjectiveProgressPixels * Infrastructure.Selection.Weights.ObjectiveProgressPixels)
-            { approachOrigin = ctx.Npc.Center; approachTicks = 0; }
-            else if (++approachTicks >= Infrastructure.Selection.Weights.ObjectiveProgressWindowTicks)
-            {
-                deferred[tile] = Main.GameUpdateCount + DeferFailedApproachTicks;
-                Infrastructure.Diagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "approach-abandoned",
-                    $"no ground covered in {Infrastructure.Selection.Weights.ObjectiveProgressWindowTicks} ticks");
-                target = null; nextSearch = Main.GameUpdateCount + 60;
-                Release("approach-made-no-progress");
-                return PositionRequest.Hold;
-            }
-            return PositionRequest.ExactAt(stand, tile);
-        }
-        if (Main.GameUpdateCount >= retryAfter)
-        {
-            retryAfter = Main.GameUpdateCount + 30;
-            bool worked = Perform(ctx, tile);
-            if (worked) ctx.Companion.Brain.Activity.RecordWork(tile.ToWorldCoordinates());
-            else Release("native-interaction-refused");
-            target = null;
-            // A method that works a region rather than a site searches again on the next preparation, from
-            // where the body now stands, instead of waiting out the cadence: the wait exists so a search that
-            // found nothing is not repeated every tick, and a search that has just succeeded is not that.
-            nextSearch = worked && ContinueAfterInteraction ? 0 : Main.GameUpdateCount + 60;
-        }
+            return Infrastructure.Selection.ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center);
+        if (Main.GameUpdateCount < retryAfter) return PositionRequest.Hold;
+        retryAfter = Main.GameUpdateCount + 30;
+        boundSpent = true;
+        if (Perform(ctx, tile)) ctx.Companion.Brain.Activity.RecordWork(tile.ToWorldCoordinates());
+        else Release("native-interaction-refused");
         return PositionRequest.Hold;
     }
 
     public override void Exit(in ActionContext ctx) { }
 
     /// <summary>
-    /// The nearest target this method could act on right now from the body's current pose, for an incidental interaction: the method
-    /// enabled by its own policy, supply and measurement, the tile within actual reach, and passing the method's own candidate check,
-    /// which carries home protection and the site rules. It never searches beyond reach, never asks for a route and never touches the
-    /// method's discovery state, so the instance asked is a library of this method's rules rather than the activity itself.
+    /// Whether this method's native preconditions still hold for a tile at the moment of an in-passing call: the method enabled by its
+    /// own policy and measurement, the tile within actual reach of the body, and the method's own candidate check, which carries home
+    /// protection and the site rules. It finds nothing — the census is the only discovery and the course the only acceptance — and is
+    /// asked of a site the course has already accepted, so the live world can still veto a use the frozen observation allowed (plan
+    /// tick-order step 9). The instance asked is a library of this method's rules rather than the activity itself.
     /// </summary>
-    internal Point? FindIncidentalTarget(in ActionContext ctx, object? excluded)
-    {
+    internal bool MayActIncidentally(in ActionContext ctx, Point tile)
         // Enabled runs first on every ask, because lighting's candidate check reads the carried-light list its enablement fills.
-        if (ctx.Player.dead || !Enabled(ctx)) return null;
-        Point cell = MovementQueries.Tile(ctx.Npc.Center);
-        int reachX = Player.tileRangeX + 1, reachY = Player.tileRangeY + 1;
-        Point? best = null;
-        float bestDistance = float.MaxValue;
-        for (int x = cell.X - reachX; x <= cell.X + reachX; x++)
-            for (int y = cell.Y - reachY; y <= cell.Y + reachY; y++)
-            {
-                Point p = new(x, y);
-                if (Equals(excluded, p)) continue;
-                float distance = Vector2.DistanceSquared(ctx.Npc.Center, p.ToWorldCoordinates());
-                if (distance >= bestDistance || !FindToolAccess.InReach(ctx.Npc.Center, p) || !Candidate(ctx, p)) continue;
-                best = p;
-                bestDistance = distance;
-            }
-        return best;
-    }
+        => !ctx.Player.dead && Enabled(ctx) && FindToolAccess.InReach(ctx.Npc.Center, tile) && Candidate(ctx, tile);
 
     /// <summary>Act on an incidental target through the method's own native operation, which rechecks permission at mutation, with
     /// <paramref name="note"/> carried into the interaction event so the effect reads as incidental and credited to no activity.</summary>

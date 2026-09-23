@@ -39,8 +39,13 @@ internal static class VerifyAssistanceCourseBindings
 
     private const double Amount = 3;
 
+    /// <summary>A usable site. The purpose is written out per shape the census mints — a torch site under
+    /// `light-target`, a drop slot or a pot tile under `collect-target` — because the census writes it and a fixture
+    /// that left it for the reader to infer would be testing an inference production never makes.</summary>
     private static AssistanceOpportunityFact Site(string domain, string target, double x = 40, double y = 30)
-        => new(domain, target, 1, x, y, Amount, Amount, "usable", "fixture", "fixture-detail");
+        => new(domain, domain == "light-target" ? OpportunityPurposes.Light
+                : target.StartsWith("tile:", StringComparison.Ordinal) ? OpportunityPurposes.BreakPot : OpportunityPurposes.Collect,
+            target, 1, x, y, Amount, Amount, "usable", "fixture", "fixture-detail");
 
     /// <param name="coverage">Whether the census fact reads Observed. A site captured under an
     /// unfinished census is work chosen against a world nobody finished looking at.</param>
@@ -75,7 +80,7 @@ internal static class VerifyAssistanceCourseBindings
     private static void EachDomainBinds()
     {
         foreach ((string domain, string target) in new[]
-                 { ("collect-target", "item:7"), ("light-target", "tile:5,6"), ("pot-target", "tile:7,6") })
+                 { ("collect-target", "item:7"), ("light-target", "tile:5,6"), ("collect-target", "tile:7,6") })
         {
             DecisionFactSnapshot snapshot = Snapshot(Site(domain, target));
             BindingResult result = Bind(snapshot, domain);
@@ -116,8 +121,13 @@ internal static class VerifyAssistanceCourseBindings
     {
         StepBinding drop = Bind(Snapshot(Site("collect-target", "item:7")), "collect-target").Binding!;
         StepBinding torch = Bind(Snapshot(Site("light-target", "tile:5,6")), "light-target").Binding!;
+        StepBinding pot = Bind(Snapshot(Site("collect-target", "tile:7,6")), "collect-target").Binding!;
         Require(drop.Resources.All(phase => phase.Resource != CourseResource.Hand),
             "a pickup reserved the hand, which would refuse an opportunistic shot on the way past");
+        // A pot shares collection's domain with a drop and is still a use the hand performs, so the hand follows the
+        // site's purpose rather than its domain.
+        Require(pot.Resources.Any(phase => phase.Resource == CourseResource.Hand),
+            "breaking a pot reserved no hand although it shares collection's domain with a pickup; the hand must follow the act, not the domain");
         Require(torch.Resources.Any(phase => phase.Resource == CourseResource.Hand),
             "placing a torch reserved no hand, so the course believes it can shoot and place at once");
     }

@@ -110,7 +110,11 @@ internal static class VerifyAssistanceOpportunityDiscovery
         // the companion and never does in a headless scene — so Unresolved is the honest answer there,
         // and the contract worth guarding is that capture and discovery reach the *same* verdict rather
         // than that the verdict is always the optimistic one.
-        foreach (string domain in new[] { "collect-target", "light-target", "pot-target" })
+        // Two assistance domains since pots became collection work on 23 September 2026. Collection's one coverage fact
+        // covers both of its sweeps, drops and pots, and there is no pot coverage left to publish.
+        Require(!facts.TryRead(new FactKey("pot-coverage", "native-census"), out _),
+            "the capture still publishes a pot coverage fact, a second completeness for collection a reader could consult for the wrong half");
+        foreach (string domain in new[] { "collect-target", "light-target" })
         {
             string coverage = domain.Replace("-target", "-coverage", StringComparison.Ordinal);
             Require(facts.TryRead(new FactKey(coverage, "native-census"), out DecisionFact fact),
@@ -145,16 +149,21 @@ internal static class VerifyAssistanceOpportunityDiscovery
     private static Action AllCapturedSitesAppear() => () =>
     {
         var facts = Snapshot(1, Drop("item:7", 1, 11, 5), Drop("item:8", 1, 12, 6), Light("tile:5,6"), Pot("tile:7,6"));
-        var drops = new DiscoverAssistanceOpportunities("collect-target");
+        var collection = new DiscoverAssistanceOpportunities("collect-target");
         var lights = new DiscoverAssistanceOpportunities("light-target");
-        var pots = new DiscoverAssistanceOpportunities("pot-target");
-        var dropResult = drops.Continue(facts, new DecisionWorkCursor(), new(double.PositiveInfinity));
+        var collected = collection.Continue(facts, new DecisionWorkCursor(), new(double.PositiveInfinity));
         var lightResult = lights.Continue(facts, new DecisionWorkCursor(), new(double.PositiveInfinity));
-        var potResult = pots.Continue(facts, new DecisionWorkCursor(), new(double.PositiveInfinity));
-        Require(dropResult.Examined.Count == 2 && dropResult.Coverage.Exhausted && dropResult.Examined.Select(o => o.Key.Target).SequenceEqual(new[] { "item:7", "item:8" }),
+        Opportunity[] drops = collected.Examined.Where(o => o.Key.Purpose == OpportunityPurposes.Collect).ToArray();
+        Opportunity[] pots = collected.Examined.Where(o => o.Key.Purpose == OpportunityPurposes.BreakPot).ToArray();
+        Require(drops.Length == 2 && collected.Coverage.Exhausted && drops.Select(o => o.Key.Target).SequenceEqual(new[] { "item:7", "item:8" }),
             "two observed drops did not survive as two deterministic opportunities");
-        Require(lightResult.Examined.Count == 1 && potResult.Examined.Count == 1,
-            "one captured dark site and one pot did not each become their own opportunity");
+        // A pot is collection work: one opportunity under collect-target, whose need is a container rather than loot,
+        // because its contents are unknown until the native break produces them.
+        Require(pots.Length == 1 && pots[0].Key.Domain == "collect-target"
+            && pots[0].Needs.Single().Key.Kind == NeedKind.Container && drops.All(d => d.Needs.Single().Key.Kind == NeedKind.Loot),
+            $"the pot did not become one collection opportunity with a container need; pots={pots.Length}");
+        Require(lightResult.Examined.Count == 1,
+            "one captured dark site did not become its own opportunity");
     };
 
     private static Action CutDoesNotResetCursor() => () =>
@@ -183,7 +192,7 @@ internal static class VerifyAssistanceOpportunityDiscovery
 
     private static Action CaptureIsImmutable() => () =>
     {
-        var value = new AssistanceOpportunityFact("collect-target", "item:7", 1, 10, 20, 4, 4, "usable", "observed-drop", "stack=4");
+        var value = new AssistanceOpportunityFact("collect-target", OpportunityPurposes.Collect, "item:7", 1, 10, 20, 4, 4, "usable", "observed-drop", "stack=4");
         var fact = Fact(value);
         string serialized = fact.Value.Text;
         value = value with { Amount = 99, Detail = "mutated-after-capture" };
@@ -204,30 +213,34 @@ internal static class VerifyAssistanceOpportunityDiscovery
             ctx.Senses.Loot.Pickups.Clear();
             foreach (var item in new[] { a, b }) ctx.Senses.Loot.Pickups.Add(new(item, 1, 1));
             var capture = new CaptureAssistanceOpportunities();
-            var first = capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity, 1));
+            // The drop census alone is under test; its coverage also answers for the pot sweep, which on this floor is
+            // a complete sweep of nothing.
+            PotSweep pots = capture.CapturePots(ctx.Senses, ctx);
+            Require(pots.Complete && pots.Facts.Count == 0, "premise: the floor has no pots and the pot sweep completes");
+            var first = capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity, 1), pots);
             Require(!first.Coverage.Exhausted && first.Facts.All(f => f.Key.Kind != "collect-target"),
                 "an unfinished native census published a partial denominator");
             // The second live object changes while the expensive contact work is paused.
             // This completed observation must still describe the eight units it captured.
             b.stack = 50;
-            var second = capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity, 1));
+            var second = capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity, 1), pots);
             var targets = second.Facts.Where(f => f.Key.Kind == "collect-target").ToArray();
             var values = targets.Select(f => JsonSerializer.Deserialize<AssistanceOpportunityFact>(f.Value.Text)!).ToArray();
             Require(second.Coverage.Exhausted && targets.Length == 2 && values.Sum(v => v.Stack) == 8
                 && values.All(v => v.CensusAmount == 8), "sliced native capture read mutable stacks or normalised each stack independently");
             Require(values.All(v => v.ContactX is null || v.ContactX > 100), "contact coordinates are tile indices rather than native hover pixels");
             b.stack = 5;
-            capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity, 1));
-            var repeated = capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity, 1));
+            capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity, 1), pots);
+            var repeated = capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity, 1), pots);
             var again = repeated.Facts.Where(f => f.Key.Kind == "collect-target").ToArray();
             Require(targets.Select(f => (f.Key, f.Version)).SequenceEqual(again.Select(f => (f.Key, f.Version))),
                 "unchanged native drops changed generation/version across slices");
             Item replacement = VerifyCollectionContracts.Drop(ItemID.CopperOre, 5, b.Bottom, 8);
             ctx.Senses.Loot.Pickups[1] = new(replacement, 1, 1);
-            var replaced = capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity));
+            var replaced = capture.CaptureDrops(ctx.Senses, ctx, new(double.PositiveInfinity), pots);
             Require(replaced.Facts.Single(f => f.Key.Identity == "item:8").Key.Generation != targets.Single(f => f.Key.Identity == "item:8").Key.Generation,
                 "a replaced native item slot inherited its predecessor's identity");
-            var unknown = new AssistanceOpportunityFact("collect-target", "item:99", 1, 0, 0, 0, 1, "unknown", "landing-undecided", "fixture");
+            var unknown = new AssistanceOpportunityFact("collect-target", OpportunityPurposes.Collect, "item:99", 1, 0, 0, 0, 1, "unknown", "landing-undecided", "fixture");
             Require(JsonSerializer.Deserialize<AssistanceOpportunityFact>(JsonSerializer.Serialize(unknown))!.LandingX is null,
                 "unknown landing did not survive JSON as unknown");
         }
@@ -238,9 +251,9 @@ internal static class VerifyAssistanceOpportunityDiscovery
         facts.Concat(facts.Select(f => f.Key.Kind).Distinct().Select(kind => new DecisionFact(
             new FactKey(kind.Replace("-target", "-coverage"), "native-census"), 1, new(Text: "complete"), FactEvidence.Observed))));
     private static DecisionFact Drop(string target, long generation, double x, double amount)
-        => Fact(new("collect-target", target, generation, x, 0, amount, amount, "usable", "observed-drop", "fixture"));
-    private static DecisionFact Light(string target) => Fact(new("light-target", target, 0, 5, 6, 1, 1, "usable", "observed-persistent-darkness", "fixture"));
-    private static DecisionFact Pot(string target) => Fact(new("pot-target", target, 0, 7, 6, 1, 1, "usable", "observed-pot-contents-unknown", "fixture"));
+        => Fact(new("collect-target", OpportunityPurposes.Collect, target, generation, x, 0, amount, amount, "usable", "observed-drop", "fixture"));
+    private static DecisionFact Light(string target) => Fact(new("light-target", OpportunityPurposes.Light, target, 0, 5, 6, 1, 1, "usable", "observed-persistent-darkness", "fixture"));
+    private static DecisionFact Pot(string target) => Fact(new("collect-target", OpportunityPurposes.BreakPot, target, 0, 7, 6, 1, 1, "usable", "observed-pot-contents-unknown", "fixture"));
     private static DecisionFact Fact(AssistanceOpportunityFact value) => new(new FactKey(value.Domain, value.Target, value.Generation), 1,
         new FactValue(value.Amount, value.X, value.Y, JsonSerializer.Serialize(value)), FactEvidence.Observed);
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }

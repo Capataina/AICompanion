@@ -145,8 +145,7 @@ internal static class VerifyCollectionContracts
             collect.Prepare(ctx);
             Require(ReferenceEquals(collect.ActivityIdentity, walked),
                 $"premise: the nearer drop must be the one walked to; offer={collect.Eligibility}/{collect.EligibilityReason} target={collect.ActivityTarget}");
-            collect.BeginAttempt();
-            collect.Execute(ctx);
+            WalkBound(ctx, collect, walked);
             return (collect, ctx, walked, other);
         }
         {
@@ -157,10 +156,10 @@ internal static class VerifyCollectionContracts
             var conclusion = collect.ConcludeAttempt(0);
             Require(conclusion is { Status: AttemptStatus.Attempted, Cause: "drop-merged-into-world-drop" },
                 $"a walked-to drop merged into another world drop has not left the world; got {conclusion}");
-            ObserveAll(ctx, absorber);
-            collect.Prepare(ctx);
-            Require(collect.Method == "known-drop" && ReferenceEquals(collect.ActivityIdentity, absorber),
-                $"the absorbing drop must be offered on the next preparation; offer={collect.Eligibility}/{collect.EligibilityReason}");
+            // Offered where the course discovers work: the census publishes the absorbing drop as usable collection work.
+            var offered = VerifyAssistanceTrips.CensusFact(ctx, "collect-target", $"item:{absorber.whoAmI}");
+            Require(offered is { Admission: "usable", Purpose: "collect" },
+                $"the absorbing drop must be offered on the next observation; census={offered}");
         }
         {
             var (collect, ctx, walked, absorber) = Scene(26, 2);
@@ -216,7 +215,9 @@ internal static class VerifyCollectionContracts
             // been unreached since `0bb2c8a`, so every figure in the line below was taken from an empty
             // list and the line never printed at all.
             nearby.Add((brain.DecideMs, tick));
-            if (far != null && farOffered < 0 && ReferenceEquals(collect.ActivityIdentity, far)) farOffered = tick;
+            // The first tick the course binds the farther drop, which is what sends the body there; the activity's own offer
+            // stopped being what the companion does when the hand began working the bound step.
+            if (far != null && farOffered < 0 && brain.Course.Last.Binding?.Opportunity.Target == $"item:{far.whoAmI}") farOffered = tick;
         }
         if (warmUp || nearby.Count == 0) return;
         var sorted = nearby.Select(sample => sample.Ms).OrderBy(v => v).ToList();
@@ -314,12 +315,14 @@ internal static class VerifyCollectionContracts
         collect.Prepare(ctx);
         Require(collect.Method == "known-drop" && collect.Eligibility == OfferEligibility.Usable,
             $"a drop still falling must be a usable offer at its forecast landing; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason}");
-        collect.BeginAttempt();
+        var step = WalkBound(ctx, collect, drop);
         var request = collect.Execute(ctx);
         Require(request.Kind == RequestKind.Exact,
             $"the walk must begin before the drop lands rather than holding for every tick of the fall; request={request}");
 
-        // Step the item the way the game does, and hold it to the walk on every tick of the fall.
+        // Step the item the way the game does, and hold the bound step to the census on every tick of the fall. A hold used
+        // to be the activity's own moved-drop guard; since the course carries the step, what would interrupt the walk is the
+        // binder retiring the application because the census moved the contact pose, which is what a wrong forecast does.
         int holds = 0;
         for (int tick = 0; tick < 240 && drop.velocity.Y != 0f; tick++)
         {
@@ -333,12 +336,11 @@ internal static class VerifyCollectionContracts
                 drop.velocity = Vector2.Zero;
             }
             else drop.Bottom = next;
-            Observe(ctx, drop);
-            collect.Prepare(ctx);
+            if (!VerifyAssistanceTrips.Revalidate(ctx, step).CanUse) holds++;
             if (collect.Execute(ctx).Kind == RequestKind.Hold) holds++;
         }
         Require(drop.velocity == Vector2.Zero, $"the fixture's own drop must land; bottom={drop.Bottom} velocity={drop.velocity}");
-        Require(holds == 0, $"a drop falling exactly as forecast must not hold the body once on the way down; holds={holds}");
+        Require(holds == 0, $"a drop falling exactly as forecast must not interrupt the walk once on the way down; holds={holds}");
         var landed = collect.Execute(ctx);
         Require(landed.Kind == RequestKind.Exact && MathF.Abs(landed.Anchor.X - drop.Bottom.X) <= 3 * 16,
             $"the pose must still be the landed drop's own once it has landed; request={landed} drop={drop.Bottom}");
@@ -390,14 +392,15 @@ internal static class VerifyCollectionContracts
             collect.Prepare(ctx);
             Require(collect.Method == "known-drop" && collect.Eligibility == OfferEligibility.Usable,
                 $"a drop falling through {name} must be a usable offer at its forecast landing; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason}");
-            collect.BeginAttempt();
-            collect.Execute(ctx);
-            // The forecast taken at release, which is the whole point: the offer's target is the landing the
-            // drop was priced at, and it is the only moment the whole remaining fall is being predicted rather
-            // than observed. Comparing the pose after the drop has landed proves nothing, because by then the
-            // forecast has nothing left to forecast.
-            Vector2 forecast = collect.ActivityTarget ?? throw new InvalidOperationException(
-                $"a usable {name} drop offer must name the landing it was priced at");
+            // The forecast taken at release, which is the whole point: the census's landing is where the drop
+            // was priced, and it is the only moment the whole remaining fall is being predicted rather than
+            // observed. Comparing the pose after the drop has landed proves nothing, because by then the
+            // forecast has nothing left to forecast. It is read from the census the course binds from, the same
+            // static forecast the activity's own offer runs.
+            var published = VerifyAssistanceTrips.CensusFact(ctx, "collect-target", $"item:{drop.whoAmI}");
+            Vector2 forecast = published is { LandingX: double lx, LandingY: double ly } ? new Vector2((float)lx, (float)ly)
+                : throw new InvalidOperationException($"a usable {name} drop must be published at the landing it was priced at");
+            var step = WalkBound(ctx, collect, drop);
 
             int holds = 0;
             for (int tick = 0; tick < 480 && drop.velocity.Y != 0f; tick++)
@@ -416,8 +419,7 @@ internal static class VerifyCollectionContracts
                     drop.velocity = Vector2.Zero;
                 }
                 else drop.Bottom = next;
-                Observe(ctx, drop);
-                collect.Prepare(ctx);
+                if (!VerifyAssistanceTrips.Revalidate(ctx, step).CanUse) holds++;
                 if (collect.Execute(ctx).Kind == RequestKind.Hold) holds++;
             }
             Require(drop.velocity == Vector2.Zero, $"the fixture's own {name} drop must land; bottom={drop.Bottom} velocity={drop.velocity}");
@@ -442,26 +444,25 @@ internal static class VerifyCollectionContracts
         }
     }
 
-    /// <summary>A drop prepared on the floor rolls fourteen tiles before execution. Execution must not walk to where it was, and
-    /// the next preparation must prove the drop where it now lies and send the companion there.</summary>
+    /// <summary>A drop the course bound rolls fourteen tiles before the walk. The step aimed at where it was must be retired by the
+    /// course's own next-use check, not walked, and the drop bound again where it now lies must send the companion there. Until
+    /// 23 September 2026 the activity's own moved-drop guard held the body; the census and the binder own that answer now, because
+    /// the pose is the course's.</summary>
     private static void AMovedDropIsProvedAgainBeforeTheWalk()
     {
         var ctx = SetUpFloor();
         var collect = new CollectNearbyItems();
         Item drop = Drop(ItemID.CopperOre, 5, new Vector2(26 * 16 + 8, 60 * 16));
         Observe(ctx, drop);
-        collect.Prepare(ctx);
-        Require(collect.Method == "known-drop", $"the moved-drop fixture needs a prepared drop; method={collect.Method}");
-        collect.BeginAttempt();
+        var step = WalkBound(ctx, collect, drop);
         drop.Bottom = new Vector2(40 * 16 + 8, 60 * 16);
-        var stale = collect.Execute(ctx);
-        Require(stale.Kind == RequestKind.Hold,
-            $"a drop that moved after preparation must not be walked to at its old position; request={stale}");
-        Observe(ctx, drop);
-        collect.Prepare(ctx);
-        var fresh = collect.Execute(ctx);
-        Require(collect.Method == "known-drop" && fresh.Kind == RequestKind.Exact && MathF.Abs(fresh.Anchor.X - drop.Bottom.X) <= 3 * 16,
-            $"the next preparation must prove the drop where it now lies and walk there; request={fresh} drop={drop.Bottom}");
+        var stale = VerifyAssistanceTrips.Revalidate(ctx, step);
+        Require(!stale.CanUse && stale.Reason == "assistance-application-changed",
+            $"a drop that moved after it was bound must retire the application aimed at its old position; validation={stale}");
+        var fresh = WalkBound(ctx, collect, drop);
+        var request = collect.Execute(ctx);
+        Require(fresh.Opportunity == step.Opportunity && request.Kind == RequestKind.Exact && MathF.Abs(request.Anchor.X - drop.Bottom.X) <= 3 * 16,
+            $"the same drop bound again must be walked to where it now lies; request={request} drop={drop.Bottom} opportunity={fresh.Opportunity}");
     }
 
     /// <summary>
@@ -486,17 +487,21 @@ internal static class VerifyCollectionContracts
         float tight = ValueWithRoom(2, out var collect, out var ctx, out var drop);
         Require(roomy > 0 && tight > 0 && tight < roomy,
             $"a drop only two of which fit must be worth less than the same drop that fits whole; room 50={roomy} room 2={tight}");
-        collect.BeginAttempt();
-        collect.Execute(ctx);
+        WalkBound(ctx, collect, drop);
         Require(ctx.Companion.Bag.Collect(drop, ctx.Player) && drop.stack == 48 && LootIsInWorld(drop),
             $"the real transfer must take exactly the two that fit; stack left={drop.stack}");
         var conclusion = collect.ConcludeAttempt(0);
         Require(conclusion is { Status: AttemptStatus.Partial, Cause: "drop-partly-transferred" },
             $"taking part of a stack is partial collection, with the rest still in the world; got {conclusion}");
+        // Refused where the course discovers work — the census publishes the remainder as unusable for capacity — and in the
+        // activity's own offer, which is what the recorder reads.
+        var remainder = VerifyAssistanceTrips.CensusFact(ctx, "collect-target", $"item:{drop.whoAmI}");
+        Require(remainder is { Admission: "unusable", Reason: "cargo-capacity" },
+            $"the census must refuse the remainder the full cargo cannot take; census={remainder}");
         Observe(ctx, drop);
         collect.Prepare(ctx);
-        Require(collect.Method != "known-drop" && collect.EligibilityReason == "nearby-drops-exceed-cargo-capacity",
-            $"the remainder the full cargo cannot take must be refused for capacity; method={collect.Method} offer={collect.EligibilityReason}");
+        Require(collect.EligibilityReason == "nearby-drops-exceed-cargo-capacity",
+            $"the remainder the full cargo cannot take must be refused for capacity; offer={collect.EligibilityReason}");
     }
 
     /// <summary>
@@ -612,9 +617,26 @@ internal static class VerifyCollectionContracts
         Observe(ctx, drop);
         collect.Prepare(ctx);
         Require(collect.Method == "known-drop", $"the attribution case needs a prepared drop; method={collect.Method} offer={collect.EligibilityReason}");
-        collect.BeginAttempt();
-        collect.Execute(ctx);
+        WalkBound(ctx, collect, drop);
         return (collect, ctx, drop);
+    }
+
+    /// <summary>
+    /// Hand collection the course's step for this drop the way the tick does — the census's own site bound by the real binder,
+    /// selected through the activity owner, whose execution opens the attempt — and run one execution. It replaced a direct
+    /// `BeginAttempt` then `Execute` on 23 September 2026, because the hand no longer walks to whatever the activity's own search
+    /// found: it walks to the step it is handed, and a row that hands it none watches a hand that does nothing.
+    /// </summary>
+    private static live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.StepBinding WalkBound(
+        ActionContext ctx, CollectNearbyItems collect, Item drop)
+    {
+        string target = $"item:{drop.whoAmI}";
+        var step = VerifyAssistanceTrips.BindCensusSite(ctx, "collect-target", o => o.Key.Target == target, target);
+        var owner = ctx.Companion.Brain.Activity;
+        owner.Select(collect, ctx, step);
+        owner.BeginExecution();
+        collect.Execute(ctx);
+        return step;
     }
 
     internal static ActionContext SetUpFloor()
