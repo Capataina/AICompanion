@@ -20,10 +20,12 @@ DecisionMaking/
 ├─ VerifyEncounterConduct.cs gate G13: an encounter suppresses a whole optional course without repricing a fight,
 │                            among two feasible fights the survivable one wins while it is on, and the player's
 │                            death leaves it standing
-└─ FuzzTheDecisionContracts.cs seeded event sequences nobody wrote, driven through the live recorder against the six contracts the audit keeps
+└─ FuzzTheDecisionContracts.cs seeded event sequences nobody wrote, driven through the live recorder against the seven contracts the audit keeps
 ```
 
 **`FuzzTheDecisionContracts` is the only file here that generates its own world, and the only one that drives the mod's own recorder rather than the audit's seam.** Every scene in `Tools/EngineReplay/Observation/VerifyDecisionTripwires.cs` was built by hand from the capture of 22 September 2026, so each of the six contracts has been shown to fire on a case somebody already knew about and to stay quiet on the neighbouring case somebody already thought of; what none of them establishes is that the contracts stay quiet on a sequence nobody composed. This one draws spawns, deaths, teleports, drops appearing and taken, mined tiles, the player walking and stopping, work-policy flips and operation cuts from a seeded generator, six sequences of two hundred whole-brain ticks, and reads the *mod assembly's* own `AuditDecisionContracts.Counts` back after every tick. It composes no payload: `DecideCourseEachTick.Trace` builds the decision record's fields privately and exposes no accessor, so a local copy of them would be a drift waiting to happen — the fixture attaches a real `BrainTelemetry`, lets `Load` install `ReadLiveCourseForAudit`, and ticks through `CompanionNPC.AI`, which is the path a play takes.
+
+**It asserts the seventh contract too, and that is where the contract's red-before lives.** `effect-without-binding` and `effect-off-binding` are counted by the effect recorders whether or not a session is open, are not world-explainable — a strike or a claimed pickup beside its step is the hand choosing for itself — and are asserted on in full. The header line prints how many native effects were judged, because zero effects is two green rows that asked nothing. On `04f9df2`, `AIC_FUZZ_SEEDS=1,7,13,29,101` judged 15 effects and fired `effect-off-binding` on 5 ticks, every one on seed 7: `CollectNearbyItems` claimed `item:10` or `item:11` from its own search while the course's step named `item:12`. Each effect firing carries `AuditDecisionContracts.LastEffectViolation` in its row, so it names the effect and the step rather than only a tick.
 
 Three things about it are load-bearing and the first two are findings rather than construction details.
 

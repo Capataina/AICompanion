@@ -168,7 +168,7 @@ One number in the same run is worth keeping for a different reason: the body sto
 
 It is its own command for three reasons and each of them would break a row if it were folded into the runs above. **The clock**: those runs lift the planning allowances so two passes are comparable at all, and this one keeps them, because the brain a player met was one being cut by its deadline and a run given all the time it wants grades a brain nobody has played. **The pass count**: one, not two, which is what keeps a whole capture to about half a minute. **The scene**: the hostiles, the drops and the recorded settings, none of which the other two runs want.
 
-Three of its rows are verdicts and the rest are measures, and the split is a judgement about what can be wrong rather than about what is easy to assert. The third is about the instrument rather than the brain and is described in its own section below, because until 22 September 2026 this run graded a companion whose own contract audit was wired to nothing.
+Four of its rows are verdicts and the rest are measures, and the split is a judgement about what can be wrong rather than about what is easy to assert. The one about the audit's wiring is about the instrument rather than the brain and is described in its own section below, because until 22 September 2026 this run graded a companion whose own contract audit was wired to nothing.
 
 ```
 verdict   no order is refused for a target its own observation admitted
@@ -182,6 +182,13 @@ verdict   a fight README wants, within ten seconds or inside his region, becomes
           180 ticks, and deliberately the same 180 ScoreTheRun already gives combat to take the body
           once a hostile stands beside the route — the two are one question from opposite sides, and
           a second number would be two pass lines drifting apart about one behaviour
+
+verdict   every effect the companion caused was the accepted step's
+          zero effect-without-binding and zero effect-off-binding from the audit's own counts, over a
+          denominator of native effects audited; zero effects is a skip by name, never a pass. On
+          04f9df2 the whole capture produced one judged effect and it was bound, so this row passed on
+          the tree it exists to catch — the fuzzer holds that contract's red-before, and this row is thin
+          ground on this capture until the replayed companion strikes, places and collects more
 
 measure   the empty-course share, the admitted-and-stepless share, orders refused per tick and by
           reason, decide and whole-brain cost at p50 and p99, second-generation collections, the

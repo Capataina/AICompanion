@@ -186,6 +186,12 @@ internal static class RunTheWorld
         /// recorder's coalescing kept it. Empty on a healthy run, and empty in exactly the same way on
         /// a run whose audit was never wired — which is why the two counts above are graded first.</summary>
         IReadOnlyDictionary<string, long> ContractViolations,
+        /// <summary>How many native effects reached the effect contract with a binding reader installed,
+        /// and the detail of the last one it named. The count is the denominator the effect verdict needs:
+        /// zero means the run struck, placed, broke and claimed nothing, and the verdict skips rather than
+        /// passing for want of an effect.</summary>
+        long EffectsAudited,
+        string LastEffectViolation,
         /// <summary>One entry per tick for the play measures, always filled: the cost of keeping it is a struct a tick.</summary>
         IReadOnlyList<PlayTick> Play)
     {
@@ -500,6 +506,8 @@ internal static class RunTheWorld
             live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Audited,
             live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.ObservationsRead,
             new Dictionary<string, long>(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Counts),
+            live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.EffectsAudited,
+            live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.LastEffectViolation,
             play);
     }
 }

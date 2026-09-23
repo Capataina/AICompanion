@@ -296,6 +296,7 @@ public static class AuditDecisionContracts
         AcceptedIncidental = null;
         acceptedIncidentalTick = long.MinValue;
         EffectsAudited = 0;
+        LastEffectViolation = "";
     }
 
     /// <summary>
@@ -559,7 +560,15 @@ public static class AuditDecisionContracts
     /// <c>effect-without-binding</c> — so one is minted when none has been seen, carrying the binding
     /// the effect was judged against.</summary>
     private static void FireEffect(string kind, long tick, long bindingId, string detail, string signature)
-        => Fire(kind, tick, EffectContext(tick, bindingId), detail, signature);
+    {
+        LastEffectViolation = detail;
+        Fire(kind, tick, EffectContext(tick, bindingId), detail, signature);
+    }
+
+    /// <summary>The detail of the last effect violation counted this session, so an in-process reader —
+    /// the fuzzer, the world run — can say which effect beside which step rather than only that one fired.
+    /// The recorded occurrence carries the same text; this exists for the runs that open no recording.</summary>
+    public static string LastEffectViolation { get; private set; } = "";
 
     private static CourseTraceContext EffectContext(long tick, long bindingId)
         => lastContext is { } context
