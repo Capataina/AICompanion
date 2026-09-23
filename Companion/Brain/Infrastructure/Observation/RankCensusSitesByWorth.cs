@@ -98,7 +98,7 @@ public static class RankCensusSitesByWorth
     {
         if (swept.Count == 0) return (new List<T>(), 0);
         var pinned = new List<T>();
-        var rest = new List<Candidate<T>>();
+        var rest = new List<Candidate<T>>(swept.Count);
         foreach (Candidate<T> candidate in swept)
             if (keep(candidate.Site)) pinned.Add(candidate.Site); else rest.Add(candidate);
         var published = pinned.Concat(rest

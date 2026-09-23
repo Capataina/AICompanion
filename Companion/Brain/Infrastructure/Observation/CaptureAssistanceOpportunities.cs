@@ -108,6 +108,7 @@ public sealed class CaptureAssistanceOpportunities
     /// newly-occupied spacing neighbourhood re-ask on the next sweep.
     /// </summary>
     private readonly Dictionary<Point, bool> placementStep = new();
+    private readonly List<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>> lightSwept = new();
     private int placementStepRevision;
 
     private FrozenDrop[]? frozenDrops;
@@ -293,7 +294,11 @@ public sealed class CaptureAssistanceOpportunities
         // unpinned fact is what `RetireAdmissionsThisObservationCannotSupport` retires, so a site that
         // drifted one rank would be torn out from under a course already flying to it.
         string? workingOn = PinnedLightSite(context);
-        var swept = new List<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>>();
+        // Reused rather than allocated, because a list grown from empty to a window's worth of placeable
+        // tiles on every capture was 7.4% of the brain thread in regrowth alone on the same replay; nothing
+        // keeps a reference to it past `PublishLightSites`.
+        List<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>> swept = lightSwept;
+        swept.Clear();
         // A census publishes opportunities, not tiles.
         //
         // This loop used to emit a `light-target` fact for every tile in the window — a 125x125 square
@@ -338,7 +343,12 @@ public sealed class CaptureAssistanceOpportunities
                 // A site with no pose the body can hold is refused here rather than published and then
                 // refused by travel, because travel's refusal is per order and this one is per site: the
                 // same unusable site was otherwise re-bound inside every order that contained it.
-                var contact = WorkingPose(point);
+                // Only a dark tile's admission reads the pose, so only a dark tile pays for it here. A tile
+                // that is not dark is still published with its pose when it survives the ranking cut
+                // below, and gets it then: the scan is a 5x5 contact test, it ran for every placeable
+                // tile in the window, and it was 11.4% of the brain thread on the 22 September capture's
+                // replay (profiled 23 September 2026) for poses of which at most 196 are ever published.
+                var contact = reading.IsDark ? WorkingPose(point) : null;
                 // The placer's own step is asked last, and only of a site every cheaper test has already
                 // admitted, because it is by far the most expensive question here — it scans an
                 // eight-tile neighbourhood per call — and it can only ever downgrade an answer, never
@@ -396,7 +406,15 @@ public sealed class CaptureAssistanceOpportunities
         // than this many of them however dark it is, and publishing past that is spending the decision's
         // budget on answers no placement could take.
         (List<AssistanceOpportunityFact> published, int withheld) = PublishLightSites(swept, work, workingOn);
-        foreach (AssistanceOpportunityFact site in published) facts.Add(Fact("light-target", site.Target, 0, site));
+        foreach (AssistanceOpportunityFact site in published)
+        {
+            // The pose a tile that is not dark skipped in the sweep, computed now that it survived the cut,
+            // from the same world in the same tick — so the published fact is the one the eager scan built.
+            AssistanceOpportunityFact complete = site;
+            if (site.Amount == 0 && WorkingPose(new Point((int)site.X / 16, (int)site.Y / 16)) is { } pose)
+                complete = site with { ContactX = pose.X, ContactY = pose.Y };
+            facts.Add(Fact("light-target", complete.Target, 0, complete));
+        }
         facts.Add(Coverage("light-coverage", area, area.Width > 0 && area.Height > 0, withheld));
     }
 
