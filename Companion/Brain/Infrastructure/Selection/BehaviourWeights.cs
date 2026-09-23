@@ -362,10 +362,6 @@ public static class Weights
     /// </summary>
     public const int CombatBeamWidth = 4;
 
-    /// <summary>The milliseconds one rescore may spend searching attack plans; a cut search offers unresolved, never known-unusable.
-    /// Compared to TickCount64 as milliseconds, not TimeSpan ticks.</summary>
-    public const float CombatPlanningMilliseconds = 4f;
-
     /// <summary>How much a known hostile's urgency may rise before the committed plan re-searches.
     /// A pixel closer is the plan working; this is a real jump, not 0.01 of creep.</summary>
     public const float CombatUrgencyHoldSlack = 0.15f;
