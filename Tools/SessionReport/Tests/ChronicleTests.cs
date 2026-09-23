@@ -2828,9 +2828,14 @@ public static class ChronicleTests
             Require(access.Contains("EyeHeight => 0f", StringComparison.Ordinal)
                     && access.Contains("reachX * 16f + 8f", StringComparison.Ordinal) && access.Contains("reachY * 16f + 8f", StringComparison.Ordinal),
                 "the tool reach box no longer measures from the body's centre with the extents the tool rule recomputes");
-            Require(Source("Companion", "Brain", "Activities", "Gathering", "MineOre.cs").Contains("PositionRequest.ExactAt(t.StandPosition, t.Tile)", StringComparison.Ordinal)
-                    && Source("Companion", "Brain", "Activities", "Gathering", "ChopTree.cs").Contains("ExactAt(t.StandPosition, t.Bottom)", StringComparison.Ordinal)
-                    && Source("Companion", "Brain", "Activities", "NearbyAssistance", "PerformNearbyWorldWork.cs").Contains("ExactAt(stand, tile)", StringComparison.Ordinal),
+            // Since the course took the tick the stand that reaches the positioner is `ExecuteCourseBinding.RequestFor`'s
+            // (the activity's own request is discarded), so that is the site pinned for every tile purpose; mining's and
+            // chopping's own requests still name their tile and are pinned beside it, because the recorder's region
+            // columns are filled from whichever request the tick carried.
+            Require(Source("Companion", "Brain", "Infrastructure", "Selection", "ExecuteCourseBinding.cs").Contains("return PositionRequest.ExactAt(pose, work);", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "Infrastructure", "Selection", "ExecuteCourseBinding.cs").Contains("return PositionRequest.ExactAt(centre, work);", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "Activities", "Gathering", "MineOre.cs").Contains("PositionRequest.ExactAt(pose, b.Tile)", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "Activities", "Gathering", "ChopTree.cs").Contains("PositionRequest.ExactAt(pose, b.Bottom)", StringComparison.Ordinal),
                 "a tool stand no longer declares the work tile its reach box is judged against");
             // `Contains` is handed the body's centre and the follow arm reads the region alone; a second
             // reference reappearing there would widen acceptance behind this check's back.
