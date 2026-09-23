@@ -48,9 +48,14 @@ public sealed class DecisionWorkBudget
     /// How many deadline checks share one read of the real clock. The course's model scheduler asks
     /// <see cref="Exhausted"/> once per single operation, and a clock read per ask was 8.4% of the brain
     /// thread on the replay of the 22 September 2026 capture (profiled 23 September 2026) — the read, not
-    /// the work it guarded. Reading every sixteenth check lets a slice overrun its deadline by at most
-    /// sixteen operations' worth of time, which is microseconds against a millisecond allowance and stays
-    /// visible in <see cref="OverrunMilliseconds"/>; once the deadline is seen passed it stays passed.
+    /// the work it guarded. Reading every sixteenth check lets up to fifteen further *checks* through after
+    /// the deadline has passed, and the bound is in checks rather than operations: a check can be a
+    /// multi-operation `TrySpend`, or an `Exhausted` poll followed by work that is not metered. The route
+    /// search, the reach flood and course travel read the clock themselves on every expansion
+    /// (`LimitPlanningWork.Deadline`), so the coarse work stays prompt; the time a late check can cost is
+    /// not measured, and <see cref="OverrunMilliseconds"/> is where it shows. Once the deadline is seen
+    /// passed it stays passed. Measured within one replay basin, whole-brain p99 fell 1.5–2.3 ms with the
+    /// stride in (23 September 2026).
     /// </summary>
     private const int RealClockStride = 16;
     private readonly int clockStride;

@@ -181,5 +181,10 @@ public sealed class CaptureCourseTravel
         public bool PassThrough(int x, int y) { Touch(x, y); return source.PassThrough(x, y); }
         public bool Water(int x, int y) { Touch(x, y); return source.Water(x, y); }
         public bool Lava(int x, int y) { Touch(x, y); return source.Lava(x, y); }
+        // Forwarded rather than left to the interface defaults, because this wrapper reports its source's
+        // cache identity and so must report every tile fact its source does: the defaults read honey and
+        // shimmer as kind 0 and every wet amount as full, which is a different world wearing the same key.
+        public int LiquidKind(int x, int y) { Touch(x, y); return source.LiquidKind(x, y); }
+        public byte LiquidAmount(int x, int y) { Touch(x, y); return source.LiquidAmount(x, y); }
     }
 }
