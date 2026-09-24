@@ -75,7 +75,7 @@ internal static class WorldRunEntry
             Main.dedServ = true;
             int ladderFailures = RunTheLoadLadder.Run(world!, Int(args, "--seed=", 1),
                 Value(args, "--ticks=") is null ? RunTheLoadLadder.DefaultDwellTicks : ticks,
-                Value(args, "--rungs=") is { } rungs ? Numbers(rungs, "--rungs=").Select(r => (int)r).ToArray() : RunTheLoadLadder.DefaultRungs,
+                Value(args, "--rungs=") is { } rungs ? Numbers(rungs, "--rungs=", zeroAllowed: true).Select(r => (int)r).ToArray() : RunTheLoadLadder.DefaultRungs,
                 Value(args, "--suite=") ?? "load ladder", !args.Contains("--no-light"), !args.Contains("--no-cave"));
             PrintEmittedRows();
             return ladderFailures == 0 ? 0 : 1;
@@ -100,7 +100,7 @@ internal static class WorldRunEntry
             int costFailures = calibrating
                 ? RunTheCalibration.Run(source, world!, Value(args, "--ticks=") is null ? 0 : ticks, modeSuite, Value(args, "--record-to="))
                 : RunTheBudgetCurve.Run(source, world!,
-                    Value(args, "--allowances=") is { } list ? Numbers(list, "--allowances=") : RunTheBudgetCurve.DefaultAllowances,
+                    Value(args, "--allowances=") is { } list ? Numbers(list, "--allowances=", zeroAllowed: false) : RunTheBudgetCurve.DefaultAllowances,
                     Int(args, "--repeats=", 2), Value(args, "--ticks=") is null ? 0 : ticks, modeSuite);
             PrintEmittedRows();
             return costFailures == 0 ? 0 : 1;
@@ -360,14 +360,17 @@ internal static class WorldRunEntry
     }
 
     /// <summary>A comma-separated list of positive numbers, refused with the shape of what arrived rather than
-    /// half-parsed, because a curve or a ladder run at a silently dropped point is filed as a complete one.</summary>
-    private static double[] Numbers(string text, string flag)
+    /// half-parsed, because a curve or a ladder run at a silently dropped point is filed as a complete one.
+    /// <para>Zero is a real rung (the empty scene) and never a real allowance, which the seam would refuse only once
+    /// the curve had reached that point and lost every row it had not yet filed, so the caller says which it is.</para></summary>
+    private static double[] Numbers(string text, string flag, bool zeroAllowed)
     {
         var parsed = new List<double>();
         foreach (string part in text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
-            if (!double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) || !double.IsFinite(value) || value < 0)
-                throw new ArgumentException($"{flag} expects comma-separated non-negative numbers; \"{part}\" is not one");
+            if (!double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) || !double.IsFinite(value)
+                || value < 0 || (value == 0 && !zeroAllowed))
+                throw new ArgumentException($"{flag} expects comma-separated {(zeroAllowed ? "non-negative" : "positive")} numbers; \"{part}\" is not one");
             parsed.Add(value);
         }
         if (parsed.Count == 0) throw new ArgumentException($"{flag} expects at least one number and got \"{text}\"");

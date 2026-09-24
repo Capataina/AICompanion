@@ -50,7 +50,7 @@ public sealed class MeasureWhereTheTimeGoes : IMeasure
     /// <summary>The columns every capture since 0.35.0 carries. The five this measure exists for are checked in
     /// <see cref="Missing"/> behind the schema gate, so an older capture is declined as predating the profile
     /// rather than as a list of absent column names.</summary>
-    public string[] Needs => new[] { "tick", "wall_elapsed_ms", "brain_ms", "record_ms", "gc0", "gc1", "gc2" };
+    public string[] Needs => new[] { "tick", "wall_elapsed_ms", "brain_ms", "brain_fresh", "record_ms", "gc0", "gc1", "gc2" };
 
     /// <summary>The columns schema 0.48.0 added, all of which this measure reads.</summary>
     internal static readonly string[] ProfileColumns = { "sections", "sections_other_ms", "brain_alloc_bytes", "tick_alloc_bytes", "cost_fence_ms", "alloc_sections" };
@@ -71,18 +71,22 @@ public sealed class MeasureWhereTheTimeGoes : IMeasure
         IReadOnlyDictionary<string, double> AllocatedBySection);
 
     /// <summary>
-    /// Reads the profile. A brain row is one whose <c>sections</c> cell is not a dash and whose <c>brain_ms</c>
-    /// parsed; a spike row is a brain row whose cost is above its own fence.
+    /// Reads the profile. A brain row is one the brain ran on (<c>brain_fresh</c> 1), whose <c>sections</c> cell
+    /// is not a dash and whose <c>brain_ms</c> parsed; a spike row is a brain row whose cost is above its own
+    /// fence. A downed tick writes its finalise section and repeats the last brain tick's <c>brain_ms</c>, so
+    /// counting it would add a stale cost and a zero for every section to each of up to 600 downed ticks.
     /// </summary>
     internal static Profile Read(Session session)
     {
         Column sections = session["sections"], other = session["sections_other_ms"], brain = session["brain_ms"], record = session["record_ms"];
         Column fence = session["cost_fence_ms"], brainAlloc = session["brain_alloc_bytes"], tickAlloc = session["tick_alloc_bytes"];
-        Column wall = session["wall_elapsed_ms"];
+        Column wall = session["wall_elapsed_ms"], fresh = session["brain_fresh"];
         var brainRows = new List<int>();
         for (int i = 0; i < session.Count; i++)
-            if (sections.Text[i] is { Length: > 0 } cell && cell != "-" && double.TryParse(brain.Text[i], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+            if (IsBrainRow(i))
                 brainRows.Add(i);
+        bool IsBrainRow(int i) => fresh.Number[i] == 1 && sections.Text[i] is { Length: > 0 } cell && cell != "-"
+            && double.TryParse(brain.Text[i], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
         var selfPerRow = new Dictionary<string, double[]>(StringComparer.Ordinal);
         var spikeSelf = new Dictionary<string, double>(StringComparer.Ordinal);
         var ordinarySelf = new Dictionary<string, double>(StringComparer.Ordinal);

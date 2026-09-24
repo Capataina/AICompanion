@@ -148,16 +148,22 @@ public static class ChronicleTests
             // 200 brain ticks at 2 ms: 1.5 in the search and 0.3 in the intent sense. Ticks 100 and 150 are spikes of
             // 10 ms, 9 of them in combat's preparation. The fence is `-` for the first ten rows, as the producer writes
             // it while its window fills. Every tick allocates 2,000 bytes, 1,000 of them in the assistance capture.
+            // Ten downed ticks follow, as the recorder writes them: no brain ran, the finalise section rolled over, and
+            // brain_ms repeats the last brain tick's 10 ms — so counting them would read twelve spikes, not two.
             var trace = new StringBuilder("# schema=0.48.0\n# text_columns=sections,alloc_sections\n"
-                + "tick\twall_elapsed_ms\tbrain_ms\trecord_ms\tgc0\tgc1\tgc2\ttick_alloc_bytes\tbrain_alloc_bytes\tsections\tsections_other_ms\tcost_fence_ms\talloc_sections\n");
+                + "tick\twall_elapsed_ms\tbrain_ms\tbrain_fresh\trecord_ms\tgc0\tgc1\tgc2\ttick_alloc_bytes\tbrain_alloc_bytes\tsections\tsections_other_ms\tcost_fence_ms\talloc_sections\n");
             for (int tick = 0; tick < 200; tick++)
             {
                 bool spike = tick is 100 or 150;
                 string sections = spike ? "decide.prepare.combat=9.000/1|decide.course.search=0.500/1|record.row=0.100/1"
                     : "decide.course.search=1.500/1|senses.intent=0.300/1|record.row=0.100/1";
                 trace.Append(FormattableString.Invariant(
-                    $"{tick}\t{tick * 1000.0 / 60.0:0.00}\t{(spike ? 10.0 : 2.0):0.00}\t0.50\t{(tick % 10 == 0 ? 1 : 0)}\t0\t0\t2100\t2000\t{sections}\t0.100\t{(tick < 10 ? "-" : "5.000")}\tdecide.course.snapshot.assistance=1000|senses.intent=10\n"));
+                    $"{tick}\t{tick * 1000.0 / 60.0:0.00}\t{(spike ? 10.0 : 2.0):0.00}\t1\t0.50\t{(tick % 10 == 0 ? 1 : 0)}\t0\t0\t2100\t2000\t{sections}\t0.100\t{(tick < 10 ? "-" : "5.000")}\tdecide.course.snapshot.assistance=1000|senses.intent=10\n"));
             }
+            for (int tick = 200; tick < 210; tick++)
+                trace.Append(FormattableString.Invariant(
+                    $"{tick}\t{tick * 1000.0 / 60.0:0.00}\t10.00\t0\t0.50\t0\t0\t0\t2100\t-\tfinalise=0.050/1\t0.000\t-\t-\n"));
+            trace.Append("# closing=world-unload;rows=210;cost-spikes=2;cost-spike-dumps=1;profiler-overflowed=3;profiler-unbalanced=1\n");
             string current = Path.Combine(directory, "2026-09-24_00-00-00-000.tsv");
             File.WriteAllText(current, trace.ToString());
             File.WriteAllText(ReadGodsEyeEvents.PathFor(current),
@@ -188,10 +194,15 @@ public static class ChronicleTests
                     && block.Contains("decide.prepare.combat 9.00", StringComparison.Ordinal)
                     && block.Contains("90.0% against   0.0%  decide.prepare.combat", StringComparison.Ordinal),
                 "the report block did not name the spike from its sidecar tree or set its dominant section against the ordinary ticks: " + block);
+            Require(block.Contains("where the time goes  200 brain tick(s)", StringComparison.Ordinal),
+                "the report block counted the downed ticks as brain ticks: " + block);
+            Require(block.Contains("3 section(s) past the profiler's capacity", StringComparison.Ordinal)
+                    && block.Contains("1 scope(s) left open", StringComparison.Ordinal),
+                "the report block did not print the closing line's profiler overflow and imbalance counts: " + block);
 
             // A 0.47.0 capture has none of the columns: it is declined by the schema that first writes them, by name.
             string older = Path.Combine(directory, "2026-09-23_00-00-00-000.tsv");
-            File.WriteAllText(older, "# schema=0.47.0\ntick\twall_elapsed_ms\tbrain_ms\trecord_ms\tgc0\tgc1\tgc2\n1\t16\t2.00\t0.50\t0\t0\t0\n");
+            File.WriteAllText(older, "# schema=0.47.0\ntick\twall_elapsed_ms\tbrain_ms\tbrain_fresh\trecord_ms\tgc0\tgc1\tgc2\n1\t16\t2.00\t1\t0.50\t0\t0\t0\n");
             Session old = Session.Load(older);
             Require(measure.Missing(old) is { } why && why.Contains("written from schema 0.48.0", StringComparison.Ordinal) && why.Contains("0.47.0", StringComparison.Ordinal),
                 "a 0.47.0 capture was not declined by the schema that first writes the profile: " + measure.Missing(old));

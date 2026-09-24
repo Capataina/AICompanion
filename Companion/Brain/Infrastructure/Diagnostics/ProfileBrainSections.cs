@@ -96,8 +96,9 @@ public static class BrainSections
     private static long tickAllocatedAtBegin;
 
     /// <summary>The tick the snapshot describes, or <see cref="ulong.MaxValue"/> before the first rollover. A reader
-    /// compares it with the tick it is writing and writes nothing where they differ: a downed tick runs no brain
-    /// and rolls nothing over, and a stale tree printed as fresh is a hitch attributed to the wrong tick.</summary>
+    /// compares it with the tick it is writing and writes nothing where they differ, because a stale tree printed
+    /// as fresh is a hitch attributed to the wrong tick. A downed tick runs no brain but does roll over, carrying
+    /// only its finalise section, so a reader that wants brain ticks also asks <c>brain_fresh</c>.</summary>
     public static ulong LastTick { get; private set; } = ulong.MaxValue;
 
     /// <summary>Bytes the brain thread allocated between <see cref="BeginTick"/> and <see cref="EndTick"/> of the

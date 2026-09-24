@@ -43,7 +43,8 @@ public static class DescribeWhereTheTimeGoes
             text.AppendLine("where the time goes  the capture carries the section profile and no brain tick wrote a section into it");
             return text.ToString();
         }
-        var brain = Enumerable.Range(0, session.Count).Select(i => (double)session["brain_ms"].Number[i]).Where(v => !double.IsNaN(v)).ToList();
+        var brain = Enumerable.Range(0, session.Count).Where(i => session["brain_fresh"].Number[i] == 1)
+            .Select(i => (double)session["brain_ms"].Number[i]).Where(v => !double.IsNaN(v)).ToList();
         text.AppendLine(string.Create(CultureInfo.InvariantCulture,
             $"where the time goes  {profile.BrainRows:n0} brain tick(s), brain p50 {ReadPlay.FloorRank(brain, 0.5):0.00} ms, p99 {ReadPlay.FloorRank(brain, 0.99):0.00} ms; self time by section, largest share of the brain first"));
         foreach ((string sectionPath, double share) in MeasureWhereTheTimeGoes.ByShare(profile).Take(SectionsListed))
@@ -76,6 +77,17 @@ public static class DescribeWhereTheTimeGoes
         text.AppendLine(string.Create(CultureInfo.InvariantCulture,
             $"  collections  gen0 {PerMinute(profile.Collections[0], profile.Minutes)}, gen1 {PerMinute(profile.Collections[1], profile.Minutes)}, gen2 {PerMinute(profile.Collections[2], profile.Minutes)} a minute over {profile.Minutes:0.0} minute(s)"));
 
+        // The profiler's two failure counts, from the closing line: a section past the node or depth cap has its time
+        // left in its parent's self time, and a scope left open nests the next tick's tree under it. Either makes the
+        // shares above misattribute, so a nonzero count is printed; a capture that never closed says so.
+        if (ClosingCount(session, "profiler-overflowed") is { } overflowed && ClosingCount(session, "profiler-unbalanced") is { } unbalanced)
+        {
+            if (overflowed > 0 || unbalanced > 0)
+                text.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"  profiler  {overflowed:n0} section(s) past the profiler's capacity, their time left in the parent; {unbalanced:n0} scope(s) left open and closed by the tick's end — the shares above misattribute that much"));
+        }
+        else text.AppendLine("  profiler  the capture carries no profiler-overflowed count on a closing line, so whether any section overflowed is unknown");
+
         var log = ReadGodsEyeEvents.Read(path);
         var dumps = log.Events.Where(e => e.kind == "cost-spike").ToList();
         text.AppendLine(string.Create(CultureInfo.InvariantCulture,
@@ -99,6 +111,17 @@ public static class DescribeWhereTheTimeGoes
             }
         }
         return text.ToString();
+    }
+
+    /// <summary>One integer from the `# closing=` line, or null where the capture never closed or predates the key.</summary>
+    private static long? ClosingCount(Session session, string key)
+    {
+        if (!session.Metadata.TryGetValue("closing", out string? closing)) return null;
+        foreach (string part in closing.Split(';'))
+            if (part.StartsWith(key + "=", StringComparison.Ordinal)
+                && long.TryParse(part[(key.Length + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out long value))
+                return value;
+        return null;
     }
 
     /// <summary>The whole-tree entries of one <c>cost-spike</c> occurrence: <c>path=inclusive/self/calls/bytes</c>

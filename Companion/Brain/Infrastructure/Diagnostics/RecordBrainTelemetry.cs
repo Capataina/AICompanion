@@ -192,7 +192,8 @@ public sealed class BrainTelemetry : ModSystem
     //             joined by `|`, textual and declared). The sidecar gains the
     //             `cost-spike` occurrence — the worst brain tick of each one-second window whose cost crossed the
     //             fence, with its whole section tree, collections, allocation and scene counts — and the `# closing=`
-    //             line gains `cost-spikes` and `cost-spike-dumps`. `ProfileBrainSections.cs` and
+    //             line gains `cost-spikes`, `cost-spike-dumps`, and the profiler's own failure counts
+    //             `profiler-overflowed` and `profiler-unbalanced`. `ProfileBrainSections.cs` and
     //             `DetectCostSpikes.cs` own the two mechanisms. The `record` subtree of a row's `sections` is the
     //             previous row's recorder, the same phase `record_ms` has.
     private const string Schema = "0.48.0";
@@ -520,7 +521,7 @@ public sealed class BrainTelemetry : ModSystem
             // `ReadLiveCourseForAudit.Install` never having run. Both are silent in play otherwise.
             // `effects-audited` (0.47.0) is the effect contract's denominator: a session whose hand did
             // nothing has two zero violation counts that mean nothing, and this is what says so.
-            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead};effects-audited={AuditDecisionContracts.EffectsAudited};cost-spikes={CostSpikes};cost-spike-dumps={CostSpikeDumps}");
+            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead};effects-audited={AuditDecisionContracts.EffectsAudited};cost-spikes={CostSpikes};cost-spike-dumps={CostSpikeDumps};profiler-overflowed={BrainSections.Overflowed};profiler-unbalanced={BrainSections.Unbalanced}");
             diagnosticWriter.Stop(TimeSpan.FromMilliseconds(100), reason, rowsWritten);
         }
         catch (Exception e)

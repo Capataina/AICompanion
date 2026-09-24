@@ -18,9 +18,9 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 /// route search's 8 ms, the reach flood's 2 ms, the meeting and player-side floods' 1 ms — computes its own
 /// deadline through <c>LimitPlanningWork.Deadline</c>, which takes the earlier of its own and the tick's, and
 /// spends through the tick's <see cref="DecisionWorkBudget"/>. So a 2 ms override caps every slice at 2 ms
-/// without any of them being edited. <c>AuditDecisionContracts.DecideCeilingMilliseconds</c> still reads the
-/// tunable directly: it only decides when a <c>decide-overran-allowance</c> record is written, never what the
-/// brain does, and it is named in <c>CLAUDE.md</c> as the reader a merge must move onto this.</para>
+/// without any of them being edited. <c>AuditDecisionContracts.DecideCeilingMilliseconds</c> reads this too, so
+/// a <c>decide-overran-allowance</c> record under an override is judged against the installed allowance plus the
+/// route-search slice rather than against the production figure.</para>
 /// </summary>
 public static class TickAllowance
 {

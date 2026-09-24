@@ -91,7 +91,7 @@ internal static class RunTheBudgetCurve
             $"Brain.Tick installs TickAllowance.Milliseconds = {TickAllowance.Milliseconds:0.###} ms (override {(TickAllowance.OverrideMilliseconds is { } o ? o.ToString("0.###", CultureInfo.InvariantCulture) + " ms" : "unset")}); "
             + $"the tunable Weights.TotalPlanningMilliseconds = {Weights.TotalPlanningMilliseconds:0.###} ms; "
             + $"the overrun audit's allowance = {AuditDecisionContracts.DecideCeilingMilliseconds - Weights.RouteSearchMilliseconds:0.###} ms "
-            + $"(its ceiling {AuditDecisionContracts.DecideCeilingMilliseconds:0.###} ms less the {Weights.RouteSearchMilliseconds:0.###} ms slice), which reads the tunable and not the override");
+            + $"(its ceiling {AuditDecisionContracts.DecideCeilingMilliseconds:0.###} ms less the {Weights.RouteSearchMilliseconds:0.###} ms slice), read through the same seam");
 
     private static Point RunOnce(string capturePath, string world, ReadRecordedRoute.Route route, double allowance, int repeat)
     {
@@ -128,7 +128,10 @@ internal static class RunTheBudgetCurve
         long refused = play.Sum(t => (long)t.Refused);
         var decide = play.Select(t => t.DecideMs).ToList();
         var brain = play.Select(t => t.BrainMs).ToList();
-        int overAllowance = play.Count(t => t.DecideMs > allowance);
+        // The tick's deadline starts when Brain.Tick constructs its allowance, before the senses and the reflex run,
+        // so the decide phase ended past it when those three laps together exceed the allowance; the decide lap
+        // alone misses every overrun shorter than the time the senses and reflex took.
+        int overAllowance = play.Count(t => t.SensesMs + t.ReflexMs + t.DecideMs > allowance);
         return new Point(allowance, repeat, run.Seconds, play.Count,
             wanted == 0 ? 0 : 100.0 * notFighting / wanted, wanted,
             play.Count == 0 ? 0 : 100.0 * empty / play.Count,
@@ -170,8 +173,8 @@ internal static class RunTheBudgetCurve
             $"the same; the worst tick per run was {SummariseCostDistributions.Draws(draws.Select(p => p.DecideMax).ToList(), "0.00")} ms");
         Row("whole-brain cost p50", p => p.BrainP50, "ms", "down", timed, "0.00", "the whole brain tick, against a 16.67 ms frame");
         Row("whole-brain cost p99", p => p.BrainP99, "ms", "down", timed, "0.00", "the same");
-        Row("share of ticks whose decide phase outran the allowance", p => p.DecideOverAllowanceShare, "%", "down", timed, "0.0",
-            "the probe that the override reached the decision: at a smaller allowance the decide phase is cut near it, so this share is how often a slice already under way carried it past");
+        Row("share of ticks whose decide phase ended past the tick's deadline", p => p.DecideOverAllowanceShare, "%", "down", timed, "0.0",
+            "the probe that the override reached the decision: the deadline starts at the tick's entry, so a tick counts when its senses, reflex and decide laps together exceed the allowance, which is how often a slice already under way carried the decision past it");
         Row("second-generation collections", p => p.Gen2, "collections", "down", behaviour, "0",
             "process-wide, so the harness's own allocation is inside it");
     }

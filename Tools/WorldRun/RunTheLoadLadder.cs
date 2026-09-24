@@ -265,6 +265,7 @@ internal static class RunTheLoadLadder
 
         var rungs = runs.GroupBy(r => (r.Rung, r.Hostiles)).OrderBy(g => g.Key.Rung == "cave" ? 1 : 0).ThenBy(g => g.Key.Hostiles).ToList();
         var surfaceMeans = new List<(int Hostiles, double Threats, double Mean, double P99)>();
+        var surfaceUnbounded = new List<(int Hostiles, double Threats, double Mean, double P99)>();
         foreach (var group in rungs)
         {
             var draws = group.OrderBy(r => r.Pass).ToList();
@@ -307,9 +308,28 @@ internal static class RunTheLoadLadder
                 surfaceMeans.Add((group.Key.Hostiles, threats,
                     draws.Average(r => r.Play.Count == 0 ? 0 : r.Play.Average(t => t.BrainMs)),
                     draws.Average(r => Pct(r.Play, t => t.BrainMs, 0.99))));
+            if (group.Key.Rung == "surface")
+                surfaceUnbounded.Add((group.Key.Hostiles, threats,
+                    draws.Average(r => r.Play.Count == 0 ? 0 : r.Play.Average(t => t.SensesMs + t.ReflexMs)),
+                    draws.Average(r => Pct(r.Play, t => t.SensesMs + t.ReflexMs, 0.99))));
         }
-        FileTheGrowth(suite, surfaceMeans, timed, mode, load);
+        FileTheGrowth(suite, surfaceMeans, "whole-brain cost under the tick's allowance", AllowanceBoundNote, timed, mode, load);
+        FileTheGrowth(suite, surfaceUnbounded, "senses-and-reflex cost", UnboundedNote, timed, mode, load);
     }
+
+    /// <summary>Why the whole brain's growth is mostly a statement about the deadline: under the production clock
+    /// the decision spends until the tick's allowance runs out, and every nested slice takes the earlier of its own
+    /// deadline and the tick's, so the whole brain's p50 and p99 sit near the allowance on every rung.</summary>
+    private const string AllowanceBoundNote =
+        "under the production clock the decision and every nested slice stop at the tick's allowance, so this cost is capped near the allowance plus one slice "
+        + "on every rung and its growth is mostly the growth of what runs outside the decision; the senses-and-reflex rows are the uncapped part";
+
+    /// <summary>What the senses and reflex phases hold, and why their growth is the load's own: the threat and
+    /// projectile senses and the hit prediction scale with what is on screen, and no allowance stops them.</summary>
+    private const string UnboundedNote =
+        "the senses and reflex phases (threat and projectile senses, the reach flood's slice, the homes and combat-knowledge ticks, the intervention estimate "
+        + "and the hit prediction) run before the decision and no tick allowance stops them — only the reach flood's own per-slice cap bounds a part — so "
+        + "their growth is what a crowd costs whatever the allowance";
 
     /// <summary>
     /// Cost per added hostile between consecutive rungs, and two exponents of growth, each fitted by least
@@ -329,17 +349,23 @@ internal static class RunTheLoadLadder
     /// share, one means cost grows in proportion, above one means worse than linear.</para>
     /// </summary>
     private static void FileTheGrowth(string suite, List<(int Hostiles, double Threats, double Mean, double P99)> rungs,
-        string[] tags, string mode, string load)
+        string cost, string note, string[] tags, string mode, string load)
     {
         rungs = rungs.OrderBy(r => r.Hostiles).ToList();
         for (int i = 1; i < rungs.Count; i++)
         {
             var (low, high) = (rungs[i - 1], rungs[i]);
             double added = high.Threats - low.Threats;
-            EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, $"whole-brain cost per added hostile from {low.Hostiles} to {high.Hostiles}",
-                added > 0 ? (high.Mean - low.Mean) / added : 0, "ms/hostile", "down", mode, tags,
-                message: string.Create(CultureInfo.InvariantCulture,
-                    $"mean whole-brain cost {low.Mean:0.000} ms at {low.Threats:0.0} sensed hostile(s) and {high.Mean:0.000} ms at {high.Threats:0.0}; {load}"));
+            string name = $"{cost} per added hostile from {low.Hostiles} to {high.Hostiles}";
+            string between = string.Create(CultureInfo.InvariantCulture,
+                $"mean {cost} {low.Mean:0.000} ms at {low.Threats:0.0} sensed hostile(s) and {high.Mean:0.000} ms at {high.Threats:0.0}");
+            // A rung whose threat sense held no more hostiles than the one below it staged more and delivered none,
+            // so a per-hostile figure there would divide by nothing; a zero would read as a free hostile.
+            if (added <= 0)
+                EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, name, $"the sensed load did not rise between the rungs ({between}), so there is no added hostile to divide by");
+            else
+                EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, name, (high.Mean - low.Mean) / added, "ms/hostile", "down", mode, tags,
+                    message: $"{between}; {note}; {load}");
         }
         const int FitPoints = 3;
         var loaded = rungs.Where(r => r.Hostiles > 0 && r.Threats > 0).ToList();
@@ -347,7 +373,7 @@ internal static class RunTheLoadLadder
         foreach ((string label, Func<(int Hostiles, double Threats, double Mean, double P99), double> of) in
             new (string, Func<(int Hostiles, double Threats, double Mean, double P99), double>)[] { ("", r => r.Mean), (" at p99", r => r.P99) })
         {
-            string marginal = $"exponent of the whole brain's marginal cost in hostiles{label}";
+            string marginal = $"exponent of the marginal {cost} in hostiles{label}";
             if (zero is not { } empty || loaded.Count < FitPoints)
                 EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, marginal,
                     $"the fit needs the empty rung and {FitPoints} loaded rungs; this ladder had {(zero is null ? "no empty rung" : "the empty rung")} and {loaded.Count} loaded");
@@ -361,10 +387,10 @@ internal static class RunTheLoadLadder
                         + "marginal exponent through the rungs left over would be a line through whichever points happened to be positive; the elasticity row beside this is the fit that exists");
                 else
                     EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, marginal, fit.Exponent, "exponent", "down", mode, tags,
-                        message: FormattableString.Invariant($"least-squares slope of log(marginal cost) on log(added hostiles) over {fit.Points} rungs, r² {fit.RSquared:0.00}: {table}; 1 is linear, 2 quadratic; ") + load);
+                        message: FormattableString.Invariant($"least-squares slope of log(marginal cost) on log(added hostiles) over {fit.Points} rungs, r² {fit.RSquared:0.00}: {table}; 1 is linear, 2 quadratic; ") + note + "; " + load);
             }
 
-            string elasticity = $"elasticity of the whole brain's cost in hostiles{label}";
+            string elasticity = $"elasticity of the {cost} in hostiles{label}";
             var totals = loaded.Select(r => (X: r.Threats, Y: of(r))).ToList();
             string totalsTable = string.Join(", ", totals.Select(p => FormattableString.Invariant($"{p.X:0.0} hostiles: {p.Y:0.000} ms")));
             if (totals.Count < FitPoints || SummariseCostDistributions.LogLogSlope(totals) is not { } whole)
@@ -372,7 +398,7 @@ internal static class RunTheLoadLadder
                     $"the fit needs {FitPoints} loaded rungs with a positive cost; this ladder had {totals.Count} ({totalsTable})");
             else
                 EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, elasticity, whole.Exponent, "exponent", "down", mode, tags,
-                    message: FormattableString.Invariant($"least-squares slope of log(cost) on log(hostiles) over the {whole.Points} loaded rungs, r² {whole.RSquared:0.00}: {totalsTable}; under 1 a fixed cost dominates, 1 is proportional, above 1 worse than linear; ") + load);
+                    message: FormattableString.Invariant($"least-squares slope of log(cost) on log(hostiles) over the {whole.Points} loaded rungs, r² {whole.RSquared:0.00}: {totalsTable}; under 1 a fixed cost dominates, 1 is proportional, above 1 worse than linear; ") + note + "; " + load);
         }
     }
 }
