@@ -186,8 +186,10 @@ public sealed class BrainTelemetry : ModSystem
     //             `-` on a session's first), `brain_alloc_bytes` (the brain tick's own, `-` on a tick the brain did
     //             not run), `sections` (the section profiler's `SectionsPerRow` largest self times this tick as
     //             `path=self-ms/calls` joined by `|`, textual and declared), `sections_other_ms` (every other
-    //             section's self time, so the two sum to the profiled total) and `cost_fence_ms` (the fence this
-    //             tick's `brain_ms` was judged against, `-` while the window fills). The sidecar gains the
+    //             section's self time, so the two sum to the profiled total), `cost_fence_ms` (the fence this
+    //             tick's `brain_ms` was judged against, `-` while the window fills) and `alloc_sections` (the
+    //             `AllocatorsPerRow` sections that allocated the most outside their children, `path=bytes`
+    //             joined by `|`, textual and declared). The sidecar gains the
     //             `cost-spike` occurrence — the worst brain tick of each one-second window whose cost crossed the
     //             fence, with its whole section tree, collections, allocation and scene counts — and the `# closing=`
     //             line gains `cost-spikes` and `cost-spike-dumps`. `ProfileBrainSections.cs` and
@@ -246,6 +248,11 @@ public sealed class BrainTelemetry : ModSystem
     /// </summary>
     internal const int SectionsPerRow = 8;
     private static readonly int[] topSections = new int[SectionsPerRow];
+    /// <summary>How many sections the <c>alloc_sections</c> column names per row, most bytes allocated outside their
+    /// children first. Four, because allocation concentrates harder than time: on the replayed 22 September capture of
+    /// 24 September 2026 a brain tick allocated about 2 MB at the median and a handful of sections held nearly all of it.</summary>
+    internal const int AllocatorsPerRow = 4;
+    private static readonly int[] topAllocators = new int[AllocatorsPerRow];
     // The thread's allocation counter at the previous row, so each row carries the bytes the game's update thread
     // allocated between two rows — everything on that thread, this mod and the engine alike; -1 before a session's
     // first row.
@@ -553,9 +560,9 @@ public sealed class BrainTelemetry : ModSystem
     }
 
     /// <summary>
-    /// Schema 0.48.0's five columns: the update thread's allocation since the previous row, the brain tick's own
-    /// allocation, the section profiler's largest self times this tick, the rest of them, and the fence this tick's
-    /// brain cost was judged against. A dash wherever the thing did not happen this tick — no previous row, no brain
+    /// Schema 0.48.0's six columns: the update thread's allocation since the previous row, the brain tick's own
+    /// allocation, the section profiler's largest self times this tick, the rest of them, the fence this tick's
+    /// brain cost was judged against, and the sections that allocated the most. A dash wherever the thing did not happen this tick — no previous row, no brain
     /// tick, no snapshot for this tick, a window still filling — because a zero there would be a measurement.
     /// </summary>
     private static void AppendCostColumns(StringBuilder sb, Brain brain, bool brainExecuted)
@@ -595,6 +602,20 @@ public sealed class BrainTelemetry : ModSystem
         if (brainExecuted && double.IsFinite(costFence.Last.Fence))
             sb.Append(CultureInfo.InvariantCulture, $"{costFence.Last.Fence:0.000}");
         else sb.Append('-');
+
+        // The sections that allocated the most outside their own children, as `path=bytes`, because a collection
+        // is paid for by whoever allocated and the section tree is the only thing that can say who that was.
+        sb.Append('\t');
+        int allocators = fresh ? BrainSections.TopBySelfAllocation(topAllocators, AllocatorsPerRow) : 0;
+        int written = 0;
+        for (int i = 0; i < allocators; i++)
+        {
+            int node = topAllocators[i];
+            if (BrainSections.SelfAllocatedBytes(node) <= 0) continue;
+            if (written++ > 0) sb.Append('|');
+            sb.Append(BrainSections.Path(node)).Append('=').Append(BrainSections.SelfAllocatedBytes(node));
+        }
+        if (written == 0) sb.Append('-');
     }
 
     /// <summary>
@@ -1168,7 +1189,7 @@ public sealed class BrainTelemetry : ModSystem
             // whole schema reading as a column that failed to parse as a number.
             textColumns.Append(",target_evidence,target_evidence_age");
             // 0.48.0's one textual column.
-            textColumns.Append(",sections");
+            textColumns.Append(",sections,alloc_sections");
             QueueDiagnosticRecords.TryEnqueueTsv(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
@@ -1288,8 +1309,9 @@ public sealed class BrainTelemetry : ModSystem
             // allocated since the previous row, the engine's share included; `brain_alloc_bytes` is the brain tick's
             // own; `sections` is the section profiler's largest self times this tick and `sections_other_ms` the rest
             // of them; `cost_fence_ms` is the fence this tick's `brain_ms` was judged against, `-` while the window
-            // fills. `gc0`..`gc2` already carry the collections, since 0.35.0.
-            h.Append("\ttick_alloc_bytes\tbrain_alloc_bytes\tsections\tsections_other_ms\tcost_fence_ms");
+            // fills; `alloc_sections` names the sections that allocated the most outside their children. `gc0`..`gc2`
+            // already carry the collections, since 0.35.0.
+            h.Append("\ttick_alloc_bytes\tbrain_alloc_bytes\tsections\tsections_other_ms\tcost_fence_ms\talloc_sections");
             lastThreadAllocated = -1;
             QueueDiagnosticRecords.TryEnqueueTsv(h.ToString());
             headerWritten = true;

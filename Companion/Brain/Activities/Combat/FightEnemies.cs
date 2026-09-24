@@ -317,7 +317,8 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         bool running = ReferenceEquals(ctx.Companion.Brain.Activity.Current, this);
         ActionContext captured = ctx;
         Func<Vector2, bool> allows = point => AllowsTarget(captured, point);
-        IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);
+        IReadOnlyList<EnemyForecast> enemies;
+        using (BrainSections.Enter(ForecastSection)) enemies = combat.EnsureForecast(ctx);
         MaybeSnapshot(ctx, combat, running);
 
         if (!PlayerIntegration.CompanionPreferences.Current.Combat)
@@ -588,6 +589,13 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// A front the stance would not act on is not an opportunity, so dropping it lets the course's
     /// `ValidateNextUse` refuse the step (`accepted-use-not-present`) and decide again.
     /// </summary>
+    // Profiler sections for the stance's own preparation, beside the search and the re-pricing, which open theirs:
+    // the tick's enemy forecast (paid by whichever caller asks first), the commitment and its record, and the
+    // bounded-rate snapshot export.
+    private static readonly int ForecastSection = BrainSections.Register("forecast");
+    private static readonly int CommitSection = BrainSections.Register("commit");
+    private static readonly int ExportSection = BrainSections.Register("export");
+
     private void Decline(in ActionContext ctx, Positioner positioner,
         Func<Vector2, bool> inAllowance, IReadOnlyList<EnemyForecast> enemies, bool running, string refusal)
     {
@@ -625,6 +633,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     private void CommitAndRecord(in ActionContext ctx, CompanionCombat combat, AttackPlan plan,
         SearchAttackPlans.SearchResult? search, DecisionWorkBudget? spent, CombatWeights weights, bool combatRunning)
     {
+        using var section = BrainSections.Enter(CommitSection);
         combat.Planner.Commit(plan);
         lastSnapshotTick = ctx.Senses.Tick;
         snapshotForPlan = plan.Id;
@@ -647,6 +656,10 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// </summary>
     private void MaybeSnapshot(in ActionContext ctx, CompanionCombat combat, bool running)
     {
+        // A recording-only cost that runs inside the decide phase, so it is a section of its own: the first 0.48.0
+        // capture's worst spike was 19.2 ms of this preparation's self time on a tick with no search, which is the
+        // shape this export has on its 120-tick cadence.
+        using var section = BrainSections.Enter(ExportSection);
         bool mark = ExportCombatSnapshot.MarkRequested;
         if (mark)
             ExportCombatSnapshot.MarkRequested = false;

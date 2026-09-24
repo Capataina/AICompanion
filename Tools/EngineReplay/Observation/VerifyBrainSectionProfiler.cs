@@ -86,6 +86,7 @@ internal static class VerifyBrainSectionProfiler
                 Nest(1_000);
                 BrainSections.EndTick((ulong)(2 + pass));
                 BrainSections.TopBySelf(top, top.Length);
+                BrainSections.TopBySelfAllocation(top, top.Length);
             }
             measured[repeat] = GC.GetAllocatedBytesForCurrentThread() - before;
         }
@@ -231,11 +232,18 @@ internal static class VerifyBrainSectionProfiler
                     if (BrainSections.Calls(node) == 0) continue;
                     nodesChecked++;
                     int parent = BrainSections.Parent(node);
-                    long children = 0;
+                    long children = 0, childBytes = 0;
                     for (int child = 1; child < BrainSections.LastNodeCount; child++)
-                        if (BrainSections.Parent(child) == node) children += BrainSections.InclusiveTimestamps(child);
+                        if (BrainSections.Parent(child) == node)
+                        {
+                            children += BrainSections.InclusiveTimestamps(child);
+                            childBytes += BrainSections.AllocatedBytes(child);
+                        }
                     Require(children <= BrainSections.InclusiveTimestamps(node),
                         $"tick {tick}: the children of {BrainSections.Path(node)} took {children} clock ticks inside its {BrainSections.InclusiveTimestamps(node)}");
+                    // Allocation nests the same way, and a section's self allocation is never negative.
+                    Require(childBytes <= BrainSections.AllocatedBytes(node) && BrainSections.SelfAllocatedBytes(node) >= 0,
+                        $"tick {tick}: the children of {BrainSections.Path(node)} allocated {childBytes} bytes inside its {BrainSections.AllocatedBytes(node)}");
                     if (parent != 0)
                         Require(BrainSections.InclusiveTimestamps(node) <= BrainSections.InclusiveTimestamps(parent),
                             $"tick {tick}: {BrainSections.Path(node)} took longer than {BrainSections.Path(parent)}");

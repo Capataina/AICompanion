@@ -86,6 +86,7 @@ public static class BrainSections
     private static readonly long[] lastSelf = new long[NodeCapacity];
     private static readonly int[] lastCalls = new int[NodeCapacity];
     private static readonly long[] lastAllocated = new long[NodeCapacity];
+    private static readonly long[] lastSelfAllocated = new long[NodeCapacity];
     private static int lastNodeCount = 1;
 
     private static readonly int[] stack = new int[DepthCapacity];
@@ -255,6 +256,10 @@ public static class BrainSections
         Array.Copy(lastInclusive, lastSelf, count);
         for (int node = 1; node < count; node++) lastSelf[nodeParent[node]] -= lastInclusive[node];
         lastSelf[0] = 0;
+        // Self allocation the same way: what a section allocated outside every section it opened.
+        Array.Copy(lastAllocated, lastSelfAllocated, count);
+        for (int node = 1; node < count; node++)
+            if (nodeParent[node] != 0) lastSelfAllocated[nodeParent[node]] -= lastAllocated[node];
         lastNodeCount = count;
         LastTick = tick;
         LastBrainAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - tickAllocatedAtBegin;
@@ -284,6 +289,9 @@ public static class BrainSections
     /// <summary>Bytes the thread allocated inside the node on the snapshot's tick, its children included.</summary>
     public static long AllocatedBytes(int node) => lastAllocated[node];
 
+    /// <summary>Bytes the thread allocated inside the node and inside none of its children.</summary>
+    public static long SelfAllocatedBytes(int node) => lastSelfAllocated[node];
+
     /// <summary>One clock tick in milliseconds. <see cref="Stopwatch.Elapsed"/> truncates to 100 ns; this does not.</summary>
     public static readonly double MillisecondsPerTimestamp = 1000.0 / Stopwatch.Frequency;
 
@@ -305,16 +313,21 @@ public static class BrainSections
     /// The snapshot's <paramref name="count"/> nodes with the most self time, written into <paramref name="into"/>
     /// in descending order, and how many were written. Only nodes entered on the tick are eligible.
     /// </summary>
-    public static int TopBySelf(Span<int> into, int count)
+    public static int TopBySelf(Span<int> into, int count) => TopBy(lastSelf, into, count);
+
+    /// <summary>The same ranking by self allocation: the sections that allocated the most outside their children.</summary>
+    public static int TopBySelfAllocation(Span<int> into, int count) => TopBy(lastSelfAllocated, into, count);
+
+    private static int TopBy(long[] key, Span<int> into, int count)
     {
         int written = 0;
         count = Math.Min(count, into.Length);
         for (int node = 1; node < lastNodeCount; node++)
         {
             if (lastCalls[node] == 0) continue;
-            long self = lastSelf[node];
+            long self = key[node];
             int at = written;
-            while (at > 0 && lastSelf[into[at - 1]] < self) at--;
+            while (at > 0 && key[into[at - 1]] < self) at--;
             if (at >= count) continue;
             int last = Math.Min(written, count - 1);
             for (int i = last; i > at; i--) into[i] = into[i - 1];
@@ -325,7 +338,8 @@ public static class BrainSections
     }
 
     /// <summary>
-    /// The whole tree of the snapshot's tick, one entered node per entry, depth first in node order:
+    /// The whole tree of the snapshot's tick, one entered node per entry, in node order (a parent always before its
+    /// children):
     /// <c>path=inclusive/self/calls/allocated-bytes</c> joined by <c>|</c>. For the spike occurrence, which is
     /// written rarely enough that the recorder can afford to spell the whole tree out.
     /// </summary>
@@ -363,6 +377,7 @@ public static class BrainSections
         Array.Clear(lastSelf, 0, NodeCapacity);
         Array.Clear(lastCalls, 0, NodeCapacity);
         Array.Clear(lastAllocated, 0, NodeCapacity);
+        Array.Clear(lastSelfAllocated, 0, NodeCapacity);
         lastNodeCount = 1;
         Array.Clear(stack, 0, DepthCapacity);
         depth = 0;

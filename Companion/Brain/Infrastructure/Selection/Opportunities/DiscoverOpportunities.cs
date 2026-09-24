@@ -21,6 +21,8 @@ public sealed class DiscoverOpportunities
     private long epoch = -1;
     private readonly int[] sections;
     private static readonly int RetireSection = Diagnostics.BrainSections.Register("retire");
+    private static readonly int PinSection = Diagnostics.BrainSections.Register("pin");
+    private static readonly int StoreSection = Diagnostics.BrainSections.Register("store");
     public DiscoverOpportunities(IEnumerable<IOpportunitySource> sources, int capacity)
     {
         this.sources = sources.ToArray();
@@ -55,8 +57,12 @@ public sealed class DiscoverOpportunities
             epoch = facts.WorldEpoch; candidates.Clear(); storage.Clear(); coverage.Clear(); next = 0;
             foreach (var cursor in cursors) cursor.Bind(epoch, "world-epoch");
         }
-        var pins = pinned.ToHashSet();
-        foreach (var key in candidates.Keys) storage.Pin(key, pins.Contains(key));
+        HashSet<OpportunityKey> pins;
+        using (Diagnostics.BrainSections.Enter(PinSection))
+        {
+            pins = pinned.ToHashSet();
+            foreach (var key in candidates.Keys) storage.Pin(key, pins.Contains(key));
+        }
         using (Diagnostics.BrainSections.Enter(RetireSection)) RetireAdmissionsThisObservationCannotSupport(facts, pins);
         if (sources.Length == 0 || budget.Exhausted) return;
         for (int visited = 0; visited < sources.Length; visited++)
@@ -75,6 +81,10 @@ public sealed class DiscoverOpportunities
             // is the number AIC-448 was diagnosed by. The count is per world epoch, like the store.
             long evicted = coverage.TryGetValue(sources[index].Name, out var previous) ? previous.Evicted : 0;
             coverage[sources[index].Name] = result.Coverage with { Evicted = result.Coverage.Evicted + evicted };
+            // Storing what the slice examined is a section of its own, beside the pinning pass above, because on the
+            // replayed 22 September capture 12.5% of the whole brain was discovery's own time outside every census
+            // and these two are the work that runs there.
+            using var storing = Diagnostics.BrainSections.Enter(StoreSection);
             foreach (var candidate in result.Examined)
             {
                 if (candidate.Key.Domain != sources[index].Name)
