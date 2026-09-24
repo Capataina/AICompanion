@@ -71,19 +71,28 @@ internal static class VerifyBrainSectionProfiler
         BrainSections.EndTick(1);
         BrainSections.TopBySelf(top, top.Length);
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        const int Passes = 50;
-        for (int pass = 0; pass < Passes; pass++)
+        // Measured five times and judged on the least, because the runtime may allocate on this thread while it
+        // tiers up the loop it is timing — measured once at 4,920 bytes on a pass that allocated nothing of its own,
+        // under load, and zero on the passes either side. A planted allocation in `Enter` allocates on every pass,
+        // so the least is still what the profiler itself allocates.
+        const int Passes = 50, Repeats = 5;
+        var measured = new long[Repeats];
+        for (int repeat = 0; repeat < Repeats; repeat++)
         {
-            BrainSections.BeginTick();
-            Nest(1_000);
-            BrainSections.EndTick((ulong)(2 + pass));
-            BrainSections.TopBySelf(top, top.Length);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int pass = 0; pass < Passes; pass++)
+            {
+                BrainSections.BeginTick();
+                Nest(1_000);
+                BrainSections.EndTick((ulong)(2 + pass));
+                BrainSections.TopBySelf(top, top.Length);
+            }
+            measured[repeat] = GC.GetAllocatedBytesForCurrentThread() - before;
         }
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        long allocated = measured.Min();
         int scopes = Passes * 1_000 * 3;
-        Console.WriteLine($"  {scopes:n0} scopes entered and left and {Passes} rollovers allocated {allocated} bytes");
-        Require(allocated == 0, $"{scopes:n0} scopes and {Passes} rollovers allocated {allocated} bytes; enter, exit, EndTick and TopBySelf must allocate nothing");
+        Console.WriteLine($"  {scopes:n0} scopes entered and left and {Passes} rollovers allocated {allocated} bytes at least (passes: {string.Join(", ", measured)})");
+        Require(allocated == 0, $"{scopes:n0} scopes and {Passes} rollovers allocated {allocated} bytes on every one of {Repeats} passes ({string.Join(", ", measured)}); enter, exit, EndTick and TopBySelf must allocate nothing");
         int leaf = FindNode("profiler-test-outer.profiler-test-inner.profiler-test-leaf");
         Require(leaf > 0 && BrainSections.Calls(leaf) == 1_000,
             $"the leaf was entered 1,000 times on the last tick and the snapshot says {(leaf > 0 ? BrainSections.Calls(leaf) : -1)}");
@@ -158,8 +167,16 @@ internal static class VerifyBrainSectionProfiler
         int risingSpikes = 0, ticks = 5 * rising.Window;
         for (int tick = 0; tick < ticks; tick++)
             if (rising.Observe(2.0 + 6.0 * tick / ticks + 0.2 * random.NextDouble()).Spike) risingSpikes++;
-        Require(steadySpikes == 0 && constantSpikes == 0 && risingSpikes == 0,
-            $"ordinary series fired: steady {steadySpikes}, constant {constantSpikes}, slowly rising {risingSpikes}");
+        // Nearly constant with a small periodic step: nine ticks in ten at exactly 2.0 ms and one at 2.2. The quartiles
+        // are both 2.0, so the interquartile range is zero and the Tukey fence alone sits on the upper quartile, where
+        // every 2.2 ms tick — ten percent above typical, a cost nobody feels — would be a spike. This is the series the
+        // median floor exists for, and the one that reddens when it is removed.
+        var stepped = new DetectCostSpikes();
+        int steppedSpikes = 0;
+        for (int tick = 0; tick < 3 * stepped.Window; tick++)
+            if (stepped.Observe(tick % 10 == 0 ? 2.2 : 2.0).Spike) steppedSpikes++;
+        Require(steadySpikes == 0 && constantSpikes == 0 && risingSpikes == 0 && steppedSpikes == 0,
+            $"ordinary series fired: steady {steadySpikes}, constant {constantSpikes}, slowly rising {risingSpikes}, nearly constant with a small step {steppedSpikes}");
     }
 
     private static void TheFenceIsScaleFree()
@@ -188,10 +205,15 @@ internal static class VerifyBrainSectionProfiler
         var fence = new DetectCostSpikes();
         var random = new Random(5);
         for (int i = 0; i < 2 * fence.Window; i++) fence.Observe(random.NextDouble());
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 10 * fence.Window; i++) fence.Observe(random.NextDouble() + (i % 97 == 0 ? 10 : 0));
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        Require(allocated == 0, $"{10 * fence.Window:n0} observations allocated {allocated} bytes");
+        // The least of five passes, for the reason the profiler's own allocation row gives.
+        var measured = new long[5];
+        for (int repeat = 0; repeat < measured.Length; repeat++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 2 * fence.Window; i++) fence.Observe(random.NextDouble() + (i % 97 == 0 ? 10 : 0));
+            measured[repeat] = GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+        Require(measured.Min() == 0, $"{2 * fence.Window:n0} observations allocated bytes on every pass: {string.Join(", ", measured)}");
     }
 
     // ── real ticks ────────────────────────────────────────────────────────────────────────────────
@@ -243,8 +265,6 @@ internal static class VerifyBrainSectionProfiler
 
     private static void RealTicksProduceRegisteredPathsUnderPhases()
     {
-        var registered = new HashSet<string>(StringComparer.Ordinal);
-        for (int id = 0; id < BrainSections.SectionCount; id++) registered.Add(BrainSections.SectionName(id));
         var paths = new HashSet<string>(StringComparer.Ordinal);
         foreach (bool crowd in new[] { false, true })
             Scene(crowd, ticks: 120, (_, _) =>
@@ -252,6 +272,11 @@ internal static class VerifyBrainSectionProfiler
                 for (int node = 1; node < BrainSections.LastNodeCount; node++)
                     if (BrainSections.Calls(node) > 0) paths.Add(BrainSections.Path(node));
             });
+        // Read after the scenes rather than before: a call site registers from its class's static initialiser, which
+        // runs on the class's first use, so a registry read before the first fight does not yet hold the combat
+        // sections. The first version read it first and went red whenever it was the first case to fight.
+        var registered = new HashSet<string>(StringComparer.Ordinal);
+        for (int id = 0; id < BrainSections.SectionCount; id++) registered.Add(BrainSections.SectionName(id));
         Require(paths.Count > 0, "two scenes of real ticks produced no section at all");
         foreach (string path in paths)
         {

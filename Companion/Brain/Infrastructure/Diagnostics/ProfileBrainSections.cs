@@ -17,7 +17,7 @@ namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 /// recorder had spent it. A section is registered once by a short name and entered wherever that work runs; the tree
 /// is built from the stack at entry, so the same section called from two places — a use simulated for planning and
 /// the same simulator asked by the hand at fire time — is two nodes with two paths
-/// (<c>decide.prepare.combat.simulate</c>, <c>finalise.engage.simulate</c>) rather than one number mixing both. A
+/// (<c>decide.prepare.combat.reprice.aim.simulate</c>, <c>finalise.engage.aim.simulate</c>) rather than one number mixing both. A
 /// node's path is its dotted name, and the parent is recoverable from it, which is what the recorder writes.</para>
 ///
 /// <para><b>Entering and leaving allocate nothing and take no lock</b>, because the brain runs on the game's update
@@ -60,7 +60,7 @@ public static class BrainSections
 
     /// <summary>
     /// Whether sections are timed at all. On by default and only ever switched off to measure what the profiler
-    /// itself costs — <c>MeasureBrainCost</c>'s profiling-off arm — so the switch exists for the instrument and not
+    /// itself costs — the profiling-off arm of <c>VerifyBrainSectionProfiler</c>'s overhead and invariance cases — so the switch exists for the instrument and not
     /// for play. Off, <see cref="Enter"/> is one branch and <see cref="EndTick"/> publishes nothing.
     /// </summary>
     public static bool Enabled { get; set; } = true;
