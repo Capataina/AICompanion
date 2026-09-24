@@ -107,7 +107,7 @@ Two assertions are deliberately *not* made in the first row, and the reason is t
 --retained-course-combat  the captured use binding, and a planned use carrying simulator damage
 ```
 
-`VerifyCombatCourseBinding`'s row and `PlannedUseCarriesSimulatorTargetDamage` are reachable **only** through `--retained-course-combat`; neither is in the default-case table, so a whole-suite run does not exercise them.
+**Every row behind those flags is also a default case, and the suite's reach check keeps it so.** Until 24 September 2026 `VerifyCombatCourseBinding.CapturedUseBindsWithoutReadingLiveTerraria`, `PlannedUseCarriesSimulatorTargetDamage` and eight attack-planning rows (the planning clock, SafeRange, harm at a stand, the hold under creep, closeness as heat, company in clear air, HereAndCompany off a body, the segmented body) ran only under their flags, and the flags wrapped each in a lambda that threw away the `int` the row returns. The captured-use row had rotted there: it wrote its use identity as the pre-`UseId` literal `plan:7/segment:0/use:0`, so `FightAhead`'s front, which reads uses by the target's `npc:<slot>.<generation>/` prefix, found none and claimed 0 damage at tick 0. It now mints the identity through `CombatCourseFacts.UseId` and passes. `every fixture entry is reachable from the default suite or exempt by name with its reason` (`../../VerifyEveryFixtureIsReachable.cs`) is what reds if a row here is added behind a flag alone again.
 
 ## Current state — 24 September 2026
 

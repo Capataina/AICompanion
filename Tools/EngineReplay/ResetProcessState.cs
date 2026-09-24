@@ -272,6 +272,11 @@ internal static class ResetProcessState
         ResetSearchPolicy();
         FillActorSlots();
         EmptyActorSlots();
+
+        // Last, because it installs the effect audit's reader over the null the audit's own reset above
+        // left: every case is audited for its native effects against the step its companion holds, and
+        // the check after the case reads the counts (`AuditEveryCase`).
+        AuditEveryCase.BeforeCase();
     }
 
     /// <summary>
@@ -348,5 +353,9 @@ internal static class ResetProcessState
     }
 
     /// <summary>Registered once, from the entry point, so every case in every suite runs through it.</summary>
-    internal static void Register() => EmitLedgerRows.ResetBeforeCase = BeforeCase;
+    internal static void Register()
+    {
+        EmitLedgerRows.ResetBeforeCase = BeforeCase;
+        EmitLedgerRows.AfterCase = AuditEveryCase.Check;
+    }
 }

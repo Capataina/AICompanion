@@ -23,8 +23,7 @@ internal static class VerifyCourseSnapshotAssembly
         int red = 0;
         void Row(string name, Action test)
         {
-            try { test(); Console.WriteLine("GREEN " + name); }
-            catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
+            red += RunOneRow.GreenOrRed(name, test);
         }
         Row("G01 one snapshot carries every domain's census", EveryDomainAppears);
         Row("G01 each tick is a new observation, not an extension of the last", EachTickIsItsOwnObservation);

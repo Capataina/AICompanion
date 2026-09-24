@@ -40,8 +40,7 @@ internal static class VerifyCollectionContracts
         {
             LimitPlanningWork.Unbounded = true;
             Preferences.Current.PotBreaking = false;
-            try { fixture(); Console.WriteLine($"GREEN {name}"); }
-            catch (Exception e) { red++; Console.WriteLine($"RED {name}: {e.Message}"); }
+            try { red += RunOneRow.GreenOrRed(name, fixture); }
             finally
             {
                 LimitPlanningWork.Unbounded = false;

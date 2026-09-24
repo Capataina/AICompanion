@@ -16,7 +16,11 @@ internal static class VerifyCombatCourseBinding
 {
     public static int CapturedUseBindsWithoutReadingLiveTerraria()
     {
-        const string useId = "plan:7/segment:0/use:0";
+        // Minted by the production helper rather than written out: the binder's front reads every use whose
+        // identity starts with the target's `npc:<slot>.<generation>/`, and the literal this row carried
+        // (`plan:7/segment:0/use:0`) was the identity before `UseId` moved the target into it, so the front
+        // found no use and the claim read 0 damage at tick 0 — a fixture nothing had run since the change.
+        string useId = CombatCourseFacts.UseId(12, 3, 0, 32, 32, 0);
         var target = new CombatCourseFacts.Target(12, 3, 1, 40, 40, 64, 32, 0, 0);
         var weapon = new CombatCourseFacts.Weapon(0, 9, 2, 20, 0, 10, 1, 8, 5);
         // The target trace contains two landed six-damage hits.  `ExpectedTargetDamage` is their
@@ -64,9 +68,10 @@ internal static class VerifyCombatCourseBinding
             "The binder did not retain the captured method and concrete tool.");
         Require(bound.Binding.ArrivalVelocity == new CoursePoint(3, 1) && bound.Binding.TravelTicks == 0,
             "A useful local shot did not use the captured route's arrival state.");
-        Require(bound.Binding.Effects.Single().Evidence == EstimateStatus.Nominal && bound.Binding.Effects.Single().Amount == 12
-            && bound.Binding.Effects.Single().NominalTick == 4,
-            "The binder did not preserve the simulator's per-use target damage as a nominal effect.");
+        PredictedEffect claimed = bound.Binding.Effects.Single();
+        Require(claimed.Evidence == EstimateStatus.Nominal && claimed.Amount == 12 && claimed.NominalTick == 4,
+            "The binder did not preserve the simulator's per-use target damage as a nominal effect: "
+            + $"{claimed.Evidence} {claimed.Amount} at tick {claimed.NominalTick} over {claimed.EarliestTick}..{claimed.LatestTick}.");
         Require(bound.Binding.Dependencies.Reads.Select(read => read.Key).SequenceEqual(new[]
             { CombatCourseFacts.ManaCapacityKey(), CombatCourseFacts.TargetKey(12, 3), CombatCourseFacts.UseKey(useId), CombatCourseFacts.WeaponKey(0),
               ReadCourseTravel.Key(new CoursePoint(32, 32), default, new CoursePoint(32, 32)) }.OrderBy(key => key)),

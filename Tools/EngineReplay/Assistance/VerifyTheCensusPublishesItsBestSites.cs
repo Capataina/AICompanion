@@ -33,8 +33,7 @@ internal static class VerifyTheCensusPublishesItsBestSites
         int red = 0;
         void Row(string name, Action test)
         {
-            try { test(); Console.WriteLine("  GREEN " + name); }
-            catch (Exception error) { red++; Console.WriteLine("  RED " + name + ": " + error.Message); }
+            red += RunOneRow.GreenOrRed(name, test);
         }
         Row("a sweep that fits its bound publishes every site it swept", ASweepUnderItsBoundIsUntouched);
         Row("a sweep past its bound publishes as many as the window could use", ASweepPastItsBoundIsCut);

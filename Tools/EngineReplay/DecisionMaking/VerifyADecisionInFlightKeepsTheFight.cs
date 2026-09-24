@@ -44,8 +44,7 @@ internal static class VerifyADecisionInFlightKeepsTheFight
 
     private static int Row(string name, Action test)
     {
-        try { test(); Console.WriteLine("  GREEN " + name); return 0; }
-        catch (Exception error) { Console.WriteLine("  RED " + name + ": " + error.Message); return 1; }
+        return RunOneRow.GreenOrRed(name, test);
     }
 
     private static void TheFightSurvivesADecision()

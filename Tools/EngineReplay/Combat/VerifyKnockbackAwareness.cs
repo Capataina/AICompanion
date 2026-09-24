@@ -48,15 +48,19 @@ internal static class VerifyKnockbackAwareness
 
     public static int Run()
     {
-        ThePriorIsTheGamesOwnStrike();
-        ASwingTeachesTheTableWhatItDid();
-        LearnedPushesReplaceThePriorForTheirPairOnly();
-        TheOwnerSideRuleIsTheGamesList();
-        AShotIsChargedForPushingAnEnemyIntoThePlayer();
-        AFiringStandIsWorthLessWhereItsShotPushesTheTargetIntoThePlayer();
-        AWoundIsCreditedByDangerAndAKillIsNeverChargedForItsPush();
-        Console.WriteLine("knockback awareness: the prior is the game's strike on both branches, a swing teaches its pair, a push into the player is charged and a push away is not, a stand whose shot pushes into the player keeps less of its score, and a wound to a dangerous enemy earns credit");
-        return 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        const string family = "knockback awareness";
+        int failed = 0;
+        failed += RunOneRow.Case(ThePriorIsTheGamesOwnStrike, family);
+        failed += RunOneRow.Case(ASwingTeachesTheTableWhatItDid, family);
+        failed += RunOneRow.Case(LearnedPushesReplaceThePriorForTheirPairOnly, family);
+        failed += RunOneRow.Case(TheOwnerSideRuleIsTheGamesList, family);
+        failed += RunOneRow.Case(AShotIsChargedForPushingAnEnemyIntoThePlayer, family);
+        failed += RunOneRow.Case(AFiringStandIsWorthLessWhereItsShotPushesTheTargetIntoThePlayer, family);
+        failed += RunOneRow.Case(AWoundIsCreditedByDangerAndAKillIsNeverChargedForItsPush, family);
+        if (failed == 0)
+            Console.WriteLine("knockback awareness: the prior is the game's strike on both branches, a swing teaches its pair, a push into the player is charged and a push away is not, a stand whose shot pushes into the player keeps less of its score, and a wound to a dangerous enemy earns credit");
+        return failed;
     }
 
     private static (CompanionNPC Companion, NPC Enemy, C Ctx) Scene(float enemyResist, params (GearSlot Slot, int Item)[] gear)

@@ -22,20 +22,25 @@ internal static class VerifyObservationLifecycle
         var priorMiningPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining;
         string root = Path.Combine(Path.GetTempPath(), "aic-observation-lifecycle-" + Guid.NewGuid().ToString("N"));
         savePath.SetValue(null, root);
+        // Every row runs and files a sub-row, and the fixture fails afterwards if any did. An exception other
+        // than an assertion still ends the file through the catch below, because that is the instrument breaking.
+        const string family = "observation lifecycle";
+        int failed = 0;
         try
         {
-            VerifySameStemGainsAnAttemptSuffix();
-            VerifyZeroTickLifecycleMetadata();
-            VerifyRecordingSwitch();
-            VerifyInspectorGeometry();
-            VerifyNotchOpeningConsumesThePress();
-            VerifyOneCompleteSample();
-            VerifyEndedOreJobRecording();
-            VerifyRecoveryDoesNotRefreshTheChoice();
-            VerifySafetyWithNoOrdinaryOffer();
-            VerifyAttemptEvidenceProducers.Run();
-            Console.WriteLine("observation lifecycle: reserved retry names, zero-tick metadata and callback-scoped lifecycle evidence passed");
-            return 0;
+            failed += RunOneRow.Case(VerifySameStemGainsAnAttemptSuffix, family);
+            failed += RunOneRow.Case(VerifyZeroTickLifecycleMetadata, family);
+            failed += RunOneRow.Case(VerifyRecordingSwitch, family);
+            failed += RunOneRow.Case(VerifyInspectorGeometry, family);
+            failed += RunOneRow.Case(VerifyNotchOpeningConsumesThePress, family);
+            failed += RunOneRow.Case(VerifyOneCompleteSample, family);
+            failed += RunOneRow.Case(VerifyEndedOreJobRecording, family);
+            failed += RunOneRow.Case(VerifyRecoveryDoesNotRefreshTheChoice, family);
+            failed += RunOneRow.Case(VerifySafetyWithNoOrdinaryOffer, family);
+            failed += RunOneRow.Case("attempt evidence producers", VerifyAttemptEvidenceProducers.Run, family);
+            if (failed == 0)
+                Console.WriteLine("observation lifecycle: reserved retry names, zero-tick metadata and callback-scoped lifecycle evidence passed");
+            return failed;
         }
         catch (Exception error)
         {

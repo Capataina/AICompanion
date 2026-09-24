@@ -38,8 +38,7 @@ internal static class VerifyNativeConsequencePricing
         int red = 0;
         void Row(string name, Action test)
         {
-            try { test(); Console.WriteLine("GREEN " + name); }
-            catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
+            red += RunOneRow.GreenOrRed(name, test);
         }
         Row("G12 unanswered travel suspends the pricing and forwards its request", PendingForwardsItsTravelRequest);
         Row("G12 an unpriced harm is unresolved, never zero", HostilesLeaveTheTailUnresolved);

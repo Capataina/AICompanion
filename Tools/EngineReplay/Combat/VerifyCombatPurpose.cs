@@ -19,23 +19,23 @@ internal static class VerifyCombatPurpose
 {
     public static int Run()
     {
-        ThreatConsequenceCountsEffectiveDamageAgainstRemainingLife();
-        PursuitWeighsARepositionAgainstTheShotsItDelays();
-        ProtectionIsWorthTheHarmAnInterventionCanRemove();
-        ProtectionCountsTheTimeToReachAFiringPosition();
-        LandedHitsAreRecordedApartFromTheAimedTarget();
-        TheRecordCarriesPursuitAimAndHitApart();
-        VerifyEncounterContext.Run();
-        VerifyCombatActorMatrix.Run();
-        // Last deliberately, and it is the only row here whose position is chosen rather than incidental.
-        // This fixture aborts on its first throw. This row once went red on a brain finding — it wanted a
-        // companion at twelve life to create space from a slime — and standing second it took the seven rows
-        // below it with it every run, two of which turned out to be carrying walker-era defects of their own
-        // once they could be seen. A row that can go red on the brain goes last, so that what it reports is
-        // the only thing it hides.
-        TheSameSmallAttackWeighsMoreAtLowHealthWithoutTakingTheBody();
-        Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health reads more danger without taking the body, pursuit weighs a reposition against the shots it delays, protection is worth only the harm an intervention can remove, plan, aim and landed-hit identities are recorded apart, and a boss or world event stops optional work only where it reaches, once, from native facts or observed pressure");
-        return 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did. The low-health row stands
+        // last from the days this file aborted on its first throw — standing second it once hid the seven rows
+        // after it, two of which carried walker-era defects — and its position no longer hides anything.
+        const string family = "combat purpose";
+        int failed = 0;
+        failed += RunOneRow.Case(ThreatConsequenceCountsEffectiveDamageAgainstRemainingLife, family);
+        failed += RunOneRow.Case(PursuitWeighsARepositionAgainstTheShotsItDelays, family);
+        failed += RunOneRow.Case(ProtectionIsWorthTheHarmAnInterventionCanRemove, family);
+        failed += RunOneRow.Case(ProtectionCountsTheTimeToReachAFiringPosition, family);
+        failed += RunOneRow.Case(LandedHitsAreRecordedApartFromTheAimedTarget, family);
+        failed += RunOneRow.Case(TheRecordCarriesPursuitAimAndHitApart, family);
+        failed += RunOneRow.Case("the encounter context", VerifyEncounterContext.Run, family);
+        failed += RunOneRow.Case("the combat actor matrix", VerifyCombatActorMatrix.Run, family);
+        failed += RunOneRow.Case(TheSameSmallAttackWeighsMoreAtLowHealthWithoutTakingTheBody, family);
+        if (failed == 0)
+            Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health reads more danger without taking the body, pursuit weighs a reposition against the shots it delays, protection is worth only the harm an intervention can remove, plan, aim and landed-hit identities are recorded apart, and a boss or world event stops optional work only where it reaches, once, from native facts or observed pressure");
+        return failed;
     }
 
     /// <summary>
@@ -238,6 +238,11 @@ internal static class VerifyCombatPurpose
         }
         finally
         {
+            // The body out of slot 0 and the audit's readers back. Without it the live reader stayed installed
+            // for the rest of this case, and the encounter scenes after this row — whose companions are in no
+            // slot — had every pickaxe strike judged against "no companion found", which the effect audit around
+            // every case read as two `effect-without-binding` firings (found 24 September 2026).
+            OpenTheRecorderOnACompanion.Clear();
             foreach (int type in filledNames) nameCache[type] = null!;
             config.RecordTelemetry = false;
             config.OnChanged();

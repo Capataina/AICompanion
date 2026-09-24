@@ -17,18 +17,22 @@ internal static class VerifyCompanionActivities
     public static int Run()
     {
         Preferences saved = Preferences.Current;
+        const string family = "companion activities";
+        int failed = 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        int Row(Action row) => RunOneRow.Case(row, family);
         try
         {
             Preferences.Current = new Preferences { TorchPlacement = false, PotBreaking = false };
             Protection.Reset();
-            WorkWinsOutsideFollowComfort();
-            ContinuingTargetsKeepTheirIdentity();
-            CollectionComparesKnownDropsAndPotentialContents();
-            CollectionRejectsReplacedWorldSlots();
-            AnEnemyBesideTheBodyNeitherSuspendsTheJobNorTakesTheFeet();
-            DangerIsChargedOnceToTheActorItThreatens();
-            ConsecutiveJobsEarnTheirOwnAllowance();
-            ActivityOwnershipSurvivesInterruption();
+            failed += Row(WorkWinsOutsideFollowComfort);
+            failed += Row(ContinuingTargetsKeepTheirIdentity);
+            failed += Row(CollectionComparesKnownDropsAndPotentialContents);
+            failed += Row(CollectionRejectsReplacedWorldSlots);
+            failed += Row(AnEnemyBesideTheBodyNeitherSuspendsTheJobNorTakesTheFeet);
+            failed += Row(DangerIsChargedOnceToTheActorItThreatens);
+            failed += Row(ConsecutiveJobsEarnTheirOwnAllowance);
+            failed += Row(ActivityOwnershipSurvivesInterruption);
             // Four rows went with the family chooser on 22 September 2026 (`AIC-419`), each driving
             // `Chooser.Choose` on a stage the course does not have. `AFamilyAllowanceDefersSiblingsFairly`
             // was the per-family preparation share, its rotation and its deferral reporting; discovery is
@@ -41,18 +45,19 @@ internal static class VerifyCompanionActivities
             // one layer earlier by re-reading each candidate's own `AdmissionEvidence` against the current
             // observation before serving it, which `VerifyAdmittedOpportunitiesBind` holds on the scene
             // the 22 September play ended in.
-            StallsSurviveBehaviourChanges();
-            ComfortableFollowingHasNoRegroupPressure();
-            RemoteJobReleasesAndDiscoversNearbyOre();
-            RetainedMiningRespectsTheCompanionsRange();
-            ApproximateArrivalMustContinueApproaching();
-            BedsProtectTheRoomAndItsBoundary();
-            DoorsKeepTheWholeBedroomProtected();
-            TorchPlacementNeverUsesUpATorch();
-            AmbientFallbackDoesNotInventSamples();
-            TorchRecommendationsPreserveThePlayersCursor();
-            Console.WriteLine("companion activities: resource/follow competition, actor-specific danger charged once, remote job release, actual swing reach, bed protection and native torch inventory contracts pass");
-            return 0;
+            failed += Row(StallsSurviveBehaviourChanges);
+            failed += Row(ComfortableFollowingHasNoRegroupPressure);
+            failed += Row(RemoteJobReleasesAndDiscoversNearbyOre);
+            failed += Row(RetainedMiningRespectsTheCompanionsRange);
+            failed += Row(ApproximateArrivalMustContinueApproaching);
+            failed += Row(BedsProtectTheRoomAndItsBoundary);
+            failed += Row(DoorsKeepTheWholeBedroomProtected);
+            failed += Row(TorchPlacementNeverUsesUpATorch);
+            failed += Row(AmbientFallbackDoesNotInventSamples);
+            failed += Row(TorchRecommendationsPreserveThePlayersCursor);
+            if (failed == 0)
+                Console.WriteLine("companion activities: resource/follow competition, actor-specific danger charged once, remote job release, actual swing reach, bed protection and native torch inventory contracts pass");
+            return failed;
         }
         finally { Preferences.Current = saved; Protection.Reset(); }
     }

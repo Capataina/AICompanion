@@ -32,14 +32,18 @@ internal static class VerifyItemWeapon
 
     public static int Run()
     {
-        ABowFiresItsFreeArrowPlayerOwned();
-        APistolFiresTheMusketBallsProjectileAtTheComposedSpeed();
-        AWandSpendsManaAndLandsAtTheGradient();
-        ASwordStrikesTheBodyInItsArcAndRefusesOneOutOfReach();
-        ARefusedItemInASlotNeverReachesTheArsenal();
-        AnEmptyGearSaysNoWeapon();
-        Console.WriteLine("item weapon: a bow fires the wooden arrow player-owned, a pistol the musket ball at the composed speed, a wand spends mana and lands at the gradient down to an empty pool, a sword strikes in its arc and refuses out of reach, a yoyo in a slot reaches nothing, and an empty gear says no-weapon");
-        return 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        const string family = "item weapon";
+        int failed = 0;
+        failed += RunOneRow.Case(ABowFiresItsFreeArrowPlayerOwned, family);
+        failed += RunOneRow.Case(APistolFiresTheMusketBallsProjectileAtTheComposedSpeed, family);
+        failed += RunOneRow.Case(AWandSpendsManaAndLandsAtTheGradient, family);
+        failed += RunOneRow.Case(ASwordStrikesTheBodyInItsArcAndRefusesOneOutOfReach, family);
+        failed += RunOneRow.Case(ARefusedItemInASlotNeverReachesTheArsenal, family);
+        failed += RunOneRow.Case(AnEmptyGearSaysNoWeapon, family);
+        if (failed == 0)
+            Console.WriteLine("item weapon: a bow fires the wooden arrow player-owned, a pistol the musket ball at the composed speed, a wand spends mana and lands at the gradient down to an empty pool, a sword strikes in its arc and refuses out of reach, a yoyo in a slot reaches nothing, and an empty gear says no-weapon");
+        return failed;
     }
 
     /// <summary>

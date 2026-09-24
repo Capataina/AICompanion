@@ -27,8 +27,7 @@ internal static class VerifyCourseBindingExecution
         int red = 0;
         void Row(string name, Action test)
         {
-            try { test(); Console.WriteLine("GREEN " + name); }
-            catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
+            red += RunOneRow.GreenOrRed(name, test);
         }
         Row("G01 every domain discovery can publish is performed by exactly one registered activity", EveryDomainHasAPerformer);
         Row("G01 a domain no activity declares is refused before the search can order it", AnUndeclaredDomainIsRefusedBeforeItIsOrdered);

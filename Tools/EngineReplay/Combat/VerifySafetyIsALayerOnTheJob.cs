@@ -29,16 +29,20 @@ internal static class VerifySafetyIsALayerOnTheJob
         // force, how far each search got before its deadline would decide the verdict, so the verdict would measure
         // the machine. Lifting them keeps each query's work-count limits and takes load out of the result.
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        const string family = "safety layer";
+        int failed = 0;
         try
         {
-            AnEnemyBesideTheOrbDoesNotKeepItFromAPlayerWhoWalksAway();
-            TheHandsKeepFiringWhileTheBodyKeepsItsJob();
-            AShotBendsGuardingWithoutSuspendingItAndMisses();
-            GuardingReachesThePlayerPastAnInterveningHostileWithoutContact();
+            failed += RunOneRow.Case(AnEnemyBesideTheOrbDoesNotKeepItFromAPlayerWhoWalksAway, family);
+            failed += RunOneRow.Case(TheHandsKeepFiringWhileTheBodyKeepsItsJob, family);
+            failed += RunOneRow.Case(AShotBendsGuardingWithoutSuspendingItAndMisses, family);
+            failed += RunOneRow.Case(GuardingReachesThePlayerPastAnInterveningHostileWithoutContact, family);
         }
         finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
-        Console.WriteLine("safety is a layer on the job: an enemy beside the body does not keep it from a walking player, the hands fire while the job keeps the feet, a shot bends guarding without suspending it and misses, and combat fights the hostile in its way without ever touching it");
-        return 0;
+        if (failed == 0)
+            Console.WriteLine("safety is a layer on the job: an enemy beside the body does not keep it from a walking player, the hands fire while the job keeps the feet, a shot bends guarding without suspending it and misses, and combat fights the hostile in its way without ever touching it");
+        return failed;
     }
 
     /// <summary>

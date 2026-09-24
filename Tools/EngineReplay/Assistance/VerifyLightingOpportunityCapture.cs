@@ -20,8 +20,7 @@ internal static class VerifyLightingOpportunityCapture
         int red = 0;
         void Row(string name, Action test)
         {
-            try { test(); Console.WriteLine("GREEN " + name); }
-            catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
+            try { red += RunOneRow.GreenOrRed(name, test); }
             finally { VerifyUsefulAssistance.ClearMeasuredLight(); }
         }
         Row("G08 native lighting capture preserves cuts and shared deficits", NativeSitesShareOneObservedDeficitCensus);

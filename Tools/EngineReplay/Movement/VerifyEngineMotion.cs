@@ -130,6 +130,11 @@ internal static class VerifyEngineMotion
         // Perf tier as well: 138 s of a 232 s suite at 987319df, almost all of it three unbounded
         // uncached searches of about thirty seconds each, and its subject is cost rather than behaviour.
         ["attack planning on a forty-hostile crowd is measured unbounded and under the tick's own allowance"] = new[] { EmitLedgerRows.TimedTag, EmitLedgerRows.PerfTierTag },
+        // The audit's own subjects: each fires contract kinds on purpose or grades the counts itself, so the
+        // check `AuditEveryCase` runs after every case files their counts and fails none of them.
+        ["a decision that contradicts itself is named while it happens"] = new[] { AuditEveryCase.AuditsTheAuditTag },
+        ["every native effect the companion causes is the accepted step's"] = new[] { AuditEveryCase.AuditsTheAuditTag },
+        ["seeded event sequences nobody wrote break no decision contract"] = new[] { AuditEveryCase.AuditsTheAuditTag },
     };
 
     private static IReadOnlyList<string>? TagsOf(string name)
@@ -341,6 +346,26 @@ internal static class VerifyEngineMotion
         // restores every static it writes, and running last means nothing inherits whatever it misses.
         ("seeded event sequences nobody wrote break no decision contract", FuzzTheDecisionContracts.Run),
         ("a fixture that records is one the audit can read a body from", VerifyEveryRecordedFixtureIsVisibleToTheAudit.Run),
+        // Ten rows that were reachable only through `--attack-planning` and `--retained-course-combat`, found by
+        // the reach check below on 24 September 2026: nothing the harness runs had ever asked them.
+        // The flags wrap each in a lambda that discards the int it returns, so under the flag a row reporting a
+        // failure count rather than throwing was read as a pass; registered as themselves, the count is the verdict.
+        ("the planning clock stores milliseconds", VerifyAttackPlanning.ThePlanningClockStoresMilliseconds),
+        ("SafeRange steps off a horizontal flyer", VerifyAttackPlanning.SafeRangeStepsOffAHorizontalFlyer),
+        ("harm at a stand is path occupancy", VerifyAttackPlanning.HarmAtStandIsPathOccupancy),
+        ("a hold survives creep and dumps a jump", VerifyAttackPlanning.AHoldSurvivesCreepAndDumpsAJump),
+        ("closeness to a body is a heat not a wall", VerifyAttackPlanning.ClosenessToABodyIsAHeatNotAWall),
+        ("company parks in clear air", VerifyAttackPlanning.CompanyParksInClearAir),
+        ("HereAndCompany stands off a body", VerifyAttackPlanning.HereAndCompanyStandsOffABody),
+        ("a segmented body is one threat for danger", VerifyAttackPlanning.ASegmentedBodyIsOneThreatForDanger),
+        ("G04 captured combat use binds and validates exactly", VerifyCombatCourseBinding.CapturedUseBindsWithoutReadingLiveTerraria),
+        ("G04 native planned use carries simulator damage", VerifyRetainedCombatBudget.PlannedUseCarriesSimulatorTargetDamage),
+        ("every gathering census reaches its own discovery and an incomplete one stays unresolved", VerifyGatheringOpportunityDiscovery.Run),
+        // `--dodge-repro`'s S01 reproduction, written to exit 1 while the walker failed to dodge; the orb dodges it
+        // (exit 0 on 24 September 2026), so it is a row that holds rather than a reproduction waiting on a fix.
+        ("an arrow at body height over dry floor is dodged", VerifySafetyIsALayerOnTheJob.ReproduceDodgeOnDryFloor),
+        // Reads the compiled assembly and this table, and touches no world, so its position is free.
+        ("every fixture entry is reachable from the default suite or exempt by name with its reason", VerifyEveryFixtureIsReachable.Run),
     };
 
     /// <summary>

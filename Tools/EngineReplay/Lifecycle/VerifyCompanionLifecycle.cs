@@ -81,6 +81,8 @@ internal static class VerifyCompanionLifecycle
         // Rendering and first-tick logging require the loader/graphics services; the real AI,
         // breath, observations, chooser and motor remain active in this headless fixture.
         Set(companion, "loggedFirstTick", true);
+        // The effect audit around every case judges a strike against the step this companion holds.
+        AuditEveryCase.Created(companion);
         return companion;
     }
 

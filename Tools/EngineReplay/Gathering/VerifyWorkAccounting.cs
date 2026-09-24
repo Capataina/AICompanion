@@ -26,8 +26,7 @@ internal static class VerifyWorkAccounting
         void Each(string name, Action fixture)
         {
             LimitPlanningWork.Unbounded = true;
-            try { fixture(); Console.WriteLine($"GREEN {name}"); }
-            catch (Exception e) { red++; Console.WriteLine($"RED {name}: {e.Message}"); }
+            try { red += RunOneRow.GreenOrRed(name, fixture); }
             finally { WorkPolicies.Mining = mining; LimitPlanningWork.Unbounded = false; }
         }
         Each("M05 cleared portion of a continuing vein", AClearedPortionOfAContinuingVeinIsPartial);

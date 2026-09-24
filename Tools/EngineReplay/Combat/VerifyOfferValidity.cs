@@ -25,12 +25,16 @@ internal static class VerifyOfferValidity
 {
     public static int Run()
     {
-        FireFromHoldsThePlannedPoint();
-        FireFromReportsUndecidedWhileTheFloodHasNotClaimedIt();
-        FireFromRefusesSolidGround();
-        FireFromRefusesADeadTarget();
-        Console.WriteLine("offer validity: a FireFrom stand holds its point, reports undecided on unclaimed ground, falls back to here from rock, and refuses a dead target");
-        return 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        const string family = "offer validity";
+        int failed = 0;
+        failed += RunOneRow.Case(FireFromHoldsThePlannedPoint, family);
+        failed += RunOneRow.Case(FireFromReportsUndecidedWhileTheFloodHasNotClaimedIt, family);
+        failed += RunOneRow.Case(FireFromRefusesSolidGround, family);
+        failed += RunOneRow.Case(FireFromRefusesADeadTarget, family);
+        if (failed == 0)
+            Console.WriteLine("offer validity: a FireFrom stand holds its point, reports undecided on unclaimed ground, falls back to here from rock, and refuses a dead target");
+        return failed;
     }
 
     private const int FloorY = 80;

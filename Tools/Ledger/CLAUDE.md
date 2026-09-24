@@ -14,10 +14,16 @@ Ledger/
 ├─ CompareRunsAndScore.cs the Wilson interval, the noise band, the sampled reading, and the printed scoreboard
 ├─ BenchmarkTheMachine.cs the fixed workload timed at both ends of a run, and the scoreboard's machine, duration and memory report
 ├─ DecideWhetherThePerfTierIsDue.cs  whether anything the mod is compiled from changed since the last perf run
-├─ SelfTestTheStore.cs    the store's own rules: commit widths, the baseline refusals, the round trip, the sampled pair, the tier's paths, modes
+├─ SelfTestTheStore.cs    the store's own rules: commit widths, the baseline refusals, the round trip, the sampled pair, the tier's paths, modes, sub-rows
 ├─ Program.cs             begin · benchmark · perf-due · timing · scoreboard · compare · baseline · reds · error · list · --self-test
 └─ runs/                  committed run files, one per run
 ```
+
+## A case can file its assertions as rows of their own, and an instrument can check every case after its body
+
+**A sub-row is one assertion inside a case, keyed `<outer case> :: <row>`, and it exists so a red on one assertion no longer silences the rest in the store.** `EmitLedgerRows.SubRow` files it under whatever case is running (`EmitLedgerRows.Current`, set by `Case` for the body's duration, saved and restored so a nested case hands its enclosing one back), with that case's mode and tags plus `sub-row`; outside a case it files nothing, because a flag run has no case to belong to. The outer case keeps its name and its own row, so no baseline is lost: sub-rows arrive as `new`, nothing goes `gone`, and one failing assertion is two red rows. Three details keep the key sound, and each is pinned by the self-test row `an assertion inside a case files its own row under the case, and naming that row selects the case`: no `/` in the separator or in a row's name (written U+2215), because `--rerun-red` recovers the case by splitting the key on the slash; a name used twice in one case is numbered `#2` rather than filed as a repeat the scoreboard would read as a sample; and `Selected` strips a sub-row suffix from every filter fragment, so a rerun handed a sub-row's key reruns its outer case. The engine suite's `RunOneRow` is the producer (`../EngineReplay/CLAUDE.md`).
+
+**`AfterCase` is the second per-case hook, and it is a delegate for the reason `ResetBeforeCase` is**: this file compiles into every tool and only the instrument knows what its process holds. `Case` runs it after the body, adds the failures it returns, folds its `Detail`s into the case's reason, runs it after a body that threw as well without being able to turn that case green, and turns a check that throws into one failure with its reason. The engine suite registers its decision and effect audit there (`../EngineReplay/AuditEveryCase.cs`); no other instrument registers one.
 
 ## A run is refused as a baseline for four separate reasons, and each is its own rule
 
