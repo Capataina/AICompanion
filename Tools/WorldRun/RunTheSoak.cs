@@ -296,7 +296,7 @@ internal static class RunTheSoak
         EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "soak decision yield per thousand ticks",
             samples.Count * 1000d / Math.Max(1, ticks), "decisions/1k ticks",
             mode: "in-suite",
-            tags: new[] { EmitLedgerRows.ProductionAllowancesTag, "sampled-under-the-production-clock" },
+            tags: new[] { EmitLedgerRows.ProductionAllowancesTag, EmitLedgerRows.SampledTag },
             message: $"seed {seed}: {samples.Count} decision(s) over {ticks} tick(s); the growth verdict needs "
                 + $"{WarmUpDecisions + GrowthWindowDecisions * 2} of them and grades "
                 + $"{Math.Max(0, samples.Count - WarmUpDecisions) / GrowthWindowDecisions} window(s) of "
@@ -543,23 +543,27 @@ internal static class RunTheSoak
     private static void ReportTheCost(string suite, List<DecisionSample> samples, int overrunTicks, int ticks,
         Stopwatch clock, DriveASeededScene scene)
     {
-        void Measure(string name, double value, string unit, string message = "")
+        // Every row here is a sample, because the production clock decides how far each search gets; the
+        // ones whose number is a time, or is counted against one, are also timed.
+        void Measure(string name, double value, string unit, string message = "", bool timed = false)
             => EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, name, value, unit,
-                mode: "in-suite", tags: new[] { EmitLedgerRows.ProductionAllowancesTag, "sampled-under-the-production-clock" },
+                mode: "in-suite", tags: timed
+                    ? new[] { EmitLedgerRows.ProductionAllowancesTag, EmitLedgerRows.SampledTag, EmitLedgerRows.TimedTag }
+                    : new[] { EmitLedgerRows.ProductionAllowancesTag, EmitLedgerRows.SampledTag },
                 message: message);
 
         Measure("soak ticks whose whole brain overran a frame", ticks == 0 ? 0 : overrunTicks * 100d / ticks, "%",
             $"{overrunTicks} of {ticks} tick(s) over {FrameMilliseconds:0.00} ms, sampled under the game's own "
-            + "allowances with other work on this machine; a share and never a pass line");
+            + "allowances with other work on this machine; a share and never a pass line", timed: true);
         Measure("soak decisions", samples.Count, "count");
         Measure("soak peak facts in one frozen observation", samples.Count == 0 ? 0 : samples.Max(s => s.Facts), "facts");
         Measure("soak median facts per decision", Median(samples.Select(s => (double)s.Facts).ToList()), "facts");
         Measure("soak median opportunities carried per decision", Median(samples.Select(s => (double)s.Candidates).ToList()), "candidates");
         Measure("soak decide cost per decision at p50", Median(samples.Select(s => s.DecideMsSum).ToList()), "ms",
             "the sum over the ticks one decision spanned, not one tick's share; a decision that spans ticks "
-            + "has a sum and a maximum and they are different questions");
-        Measure("soak worst decide cost on one tick", samples.Count == 0 ? 0 : samples.Max(s => s.DecideMsMax), "ms");
-        Measure("soak wall clock per tick", clock.Elapsed.TotalMilliseconds / Math.Max(1, ticks), "ms");
+            + "has a sum and a maximum and they are different questions", timed: true);
+        Measure("soak worst decide cost on one tick", samples.Count == 0 ? 0 : samples.Max(s => s.DecideMsMax), "ms", timed: true);
+        Measure("soak wall clock per tick", clock.Elapsed.TotalMilliseconds / Math.Max(1, ticks), "ms", timed: true);
         Measure("soak tiles the bot mined", scene.TilesMined, "tiles",
             scene.MiningRetired == null
                 ? "the bot's own terrain churn, which is what invalidates retained searches"
