@@ -33,8 +33,7 @@ internal static class VerifyTheCourseOwnsTheTick
         int red = 0;
         void Row(string name, Action test)
         {
-            try { test(); Console.WriteLine("GREEN " + name); }
-            catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
+            red += RunOneRow.GreenOrRed(name, test);
         }
         Row("G01 a whole tick runs through the course and asks for a place", ATickRunsThroughTheCourse);
         Row("G01 an empty world is companionship, not a hold", NothingToDoKeepsCompany);

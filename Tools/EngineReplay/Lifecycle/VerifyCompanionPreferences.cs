@@ -12,10 +12,10 @@ internal static class VerifyCompanionPreferences
 {
     public static int Run()
     {
-        ScalarRoundTrip();
-        MalformedValuesFallBack();
-        DistanceOrdering();
-        return 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        return RunOneRow.Case(ScalarRoundTrip, "preferences")
+            + RunOneRow.Case(MalformedValuesFallBack, "preferences")
+            + RunOneRow.Case(DistanceOrdering, "preferences");
     }
 
     private static void ScalarRoundTrip()

@@ -23,12 +23,16 @@ internal static class VerifyHandedGear
     public static int Run()
     {
         VerifyCompanionLifecycle.Create();
-        FiveItemsFindTheirSlots();
-        GearPersistsAndKeepsWhatNoLongerFits();
-        AHundredSlotBagLoadsIntoTheLargerBag();
-        ToolPowerIsWhatTheGameGatesWith();
-        Console.WriteLine("handed gear: a bow, a sword and a wand fit a weapon slot, a pickaxe only its own, a yoyo nowhere, and the pick power the slot reads is the one the game gates a tile with");
-        return 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        const string family = "handed gear";
+        int failed = 0;
+        failed += RunOneRow.Case(FiveItemsFindTheirSlots, family);
+        failed += RunOneRow.Case(GearPersistsAndKeepsWhatNoLongerFits, family);
+        failed += RunOneRow.Case(AHundredSlotBagLoadsIntoTheLargerBag, family);
+        failed += RunOneRow.Case(ToolPowerIsWhatTheGameGatesWith, family);
+        if (failed == 0)
+            Console.WriteLine("handed gear: a bow, a sword and a wand fit a weapon slot, a pickaxe only its own, a yoyo nowhere, and the pick power the slot reads is the one the game gates a tile with");
+        return failed;
     }
 
     /// <summary>

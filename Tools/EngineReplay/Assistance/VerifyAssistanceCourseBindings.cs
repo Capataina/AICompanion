@@ -25,8 +25,7 @@ internal static class VerifyAssistanceCourseBindings
         int red = 0;
         void Row(string name, Action test)
         {
-            try { test(); Console.WriteLine("GREEN " + name); }
-            catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
+            red += RunOneRow.GreenOrRed(name, test);
         }
         Row("G03 each assistance domain binds a step a course can hold", EachDomainBinds);
         Row("G03 an incomplete census refuses to bind", CensusGatesTheBind);

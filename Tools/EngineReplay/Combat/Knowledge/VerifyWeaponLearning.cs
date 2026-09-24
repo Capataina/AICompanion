@@ -58,16 +58,20 @@ internal static class VerifyWeaponLearning
 
     public static int Run()
     {
-        AnAimCoefficientIsLearnedFromWhetherAimMattered();
-        TheHandsFireTheSimulatorsBestAim();
-        ADebuffThenBurstPairIsOpenedWithTheDebuff();
-        AChildProjectileBelongsToTheShotThatFiredItsParent();
-        ASwingIsTaughtTheMomentItLands();
-        UnderRealDangerTheChoiceIsThePosteriorMean();
-        AStandIsPricedByEveryHandedWeapon();
-        TheLearnersCostPerDecisionIsMeasured();
-        Console.WriteLine("weapon learning: aim is learned from whether it mattered, a debuff pair opens with the debuff, a child projectile is its parent's shot, a swing teaches at once, danger holds the choice to the mean, and a stand is priced by every weapon in hand");
-        return 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        const string family = "weapon learning";
+        int failed = 0;
+        failed += RunOneRow.Case(AnAimCoefficientIsLearnedFromWhetherAimMattered, family);
+        failed += RunOneRow.Case(TheHandsFireTheSimulatorsBestAim, family);
+        failed += RunOneRow.Case(ADebuffThenBurstPairIsOpenedWithTheDebuff, family);
+        failed += RunOneRow.Case(AChildProjectileBelongsToTheShotThatFiredItsParent, family);
+        failed += RunOneRow.Case(ASwingIsTaughtTheMomentItLands, family);
+        failed += RunOneRow.Case(UnderRealDangerTheChoiceIsThePosteriorMean, family);
+        failed += RunOneRow.Case(AStandIsPricedByEveryHandedWeapon, family);
+        failed += RunOneRow.Case(TheLearnersCostPerDecisionIsMeasured, family);
+        if (failed == 0)
+            Console.WriteLine("weapon learning: aim is learned from whether it mattered, a debuff pair opens with the debuff, a child projectile is its parent's shot, a swing teaches at once, danger holds the choice to the mean, and a stand is priced by every weapon in hand");
+        return failed;
     }
 
     private sealed record Setting(CompanionNPC Companion, NPC Enemy, C Ctx, List<T> Threats);

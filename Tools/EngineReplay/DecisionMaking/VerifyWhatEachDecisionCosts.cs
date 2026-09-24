@@ -46,8 +46,7 @@ internal static class VerifyWhatEachDecisionCosts
     {
         live::AICompanion.Companion.Brain.Activities.WorkPolicy policy
             = live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining;
-        try { test(); Console.WriteLine("  GREEN " + name); return 0; }
-        catch (Exception error) { Console.WriteLine("  RED " + name + ": " + error.Message); return 1; }
+        try { return RunOneRow.GreenOrRed(name, test); }
         finally { live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = policy; }
     }
 

@@ -22,15 +22,19 @@ internal static class VerifyHuntProgress
 
     public static int Run()
     {
-        VerifyIdleHandsStallAndDefer();
-        VerifyMovedTargetReopens();
-        VerifyFiredUseRenews();
-        VerifySuspensionRenews();
-        VerifyChurnStillDefers();
-        VerifyUnattributedFiredRenewsNothing();
-        VerifyTravelDoesNotConsumeTheWindow();
-        Console.WriteLine("combat progress: idle hands stall and defer, a moved target reopens, firing and suspension renew, churn still defers, travel is not idleness");
-        return 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        const string family = "combat progress";
+        int failed = 0;
+        failed += RunOneRow.Case(VerifyIdleHandsStallAndDefer, family);
+        failed += RunOneRow.Case(VerifyMovedTargetReopens, family);
+        failed += RunOneRow.Case(VerifyFiredUseRenews, family);
+        failed += RunOneRow.Case(VerifySuspensionRenews, family);
+        failed += RunOneRow.Case(VerifyChurnStillDefers, family);
+        failed += RunOneRow.Case(VerifyUnattributedFiredRenewsNothing, family);
+        failed += RunOneRow.Case(VerifyTravelDoesNotConsumeTheWindow, family);
+        if (failed == 0)
+            Console.WriteLine("combat progress: idle hands stall and defer, a moved target reopens, firing and suspension renew, churn still defers, travel is not idleness");
+        return failed;
     }
 
     /// <summary>

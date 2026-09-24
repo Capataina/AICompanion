@@ -69,8 +69,7 @@ internal static class VerifyLightAndReachSenses
         {
             LimitPlanningWork.Unbounded = true;
             Preferences.Current = new Preferences { TorchPlacement = true, PotBreaking = false };
-            try { fixture(); Console.WriteLine($"GREEN {name}"); }
-            catch (Exception e) { red++; Console.WriteLine($"RED {name}: {e.Message}"); }
+            try { red += RunOneRow.GreenOrRed(name, fixture); }
             finally
             {
                 LimitPlanningWork.Unbounded = false;

@@ -34,10 +34,12 @@ internal static class VerifyUsefulAssistance
         try
         {
             Preferences.Current = new Preferences { TorchPlacement = true, PotBreaking = false };
-            LightingReadsOnlyMeasuredDarkness();
-            DistantDarkAirIsOfferedWhenFeetAreInLight();
-            Console.WriteLine("useful assistance: unmeasured light, measured dark and lit areas, carried torches, lit neighbourhoods, distant dark air and a dark area with no torch anywhere pass");
-            return 0;
+            // Both rows run and file a sub-row; the fixture fails afterwards if either did.
+            int failed = RunOneRow.Case(LightingReadsOnlyMeasuredDarkness, "useful assistance")
+                + RunOneRow.Case(DistantDarkAirIsOfferedWhenFeetAreInLight, "useful assistance");
+            if (failed == 0)
+                Console.WriteLine("useful assistance: unmeasured light, measured dark and lit areas, carried torches, lit neighbourhoods, distant dark air and a dark area with no torch anywhere pass");
+            return failed;
         }
         finally
         {

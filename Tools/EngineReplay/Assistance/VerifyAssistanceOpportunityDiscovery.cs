@@ -22,8 +22,7 @@ internal static class VerifyAssistanceOpportunityDiscovery
         int red = 0;
         void Row(string name, Action test)
         {
-            try { test(); Console.WriteLine("GREEN " + name); }
-            catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
+            red += RunOneRow.GreenOrRed(name, test);
         }
         Row("G08 assistance census retains every drop and site", AllCapturedSitesAppear());
         Row("G11 assistance source resumes after a cut", CutDoesNotResetCursor());

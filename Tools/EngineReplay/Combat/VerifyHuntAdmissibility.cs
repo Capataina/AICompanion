@@ -22,12 +22,16 @@ internal static class VerifyHuntAdmissibility
 {
     public static int Run()
     {
-        VerifyWalkableFiringPositionKeepsTheTarget();
-        VerifySealedTargetIsRefused();
-        VerifyUnfinishedSearchIsUndecidedNotRefused();
-        MeasureTheCheckOnAHopelessCrowd();
-        Console.WriteLine("combat admissibility: a repositionable target is kept, an unshootable target is refused, an unfinished search is undecided rather than refused, and the check's cost on a hopeless crowd is measured");
-        return 0;
+        // Every row runs and files a sub-row; the fixture fails afterwards if any did, rather than at the first.
+        const string family = "combat admissibility";
+        int failed = 0;
+        failed += RunOneRow.Case(VerifyWalkableFiringPositionKeepsTheTarget, family);
+        failed += RunOneRow.Case(VerifySealedTargetIsRefused, family);
+        failed += RunOneRow.Case(VerifyUnfinishedSearchIsUndecidedNotRefused, family);
+        failed += RunOneRow.Case(MeasureTheCheckOnAHopelessCrowd, family);
+        if (failed == 0)
+            Console.WriteLine("combat admissibility: a repositionable target is kept, an unshootable target is refused, an unfinished search is undecided rather than refused, and the check's cost on a hopeless crowd is measured");
+        return failed;
     }
 
     /// <summary>

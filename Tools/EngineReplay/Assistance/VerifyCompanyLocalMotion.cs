@@ -38,8 +38,7 @@ internal static class VerifyCompanyLocalMotion
             // Whole-brain cases catch states by condition over thousands of ticks; under the wall-clock allowances machine load would
             // decide how far each flood and route got, and so what the case observed.
             LimitPlanningWork.Unbounded = true;
-            try { fixture(); Console.WriteLine($"GREEN {name}"); }
-            catch (Exception e) { red++; Console.WriteLine($"RED {name}: {e.Message}"); }
+            try { red += RunOneRow.GreenOrRed(name, fixture); }
             finally { LimitPlanningWork.Unbounded = false; }
         }
         Each("J06/X01 hovering company over pools resolves only places it can come back from", HoveringCompanyOverPoolsStaysReturnable);

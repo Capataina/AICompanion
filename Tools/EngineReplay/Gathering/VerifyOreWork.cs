@@ -23,52 +23,51 @@ internal static class VerifyOreWork
 {
     public static int Run()
     {
+        // Every row runs and files its own sub-row, and the fixture fails afterwards if any did. Until 24
+        // September 2026 the first throw ended the file, which is how the maximum-reach pose defect sat unseen
+        // twelfth behind a red eleventh row; a row's position no longer hides the rows after it.
+        const string family = "ore work";
+        int failed = 0;
         try
         {
-            DisabledDoesNotStartAJob();
-            MimicStartsFromThePlayersVein();
-            OpportunisticKeepsOneVeinAcrossAnInterruption();
-            DirtIsNeverAWorkTarget();
-            ADepletedTileRelocatesWithinTheVein();
-            AWeakPickDoesNotMaskFartherOre();
-            AnUnmineableVeinDoesNotBecomeWork();
-            ASealedTreeYieldsToReachableOre();
-            ChoppingPrefersASeparateActiveTrunk();
-            RevokedWorkCannotExecuteAPreparedCandidate();
-            ChoppingUsesActualReachRatherThanStandDistance();
-            LosingWorkEligibilityDoesNotClaimCompletion();
-            OreDisappearanceAndAttributedRemovalRemainSeparate();
-            AnAttemptConcludesOnlyFromItsOwnEvidence();
-            TheNearestFirstApproachMatchesTheExhaustiveScan();
-            ABlockedNearestOreYieldsToAnExposedFartherOre();
-            AMaximumReachPoseMinesWithoutClosingIn();
-            EveryArrivalOffsetEndsInUsableWork();
-            CeilingOreIsMinedFromAProvenHop();
-            ToolPowerChangesDuringAJobChangeEligibility();
-            PlayerTerrainEditsCloseAndReopenAccess();
-            AJointlyClearedVeinIsASharedCompletion();
-            PreparedToolsRejectReplacementMaterial();
-            AxeEligibilityAloneDoesNotMakeATree();
-            AnUnprovenApproachIsNotAPlan();
-            AnUnknownApproachDoesNotSubstituteASealedNeighbour();
-            AReachableOreProducesANativeBreak();
-            AUsefulCurrentPoseNeedsNoApproach();
-            AProjectileInterruptsCoherentToolOwnership();
-            NativeToolOutcomesDistinguishAttemptsFromProgress();
-            PreparedWorkForecastRespondsToNativeProgress();
-            RemainingToolWorkMatchesNativeCompletion();
-            DepartingPlayerChangesWhetherWorkIsWorthFinishing();
-            ReunionChargeReadsDepartureAndTheRouteHome();
-            // Last on purpose, and not because it is unimportant. It is red on a brain finding that waits
-            // on a decision — a companion beside its player, with the flood complete, reading
-            // `approach-unknown` about ore thirty-two tiles away and never starting — and this fixture
-            // aborts on its first failure. Standing eleventh it kept sixteen rows behind it unrun, which
-            // is how the maximum-reach pose defect sat unseen: that row is twelfth. Proven to be the
-            // same red either way by hoisting it to the front against the pose fix with and without the
-            // fix wired in, on 2026-09-21: identical message both times.
-            AColdFloodDoesNotLeaveTheBrainResting();
-            Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach is not a plan, blocked nearest ore, reach edge, arrival offsets, ceiling hops, tool power changes, player terrain edits and native productive break pass");
-            return 0;
+            failed += RunOneRow.Case(DisabledDoesNotStartAJob, family);
+            failed += RunOneRow.Case(MimicStartsFromThePlayersVein, family);
+            failed += RunOneRow.Case(OpportunisticKeepsOneVeinAcrossAnInterruption, family);
+            failed += RunOneRow.Case(DirtIsNeverAWorkTarget, family);
+            failed += RunOneRow.Case(ADepletedTileRelocatesWithinTheVein, family);
+            failed += RunOneRow.Case(AWeakPickDoesNotMaskFartherOre, family);
+            failed += RunOneRow.Case(AnUnmineableVeinDoesNotBecomeWork, family);
+            failed += RunOneRow.Case(ASealedTreeYieldsToReachableOre, family);
+            failed += RunOneRow.Case(ChoppingPrefersASeparateActiveTrunk, family);
+            failed += RunOneRow.Case(RevokedWorkCannotExecuteAPreparedCandidate, family);
+            failed += RunOneRow.Case(ChoppingUsesActualReachRatherThanStandDistance, family);
+            failed += RunOneRow.Case(LosingWorkEligibilityDoesNotClaimCompletion, family);
+            failed += RunOneRow.Case(OreDisappearanceAndAttributedRemovalRemainSeparate, family);
+            failed += RunOneRow.Case(AnAttemptConcludesOnlyFromItsOwnEvidence, family);
+            failed += RunOneRow.Case(TheNearestFirstApproachMatchesTheExhaustiveScan, family);
+            failed += RunOneRow.Case(ABlockedNearestOreYieldsToAnExposedFartherOre, family);
+            failed += RunOneRow.Case(AMaximumReachPoseMinesWithoutClosingIn, family);
+            failed += RunOneRow.Case(EveryArrivalOffsetEndsInUsableWork, family);
+            failed += RunOneRow.Case(CeilingOreIsMinedFromAProvenHop, family);
+            failed += RunOneRow.Case(ToolPowerChangesDuringAJobChangeEligibility, family);
+            failed += RunOneRow.Case(PlayerTerrainEditsCloseAndReopenAccess, family);
+            failed += RunOneRow.Case(AJointlyClearedVeinIsASharedCompletion, family);
+            failed += RunOneRow.Case(PreparedToolsRejectReplacementMaterial, family);
+            failed += RunOneRow.Case(AxeEligibilityAloneDoesNotMakeATree, family);
+            failed += RunOneRow.Case(AnUnprovenApproachIsNotAPlan, family);
+            failed += RunOneRow.Case(AnUnknownApproachDoesNotSubstituteASealedNeighbour, family);
+            failed += RunOneRow.Case(AReachableOreProducesANativeBreak, family);
+            failed += RunOneRow.Case(AUsefulCurrentPoseNeedsNoApproach, family);
+            failed += RunOneRow.Case(AProjectileInterruptsCoherentToolOwnership, family);
+            failed += RunOneRow.Case(NativeToolOutcomesDistinguishAttemptsFromProgress, family);
+            failed += RunOneRow.Case(PreparedWorkForecastRespondsToNativeProgress, family);
+            failed += RunOneRow.Case(RemainingToolWorkMatchesNativeCompletion, family);
+            failed += RunOneRow.Case(DepartingPlayerChangesWhetherWorkIsWorthFinishing, family);
+            failed += RunOneRow.Case(ReunionChargeReadsDepartureAndTheRouteHome, family);
+            failed += RunOneRow.Case(AColdFloodDoesNotLeaveTheBrainResting, family);
+            if (failed == 0)
+                Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach is not a plan, blocked nearest ore, reach edge, arrival offsets, ceiling hops, tool power changes, player terrain edits and native productive break pass");
+            return failed;
         }
         finally
         {

@@ -48,8 +48,7 @@ internal static class VerifyAdmittedOpportunitiesBind
     /// instead and never opens the journey it came to measure.</summary>
     private static int Row(string name, Action test)
     {
-        try { test(); Console.WriteLine("  GREEN " + name); return 0; }
-        catch (Exception error) { Console.WriteLine("  RED " + name + ": " + error.Message); return 1; }
+        try { return RunOneRow.GreenOrRed(name, test); }
         finally { ClearTheScene(); }
     }
 
