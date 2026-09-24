@@ -207,6 +207,7 @@ public sealed class ReachSense
     /// </summary>
     public void Refresh(Senses senses)
     {
+        using var section = Diagnostics.BrainSections.Enter(RefreshSection);
         if (flood?.Valid == false)
             sinceFlood = RefloodTicks;
         if (pending?.Valid == false)
@@ -273,6 +274,10 @@ public sealed class ReachSense
     /// first flood of the recorded route three hundred ticks to complete and its replacement a hundred
     /// and fifty to catch the body, during which nothing near the body could be proven absent.
     /// </summary>
+    /// <summary>The profiler section a refresh runs in: where a new flood is rooted and a replacement taken over, which
+    /// is the part of the reach sense that runs on the positioner's rescore rather than every tick.</summary>
+    private static readonly int RefreshSection = Diagnostics.BrainSections.Register("reach-refresh");
+
     public void Grow()
     {
         FreeSpaceSearch? growing = pending ?? flood;

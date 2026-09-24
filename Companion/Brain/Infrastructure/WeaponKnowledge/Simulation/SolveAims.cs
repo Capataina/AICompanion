@@ -25,6 +25,9 @@ public readonly record struct AimCandidate(Vector2 AimPoint, Vector2 LaunchDirec
 /// </summary>
 public static class SolveAims
 {
+    /// <summary>The profiler section a stand's cheap proof runs in; the uses its sweep simulates nest under it.</summary>
+    private static readonly int FirstLandingSection = Diagnostics.BrainSections.Register("first-landing");
+
     /// <summary>How many aims one call proposes at most: the intercept, the spread, the banks, the pierce lines.</summary>
     public const int MaxAims = 10;
 
@@ -42,6 +45,7 @@ public static class SolveAims
         CombatWorld world, IReadOnlyList<EnemyForecast> enemies, int fireTick, ref DecisionWorkBudget budget,
         bool planning = false)
     {
+        using var section = Diagnostics.BrainSections.Enter(FirstLandingSection);
         int aimTick = Math.Max(1, fireTick);
         Vector2 toTarget = target.PredictedCentre(aimTick) - muzzle;
         if (toTarget == Vector2.Zero) return null;

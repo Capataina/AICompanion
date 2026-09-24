@@ -52,6 +52,11 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 /// </summary>
 public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
 {
+    // Profiler sections for the two consequences an order is priced by: the companionship gap walked along the
+    // course, and contact harm to both bodies over it.
+    private static readonly int CompanionshipSection = Diagnostics.BrainSections.Register("company-gap");
+    private static readonly int HarmSection = Diagnostics.BrainSections.Register("harm");
+
     /// <summary>The prediction law this forecast asks enemy motion under. It is part of the model fact's
     /// identity, so a later law cannot silently reuse an answer computed by this one; bump it whenever
     /// <see cref="PredictObservedMotion"/>'s continuation changes what it would return for one enemy.</summary>
@@ -115,7 +120,8 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
         companionship ??= new ForecastCourseCompanionship(facts, steps, successor.Pose, successor.Velocity,
             reunionPose, successor.Tick);
 
-        CourseCompanionshipResult company = companionship.Continue(facts, budget);
+        CourseCompanionshipResult company;
+        using (Diagnostics.BrainSections.Enter(CompanionshipSection)) company = companionship.Continue(facts, budget);
         if (company.Status == ProjectionStatus.Pending)
             // A suspended leg forwards its typed travel request rather than merely reporting that it
             // stopped. The observation owner answers it and the same candidate resumes; dropping the
@@ -126,7 +132,8 @@ public sealed class ForecastCourseConsequences : ICourseConsequenceForecast
         // Harm to both bodies: the companion's over the very trajectory companionship just walked, and
         // the player's over his own predicted path, with any hostile this course kills stopping where
         // the course's own effects say it dies.
-        HarmPass harm = PriceContactHarm(facts, company, successor, steps, budget);
+        HarmPass harm;
+        using (Diagnostics.BrainSections.Enter(HarmSection)) harm = PriceContactHarm(facts, company, successor, steps, budget);
         if (harm.Pending)
             return new(ProjectionStatus.Pending, null, harm.Reason, null, harm.RequiredMotion);
 

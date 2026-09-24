@@ -21,6 +21,10 @@ public interface ICourseConsequenceForecast
 /// the current domain cursor; hypothetical state is private to one candidate order.</summary>
 public sealed class BindCourseOrder : ICourseProjector
 {
+    // Profiler sections: binding one step against the frozen observation, and forecasting the bound order's
+    // consequences — the two halves of projecting an order, whose costs grow with different things.
+    private static readonly int BindSection = Diagnostics.BrainSections.Register("bind");
+    private static readonly int ConsequencesSection = Diagnostics.BrainSections.Register("consequences");
     private readonly Dictionary<OpportunityKey, Opportunity> opportunities;
     private readonly BindOpportunity binder;
     private readonly ProjectedCourseState initial;
@@ -78,7 +82,8 @@ public sealed class BindCourseOrder : ICourseProjector
             {
                 if (!opportunities.TryGetValue(order[steps.Count], out var opportunity))
                     return Finish(ProjectionStatus.Rejected, null, "opportunity-not-in-frozen-census", cursor);
-                var result = binder.Bind(opportunity, state, facts, bindingCursor, budget);
+                BindingResult result;
+                using (Diagnostics.BrainSections.Enter(BindSection)) result = binder.Bind(opportunity, state, facts, bindingCursor, budget);
                 MissingTravel = Array.AsReadOnly((result.RequiredTravel ?? Array.Empty<CourseTravelRequest>()).ToArray());
                 if (result.Pending) return new(ProjectionStatus.Pending, null, result.Reason, MissingTravel);
                 if (result.Binding == null || result.Admission != OpportunityAdmission.KnownUsable)
@@ -118,7 +123,9 @@ public sealed class BindCourseOrder : ICourseProjector
         // the start state and the end state are the same value; the rows that drove a non-empty order
         // used a stand-in forecast that ignores its successor. Two halves of one seam, each tested
         // against a hand-written stand-in for the other.
-        var consequence = forecast.Continue(steps.AsReadOnly(), initial.Fork(), facts, episode, forecastCursor, budget);
+        CourseProjectionResult consequence;
+        using (Diagnostics.BrainSections.Enter(ConsequencesSection))
+            consequence = forecast.Continue(steps.AsReadOnly(), initial.Fork(), facts, episode, forecastCursor, budget);
         if (consequence.Status == ProjectionStatus.Pending) return consequence;
         if (consequence.Status == ProjectionStatus.Complete)
         {

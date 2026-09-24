@@ -3051,8 +3051,10 @@ public static class ChronicleTests
             // The producer literals these rules rest on.
             string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
             string events = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordGodsEyeEvents.cs"));
-            Require(telemetry.IndexOf("recordClock.Restart();", StringComparison.Ordinal) > telemetry.IndexOf("public static void Record(CompanionNPC companion)", StringComparison.Ordinal)
-                    && telemetry.Contains("lastRecordMs = recordClock.Elapsed.TotalMilliseconds;", StringComparison.Ordinal)
+            // Record is timed on raw clock ticks since 0.48.0, so the recorder's own profiler section sits inside
+            // `record_ms` exactly; the pin follows the literal rather than the old Stopwatch field.
+            Require(telemetry.IndexOf("long recordStarted = Stopwatch.GetTimestamp();", StringComparison.Ordinal) > telemetry.IndexOf("public static void Record(CompanionNPC companion)", StringComparison.Ordinal)
+                    && telemetry.Contains("lastRecordMs = (Stopwatch.GetTimestamp() - recordStarted) * BrainSections.MillisecondsPerTimestamp;", StringComparison.Ordinal)
                     && telemetry.Contains("\\trecord_ms\\tevents_written\\tevents_dropped\\tevents_coalesced\\tterrain_evictions", StringComparison.Ordinal)
                     && telemetry.Contains("events-dropped={GodsEyeEvents.Dropped}", StringComparison.Ordinal) && telemetry.Contains("# retention=", StringComparison.Ordinal),
                 "the recorder no longer times Record, writes the loss columns in order, restates them on closure, or states its retention");

@@ -137,6 +137,8 @@ The evidence that the threshold is crossed is the outlier ratio above plus the f
 
 The combat planner is the only valuer of a firing stand. This folder exposes `AssessStands` (reach, travel ticks, harm at the stand and along the travel, membership of Combat's allowance, no route search) and `RequestKind.FireFrom`, which holds the planner's chosen stand, reports unclaimed as unresolved, or falls back to here from rock. The old firing-stand share, standoff, arrival-solve, handed models, and the `Guard` / `LineOfFire` request kinds are gone.
 
+**The positioner's two searches are profiler sections**: the park's candidate scoring (`position.park`, on a rescore only, so it runs on about one tick in eleven and costs up to several milliseconds when it does) and the stand assessment combat asks for (`assess-stands`, nested under whichever combat search asked). The reach refresh they both lean on opens its own. `../Diagnostics/CLAUDE.md` owns the profiler.
+
 ## Traps
 
 Destination acceptance must include the navigator's settle radius. A candidate on the comfort boundary can be valid while the body hovers partly outside it, leaving an Arrived navigator and an unsatisfied follow objective forever. Follow candidates leave that slack on both axes. If no candidate exists, the unresolved follow intent reaches movement as a travel intention aimed at the anchor rather than becoming a Hold request.

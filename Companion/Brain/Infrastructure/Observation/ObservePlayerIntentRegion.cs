@@ -255,8 +255,11 @@ public sealed class PlayerIntentRegionSense
     {
         Update(companion.Center, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples,
             player.HeldMove);
-        ObserveWayToPlayer(companion.Center, player.Position);
+        using (Diagnostics.BrainSections.Enter(WayToPlayerSection)) ObserveWayToPlayer(companion.Center, player.Position);
     }
+
+    /// <summary>The profiler section the way-to-the-player flood's slice runs in, which is most of what this sense costs.</summary>
+    private static readonly int WayToPlayerSection = Diagnostics.BrainSections.Register("way-to-player");
 
     /// <summary>
     /// One tick of the way-to-the-player sense, after the region has been rebuilt: grow the replacement flood by one slice, let a

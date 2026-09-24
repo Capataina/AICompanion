@@ -331,11 +331,16 @@ public sealed class Positioner
         // the clearest air inside the region — same heat the route uses — not the nearest corner, which
         // sat on the dirt beside him. A two-tile crack still wins when it is the only air that is with
         // him. Between rescores the destination holds, so this is not a twitch every tick.
-        Chosen = ClearestInsideCorner(senses);
+        using (Diagnostics.BrainSections.Enter(ParkSection)) Chosen = ClearestInsideCorner(senses);
         Region = Chosen == null ? SuccessRegion.None
             : SuccessRegion.Follow(senses.Intent.Objective.At(request.Anchor), senses.Tick, TerrainChanges.Revision);
         return Chosen;
     }
+
+    // Profiler sections for the positioner's two searches: the park's candidate scoring, and the stand assessment
+    // combat asks it for. The reach refresh they both lean on opens its own.
+    private static readonly int ParkSection = Diagnostics.BrainSections.Register("park");
+    private static readonly int AssessStandsSection = Diagnostics.BrainSections.Register("assess-stands");
 
     /// <summary>
     /// The band the park prefers, in tiles above the top of the player's head. README's words are
@@ -476,6 +481,7 @@ public sealed class Positioner
     public void AssessStands(IReadOnlyList<StandProposal> stands, Vector2 body, Senses.Senses senses,
         float companionLife, Func<Vector2, bool> inAllowance, List<StandVerdict> into)
     {
+        using var section = Diagnostics.BrainSections.Enter(AssessStandsSection);
         reachSense = senses.Reach;
         Point feet = MovementQueries.Tile(body);
         foreach (StandProposal proposal in stands)

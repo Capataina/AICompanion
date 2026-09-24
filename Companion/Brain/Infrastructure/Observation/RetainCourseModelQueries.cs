@@ -14,6 +14,9 @@ public sealed class RetainCourseModelQueries
     private readonly ScheduleCourseModels travel;
     private readonly Dictionary<(int Slot, long Generation), CapturedContactEnemy> contactEnemies = new();
     private bool abandoned;
+    // The two halves of one round of a decision: answering the models the search waits on, and the search itself.
+    private static readonly int ModelsSection = Diagnostics.BrainSections.Register("models");
+    private static readonly int SearchSection = Diagnostics.BrainSections.Register("search");
     public RetainCourseModelQueries(DecisionFactSnapshot snapshot, ITileWorld world, long capabilityRevision, int pendingCapacity)
     {
         Snapshot = snapshot;
@@ -40,8 +43,9 @@ public sealed class RetainCourseModelQueries
     {
         foreach (var request in search.RequiredTravel) RequestTravel(request);
         foreach (var request in search.RequiredEnemyMotion) RequestEnemyMotion(request);
-        if (Continue(budget)) search.ExtendModelFacts(Snapshot);
-        search.Continue(budget);
+        using (Diagnostics.BrainSections.Enter(ModelsSection))
+            if (Continue(budget)) search.ExtendModelFacts(Snapshot);
+        using (Diagnostics.BrainSections.Enter(SearchSection)) search.Continue(budget);
         // Requests discovered on the final operation remain queued for the next frame.
         // Capacity refusals leave requests on the search, where the next call retries them.
         foreach (var request in search.RequiredTravel) RequestTravel(request);

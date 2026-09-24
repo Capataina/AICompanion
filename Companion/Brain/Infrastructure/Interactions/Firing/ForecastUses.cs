@@ -27,6 +27,12 @@ namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 /// </summary>
 public static class ForecastUses
 {
+    /// <summary>The profiler section one best-aim question runs in — the planner's and the hand's alike, told apart
+    /// by the path they are entered from; the uses it simulates nest under it.</summary>
+    private static readonly int AimSection = BrainSections.Register("aim");
+    /// <summary>Proposing the aims before any is simulated: the intercept, the spread, the banks and the pierce lines.</summary>
+    private static readonly int AimCandidatesSection = BrainSections.Register("candidates");
+
     /// <summary>The raw inputs of a learning context other than the aim and the debuff, which differ per candidate and per body.</summary>
     public readonly record struct ContextInputs(float Distance, float Reach, float RelativeSpeed, int LaneHostiles, float OrbSpeed, float WidestAim)
     {
@@ -51,6 +57,7 @@ public static class ForecastUses
         Vector2 muzzle, IReadOnlyList<EnemyForecast> enemies, CombatWorld world, int fireTick, bool record,
         bool planning, ref DecisionWorkBudget budget)
     {
+        using var section = BrainSections.Enter(AimSection);
         EnemyForecast? forecast = null;
         foreach (EnemyForecast enemy in enemies)
             if (enemy.Slot == target.whoAmI) { forecast = enemy; break; }
@@ -65,7 +72,8 @@ public static class ForecastUses
         // milliseconds and count, and a cut aim-solve or a cut sim returns partial aims rather than
         // none, so the best-of-partial still prices. Hands pass their own unbounded budget — a fired
         // aim is not search work and must not cut — as does the per-tick forecast below them.
-        IReadOnlyList<AimCandidate> aims = SolveAims.For(id, muzzle, forecast, world, enemies, fireTick, ref budget);
+        IReadOnlyList<AimCandidate> aims;
+        using (BrainSections.Enter(AimCandidatesSection)) aims = SolveAims.For(id, muzzle, forecast, world, enemies, fireTick, ref budget);
         if (aims.Count == 0) return null;
         AimCandidate intercept = aims[0];
         AimedUse? best = null;

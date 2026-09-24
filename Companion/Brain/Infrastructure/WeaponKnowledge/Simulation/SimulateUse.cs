@@ -82,6 +82,11 @@ public sealed class SimulatedUse
 /// </summary>
 public static class SimulateUse
 {
+    /// <summary>The profiler section one simulated use runs in. It is the hottest call a fight makes, entered once per
+    /// use flown, which makes it the section whose own entry cost the profiler's overhead measurement is most
+    /// sensitive to.</summary>
+    private static readonly int SimulateSection = Diagnostics.BrainSections.Register("simulate");
+
     /// <summary>Deepest the child recursion goes; chains observed deeper than this are flown this far and their tail cut.</summary>
     public const int MaxChildDepth = 4;
 
@@ -125,6 +130,7 @@ public static class SimulateUse
         CombatWorld world, IReadOnlyList<EnemyForecast> enemies, ModifierState modifiers, int fireTick,
         ref DecisionWorkBudget budget)
     {
+        using var section = Diagnostics.BrainSections.Enter(SimulateSection);
         budget.NoteSimulation();
         var use = new SimulatedUse { ManaCost = weapon.ManaCost };
         if (weapon.IsSwing)

@@ -40,6 +40,11 @@ public sealed class Navigator
 {
     public enum ExecutionStatus { Idle, Arrived, Executable, Pending, Unreachable, Direct }
 
+    // Profiler sections: planning a route, and turning the route into this tick's controls. Inert in NavReplay, where
+    // nothing claims a recording thread.
+    private static readonly int RouteSearchSection = Diagnostics.BrainSections.Register("route-search");
+    private static readonly int SteerSection = Diagnostics.BrainSections.Register("steer");
+
     /// <summary>How close to the goal counts as having arrived, in pixels.</summary>
     public const float ArriveDistance = 12f;
 
@@ -213,8 +218,9 @@ public sealed class Navigator
             settledShort = null;
 
         if (Path == null || search is { Finished: false })
-            Plan(live, goal, world);
+            using (Diagnostics.BrainSections.Enter(RouteSearchSection)) Plan(live, goal, world);
 
+        using var steering = Diagnostics.BrainSections.Enter(SteerSection);
         Controls controls;
         if (Path != null && PathIsPartial && Vector2.Distance(live.Centre, Path.Goal) <= ArriveDistance)
         {

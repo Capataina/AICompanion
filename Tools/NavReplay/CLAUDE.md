@@ -76,6 +76,8 @@ The mirror is here as a transform and a proof of the transform, not as a replay 
 
 The extractor's own liquid fidelity is the text world's: a wet tile is water or lava with a full cell, and the walker's captures carry `~` in their snapshots. Both committed checkpoint windows hold no wet tile in the saved world they are replayed in; the snapshots' `~` tiles lie outside those windows.
 
+**`NavReplay.csproj` compiles `Companion/Brain/Infrastructure/Diagnostics/ProfileBrainSections.cs` beside the movement core**, because the navigator opens profiler sections. It names no game type, and nothing here calls `BeginTick`, so every scope in this tool is inert and costs one branch.
+
 ## Traps
 
 - Marker glyphs are air. Move actors through the header keys — `orb x,y` is the centre in pixels — never by writing a marker over a slope or a platform.

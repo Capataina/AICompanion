@@ -177,7 +177,23 @@ public sealed class BrainTelemetry : ModSystem
     //
     // A reader gates the pot witness on this version: below it a pot is `pot-target`'s usable count, from
     // it the Container count; a capture on either side reads as it was written.
-    private const string Schema = "0.47.0";
+    //
+    // 0.48.0 says where inside a tick the time and the memory went, and which ticks stood out. It moves no column
+    // and removes nothing; it is a version rather than a silent append because the session reader's "where the time
+    // goes" block and its section measure decline a capture below it by name, and a gate needs a number to read.
+    //
+    //   added     at the end of the row: `tick_alloc_bytes` (the update thread's allocation since the previous row,
+    //             `-` on a session's first), `brain_alloc_bytes` (the brain tick's own, `-` on a tick the brain did
+    //             not run), `sections` (the section profiler's `SectionsPerRow` largest self times this tick as
+    //             `path=self-ms/calls` joined by `|`, textual and declared), `sections_other_ms` (every other
+    //             section's self time, so the two sum to the profiled total) and `cost_fence_ms` (the fence this
+    //             tick's `brain_ms` was judged against, `-` while the window fills). The sidecar gains the
+    //             `cost-spike` occurrence — the worst brain tick of each one-second window whose cost crossed the
+    //             fence, with its whole section tree, collections, allocation and scene counts — and the `# closing=`
+    //             line gains `cost-spikes` and `cost-spike-dumps`. `ProfileBrainSections.cs` and
+    //             `DetectCostSpikes.cs` own the two mechanisms. The `record` subtree of a row's `sections` is the
+    //             previous row's recorder, the same phase `record_ms` has.
+    private const string Schema = "0.48.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -214,8 +230,43 @@ public sealed class BrainTelemetry : ModSystem
     private static int lastGc0 = -1, lastGc1 = -1, lastGc2 = -1;
     // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
     // the one before it and the first row of a session carries none.
-    private static readonly Stopwatch recordClock = new();
     private static double lastRecordMs = double.NaN;
+
+    // Schema 0.48.0: where the time went inside the tick, and the ticks that stood out.
+    private static readonly int RecordSection = BrainSections.Register("record");
+    private static readonly int RecordOccurrencesSection = BrainSections.Register("occurrences");
+    private static readonly int RecordRowSection = BrainSections.Register("row");
+    private static readonly int RecordEnqueueSection = BrainSections.Register("enqueue");
+    /// <summary>
+    /// How many sections the <c>sections</c> column names per row, most self time first. Eight, because on the
+    /// section-profile scenes of 24 September 2026 a tick entered about thirty sections and the eight largest held
+    /// nearly all of its self time, and a row already carries a few hundred columns: the column is read for which
+    /// sections dominated a tick, and the ninth-largest has not dominated anything. What the eight leave out is
+    /// never lost — <c>sections_other_ms</c> carries its total, and a spike tick's occurrence carries the whole tree.
+    /// </summary>
+    internal const int SectionsPerRow = 8;
+    private static readonly int[] topSections = new int[SectionsPerRow];
+    // The thread's allocation counter at the previous row, so each row carries the bytes the game's update thread
+    // allocated between two rows — everything on that thread, this mod and the engine alike; -1 before a session's
+    // first row.
+    private static long lastThreadAllocated = -1;
+    // The brain-cost fence, over this session's own brain ticks. `DetectCostSpikes` explains the rule.
+    private static readonly DetectCostSpikes costFence = new();
+    /// <summary>Spike ticks this session, every one counted whatever the dump's rate limit let through.</summary>
+    internal static long CostSpikes { get; private set; }
+    /// <summary>`cost-spike` occurrences written this session: one per window, for the worst spike in it.</summary>
+    internal static long CostSpikeDumps { get; private set; }
+    /// <summary>
+    /// Ticks a spike window stays open. The first spike opens it, the worst spike inside it is the one written, and
+    /// it is written when the window closes, so a burst of consecutive spikes is one record naming how many there
+    /// were rather than a record a tick. One second at the engine's sixty a second: a rate on writing, not a
+    /// threshold on cost.
+    /// </summary>
+    internal const int CostSpikeWindowTicks = 60;
+    private static ulong spikeWindowOpenedAt;
+    private static int spikesInWindow;
+    private static string? pendingSpike;
+    private static double pendingSpikeCost;
     /// <summary>What the last Record call cost in milliseconds, NaN before the first; MeasureBrainCost samples it as its own phase.</summary>
     public static double LastRecordMilliseconds => lastRecordMs;
     // Rows this session has written, which the end marker states so a reader can tell a file that lost rows from one
@@ -321,6 +372,12 @@ public sealed class BrainTelemetry : ModSystem
             // first sighting of the slot it happens to reuse.
             sightedDrops.Clear();
             lastBrainMs = 0;
+            // The fence is this session's own: a previous world's ticks say nothing about this one's.
+            costFence.Reset();
+            CostSpikes = CostSpikeDumps = 0;
+            spikesInWindow = 0;
+            pendingSpike = null;
+            lastThreadAllocated = -1;
             overrunWindowOpenedAt = Main.GameUpdateCount;
             overrunsInWindow = 0;
             worstFrameInWindow = 0;
@@ -435,6 +492,8 @@ public sealed class BrainTelemetry : ModSystem
         // at the last record it wrote; this enqueues one closing record per kind that has moved since,
         // while the event stream is still taking them.
         AuditDecisionContracts.Flush();
+        // A spike window still open when the session ends is written rather than lost, for the same reason.
+        FlushCostSpike(CompanionNPC.Instance?.NPC);
         GodsEyeEvents.Close();
         try
         {
@@ -454,7 +513,7 @@ public sealed class BrainTelemetry : ModSystem
             // `ReadLiveCourseForAudit.Install` never having run. Both are silent in play otherwise.
             // `effects-audited` (0.47.0) is the effect contract's denominator: a session whose hand did
             // nothing has two zero violation counts that mean nothing, and this is what says so.
-            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead};effects-audited={AuditDecisionContracts.EffectsAudited}");
+            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead};effects-audited={AuditDecisionContracts.EffectsAudited};cost-spikes={CostSpikes};cost-spike-dumps={CostSpikeDumps}");
             diagnosticWriter.Stop(TimeSpan.FromMilliseconds(100), reason, rowsWritten);
         }
         catch (Exception e)
@@ -491,6 +550,127 @@ public sealed class BrainTelemetry : ModSystem
                 // replace the evidence from the first one.
             }
         }
+    }
+
+    /// <summary>
+    /// Schema 0.48.0's five columns: the update thread's allocation since the previous row, the brain tick's own
+    /// allocation, the section profiler's largest self times this tick, the rest of them, and the fence this tick's
+    /// brain cost was judged against. A dash wherever the thing did not happen this tick — no previous row, no brain
+    /// tick, no snapshot for this tick, a window still filling — because a zero there would be a measurement.
+    /// </summary>
+    private static void AppendCostColumns(StringBuilder sb, Brain brain, bool brainExecuted)
+    {
+        long threadNow = GC.GetAllocatedBytesForCurrentThread();
+        sb.Append('\t');
+        if (lastThreadAllocated < 0) sb.Append('-');
+        else sb.Append(threadNow - lastThreadAllocated);
+        lastThreadAllocated = threadNow;
+
+        bool fresh = BrainSections.LastTick == Main.GameUpdateCount;
+        sb.Append('\t');
+        if (fresh && brainExecuted) sb.Append(BrainSections.LastBrainAllocatedBytes);
+        else sb.Append('-');
+
+        sb.Append('\t');
+        if (!fresh) sb.Append("-\t-");
+        else
+        {
+            int listed = BrainSections.TopBySelf(topSections, SectionsPerRow);
+            double listedMs = 0, allMs = 0;
+            for (int i = 0; i < listed; i++)
+            {
+                int node = topSections[i];
+                if (i > 0) sb.Append('|');
+                sb.Append(BrainSections.Path(node)).Append('=')
+                    .Append(CultureInfo.InvariantCulture, $"{BrainSections.SelfMilliseconds(node):0.000}/{BrainSections.Calls(node)}");
+                listedMs += BrainSections.SelfMilliseconds(node);
+            }
+            if (listed == 0) sb.Append('-');
+            for (int node = 1; node < BrainSections.LastNodeCount; node++)
+                if (BrainSections.Calls(node) > 0) allMs += BrainSections.SelfMilliseconds(node);
+            sb.Append('\t').Append(CultureInfo.InvariantCulture, $"{Math.Max(0, allMs - listedMs):0.000}");
+        }
+
+        sb.Append('\t');
+        if (brainExecuted && double.IsFinite(costFence.Last.Fence))
+            sb.Append(CultureInfo.InvariantCulture, $"{costFence.Last.Fence:0.000}");
+        else sb.Append('-');
+    }
+
+    /// <summary>
+    /// Judges this tick's brain cost against the session's own recent ticks and keeps the worst spike of the open
+    /// window, writing it when the window closes. Only a tick the brain ran on is judged, because a downed tick's zero
+    /// is not a cheap tick. The fence is allocation-free; describing a spike allocates, and only on a tick that is
+    /// worse than every other spike in its window.
+    /// </summary>
+    private static void ObserveCostSpike(Brain brain, NPC npc, bool brainExecuted)
+    {
+        if (brainExecuted)
+        {
+            DetectCostSpikes.Verdict verdict = costFence.Observe(brain.TotalMs);
+            if (verdict.Spike)
+            {
+                CostSpikes++;
+                if (spikesInWindow == 0) spikeWindowOpenedAt = Main.GameUpdateCount;
+                spikesInWindow++;
+                if (pendingSpike == null || verdict.Cost > pendingSpikeCost)
+                {
+                    pendingSpike = DescribeSpike(brain, verdict);
+                    pendingSpikeCost = verdict.Cost;
+                }
+            }
+        }
+        if (spikesInWindow > 0 && Main.GameUpdateCount - spikeWindowOpenedAt >= CostSpikeWindowTicks) FlushCostSpike(npc);
+    }
+
+    private static void FlushCostSpike(NPC? npc)
+    {
+        if (spikesInWindow > 0 && pendingSpike != null)
+        {
+            GodsEyeEvents.RecordCostSpike(npc, pendingSpikeCost, spikesInWindow, CostSpikeWindowTicks, pendingSpike);
+            CostSpikeDumps++;
+        }
+        spikesInWindow = 0;
+        pendingSpike = null;
+        pendingSpikeCost = 0;
+    }
+
+    /// <summary>
+    /// The spike's whole account: the tick and its cost, the fence and how it was computed, what the tick allocated
+    /// and collected, what the brain was holding, and the whole section tree. Scene counts are what the brain already
+    /// holds, read rather than recomputed: hostiles and projectiles the threat senses hold, drops the loot sense holds,
+    /// the frozen observation's facts and its light sites, the census's candidates, the orders the last search
+    /// priced, whether a decision is in flight and how many model queries it is waiting on, and the reach flood's size.
+    /// </summary>
+    private static string DescribeSpike(Brain brain, DetectCostSpikes.Verdict verdict)
+    {
+        var senses = brain.Senses;
+        var facts = brain.Course.Facts?.Facts;
+        int lightSites = 0;
+        if (facts != null)
+            foreach (var fact in facts)
+                if (fact.Key.Kind == "light-target") lightSites++;
+        long threadAllocated = lastThreadAllocated < 0 ? -1 : GC.GetAllocatedBytesForCurrentThread() - lastThreadAllocated;
+        var detail = new StringBuilder(1024);
+        detail.Append(CultureInfo.InvariantCulture,
+            $"tick={Main.GameUpdateCount};brain-ms={verdict.Cost:0.000};fence-ms={verdict.Fence:0.000};q1-ms={verdict.LowerQuartile:0.000};median-ms={verdict.Median:0.000};q3-ms={verdict.UpperQuartile:0.000}");
+        detail.Append(";rule=").Append(verdict.Rule(costFence.Window));
+        detail.Append(CultureInfo.InvariantCulture,
+            $";phases=senses:{brain.SensesMs:0.000},reflex:{brain.ReflexMs:0.000},decide:{brain.DecideMs:0.000},position:{brain.PositionMs:0.000},navigate:{brain.NavigateMs:0.000},finalise:{brain.FinaliseMs:0.000}");
+        detail.Append(CultureInfo.InvariantCulture,
+            $";gc0={GC.CollectionCount(0) - Math.Max(0, lastGc0)};gc1={GC.CollectionCount(1) - Math.Max(0, lastGc1)};gc2={GC.CollectionCount(2) - Math.Max(0, lastGc2)}");
+        detail.Append(CultureInfo.InvariantCulture,
+            $";brain-alloc-bytes={BrainSections.LastBrainAllocatedBytes};thread-alloc-bytes={threadAllocated}");
+        detail.Append(CultureInfo.InvariantCulture,
+            $";hostiles={senses.Threats.Threats.Count};projectiles={senses.Projectiles.Threats.Count};drops={senses.Loot.Pickups.Count}");
+        detail.Append(CultureInfo.InvariantCulture,
+            $";facts={facts?.Count ?? -1};light-sites={lightSites};candidates={brain.Course.Candidates.Count};orders-priced={brain.Course.LastSearch.Evaluated}");
+        detail.Append(CultureInfo.InvariantCulture,
+            $";deciding={(!brain.Course.Last.Settled ? "true" : "false")};pending-models={brain.Course.PendingModelQueries};reach-corners={senses.Reach.CornerCount};reach-tiles={senses.Reach.AnyCount}");
+        detail.Append(";tree=");
+        if (BrainSections.LastTick == Main.GameUpdateCount) BrainSections.AppendTree(detail);
+        else detail.Append('-');
+        return detail.ToString();
     }
 
     /// <summary>
@@ -812,7 +992,10 @@ public sealed class BrainTelemetry : ModSystem
         if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (diagnosticWriter != null) Close("recording-disabled"); return; }
         if (diagnosticWriter == null)
             return;
-        recordClock.Restart();
+        long recordStarted = Stopwatch.GetTimestamp();
+        // The recorder's own section opens after its clock starts and closes before its clock is read, so the
+        // `record` subtree of the next tick's snapshot never exceeds this row's `record_ms`.
+        var recording = BrainSections.Enter(RecordSection);
         var configuration = RecordedConfiguration.Current();
         // The first recorded row *establishes* the session's configuration rather than changing it, so
         // it writes no occurrence: the header line is written from this same value a few hundred lines
@@ -834,6 +1017,8 @@ public sealed class BrainTelemetry : ModSystem
         RecordTerrainChunks.ObserveActors(npc, Main.LocalPlayer);
         string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
         bool brainExecuted = brain.LastTick == Main.GameUpdateCount;
+        ObserveCostSpike(brain, npc, brainExecuted);
+        var occurrences = BrainSections.Enter(RecordOccurrencesSection);
         bool choiceEvaluated = brainExecuted && brain.ChoiceEvaluated;
         var activity = brain.Activity;
         GodsEyeEvents.RecordActivity(npc, activity.Id, activity.Current?.Name ?? "none", activity.Phase.ToString(), activity.Reason,
@@ -947,6 +1132,7 @@ public sealed class BrainTelemetry : ModSystem
                 activityControls + $";freshness={(choiceEvaluated ? "fresh" : "stale-or-not-executed")};brain-fresh={brainExecuted};choice-id={brain.Course.DecisionId};choice-tick={brain.Course.DecisionTick?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};execution={decision};control-source={companion.Motor.ControlSource}");
             lastDecision = decision;
         }
+        occurrences.Dispose();
         GodsEyeEvents.RecordMovementState(npc, brain.Navigator);
         GodsEyeEvents.RecordNavigationEvidence(npc, brainExecuted, decision, brain.LastRequest.Kind.ToString(), activityControls,
             brain.Navigator.SearchId, brain.Navigator.AttemptId, brain.Navigator.SearchExpansions, brain.Navigator.SearchPending,
@@ -981,6 +1167,8 @@ public sealed class BrainTelemetry : ModSystem
             // header builder and is the half that gets forgotten, which is how `torch_reason` spent a
             // whole schema reading as a column that failed to parse as a number.
             textColumns.Append(",target_evidence,target_evidence_age");
+            // 0.48.0's one textual column.
+            textColumns.Append(",sections");
             QueueDiagnosticRecords.TryEnqueueTsv(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
@@ -1096,10 +1284,18 @@ public sealed class BrainTelemetry : ModSystem
             // where the edge is already inside it. It ends the row because a body sinking into a
             // platform was otherwise a reconstruction from the centre, the grid and a radius.
             h.Append("\tsupport_below_px");
+            // Schema 0.48.0: where the tick's time and memory went. `tick_alloc_bytes` is what the update thread
+            // allocated since the previous row, the engine's share included; `brain_alloc_bytes` is the brain tick's
+            // own; `sections` is the section profiler's largest self times this tick and `sections_other_ms` the rest
+            // of them; `cost_fence_ms` is the fence this tick's `brain_ms` was judged against, `-` while the window
+            // fills. `gc0`..`gc2` already carry the collections, since 0.35.0.
+            h.Append("\ttick_alloc_bytes\tbrain_alloc_bytes\tsections\tsections_other_ms\tcost_fence_ms");
+            lastThreadAllocated = -1;
             QueueDiagnosticRecords.TryEnqueueTsv(h.ToString());
             headerWritten = true;
         }
 
+        var row = BrainSections.Enter(RecordRowSection);
         var sb = new StringBuilder(400);
         sb.Append(Main.GameUpdateCount);
         // Read player death from the live player rather than a cached observation. The brain now
@@ -1514,9 +1710,12 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(AuditDecisionContracts.LastTargetEvidence.Length == 0 ? "-" : AuditDecisionContracts.LastTargetEvidence)
             .Append('\t').Append(AuditDecisionContracts.LastTargetEvidenceAge.Length == 0 ? "-" : AuditDecisionContracts.LastTargetEvidenceAge);
         sb.Append('\t').Append(SupportBelow(npc.Bottom));
+        AppendCostColumns(sb, brain, brainExecuted);
+        row.Dispose();
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
+        var enqueueing = BrainSections.Enter(RecordEnqueueSection);
         try
         {
             QueueDiagnosticRecords.TryEnqueueTsv(sb.ToString());
@@ -1532,7 +1731,11 @@ public sealed class BrainTelemetry : ModSystem
             ModContent.GetInstance<AICompanion>().Logger.Error($"BrainTelemetry: write failed, recording stops: {e.Message}");
             diagnosticWriter?.Dispose(); diagnosticWriter = null;
         }
-        lastRecordMs = recordClock.Elapsed.TotalMilliseconds;
+        enqueueing.Dispose();
+        recording.Dispose();
+        // Raw clock ticks rather than `Stopwatch.Elapsed`, which truncates to 100 ns, so the section closed on the
+        // line above is inside this figure exactly.
+        lastRecordMs = (Stopwatch.GetTimestamp() - recordStarted) * BrainSections.MillisecondsPerTimestamp;
     }
 
     private static string PlanWeaponName(Activities.Combat.FightEnemies? combat, CompanionNPC companion)

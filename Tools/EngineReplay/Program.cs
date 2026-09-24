@@ -125,6 +125,9 @@ if (args.Contains("--retained-course-budget")) return VerifyRetainedCombatBudget
 if (args.Contains("--travel-episodes")) return VerifyTravelEpisodes.Run();
 if (args.Any(a => a == "--evidence-scenes" || a.StartsWith("--evidence-scenes=", StringComparison.Ordinal))) return RecordEvidenceScenes.Run(args);
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);
+// The brain-cost and crowd scenes with the section tree aggregated over their ticks: where inside each phase the
+// time goes. An instrument, not a suite; it asserts nothing.
+if (args.Contains("--section-profile")) return VerifyBrainSectionProfiler.PrintSectionProfile();
 // The whole brain with a crowd in front of it, which is the measurement `--brain-cost` cannot take:
 // its seeded scene has no hostiles at all, so every per-hostile cost in the brain runs zero times in
 // it. `MeasureCombatCost.Execute` is that scene — a zombie, a dying zombie, a slime and a boss-flagged
