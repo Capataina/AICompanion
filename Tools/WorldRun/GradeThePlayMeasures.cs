@@ -478,9 +478,15 @@ internal static class GradeThePlayMeasures
                     + "or counting only the published-course reason and not the ticks a decision spans, which would hide a brain that decides forever");
             return 0;
         }
+        // Red on the 22 September capture since 33d0f11, by product question rather than defect: the wanted fights
+        // there are threats the sense puts seven to nine seconds from the player, and whether the companion should
+        // engage that far out is the owner's call (Tools/WorldRun/CLAUDE.md; Slate AIC-473 carries it). Tagged
+        // known-limitation so the scoreboard prints it every run while a run carrying it can still be a baseline —
+        // without the tag no run since 33d0f11 was clean, so every comparison the scoreboard makes was dead (found by
+        // the wave-1 review). The tag comes off with the owner's ruling.
         EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, name,
             $"{detail}, past the stated {StepWithinTicks}; {denominator}; {blind}; {scene}",
-            mode: "production-clock");
+            mode: "production-clock", tags: new[] { "known-limitation" });
         return 1;
     }
 

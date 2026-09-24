@@ -147,16 +147,21 @@ public static class MachineReport
 
     private static void RenderMemory(StringBuilder text, Run after)
     {
-        var withCost = after.Rows.Where(r => r.Cost != null).GroupBy(r => r.Instrument).OrderBy(g => g.Key, StringComparer.Ordinal).ToArray();
+        // Grouped by instrument and then by the process that filed the rows, because a heap climbing case by case
+        // is only a history within one process; pooled across verify's shards it is five interleaved histories.
+        var withCost = after.Rows.Where(r => r.Cost != null)
+            .GroupBy(r => r.Process is { } process ? $"{r.Instrument} ({process})" : r.Instrument)
+            .OrderBy(g => g.Key, StringComparer.Ordinal).ToArray();
         foreach (var group in withCost)
         {
             var rows = group.ToArray();
-            double peak = rows.Max(r => r.Cost!.HeapAfterMb);
+            double first = rows[0].Cost!.HeapAfterMb, peak = rows.Max(r => r.Cost!.HeapAfterMb), last = rows[^1].Cost!.HeapAfterMb;
             int gen2 = rows.Sum(r => r.Cost!.Gen2);
             var heaviest = rows.OrderByDescending(r => r.Cost!.AllocatedMb).Take(3)
                 .Select(r => $"{r.Case} ({r.Cost!.AllocatedMb.ToString("0", CultureInfo.InvariantCulture)} MB)");
-            text.AppendLine($"  memory    {group.Key}: heap after a case peaked at {peak.ToString("0", CultureInfo.InvariantCulture)} MB, {gen2} gen-2 collection(s) across {rows.Length} case(s); most allocated: {string.Join(", ", heaviest)}");
+            text.AppendLine($"  memory    {group.Key}: heap after its {rows.Length} case(s) went {Mb(first)} → {Mb(last)} (peak {Mb(peak)}), {gen2} gen-2 collection(s); most allocated: {string.Join(", ", heaviest)}");
         }
+        static string Mb(double value) => $"{value.ToString("0", CultureInfo.InvariantCulture)} MB";
     }
 
     private static string Ms(double value) => $"{value.ToString("0.#", CultureInfo.InvariantCulture)} ms";

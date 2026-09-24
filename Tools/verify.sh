@@ -90,9 +90,21 @@ tool() {
 if [ -n "$perf_choice" ]; then
   tier="$perf_choice"
   tier_reason="asked for with --$([ "$tier" = perf ] && echo perf || echo no-perf)"
+elif [ -n "$case_filter" ]; then
+  # A run narrowed to named cases runs those cases whatever their tier: a perf-tier case asked for by name
+  # and answered with "perf tier not due" is the answer to a question nobody asked. A filtered run is never
+  # a baseline, so its tier cannot mislead a later comparison.
+  tier="perf"
+  tier_reason="--case names the cases to run, whatever their tier"
 else
   tier_reason=$(tool Ledger perf-due)
-  if [ $? -eq 0 ]; then tier="perf"; else tier="ordinary"; fi
+  # 0 is due and 1 is not due; anything else is the question failing (a crash, git unavailable), and a
+  # tier that could not be ruled out runs rather than being skipped on an unanswered question.
+  case $? in
+    0) tier="perf" ;;
+    1) tier="ordinary" ;;
+    *) tier="perf"; tier_reason="the perf-tier question could not be answered, so the tier runs: $tier_reason" ;;
+  esac
 fi
 echo "verify: perf tier $([ "$tier" = perf ] && echo runs || echo skipped) — $tier_reason"
 perf_flag=""
@@ -147,6 +159,15 @@ record_exit() {
     tool Ledger error "$run" "$1" "exited $2 without filing a red row of its own; see the printed output above"
   fi
 }
+# The same for one process of an instrument that runs as several (the engine shards and the timed lane):
+# reconciled against that process's own part file rather than the whole run, because a red in shard 0 must
+# not account for shard 2 crashing, and an exit of 70 (an escaped exception) is always recorded, since the
+# process stopped with cases unrun whatever it had filed.
+record_process_exit() {
+  if [ "$3" -ne 0 ]; then
+    tool Ledger error "$run" "$1" "the $2 process exited $3; see its printed output above" --rows "$4"
+  fi
+}
 
 # --- parallel phase ---------------------------------------------------------------------------------
 #
@@ -162,10 +183,14 @@ record_exit() {
 # not cover, and belongs in `Tools/EngineReplay/ResetProcessState.cs`.
 shards="${AIC_VERIFY_SHARDS:-$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || echo 4)}"
 parts=$(mktemp -d)
+# An interrupted run leaves no part files or timing list behind; each lane removes its own TMPDIR.
+trap 'rm -rf "$parts"; rm -f "$timings"' EXIT
+trap 'exit 130' INT TERM
 launch() {
   lane="$1"; shift
   (
     AIC_LEDGER_RUN="$parts/$lane.jsonl"; export AIC_LEDGER_RUN
+    AIC_LEDGER_PROCESS="$lane"; export AIC_LEDGER_PROCESS
     TMPDIR=$(mktemp -d); export TMPDIR
     started=$(date +%s)
     "$@" >"$parts/$lane.log" 2>&1
@@ -187,7 +212,6 @@ done
 wait
 record_timing "parallel phase: four self-tests and $shards engine-suite shards" $(( $(date +%s) - parallel_started ))
 
-engine_status=0
 for lane in ledger nav-replay session-report combat-audit $(i=0; while [ "$i" -lt "$shards" ]; do echo "engine-replay-$i"; i=$((i + 1)); done); do
   [ -f "$parts/$lane.jsonl" ] && cat "$parts/$lane.jsonl" >>"$run"
   status=$(cat "$parts/$lane.status" 2>/dev/null || echo 2)
@@ -195,26 +219,35 @@ for lane in ledger nav-replay session-report combat-audit $(i=0; while [ "$i" -l
   # A clean lane prints its last line; a failing one prints everything, because the reason is why you ran it.
   if [ "$status" -ne 0 ]; then cat "$parts/$lane.log"; else tail -n 1 "$parts/$lane.log"; fi
   case "$lane" in
-    engine-replay-*) [ "$status" -gt "$engine_status" ] && engine_status=$status ;;
+    engine-replay-*) record_process_exit "engine-replay" "$lane" "$status" "$parts/$lane.jsonl" ;;
     *) record_exit "$lane" "$status" ;;
   esac
 done
-record_exit "engine-replay" "$engine_status"
-rm -rf "$parts"
 
 # --- timed lane -------------------------------------------------------------------------------------
 #
 # Every case tagged timed or perf-tier, alone on the machine. Its rows' mode ends in "alone", and the
 # scoreboard compares a measure only against one taken the same way. The perf tier's heavy cases run here
 # when the tier is due and are skipped by name otherwise.
-timed_log=$(mktemp)
+#
+# The lane marker is set inside a subshell and exported there. Written as a prefix assignment on the call
+# (`AIC_LEDGER_LANE=alone tool …`) it leaked: `tool` is a shell function, and macOS's /bin/sh (bash 3.2 in
+# POSIX mode) keeps a prefix assignment on a function call in the shell afterwards, so every world run and
+# every wall-clock row after this point claimed to have run alone (found by the wave-1 review).
 timed_started=$(date +%s)
-AIC_LEDGER_LANE=alone tool EngineReplay --timed-lane $perf_flag >"$timed_log" 2>&1
-timed_status=$?
+(
+  AIC_LEDGER_LANE=alone; export AIC_LEDGER_LANE
+  AIC_LEDGER_PROCESS="timed-lane"; export AIC_LEDGER_PROCESS
+  AIC_LEDGER_RUN="$parts/timed-lane.jsonl"; export AIC_LEDGER_RUN
+  tool EngineReplay --timed-lane $perf_flag >"$parts/timed-lane.log" 2>&1
+  echo $? >"$parts/timed-lane.status"
+)
+timed_status=$(cat "$parts/timed-lane.status" 2>/dev/null || echo 2)
 record_timing "engine-replay timed lane" $(( $(date +%s) - timed_started ))
-if [ $timed_status -ne 0 ]; then cat "$timed_log"; else tail -n 1 "$timed_log"; fi
-rm -f "$timed_log"
-record_exit "engine-replay" "$timed_status"
+[ -f "$parts/timed-lane.jsonl" ] && cat "$parts/timed-lane.jsonl" >>"$run"
+if [ "$timed_status" -ne 0 ]; then cat "$parts/timed-lane.log"; else tail -n 1 "$parts/timed-lane.log"; fi
+record_process_exit "engine-replay" "timed lane" "$timed_status" "$parts/timed-lane.jsonl"
+rm -rf "$parts"
 
 # The corpus mirror is a row of NavReplay's self-test now: the reflection's exactness over the
 # committed scenarios is checked there, and the walker's replay of the corpus — the thing the

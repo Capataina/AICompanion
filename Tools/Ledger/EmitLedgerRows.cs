@@ -52,7 +52,9 @@ public sealed record LedgerRow(
     /// here because a suite measured 2.3× slower per operation than the same case run alone (AIC-451) and the
     /// untested explanation is heap pressure accumulating across cases; this field makes that readable in
     /// order, case by case, without a profiler.</summary>
-    RowCost? Cost = null);
+    RowCost? Cost = null,
+    /// <summary>Which process of a multi-process run filed the row; see <see cref="EmitLedgerRows.Process"/>.</summary>
+    string? Process = null);
 
 /// <summary>
 /// One case's memory footprint: megabytes allocated while it ran, the collections of each generation it
@@ -220,6 +222,21 @@ public static class EmitLedgerRows
     /// </summary>
     public const string LaneVariable = "AIC_LEDGER_LANE";
 
+    /// <summary>
+    /// Set by an instrument whose cases verify splits across parallel shards (EngineReplay). Lane routing reads
+    /// the case's own tags, while a measure's timed tag is set wherever the fixture files it, and nothing tied the
+    /// two together: a fixture that began filing a timing without its case being tagged would run in a shard,
+    /// under contention, with nothing to notice (found by the wave-1 review). With this on, such a case fails and
+    /// says which tag it lacks.
+    /// </summary>
+    public static bool RequireTimedRouting { get; set; }
+
+    /// <summary>Which process of a multi-process run filed a row ("engine-replay-2", "timed-lane"), set by verify
+    /// per process. It is a field apart from the mode, because the mode decides comparability and a case moving
+    /// between shards must not make its measures incomparable; the memory report groups by it, so a heap climbing
+    /// case by case is read within one process rather than pooled across five.</summary>
+    public static string? Process => Environment.GetEnvironmentVariable("AIC_LEDGER_PROCESS") is { Length: > 0 } process ? process : null;
+
     /// <summary>A reason, never a pass. The reason is the whole value of the row.</summary>
     public static void Skipped(string instrument, string suite, string @case, string reason, IReadOnlyList<string>? tags = null)
         => Row(new LedgerRow(instrument, suite, @case, "skipped", Tags: tags, Message: reason));
@@ -269,12 +286,19 @@ public static class EmitLedgerRows
         details.Clear();
         ResetBeforeCase?.Invoke(keepProductionAllowances);
         var before = CostMark.Now();
+        int rowsBefore = emitted.Count;
         var clock = Stopwatch.StartNew();
         try
         {
             int failures = body();
             clock.Stop();
             RowCost cost = before.Since();
+            if (RequireTimedRouting && tags?.Contains(TimedTag) != true
+                && emitted.Skip(rowsBefore).Any(r => r.Verdict == "measure" && r.Tags?.Contains(TimedTag) == true))
+            {
+                Detail($"this case filed a measure tagged {TimedTag} but is not tagged {TimedTag} itself, so verify runs it in a parallel shard and the timing was taken under contention; tag the case");
+                failures++;
+            }
             if (failures == 0)
                 Pass(instrument, suite, name, durationMs: clock.Elapsed.TotalMilliseconds, mode: mode, tags: tags, killedBy: killedBy, cost: cost);
             else
@@ -336,6 +360,7 @@ public static class EmitLedgerRows
         if (row.KilledBy is { } killed) Text(text, "killed_by", killed);
         Text(text, "message", row.Message);
         Number(text, "duration_ms", Math.Round(row.DurationMs, 3));
+        if ((row.Process ?? Process) is { } process) Text(text, "process", process);
         if (row.Cost is { } cost)
         {
             Number(text, "alloc_mb", cost.AllocatedMb);

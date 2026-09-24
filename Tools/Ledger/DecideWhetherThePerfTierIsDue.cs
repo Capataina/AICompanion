@@ -39,17 +39,29 @@ public static class PerfTierDecision
     public static Answer Decide(string repositoryRoot)
     {
         string[] ancestry = Git.Ancestry(repositoryRoot, "HEAD");
+        // The last perf run is the newest clean-tree, unfiltered perf run in this branch's history whose perf-tier
+        // cases actually produced a row other than a skip. A perf run whose timed lane crashed before reaching
+        // them measured nothing, and counting it would let the next change go unmeasured.
         Run? lastPerf = RunStore.All(repositoryRoot)
             .Where(run => run.Header.Tier == RunHeader.PerfTier && !run.Header.Dirty && !run.Header.Filtered)
+            .Where(run => run.Rows.Any(r => r.Verdict != "skipped" && r.Tags?.Contains(EmitLedgerRows.PerfTierTag) == true))
             .FirstOrDefault(run => ancestry.Any(ancestor => Git.Same(run.Header.Commit, ancestor)));
         if (lastPerf == null)
             return new Answer(true, "no perf run in this branch's history");
         // Committed changes since the perf run, then uncommitted ones against HEAD, then untracked files. Three
-        // name-only listings rather than `status --porcelain`, whose leading status columns do not survive
-        // Git.Run trimming the output.
-        var changed = Git.Run(repositoryRoot, "diff", "--name-only", lastPerf.Header.Commit, "HEAD").Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Concat(Git.Run(repositoryRoot, "diff", "--name-only", "HEAD").Split('\n', StringSplitOptions.RemoveEmptyEntries))
-            .Concat(Git.Run(repositoryRoot, "ls-files", "--others", "--exclude-standard").Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        // name-only listings rather than `status --porcelain`, whose leading status columns do not survive the
+        // trimming. `--no-renames` because a rename lists only its destination, so a file moved out of the
+        // compiled set would vanish from the listing; `core.quotepath=off` because a non-ASCII path otherwise
+        // comes back C-quoted and fails every suffix test. Each listing that fails makes the answer unknown.
+        string?[] listings =
+        {
+            Git.TryRun(repositoryRoot, "-c", "core.quotepath=off", "diff", "--no-renames", "--name-only", lastPerf.Header.Commit, "HEAD"),
+            Git.TryRun(repositoryRoot, "-c", "core.quotepath=off", "diff", "--no-renames", "--name-only", "HEAD"),
+            Git.TryRun(repositoryRoot, "-c", "core.quotepath=off", "ls-files", "--others", "--exclude-standard"),
+        };
+        if (listings.Any(listing => listing == null))
+            throw new InvalidOperationException($"git could not list what changed since the last perf run at {lastPerf.Header.Commit}, so whether the perf tier is due is unknown");
+        var changed = listings.SelectMany(listing => listing!.Split('\n', StringSplitOptions.RemoveEmptyEntries));
         IReadOnlyList<string> relevant = CompiledIntoTheMod(changed);
         if (relevant.Count == 0)
             return new Answer(false, $"nothing the mod is compiled from changed since the last perf run at {lastPerf.Header.Commit}");

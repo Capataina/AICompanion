@@ -118,14 +118,24 @@ switch (args[0])
         Run? into = RunStore.Read(args[1]);
         if (into == null) { Console.Error.WriteLine($"ledger: {args[1]} is not a readable run file"); return 2; }
         string instrument = args[2];
-        if (into.Rows.Any(r => string.Equals(r.Instrument, instrument, StringComparison.OrdinalIgnoreCase) && r.Verdict is "fail" or "error"))
-        {
-            // Its own rows already say what went wrong, and in more detail than an exit code can.
-            return 0;
-        }
+        // --rows names the one process's own part file when an instrument runs as several processes (verify's
+        // engine shards and timed lane). Reconciling against the whole run let a red filed by one shard account
+        // for another shard crashing, so the crash filed nothing and its unrun cases were silence.
+        string? processRows = Option("--rows");
+        string message = string.Join(' ', args[3..].TakeWhile(a => a != "--rows"));
+        string @case = processRows == null
+            ? $"{instrument} ran to a non-zero exit"
+            : $"{instrument} process {Path.GetFileNameWithoutExtension(processRows)} ran to a non-zero exit";
+        bool escaped = message.Contains($"exited {ExitWithoutACrashReport.UnhandledExceptionExitCode}", StringComparison.Ordinal);
+        bool accounted = processRows == null
+            ? into.Rows.Any(r => string.Equals(r.Instrument, instrument, StringComparison.OrdinalIgnoreCase) && r.Verdict is "fail" or "error")
+            : RedRowsIn(processRows, instrument) > 0;
+        // An exception that escaped the process (exit 70, the crash guard's code) stopped it with cases unrun
+        // whatever it had already filed, so it is always recorded; any other non-zero exit is accounted for by
+        // the process's own red rows, which say more than an exit code can.
+        if (accounted && !escaped) return 0;
         Environment.SetEnvironmentVariable(EmitLedgerRows.RunPathVariable, args[1]);
-        EmitLedgerRows.Error(instrument, "Instrument", $"{instrument} ran to a non-zero exit",
-            string.Join(' ', args[3..]));
+        EmitLedgerRows.Error(instrument, "Instrument", @case, message);
         return 0;
     }
     case "reds":
@@ -192,9 +202,30 @@ string? Option(string name)
 
 bool Flag(string name) => Array.IndexOf(args, name) >= 0;
 
+// A part file holds rows and no header, so it is read line by line rather than through RunStore.Read.
+static int RedRowsIn(string path, string instrument)
+{
+    if (!File.Exists(path)) return 0;
+    int reds = 0;
+    foreach (string line in File.ReadLines(path))
+    {
+        if (line.Trim().Length == 0) continue;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(line);
+            var root = document.RootElement;
+            if (root.TryGetProperty("instrument", out var i) && string.Equals(i.GetString(), instrument, StringComparison.OrdinalIgnoreCase)
+                && root.TryGetProperty("verdict", out var v) && v.GetString() is "fail" or "error")
+                reds++;
+        }
+        catch (System.Text.Json.JsonException) { }
+    }
+    return reds;
+}
+
 void Usage() => Console.Error.WriteLine(
     """
-    usage: dotnet run --project Tools/Ledger -- <command>
+    usage: dotnet Tools/Ledger/bin/Debug/net8.0/Ledger.dll <command>     (after sh Tools/build.sh ledger)
       begin [--commit <hash>] [--dirty] [--note <text>]
             [--filter <case>] [--tier ordinary|perf]      open a run file with a start benchmark; prints its path
       benchmark <run.jsonl> <phase>                       append a machine benchmark reading (verify uses "end")
@@ -205,6 +236,7 @@ void Usage() => Console.Error.WriteLine(
       baseline [<commit>]                                 nearest ancestor with a clean run
       reds <run.jsonl>                                    the red cases as instrument<TAB>case
       error <run.jsonl> <instrument> <message>            record a non-zero exit that wrote no row
+            [--rows <part.jsonl>]                         reconciled against one process's own rows
       --self-test                                         the store's own rules, as ledger rows
       list [<commit>]                                     every run in the store
     """);

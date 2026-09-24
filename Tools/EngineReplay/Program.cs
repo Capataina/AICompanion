@@ -15,6 +15,9 @@ AssemblyLoadContext.Default.Resolving += (context, name) =>
 // the table had filled the slots it needed.
 ResetProcessState.PrepareProcess();
 ResetProcessState.Register();
+// Verify splits this suite across parallel shards and routes by a case's own tags, so a case that files a
+// timing without being tagged timed would be timed under contention; with this on, it fails and says so.
+AICompanion.Tools.Ledger.EmitLedgerRows.RequireTimedRouting = true;
 // Every flag below is one case, and a case starts from fresh-case state: the suite's cases get it
 // from BeforeCase through the ledger, but these early returns never reach the ledger, so without
 // this they run on a fresh process's statics — the Thompson sampler's per-process seed and the

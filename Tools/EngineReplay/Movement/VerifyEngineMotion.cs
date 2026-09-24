@@ -113,6 +113,17 @@ internal static class VerifyEngineMotion
         ["weapon, target, stand and aim are valued by what the companion's own shots achieved"] = new[] { EmitLedgerRows.TimedTag },
         ["the free-space flood over a screen-sized room finishes in a handful of slices"] = new[] { EmitLedgerRows.TimedTag },
         ["the way to the player is resumed until it is answered and never read as a proof before it is"] = new[] { EmitLedgerRows.TimedTag },
+        // Timed for a different reason: each waits on the diagnostic writer thread with a one-second deadline
+        // (FlushForReader, Stop, a held write's Entered.Wait), so its verdict depends on that thread being
+        // scheduled in time. That is a liveness bound rather than a timing measure, and it can only fail on a
+        // contended machine, so these run in the timed lane rather than beside the parallel shards.
+        ["required and optional diagnostic records preserve offer order"] = new[] { EmitLedgerRows.TimedTag },
+        ["diagnostic overflow remains visible after the writer closes"] = new[] { EmitLedgerRows.TimedTag },
+        ["an active diagnostic writer cannot lose ownership to its replacement"] = new[] { EmitLedgerRows.TimedTag },
+        ["normal diagnostic closure retains row count"] = new[] { EmitLedgerRows.TimedTag },
+        ["terminal diagnostic write timeout remains incomplete"] = new[] { EmitLedgerRows.TimedTag },
+        ["diagnostic sink faults remain visible"] = new[] { EmitLedgerRows.TimedTag },
+        ["in-flight and complete envelope bytes stay reserved"] = new[] { EmitLedgerRows.TimedTag },
         // Perf tier as well: 138 s of a 232 s suite at 987319df, almost all of it three unbounded
         // uncached searches of about thirty seconds each, and its subject is cost rather than behaviour.
         ["attack planning on a forty-hostile crowd is measured unbounded and under the tick's own allowance"] = new[] { EmitLedgerRows.TimedTag, EmitLedgerRows.PerfTierTag },

@@ -255,7 +255,8 @@ public static class RunStore
                     root.TryGetProperty("alloc_mb", out JsonElement al) && al.ValueKind == JsonValueKind.Number
                         ? new RowCost(al.GetDouble(), Int(root, "gc0"), Int(root, "gc1"), Int(root, "gc2"),
                             root.TryGetProperty("heap_mb", out JsonElement hp) && hp.ValueKind == JsonValueKind.Number ? hp.GetDouble() : 0)
-                        : null));
+                        : null,
+                    root.TryGetProperty("process", out JsonElement pr) ? pr.GetString() : null));
             }
             catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException) { malformed++; }
         }
@@ -332,21 +333,26 @@ public static class RunStore
 /// </summary>
 public static class Git
 {
-    public static string Run(string repositoryRoot, params string[] arguments)
+    public static string Run(string repositoryRoot, params string[] arguments) => TryRun(repositoryRoot, arguments) ?? "";
+
+    /// <summary>The command's trimmed output, or null when git could not answer (not installed, not a
+    /// repository, an unknown revision). A caller for whom an empty answer and a failed question mean opposite
+    /// things — the perf-tier decision, where empty means "nothing changed" — asks this one.</summary>
+    public static string? TryRun(string repositoryRoot, params string[] arguments)
     {
         try
         {
             var info = new ProcessStartInfo("git") { WorkingDirectory = repositoryRoot, RedirectStandardOutput = true, RedirectStandardError = true };
             foreach (string argument in arguments) info.ArgumentList.Add(argument);
             using Process? process = Process.Start(info);
-            if (process == null) return "";
+            if (process == null) return null;
             string output = process.StandardOutput.ReadToEnd();
             process.WaitForExit();
-            return process.ExitCode == 0 ? output.Trim() : "";
+            return process.ExitCode == 0 ? output.Trim() : null;
         }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
-            return "";
+            return null;
         }
     }
 
