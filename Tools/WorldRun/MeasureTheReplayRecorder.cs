@@ -160,8 +160,9 @@ internal static class MeasureTheReplayRecorder
 
     /// <summary>
     /// The writer's queue refusing one line, forced by switching its admission off for exactly one line: the recorder must
-    /// number past the lost line, start the next from nothing (`key=1`), and the reader must refuse the capture naming the
-    /// gap rather than reproduce frames that are deltas against a line nobody wrote.
+    /// number past the lost line, write nothing for a second rather than rebuild the whole scene on every tick of the
+    /// pressure that caused the refusal, then start again from nothing (`key=1`), and the reader must refuse the capture
+    /// naming the whole gap rather than reproduce frames that are deltas against lines nobody wrote.
     /// </summary>
     private static int RefuseOneLine(CompanionNPC companion, Vector2 feet, string folder, string suite)
     {
@@ -169,19 +170,24 @@ internal static class MeasureTheReplayRecorder
         string telemetry = AttachTheRecorder.Open(folder, "recorder-cost-refusal");
         var accepting = typeof(Queue).GetField("accepting", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
             ?? throw new MissingFieldException("QueueDiagnosticRecords.accepting is gone; the refusal case cannot make the queue refuse a line");
-        var lines = new List<string>();
         long refusedBefore = LinesRefused();
+        var waitingMs = new List<double>();
+        double keyframeMs = double.NaN;
         try
         {
-            for (int tick = 0; tick < 4; tick++)
+            for (int tick = 0; tick < 70; tick++)
             {
                 PrepareTheHeadlessEngine.AdvanceTheWorldClock();
                 MoveEverything(tick);
+                long written = LinesWritten();
+                long started = Stopwatch.GetTimestamp();
                 Inputs.BeforeTheCompanionTick(companion);
                 if (tick == 1) accepting.SetValue(null, false);
                 try { Inputs.AfterTheCompanionTick(companion); }
                 finally { if (tick == 1) accepting.SetValue(null, true); }
-                lines.Add(LastLine());
+                double ms = (Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency;
+                if (tick >= 2 && LinesWritten() == written) waitingMs.Add(ms);
+                else if (tick >= 2 && double.IsNaN(keyframeMs)) keyframeMs = ms;
                 WaitForTheWriter();
             }
         }
@@ -191,15 +197,17 @@ internal static class MeasureTheReplayRecorder
         }
         long refused = LinesRefused() - refusedBefore;
         string capture = Directory.GetFiles(telemetry, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
-        string? refusal = ReadReplayInputs.Read(capture).Refusal;
-        bool keyframeAfter = lines[2].Contains(";n=2;", StringComparison.Ordinal) && lines[2].Contains(";key=1", StringComparison.Ordinal);
-        bool deltaBefore = lines[1].Contains(";n=1;", StringComparison.Ordinal) && !lines[1].Contains(";key=1", StringComparison.Ordinal);
-        bool deltaAfter = lines[3].Contains(";n=3;", StringComparison.Ordinal) && !lines[3].Contains(";key=1", StringComparison.Ordinal);
-        bool named = refusal != null && refusal.Contains("n=1..1", StringComparison.Ordinal);
+        var record = ReadReplayInputs.Read(capture);
+        IReadOnlyList<ReadReplayInputs.Frame> frames = record.Frames;
+        long keyframeOrdinal = frames.Count > 1 ? frames[1].Ordinal ?? -1 : -1;
+        bool openedWhole = frames.Count > 1 && frames[0].Ordinal == 0 && frames[0].Keyframe;
+        bool keyframeAfter = frames.Count > 1 && frames[1].Keyframe && keyframeOrdinal == refused + 1;
+        bool deltaAfter = frames.Count > 2 && !frames[2].Keyframe && frames[2].Ordinal == keyframeOrdinal + 1;
+        bool named = record.Refusal != null && record.Refusal.Contains(FormattableString.Invariant($"n=1..{keyframeOrdinal - 1}"), StringComparison.Ordinal);
         string message = FormattableString.Invariant(
-            $"4 ticks with the queue refusing the second line: {refused} line(s) refused; the third line {(keyframeAfter ? "is" : "is NOT")} n=2 with key=1 ({lines[2].Length} characters against {lines[3].Length} for the delta after it); the fourth {(deltaAfter ? "is" : "is NOT")} a delta again; the reader {(named ? "refused naming n=1..1" : "did not name the gap")}: {refusal ?? "no refusal"}");
+            $"70 ticks with the queue refusing the second line: {refused} line(s) lost — the refused one and the {waitingMs.Count} ticks waited out at {(waitingMs.Count == 0 ? double.NaN : waitingMs.Average()):0.0000} ms each; the next written line {(keyframeAfter ? "is" : "is NOT")} a keyframe at n={keyframeOrdinal}, built in {keyframeMs:0.00} ms; the one after {(deltaAfter ? "is" : "is NOT")} a delta again; the reader {(named ? "refused naming the whole gap" : "did not name the gap")}: {record.Refusal ?? "no refusal"}");
         Console.WriteLine($"REFUSAL {message}");
-        if (refused == 1 && keyframeAfter && deltaBefore && deltaAfter && named)
+        if (refused > 1 && openedWhole && keyframeAfter && deltaAfter && named)
         {
             EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, RefusedLineCase, message, mode: "recorder-cost");
             return 0;
@@ -212,6 +220,10 @@ internal static class MeasureTheReplayRecorder
     private static string LastLine()
         => typeof(Inputs).GetField("line", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)?.GetValue(null)?.ToString()
             ?? throw new MissingFieldException("ReplayInputs.line is gone; the burst case cannot read the line it measures");
+
+    private static long LinesWritten()
+        => (long)(typeof(Inputs).GetProperty("LinesWritten", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+            ?.GetValue(null) ?? throw new MissingMemberException("ReplayInputs.LinesWritten is gone; the refusal case cannot tell a written line"));
 
     private static long LinesRefused()
         => (long)(typeof(Inputs).GetProperty("LinesRefused", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)

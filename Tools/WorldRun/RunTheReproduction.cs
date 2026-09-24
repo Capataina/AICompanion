@@ -42,7 +42,7 @@ internal static class RunTheReproduction
             int exit = ReproduceOne(args, suite, reproduce, world, ticks, dropped, printEach, expectEveryTick);
             if (ownFolder != null && Directory.Exists(ownFolder))
             {
-                if (exit == 0) { Directory.Delete(ownFolder, recursive: true); Console.WriteLine($"REMOVED {ownFolder}, the capture this passing run reproduced"); }
+                if (exit == 0) { Directory.Delete(ownFolder, recursive: true); Console.WriteLine($"REMOVED {ownFolder}, owned by this command, which exited 0"); }
                 else Console.WriteLine($"KEPT {ownFolder}, the capture the failed reproduction read");
             }
             return exit;
@@ -132,17 +132,19 @@ internal static class RunTheReproduction
     private static int ReproduceOne(string[] args, string suite, string reproduce, string? world, int ticks,
         ReproduceTheCapture.DroppedInput dropped, bool printEach, bool expectEveryTick)
     {
+        // The world first: a machine with no .wld skips the run that would have written the capture, so a missing capture
+        // there is the same skip and never a red on a fresh clone.
+        if (world == null || !File.Exists(world))
+            return Skip(suite, expectEveryTick ? VerdictCase : ShareCase, $"no world file at {world ?? "<none given>"}; a .wld is never committed, so the world must be named with --world=");
         if (!File.Exists(reproduce))
         {
             string absent = $"no capture at {reproduce}; Telemetry/ is gitignored and lives only in the main checkout, so name it absolutely";
             if (!expectEveryTick) return Skip(suite, ShareCase, absent);
-            // With the verdict expected the capture was written by the run that called this one, so its absence is that run
-            // failing to record, not a question that could not be asked.
+            // With the verdict expected and a world to run in, the capture was written by the run that called this one, so its
+            // absence is that run failing to record, not a question that could not be asked.
             EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, VerdictCase, $"the verdict was expected and {absent}", mode: "self-consistency");
             return 1;
         }
-        if (world == null || !File.Exists(world))
-            return Skip(suite, expectEveryTick ? VerdictCase : ShareCase, $"no world file at {world ?? "<none given>"}; a .wld is never committed, so the world must be named with --world=");
         var record = ReadReplayInputs.Read(reproduce);
         string? refusal = record.Refusal ?? ReproduceTheCapture.Unplaceable(record);
         if (refusal != null)

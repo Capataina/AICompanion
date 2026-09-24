@@ -173,7 +173,7 @@ internal static class ReadReplayInputs
             long ordinal = frames[index].Ordinal ?? throw new FormatException($"frame {index} is format 2 and carries no ordinal");
             if (ordinal != expected)
                 return string.Create(CultureInfo.InvariantCulture,
-                    $"the replay-inputs lines are not whole: {ordinal - expected} line(s) (n={expected}..{ordinal - 1}) were lost before recorded tick {frames[index].Tick} (frame {index}), because the writer's queue refused them; every later frame is a delta against what they said, so the capture is refused rather than reported as a share, and a reproduction does not resume from the keyframe the recorder wrote after them, because the world edits and random state those lines carried are gone");
+                    $"the replay-inputs lines are not whole: {ordinal - expected} line(s) (n={expected}..{ordinal - 1}) were lost before recorded tick {frames[index].Tick} (frame {index}), because the writer's queue refused a line and the recorder writes nothing for a second after one before rebuilding the whole scene; every later frame is a delta against what they said, so the capture is refused rather than reported as a share, and a reproduction does not resume from the keyframe the recorder wrote after them, because the world edits and random state those lines carried are gone");
             expected = ordinal + 1;
         }
         return null;

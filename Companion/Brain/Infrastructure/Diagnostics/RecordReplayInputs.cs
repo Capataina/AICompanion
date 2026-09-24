@@ -474,6 +474,14 @@ public static class ReplayInputs
     /// <summary>The next line writes everything, as at a session's start: set when a session opens and when the queue
     /// refused a line, because every later delta was taken against what that lost line would have said.</summary>
     private static bool nextIsKeyframe;
+    /// <summary>
+    /// The first tick a keyframe may be attempted after a refused line. A keyframe is the whole scene, and the queue refused
+    /// the last line because it was full; retrying every tick would rebuild the whole scene on every frame of exactly the
+    /// pressure that caused the refusal. So after a refusal the recorder writes nothing for a second — each skipped tick
+    /// still moves the ordinal, so the gap a reader sees covers them — and then tries one keyframe.
+    /// </summary>
+    private static ulong keyframeNotBefore;
+    private const int TicksBetweenKeyframeAttempts = 60;
     private static int lastSelf = -1, lastKnowledgeRevision = int.MinValue;
     /// <summary>
     /// The tiles the world announced as edited since the last companion tick, each once, in the order of its first
@@ -560,6 +568,7 @@ public static class ReplayInputs
         worldEditsLost = 0;
         lineOrdinal = 0;
         LinesRefused = 0;
+        keyframeNotBefore = 0;
         line.Clear();
         recordingThisTick = false;
         LinesWritten = 0;
@@ -608,6 +617,15 @@ public static class ReplayInputs
         insideCompanionTick = true;
         recordingThisTick = sessionOpen && GodsEyeEvents.Active;
         if (!recordingThisTick) return;
+        if (nextIsKeyframe && Main.GameUpdateCount < keyframeNotBefore)
+        {
+            // Waiting out the second after a refused line: this tick's line is lost with it, and counted, and its ordinal
+            // taken, so the gap a reader names covers it. Pending world edits keep waiting for the keyframe.
+            recordingThisTick = false;
+            lineOrdinal++;
+            LinesRefused++;
+            return;
+        }
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         using var profiled = BrainSections.Enter(ReplaySection);
 
@@ -689,7 +707,14 @@ public static class ReplayInputs
     public static void AfterTheCompanionTick(CompanionNPC companion)
     {
         insideCompanionTick = false;
-        if (!recordingThisTick) return;
+        if (!recordingThisTick)
+        {
+            // A tick whose line is not written — no session, or one waiting to retry a keyframe — keeps none of its own
+            // edits, so the next written line's `cedits` holds only that line's tick.
+            companionEdits.Clear();
+            companionEditsSeen.Clear();
+            return;
+        }
         recordingThisTick = false;
         string tape = DecisionClock.EndTape();
         if (!GodsEyeEvents.Active) return;
@@ -744,6 +769,7 @@ public static class ReplayInputs
             // carries a whole scene again from there.
             LinesRefused++;
             ForgetWhatWasWritten();
+            keyframeNotBefore = Main.GameUpdateCount + TicksBetweenKeyframeAttempts;
         }
         timestampsSpent += System.Diagnostics.Stopwatch.GetTimestamp() - started;
     }
