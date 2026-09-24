@@ -48,6 +48,16 @@ public sealed class CompanionCombat
     public string LastFireOutcome { get; private set; } = "-";
 
     internal void NoteFired() => LastFireOutcome = "fired";
+
+    /// <summary>
+    /// What the hand released on the tick it last fired: which weapon slot and item, the aim point the use was solved
+    /// for, the target's slot and the launch as it left, noise included. Nothing decides from it; it exists so the
+    /// replay recorder's decision digest can see a weapon, aim or target choice, which the one-word outcome cannot.
+    /// </summary>
+    public readonly record struct Release(ulong Tick, int WeaponSlot, int ItemType, Vector2 AimPoint, int TargetWhoAmI, Vector2 Launch);
+
+    /// <summary>The last release, or null before the first. Compare its tick against the current one before reading it as this tick's.</summary>
+    public Release? LastRelease { get; internal set; }
     internal void NoteCooldown() => LastFireOutcome = "cooldown";
     /// <summary>At the stand with the plan's next use still ahead: the plan ordained a wait.</summary>
     internal void NoteWaiting()

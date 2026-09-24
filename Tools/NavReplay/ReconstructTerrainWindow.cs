@@ -12,8 +12,11 @@ using System.Text.Json;
 /// Plain values rather than a parsed event, because the two readers hold different event types —
 /// NavReplay scans lines, SessionReport already holds a validated log — and the reconstruction must
 /// be one piece of code whichever of them asked.
+///
+/// <para><c>Unreadable</c> marks a line that named the kind and did not parse: it is handed on rather than dropped, so the
+/// window counts it under <see cref="TerrainWindow.Malformed"/> and a caller that refuses malformed terrain refuses it too.</para>
 /// </summary>
-internal readonly record struct TerrainSnapshotRecord(double ElapsedMs, float PosX, float PosY, string Detail);
+internal readonly record struct TerrainSnapshotRecord(double ElapsedMs, float PosX, float PosY, string Detail, bool Unreadable = false);
 
 /// <summary>
 /// A rectangle of tiles rebuilt from a capture's snapshots, with what is known kept apart from what is
@@ -38,7 +41,8 @@ internal sealed class TerrainWindow
     public required byte[,] LiquidType { get; init; }
     /// <summary>Snapshots at or before the cutoff that contributed at least one tile to the window.</summary>
     public int Snapshots { get; init; }
-    /// <summary>Snapshots whose payload could not be read — dimensions disagreeing with the glyphs, a missing size.</summary>
+    /// <summary>Snapshots that could not be read — a line that did not parse, a missing tile payload or size, dimensions
+    /// disagreeing with the glyphs. An unparseable line counts whatever its time, because its time is what could not be read.</summary>
     public int Malformed { get; init; }
     /// <summary>The recorder's stopwatch reading of the oldest and newest contributing snapshot; NaN with none.</summary>
     public double OldestMs { get; init; } = double.NaN;
@@ -94,11 +98,14 @@ internal static class ReconstructTerrainWindow
         double oldest = double.MaxValue, newest = double.MinValue;
         foreach (TerrainSnapshotRecord snapshot in snapshots)
         {
+            // An unreadable line has no time to compare against the cutoff, so it counts wherever it lay: whether it
+            // described a tile of this window cannot be known, which is exactly what a malformed count exists to say.
+            if (snapshot.Unreadable) { malformed++; continue; }
             if (snapshot.ElapsedMs > cutoffElapsedMs) continue;
             int cx = (int)(snapshot.PosX / 16) - originX;
             int cy = (int)(snapshot.PosY / 16) - originY;
             string? tiles = Field(snapshot.Detail, "tiles");
-            if (tiles == null) continue;
+            if (tiles == null) { malformed++; continue; }
             if (!int.TryParse(Field(snapshot.Detail, "width"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int sw)
                 || !int.TryParse(Field(snapshot.Detail, "height"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int sh)
                 || sw <= 0 || sh <= 0 || tiles.Length != sw * sh)
@@ -131,24 +138,30 @@ internal static class ReconstructTerrainWindow
     /// <summary>
     /// Every snapshot in a sidecar, in file order, read line by line. The cheap string test comes before
     /// the parse because the sidecar runs to tens of megabytes and parsing every line as JSON to keep a
-    /// few hundred is most of the wall clock. A line that does not parse is skipped here; the session
-    /// reader's own event log is where malformed lines are counted.
+    /// few hundred is most of the wall clock. A line that names the kind and does not parse is handed on
+    /// marked <c>Unreadable</c> rather than skipped, so it reaches <see cref="TerrainWindow.Malformed"/>
+    /// and the scenario extractor's refusal: the extractor this was lifted from threw on such a line, and
+    /// a silent skip would cut a fixture from a window with a hole nobody was told about.
     /// </summary>
     public static IEnumerable<TerrainSnapshotRecord> ReadSnapshots(string eventsPath)
     {
         foreach (string line in File.ReadLines(eventsPath))
         {
             if (!line.Contains(Kind, StringComparison.Ordinal)) continue;
-            TerrainSnapshotRecord? record = null;
+            TerrainSnapshotRecord? record;
             try
             {
                 using JsonDocument document = JsonDocument.Parse(line);
                 JsonElement e = document.RootElement;
-                if (e.GetProperty("kind").GetString() == Kind)
-                    record = new TerrainSnapshotRecord(e.GetProperty("wall_elapsed_ms").GetDouble(),
-                        e.GetProperty("pos_x").GetSingle(), e.GetProperty("pos_y").GetSingle(), e.GetProperty("detail").GetString() ?? "");
+                record = e.GetProperty("kind").GetString() == Kind
+                    ? new TerrainSnapshotRecord(e.GetProperty("wall_elapsed_ms").GetDouble(),
+                        e.GetProperty("pos_x").GetSingle(), e.GetProperty("pos_y").GetSingle(), e.GetProperty("detail").GetString() ?? "")
+                    : null;
             }
-            catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException) { }
+            catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
+            {
+                record = new TerrainSnapshotRecord(double.NaN, 0f, 0f, "", Unreadable: true);
+            }
             if (record is { } found) yield return found;
         }
     }

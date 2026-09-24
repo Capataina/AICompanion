@@ -106,6 +106,17 @@ internal static class WorldRunEntry
             return costFailures == 0 ? 0 : 1;
         }
 
+        // The replay recorder alone, on a world whose NPC and item tables are full: what every player pays per tick for it.
+        if (args.Contains("--recorder-cost"))
+        {
+            string costSuite = Value(args, "--suite=") ?? "replay recorder cost";
+            if (MissingWorld(world, costSuite, MeasureTheReplayRecorder.StillCase) is { } absent) return absent;
+            Main.dedServ = true;
+            int recorderFailures = MeasureTheReplayRecorder.Run(world!, Value(args, "--ticks=") is null ? 300 : ticks, costSuite, Value(args, "--record-to="));
+            PrintEmittedRows();
+            return recorderFailures == 0 ? 0 : 1;
+        }
+
         // A capture played back as its own inputs, or a capture this run writes and then plays back: both are
         // RunTheReproduction's, which owns the rows, the refusals and the two passes.
         if (Value(args, "--reproduce=") is not null || args.Contains("--self-consistency"))
@@ -440,6 +451,16 @@ internal static class WorldRunEntry
               --passes=N              with --reproduce: reproduce N times in this one process, which
                                       is where state surviving the harness's reset shows
               --expect-every-tick     file the self-consistency verdict rather than the share
+              --drop-input-check=<list>  before the reproduction, reproduce once per named input with
+                                      it left out, stopping at the first divergence; each must diverge
+              --strict | --reseat     compare the body every tick, or put the recorded body back before
+                                      every tick and compare decisions (the default for a played capture)
+              --own-folder=<dir>      with --reproduce: remove <dir> on a pass, keep and name it on a fail
+              --companion-slot=N      with --self-consistency: the recording's companion in NPC slot N
+                                      and a zombie in slot 0, as in a played world
+              --knock-at=N            with --self-consistency: shove the body after tick N, as knockback does
+              --recorder-cost         the replay recorder alone on a full NPC and item table: its cost
+                                      per tick still and moving, and three checks of its own soundness
 
             Three cost modes, each filing measures only (no time is a pass line):
               --load-ladder           the seeded bot held at 0, 5, 10, 20 and 40 zombies near him, each

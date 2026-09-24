@@ -301,6 +301,27 @@ internal static class PrepareTheHeadlessEngine
     }
 
     /// <summary>
+    /// Puts the attached companion in another NPC slot, as a reproduction does when the record says the companion held it:
+    /// in a played world a town NPC or a hostile often holds slot 0, and a companion left there would displace the actor
+    /// the record places in it. The object that stood in the target slot moves to the companion's old slot, switched off,
+    /// because the engine dereferences every slot.
+    /// </summary>
+    public static void MoveTheCompanionToSlot(CompanionNPC companion, int slot)
+    {
+        if (slot < 0 || slot >= Main.maxNPCs)
+            throw new ArgumentOutOfRangeException(nameof(slot), slot, $"a recorded companion slot must lie in 0..{Main.maxNPCs - 1}");
+        NPC body = companion.NPC;
+        int from = body.whoAmI;
+        if (from == slot && ReferenceEquals(Main.npc[slot], body)) return;
+        NPC displaced = Main.npc[slot] ?? new NPC();
+        Main.npc[from] = displaced;
+        displaced.whoAmI = from;
+        displaced.active = false;
+        Main.npc[slot] = body;
+        body.whoAmI = slot;
+    }
+
+    /// <summary>
     /// Returns every process-wide thing the brain remembers between ticks to the state a freshly
     /// entered world leaves it in.
     ///

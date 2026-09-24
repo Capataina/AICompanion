@@ -305,6 +305,13 @@ internal static class RunTheWorld
     /// </summary>
     public static Action? AfterTheCompanionIsAttached { get; set; }
 
+    /// <summary>
+    /// Called after the companion's tick and the engine's half of its move, with the recorded tick: a harness's way to do to
+    /// the body what the game does between companion ticks and the record does not carry, such as a hostile's knockback.
+    /// Null in every ordinary run.
+    /// </summary>
+    public static Action<CompanionNPC, int>? AfterTheCompanionTicks { get; set; }
+
     /// <summary>Which Main.npc slot the combat variant's zombie stands in. The companion is not in the array, so no slot collides.</summary>
     private const int ZombieSlot = 50;
 
@@ -448,6 +455,7 @@ internal static class RunTheWorld
             {
                 companion.AI();
                 PrepareTheHeadlessEngine.AdvanceTheNativeBody(companion);
+                AfterTheCompanionTicks?.Invoke(companion, step.Tick);
             }
             catch (Exception failure)
             {
