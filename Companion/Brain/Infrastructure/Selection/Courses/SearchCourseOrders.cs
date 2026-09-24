@@ -26,6 +26,10 @@ public interface ICourseProjector
 /// one retained suffix, not which sites are ever examined.</summary>
 public sealed class SearchCourseOrders
 {
+    // Profiler sections: projecting one order's consequences, and valuing a projection. What the search spends
+    // outside both is enumerating orders and keeping the leaders, which is its own self time.
+    private static readonly int ProjectSection = Diagnostics.BrainSections.Register("project");
+    private static readonly int ValueSection = Diagnostics.BrainSections.Register("value");
     private IEnumerator<OpportunityKey[]>? orders;
     private OpportunityKey[]? pendingOrder;
     private readonly DecisionWorkCursor projectionCursor = new();
@@ -224,7 +228,9 @@ public sealed class SearchCourseOrders
                 pendingOrder = orders.Current;
                 projectionCursor.Bind(++generation, "next-course-order");
             }
-            var result = projector.Continue(pendingOrder, facts, episode, projectionCursor, budget);
+            CourseProjectionResult result;
+            using (Diagnostics.BrainSections.Enter(ProjectSection))
+                result = projector.Continue(pendingOrder, facts, episode, projectionCursor, budget);
             RequiredTravel = result.Status == ProjectionStatus.Pending
                 ? Array.AsReadOnly((result.RequiredTravel ?? Array.Empty<CourseTravelRequest>()).ToArray())
                 : Array.Empty<CourseTravelRequest>();
@@ -240,7 +246,8 @@ public sealed class SearchCourseOrders
             else
             {
                 EvaluatedOrders++;
-                var value = CompareCourseOutcomes.Evaluate(result.Projection, episode);
+                CourseValue value;
+                using (Diagnostics.BrainSections.Enter(ValueSection)) value = CompareCourseOutcomes.Evaluate(result.Projection, episode);
                 string lead = pendingOrder.Length == 0 ? IdleOrderKey : pendingOrder[0].Domain;
                 if (!leaders.TryGetValue(lead, out var best)
                     || CompareCourseOutcomes.NominalOrder(value, best, episode.Encounter) > 0)

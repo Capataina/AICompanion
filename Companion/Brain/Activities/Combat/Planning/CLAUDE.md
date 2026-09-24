@@ -119,6 +119,8 @@ Four changes landed here on 21 September and each closed a class rather than a c
 
 Precise multi-use knockback successor credit remains unsupported until the simulator receives a supported motion model and actual receipt lineage; the core reports such combinations as uncertain rather than certifying them. **The 22 September play exercised the stance under real hostiles, but says nothing new about this folder specifically**: the play's own findings are about the course's re-search bound and its fight-crediting accounting, both a level up, and `PlannedUse.AimPoint` — the one open defect this folder owns — was neither hit nor cleared by it, so it is still a headless finding with no play evidence either way.
 
+**The attack search and the re-pricing are profiler sections**: `attack-search` (with its enemy `forecast` and its `stands` proposal as children, and the positioner's `assess-stands`, the `aim` questions and the `simulate` calls nesting beneath) and `reprice`. On the crowd scene of 24 September 2026 the held plan's re-pricing ran on 96% of ticks and was the combat preparation's steady cost, while the full search ran on a few percent of ticks at around ten milliseconds each. `../../../Infrastructure/Diagnostics/CLAUDE.md` owns the profiler.
+
 ## Operating
 
 ```

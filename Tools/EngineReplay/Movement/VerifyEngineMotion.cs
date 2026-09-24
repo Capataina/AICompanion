@@ -113,6 +113,9 @@ internal static class VerifyEngineMotion
         ["weapon, target, stand and aim are valued by what the companion's own shots achieved"] = new[] { EmitLedgerRows.TimedTag },
         ["the free-space flood over a screen-sized room finishes in a handful of slices"] = new[] { EmitLedgerRows.TimedTag },
         ["the way to the player is resumed until it is answered and never read as a proof before it is"] = new[] { EmitLedgerRows.TimedTag },
+        // Perf tier as well: eight arms of three hundred unbounded crowd ticks, about three minutes, and its subject is
+        // cost. The invariance it also proves runs on every verify in the short case beside it.
+        ["what the section profiler costs the whole brain is measured"] = new[] { EmitLedgerRows.TimedTag, EmitLedgerRows.PerfTierTag },
         // Timed for a different reason: each waits on the diagnostic writer thread with a one-second deadline
         // (FlushForReader, Stop, a held write's Entered.Wait), so its verdict depends on that thread being
         // scheduled in time. That is a liveness bound rather than a timing measure, and it can only fail on a
@@ -199,6 +202,10 @@ internal static class VerifyEngineMotion
         ("a decision that spans ticks keeps the fight the body is already in", VerifyADecisionInFlightKeepsTheFight.Run),
         ("what one decision costs to assemble and to carry", VerifyWhatEachDecisionCosts.Run),
         ("the tick's allowance is the tunable unless a harness overrides it, and every reader takes the override", VerifyTheTickAllowanceOverride.Run),
+        ("the section profiler allocates nothing and its tree nests inside every phase", VerifyBrainSectionProfiler.Run),
+        ("the cost-spike fence is relative, fires on an outlier and allocates nothing", VerifyBrainSectionProfiler.RunSpikeFence),
+        ("the section profiler changes no decision", VerifyBrainSectionProfiler.ProfilingChangesNoDecision),
+        ("what the section profiler costs the whole brain is measured", VerifyBrainSectionProfiler.MeasureProfilerOverhead),
         ("the search keeps the best order the winner beat", VerifyTheSearchRetainsItsRunnerUp.Run),
         ("a body taken by downing drops the course it was performing", VerifyATakenBodyDropsItsCourse.Run),
         ("collecting, lighting and pot breaking bind steps a course can hold", VerifyAssistanceCourseBindings.Run),

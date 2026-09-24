@@ -55,6 +55,9 @@
              Exclude="../../Companion/Brain/Infrastructure/Movement/TerrariaIntegration/**/*.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Selection/Computation/AllocateDecisionWork.cs" />
+    <!-- The section profiler, because the route search, the steering law and the evade layer open its
+         sections. It names no game type; here nothing claims a recording thread, so every scope is inert. -->
+    <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/ProfileBrainSections.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="FNA">

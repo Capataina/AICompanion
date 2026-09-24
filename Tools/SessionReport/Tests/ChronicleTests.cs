@@ -80,6 +80,7 @@ public static class ChronicleTests
             TheGuideQuotesTheSchemaConstantItDocuments();
             TheAuditsOwnWiringIsWitnessedByTheCapture();
             TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
+            TheSectionProfileIsReadAndAnOlderCaptureDeclinesByName();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
             Console.WriteLine($"Chronicle self-tests passed ({Ran.Count} assertion groups).{DeclaredButSilent()}");
@@ -132,6 +133,86 @@ public static class ChronicleTests
     /// capture below it, and the unmeasured first interval is asked for as an exclusion rather than as
     /// a fast frame.</para>
     /// </summary>
+    /// <summary>
+    /// Schema 0.48.0's section profile, read back by the measure and the report block: a section's share of the
+    /// brain, its share on spike ticks against ordinary ones, the allocators, the spike count read from each row's own
+    /// fence, a spike's whole tree from the sidecar — and a 0.47.0 capture declined by name rather than read as zeros.
+    /// The numbers are built so each expected value is arithmetic a reader can do by hand.
+    /// </summary>
+    private static void TheSectionProfileIsReadAndAnOlderCaptureDeclinesByName()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "aic-section-profile-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            // 200 brain ticks at 2 ms: 1.5 in the search and 0.3 in the intent sense. Ticks 100 and 150 are spikes of
+            // 10 ms, 9 of them in combat's preparation. The fence is `-` for the first ten rows, as the producer writes
+            // it while its window fills. Every tick allocates 2,000 bytes, 1,000 of them in the assistance capture.
+            var trace = new StringBuilder("# schema=0.48.0\n# text_columns=sections,alloc_sections\n"
+                + "tick\twall_elapsed_ms\tbrain_ms\trecord_ms\tgc0\tgc1\tgc2\ttick_alloc_bytes\tbrain_alloc_bytes\tsections\tsections_other_ms\tcost_fence_ms\talloc_sections\n");
+            for (int tick = 0; tick < 200; tick++)
+            {
+                bool spike = tick is 100 or 150;
+                string sections = spike ? "decide.prepare.combat=9.000/1|decide.course.search=0.500/1|record.row=0.100/1"
+                    : "decide.course.search=1.500/1|senses.intent=0.300/1|record.row=0.100/1";
+                trace.Append(FormattableString.Invariant(
+                    $"{tick}\t{tick * 1000.0 / 60.0:0.00}\t{(spike ? 10.0 : 2.0):0.00}\t0.50\t{(tick % 10 == 0 ? 1 : 0)}\t0\t0\t2100\t2000\t{sections}\t0.100\t{(tick < 10 ? "-" : "5.000")}\tdecide.course.snapshot.assistance=1000|senses.intent=10\n"));
+            }
+            string current = Path.Combine(directory, "2026-09-24_00-00-00-000.tsv");
+            File.WriteAllText(current, trace.ToString());
+            File.WriteAllText(ReadGodsEyeEvents.PathFor(current),
+                "{\"v\":1,\"seq\":1,\"tick\":101,\"wall_elapsed_ms\":1683.3,\"kind\":\"cost-spike\",\"subject\":1,\"related\":\"\",\"label\":\"10.000\",\"channel\":\"60\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":1,"
+                + "\"detail\":\"spikes-in-window=1;window-ticks=60;tick=100;brain-ms=10.000;fence-ms=5.000;q1-ms=1.900;median-ms=2.000;q3-ms=2.100;tree=decide=9.800/0.100/1/4000|decide.prepare=9.200/0.200/1/3000|decide.prepare.combat=9.000/9.000/1/3000|decide.course=0.500/0.000/1/1000|decide.course.search=0.500/0.500/1/1000\"}\n");
+            Session session = Session.Load(current);
+
+            var measure = new MeasureWhereTheTimeGoes();
+            Require(measure.Needs.All(name => session.Has(name)) && measure.Missing(session) == null, "a 0.48.0 capture carrying the profile was declined: " + measure.Missing(session));
+            var rows = measure.Rows(session).ToDictionary(row => row.Case, row => row);
+            double Value(string name) => rows.TryGetValue(name, out var row) ? row.Value ?? double.NaN : double.NaN;
+            Require(Value("time/spikes") == 2, $"two ticks above their own fence should read 2 spikes, and read {Value("time/spikes")}");
+            double brainTotal = 198 * 2.0 + 2 * 10.0;
+            Require(Math.Abs(Value("time/share/decide.course.search") - 100.0 * (198 * 1.5 + 2 * 0.5) / brainTotal) < 1e-9,
+                $"the search's share of the brain is its summed self time over the summed brain time; read {Value("time/share/decide.course.search")}");
+            Require(Math.Abs(Value("time/spike-share/decide.prepare.combat") - 90.0) < 1e-9 && Value("time/ordinary-share/decide.prepare.combat") == 0,
+                $"combat held 18 of the 20 spike-tick milliseconds and none of the ordinary ones; read {Value("time/spike-share/decide.prepare.combat")} against {Value("time/ordinary-share/decide.prepare.combat")}");
+            Require(Math.Abs(Value("time/alloc-share/decide.course.snapshot.assistance") - 50.0) < 1e-9,
+                $"1,000 of every 2,000 bytes is half the brain's allocation; read {Value("time/alloc-share/decide.course.snapshot.assistance")}");
+            Require(!rows.Keys.Any(name => name.Contains("record.row", StringComparison.Ordinal)),
+                "the recorder's own subtree was shared against the brain's time, where it belongs against record_ms");
+            Require(rows.Values.All(row => row.Tags?.Contains(AICompanion.Tools.Ledger.EmitLedgerRows.TimedTag) == true
+                    && row.Tags.Contains(AICompanion.Tools.Ledger.EmitLedgerRows.SampledTag)),
+                "a row of the section profile was filed without the timed and sampled tags");
+
+            string block = DescribeWhereTheTimeGoes.Of(session, current);
+            Require(block.Contains("tick 100  10.00 ms against a 5.00 ms fence", StringComparison.Ordinal)
+                    && block.Contains("decide.prepare.combat 9.00", StringComparison.Ordinal)
+                    && block.Contains("90.0% against   0.0%  decide.prepare.combat", StringComparison.Ordinal),
+                "the report block did not name the spike from its sidecar tree or set its dominant section against the ordinary ticks: " + block);
+
+            // A 0.47.0 capture has none of the columns: it is declined by the schema that first writes them, by name.
+            string older = Path.Combine(directory, "2026-09-23_00-00-00-000.tsv");
+            File.WriteAllText(older, "# schema=0.47.0\ntick\twall_elapsed_ms\tbrain_ms\trecord_ms\tgc0\tgc1\tgc2\n1\t16\t2.00\t0.50\t0\t0\t0\n");
+            Session old = Session.Load(older);
+            Require(measure.Missing(old) is { } why && why.Contains("written from schema 0.48.0", StringComparison.Ordinal) && why.Contains("0.47.0", StringComparison.Ordinal),
+                "a 0.47.0 capture was not declined by the schema that first writes the profile: " + measure.Missing(old));
+            Require(DescribeWhereTheTimeGoes.Of(old, older).Contains("where the time goes  unrecorded", StringComparison.Ordinal),
+                "the report block read a 0.47.0 capture instead of saying the profile is unrecorded");
+
+            // The producer pin: the names read here are the ones the recorder writes, by literal, in the recorder's
+            // own files — which this project does not compile.
+            string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
+            string events = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordGodsEyeEvents.cs"));
+            Require(telemetry.Contains("\\ttick_alloc_bytes\\tbrain_alloc_bytes\\tsections\\tsections_other_ms\\tcost_fence_ms\\talloc_sections", StringComparison.Ordinal)
+                    && telemetry.Contains("brain-ms=", StringComparison.Ordinal) && telemetry.Contains("fence-ms=", StringComparison.Ordinal)
+                    && telemetry.Contains(";tree=", StringComparison.Ordinal) && events.Contains("\"cost-spike\"", StringComparison.Ordinal),
+                "the recorder no longer writes the section profile's columns, or the cost-spike occurrence's fields, under the names this reader reads");
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static void TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates()
     {
         string file = Path.GetTempFileName();
@@ -3051,8 +3132,10 @@ public static class ChronicleTests
             // The producer literals these rules rest on.
             string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
             string events = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordGodsEyeEvents.cs"));
-            Require(telemetry.IndexOf("recordClock.Restart();", StringComparison.Ordinal) > telemetry.IndexOf("public static void Record(CompanionNPC companion)", StringComparison.Ordinal)
-                    && telemetry.Contains("lastRecordMs = recordClock.Elapsed.TotalMilliseconds;", StringComparison.Ordinal)
+            // Record is timed on raw clock ticks since 0.48.0, so the recorder's own profiler section sits inside
+            // `record_ms` exactly; the pin follows the literal rather than the old Stopwatch field.
+            Require(telemetry.IndexOf("long recordStarted = Stopwatch.GetTimestamp();", StringComparison.Ordinal) > telemetry.IndexOf("public static void Record(CompanionNPC companion)", StringComparison.Ordinal)
+                    && telemetry.Contains("lastRecordMs = (Stopwatch.GetTimestamp() - recordStarted) * BrainSections.MillisecondsPerTimestamp;", StringComparison.Ordinal)
                     && telemetry.Contains("\\trecord_ms\\tevents_written\\tevents_dropped\\tevents_coalesced\\tterrain_evictions", StringComparison.Ordinal)
                     && telemetry.Contains("events-dropped={GodsEyeEvents.Dropped}", StringComparison.Ordinal) && telemetry.Contains("# retention=", StringComparison.Ordinal),
                 "the recorder no longer times Record, writes the loss columns in order, restates them on closure, or states its retention");

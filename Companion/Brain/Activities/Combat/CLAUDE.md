@@ -21,6 +21,8 @@ The retained-course seam captures every use in the planner's priced front before
 
 `Prepare` is the only world read. It captures a value, a plan and whose bodies the plan was admitted against, so later `Score` cannot retarget.
 
+**Its own work is in the section profiler beside the search's**: the tick's enemy `forecast` (paid by whichever caller asks first), `commit` (the commitment and its `combat-plan` record) and `export` (the bounded-rate combat snapshot). The last is recording-only work that runs inside the decide phase, and on the world run's replay of the 22 September capture (24 September 2026) it was the worst tick of the run: 74.9 ms of an 84 ms brain tick, on the snapshot's 120-tick cadence while a plan was held. `../../Infrastructure/Diagnostics/CLAUDE.md` owns the profiler.
+
 ```
 no Combat preference ──► NoOpportunity, combat-disabled
 no weapon in either slot ──► NoOpportunity, no-weapon

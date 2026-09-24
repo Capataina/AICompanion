@@ -143,6 +143,9 @@ public static class Program
         // What the whole update cost and whose each part of it was, from schema 0.45.0's frame ledger.
         // Updates a second and frames a second are two rows here because an update is not a frame.
         new MeasureTheFrame(),
+        // Where inside the brain the time and memory went, and which sections dominated the ticks that stood out
+        // from the session's own recent ticks, from schema 0.48.0's section profile.
+        new MeasureWhereTheTimeGoes(),
         // The orb's stillness and roughness, which the first orb play of 15 September made the
         // question: `unexplained-stops` read zero over a session spent mostly still, because a body
         // held by a safety response or an arrived hold has no route to stop on.
@@ -272,6 +275,9 @@ public static class Program
         Companion(path, "-census.txt", "behaviour census");
         Companion(path, "-map.txt", "session map");
         Console.Write(DescribeCombatAudit.Of(path));
+        // Where the brain's time went, section by section, and the spike ticks with their whole trees from the
+        // sidecar; above the measures, because the measures file the same numbers and this is the reading of them.
+        Console.Write(DescribeWhereTheTimeGoes.Of(session, path));
 
         Console.Write(RunMeasures(session));
 

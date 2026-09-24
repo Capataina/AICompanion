@@ -34,6 +34,11 @@ public static class SearchAttackPlans
     /// <summary>How deep the beam goes: two timed segments with a third when budget remains.</summary>
     public const int MaxSearchDepth = 3;
 
+    // Profiler sections: the whole attack search, and the enemy forecast it starts from. Stand proposal, the
+    // uses it simulates and the aims those solve open their own sections beneath this one.
+    private static readonly int AttackSearchSection = Infrastructure.Diagnostics.BrainSections.Register("attack-search");
+    private static readonly int ForecastSection = Infrastructure.Diagnostics.BrainSections.Register("forecast");
+
     /// <summary>
     /// How many of a prefix's delayed landings become segment starts: the earliest landings are the
     /// timings worth naming, and the fan-out stays bounded. Arrival itself is always a start beside them.
@@ -74,12 +79,14 @@ public static class SearchAttackPlans
         Func<Vector2, bool> inAllowance, CombatWeights weights, int planId, ref DecisionWorkBudget budget,
         SearchOptions? options = null, int maxDepth = MaxSearchDepth)
     {
+        using var section = Infrastructure.Diagnostics.BrainSections.Enter(AttackSearchSection);
         int tick = ctx.Senses.Tick;
         int horizon = CompanionCombat.HorizonTicks;
         var weapons = combat.Weapons;
         if (weapons.Count == 0)
             return Empty(null, OfferEligibility.NoOpportunity, "no-weapon", 0, budget.Cut);
-        IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);
+        IReadOnlyList<EnemyForecast> enemies;
+        using (Infrastructure.Diagnostics.BrainSections.Enter(ForecastSection)) enemies = combat.EnsureForecast(ctx);
         List<ThreatRecord> targets = ProposalTargets(ctx, combat, inAllowance, out int deferredExcluded);
         if (targets.Count == 0)
         {

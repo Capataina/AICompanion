@@ -104,7 +104,7 @@ public sealed class CaptureGatheringOpportunities
     public IReadOnlyList<DecisionFact> Capture(in ActionContext context, DecisionWorkBudget budget)
     {
         var facts = new List<DecisionFact>();
-        CaptureOres(context, budget, facts, visibleThisCapture);
+        using (Infrastructure.Diagnostics.BrainSections.Enter(OresSection)) CaptureOres(context, budget, facts, visibleThisCapture);
         facts.Add(new(GatheringOpportunityBinder.ReadyKey("mine-target"), 0,
             new(Amount: context.Companion.Miner.CooldownTicks > 0 ? (double)Main.GameUpdateCount + context.Companion.Miner.CooldownTicks : 0), FactEvidence.Observed));
         // Gathering is two domains and this capture published one of them. CaptureTreeOpportunities
@@ -113,9 +113,14 @@ public sealed class CaptureGatheringOpportunities
         // the rule that optional work does not start on an unanswered search means never chopping.
         // The tree census owns its own slicing and cursor and shares the same borrowed allowance, so
         // it composes here rather than needing a second caller.
-        facts.AddRange(trees.Capture(context, budget));
+        using (Infrastructure.Diagnostics.BrainSections.Enter(TreesSection)) facts.AddRange(trees.Capture(context, budget));
         return facts.OrderBy(fact => fact.Key).ToArray();
     }
+
+    // The two censuses this capture composes, timed apart: a vein flood and a trunk scan grow with different parts
+    // of the world.
+    private static readonly int OresSection = Infrastructure.Diagnostics.BrainSections.Register("ores");
+    private static readonly int TreesSection = Infrastructure.Diagnostics.BrainSections.Register("trees");
 
     /// <summary>The trunk census this capture composes. It owns its own cursor and slicing and is
     /// reset with the rest, because a world reload must not leave it holding the old world's trunks.</summary>

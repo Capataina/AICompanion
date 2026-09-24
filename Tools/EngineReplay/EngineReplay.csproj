@@ -34,6 +34,8 @@
          project cannot see, so no row here can establish that the install happens. The capture's
          closing line carries `audit-observations-read` for that, and SessionReport grades it. -->
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/AuditDecisionContracts.cs" />
+    <!-- The audit's overrun ceiling reads the tick's allowance through its seam, so the seam comes with it. -->
+    <Compile Include="../../Companion/Brain/Infrastructure/Selection/Computation/OverrideTickAllowance.cs" />
     <!-- The audit's per-kind fact bound asks the census how many sites a window can hold, so the ranking
          comes with it; a name this project compiles twice must be in both copies or the second one
          silently keeps the previous binary. The placer's own file is deliberately *not* here — it
@@ -42,6 +44,9 @@
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/RankCensusSitesByWorth.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/QueueDiagnosticRecords.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/FlushDiagnosticRecords.cs" />
+    <!-- The section profiler, because the movement core compiled above opens its sections. This copy's
+         statics are the second of two; the live brain writes the live:: one, and ResetProcessState resets both. -->
+    <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/ProfileBrainSections.cs" />
     <Compile Include="../../Companion/PlayerIntegration/ObservePlayerEvents.cs" />
     <!-- The ledger's row writer, as a source file: every case here reports through it and through
          nothing else, so the suite's verdicts survive the process that produced them. -->

@@ -19,12 +19,19 @@ public sealed class DiscoverOpportunities
     private readonly DecisionStorage<OpportunityKey, Opportunity> storage;
     private int next;
     private long epoch = -1;
+    private readonly int[] sections;
+    private static readonly int RetireSection = Diagnostics.BrainSections.Register("retire");
+    private static readonly int PinSection = Diagnostics.BrainSections.Register("pin");
+    private static readonly int StoreSection = Diagnostics.BrainSections.Register("store");
     public DiscoverOpportunities(IEnumerable<IOpportunitySource> sources, int capacity)
     {
         this.sources = sources.ToArray();
         if (this.sources.Select(s => s.Name).Distinct(StringComparer.Ordinal).Count() != this.sources.Length)
             throw new ArgumentException("Opportunity sources need unique stable names.", nameof(sources));
         cursors = this.sources.Select(_ => new DecisionWorkCursor()).ToArray();
+        // One profiler section per census, named for its domain, so `decide.course.discovery.light-target` is where
+        // a dark cave's cost shows rather than inside one number for every census.
+        sections = this.sources.Select(source => Diagnostics.BrainSections.Register(source.Name)).ToArray();
         // Grouped by domain, with every source guaranteed its share of the capacity. Ungrouped, this store
         // was a preference for whichever domain mints the most candidates: measured on 21 September 2026,
         // lighting minted 138 sites in a dark area against one each from mining, chopping and collection,
@@ -50,9 +57,13 @@ public sealed class DiscoverOpportunities
             epoch = facts.WorldEpoch; candidates.Clear(); storage.Clear(); coverage.Clear(); next = 0;
             foreach (var cursor in cursors) cursor.Bind(epoch, "world-epoch");
         }
-        var pins = pinned.ToHashSet();
-        foreach (var key in candidates.Keys) storage.Pin(key, pins.Contains(key));
-        RetireAdmissionsThisObservationCannotSupport(facts, pins);
+        HashSet<OpportunityKey> pins;
+        using (Diagnostics.BrainSections.Enter(PinSection))
+        {
+            pins = pinned.ToHashSet();
+            foreach (var key in candidates.Keys) storage.Pin(key, pins.Contains(key));
+        }
+        using (Diagnostics.BrainSections.Enter(RetireSection)) RetireAdmissionsThisObservationCannotSupport(facts, pins);
         if (sources.Length == 0 || budget.Exhausted) return;
         for (int visited = 0; visited < sources.Length; visited++)
         {
@@ -61,7 +72,8 @@ public sealed class DiscoverOpportunities
             if (budget.Exhausted) return;
             int index = next;
             next = (next + 1) % sources.Length;
-            var result = sources[index].Continue(facts, cursors[index], budget);
+            OpportunitySlice result;
+            using (Diagnostics.BrainSections.Enter(sections[index])) result = sources[index].Continue(facts, cursors[index], budget);
             // The slice's own coverage, carrying forward the evictions this domain has suffered. A source
             // reports what it examined and cannot know what the store then threw away, so overwriting the
             // row wholesale reset the eviction count to zero on every slice — which made the one number
@@ -69,6 +81,10 @@ public sealed class DiscoverOpportunities
             // is the number AIC-448 was diagnosed by. The count is per world epoch, like the store.
             long evicted = coverage.TryGetValue(sources[index].Name, out var previous) ? previous.Evicted : 0;
             coverage[sources[index].Name] = result.Coverage with { Evicted = result.Coverage.Evicted + evicted };
+            // Storing what the slice examined is a section of its own, beside the pinning pass above, because on the
+            // replayed 22 September capture 12.5% of the whole brain was discovery's own time outside every census
+            // and these two are the work that runs there.
+            using var storing = Diagnostics.BrainSections.Enter(StoreSection);
             foreach (var candidate in result.Examined)
             {
                 if (candidate.Key.Domain != sources[index].Name)

@@ -92,6 +92,16 @@ public sealed class DecideCourseEachTick
     // tick and no slow one would ever finish.
     private readonly DiscoverOpportunities discovery = new(ProductionSources(), capacity: 64);
 
+    // The profiler sections a decision opens (see `Diagnostics/ProfileBrainSections.cs`): freezing the observation,
+    // checking the held step, the censuses, and publishing. The search and its models open theirs in
+    // `RetainCourseModelQueries`, and each census its own under `discovery`.
+    private static readonly int SnapshotSection = BrainSections.Register("snapshot");
+    private static readonly int ValidateSection = BrainSections.Register("validate");
+    private static readonly int DiscoverySection = BrainSections.Register("discovery");
+    private static readonly int SettleSection = BrainSections.Register("settle");
+    private static readonly int BeginSection = BrainSections.Register("begin");
+    private static readonly int TraceSection = BrainSections.Register("trace");
+
     private readonly BindOpportunity binder = new(ProductionBinders());
 
     /// <summary>The sources the live brain discovers through, fresh instances each call. Public so a pin
@@ -142,6 +152,10 @@ public sealed class DecideCourseEachTick
     /// <summary>The observation this tick's decision was made against, for the recorder and the overlay.
     /// Null before the first tick of a companion's life.</summary>
     public DecisionFactSnapshot? Facts => observation.Current;
+
+    /// <summary>How many model queries — travel and enemy motion — the decision in flight is waiting on, zero with
+    /// none in flight. Read by the recorder's cost-spike account and nothing that decides.</summary>
+    public int PendingModelQueries => models?.PendingCount ?? 0;
 
     /// <summary>What discovery found this tick, and how completely. A source that could not finish its
     /// census is the difference between "nothing to do" and "nobody looked", which is the distinction
@@ -418,7 +432,8 @@ public sealed class DecideCourseEachTick
             return Settle();
         }
 
-        DecisionFactSnapshot facts = observation.Capture(context, combat, plans, budget);
+        DecisionFactSnapshot facts;
+        using (BrainSections.Enter(SnapshotSection)) facts = observation.Capture(context, combat, plans, budget);
         Course.ObserveEpoch(facts.WorldEpoch);
         Course.RetireReceiptsThrough(facts.ReceiptWatermark);
 
@@ -448,7 +463,8 @@ public sealed class DecideCourseEachTick
         // episode's own discount on non-combat needs.
         if (NextStep(out StepBinding? held) && held != null)
         {
-            BindingValidation validation = binder.ValidateNextUse(held, facts);
+            BindingValidation validation;
+            using (BrainSections.Enter(ValidateSection)) validation = binder.ValidateNextUse(held, facts);
             if (validation.CanUse) return Carry(held, RetainedReason);
             // The use is recorded as invalid and then the course is released, and the release is not
             // optional. `Consider` refuses to compare two futures unless the incumbent was reprojected
@@ -463,10 +479,12 @@ public sealed class DecideCourseEachTick
         // Nothing usable is retained, so a decision starts here. Discovery runs first because the search
         // can only order sites that have been found, and its pinned set keeps whatever the course still
         // holds discoverable even if its source has moved past it.
-        discovery.Continue(facts, budget, Course.Current?.Projection.Steps.Select(step => step.Opportunity) ?? Array.Empty<OpportunityKey>());
+        using (BrainSections.Enter(DiscoverySection))
+            discovery.Continue(facts, budget, Course.Current?.Projection.Steps.Select(step => step.Opportunity) ?? Array.Empty<OpportunityKey>());
         admitted = null;
         IReadOnlyList<Opportunity> candidates = WithoutRefusedByPerformer(context, discovery.Candidates);
 
+        var beginning = BrainSections.Enter(BeginSection);
         var episode = EpisodeFor(context, ++episodes, facts.WorldEpoch, candidates.SelectMany(candidate => candidate.Needs),
             censusComplete: discovery.Coverage.All(coverage => coverage.Exhausted));
 
@@ -483,6 +501,7 @@ public sealed class DecideCourseEachTick
         search.Begin(facts, episode, candidates,
             Course.Current?.Projection.Steps.Select(step => step.Opportunity).ToArray() ?? Array.Empty<OpportunityKey>(),
             projector);
+        beginning.Dispose();
         // The owner drives the search rather than the other way round: it answers whatever models the
         // search asked for, extends the frozen catalogue with the answers, and lets the search resume on
         // the extended observation. A search suspended on a model nobody answers never advances.
@@ -690,6 +709,7 @@ public sealed class DecideCourseEachTick
     /// </summary>
     private CourseDecision Settle()
     {
+        using var settling = BrainSections.Enter(SettleSection);
         SearchCourseOrders search = deciding!;
         CourseComparisonEpisode episode = decidingEpisode!;
         // The model-extended observation, not the one the decision started from. Every travel answer and
@@ -801,6 +821,9 @@ public sealed class DecideCourseEachTick
             DecisionId++;
             DecisionTick = Terraria.Main.GameUpdateCount;
         }
+        // The decision's own record, built every tick whether or not a session is recording, is a cost of
+        // deciding the recorder does not see, so it is a section of its own.
+        using var tracing = BrainSections.Enter(TraceSection);
         DecisionFactSnapshot? facts = observation.Current;
         if (facts == null) return decision;
         RetainedCourse? course = Course.Current;

@@ -85,6 +85,21 @@ public static class GodsEyeEvents
     }
 
     /// <summary>
+    /// The worst brain tick of one spike window: a tick whose cost crossed the fence computed from the session's own
+    /// recent ticks (<c>DetectCostSpikes</c>), with the whole account of where its time went. The label is its cost
+    /// in milliseconds, the channel the window's length in ticks and the amount how many ticks in the window crossed,
+    /// so a burst is one record that says how long it was; the detail is built by the recorder, which holds the tree.
+    /// </summary>
+    public static void RecordCostSpike(NPC? companion, double costMilliseconds, int spikesInWindow, int windowTicks, string detail)
+    {
+        if (!Accepting()) return;
+        Write("cost-spike", companion == null ? 0 : Stable(npcGenerations, companion.whoAmI), "",
+            costMilliseconds.ToString("0.000", CultureInfo.InvariantCulture),
+            windowTicks.ToString(CultureInfo.InvariantCulture), companion?.Center ?? Vector2.Zero, Vector2.Zero, Vector2.Zero,
+            spikesInWindow, FormattableString.Invariant($"spikes-in-window={spikesInWindow};window-ticks={windowTicks};{detail}"));
+    }
+
+    /// <summary>
     /// One world interaction. The two operations that are native effects — a torch placed, a pot broken —
     /// are audited against the accepted step (<c>AuditDecisionContracts.ObserveEffect</c>) before the stream
     /// gate, so the contract counts with no session open; every occurrence then carries the step it was

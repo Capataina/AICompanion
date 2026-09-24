@@ -139,7 +139,9 @@ public static class AuditDecisionContracts
     /// <summary>
     /// What a tick's decision may cost before the overrun is reported, in milliseconds.
     ///
-    /// The tick's own allowance is <see cref="Weights.TotalPlanningMilliseconds"/>, and a decision
+    /// The tick's own allowance is <see cref="Selection.Computation.TickAllowance.Milliseconds"/> — the tunable, or the
+    /// harness's override when the budget curve sets one, so the ceiling moves with the allowance actually installed —
+    /// and a decision
     /// legitimately exceeds it by up to one atomic slice, because a bounded query already inside its
     /// own deadline is not cut mid-flight: the largest such slice declared in <see cref="Weights"/> is
     /// <see cref="Weights.RouteSearchMilliseconds"/>, larger than the family-preparation and
@@ -147,7 +149,7 @@ public static class AuditDecisionContracts
     /// this ceiling with it.
     /// </summary>
     public static double DecideCeilingMilliseconds
-        => Weights.TotalPlanningMilliseconds + Weights.RouteSearchMilliseconds;
+        => Selection.Computation.TickAllowance.Milliseconds + Weights.RouteSearchMilliseconds;
 
     /// <summary>The two refusal strings that mean "the target fact this order names was not observed".
     /// Both are emitted on one condition, <c>Evidence != FactEvidence.Observed</c>, from
@@ -470,7 +472,7 @@ public static class AuditDecisionContracts
         // string by the time it is passed. Formatting each number into a local is the shape that
         // compiles and is what the rest of this tree does.
         string cost = decideMilliseconds.ToString("0.000", CultureInfo.InvariantCulture);
-        string allowance = Weights.TotalPlanningMilliseconds.ToString("0.000", CultureInfo.InvariantCulture);
+        string allowance = Selection.Computation.TickAllowance.Milliseconds.ToString("0.000", CultureInfo.InvariantCulture);
         string slice = Weights.RouteSearchMilliseconds.ToString("0.000", CultureInfo.InvariantCulture);
         string over = (decideMilliseconds - ceiling).ToString("0.000", CultureInfo.InvariantCulture);
         Fire("decide-overran-allowance", tick, context,

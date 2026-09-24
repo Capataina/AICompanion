@@ -62,6 +62,8 @@ The same file carries the global hooks over NPC hits: the modify hook keeps each
 
 **A companion swing never applies its item's status**, because `Player.ApplyDamageToNPC` applies none; the item-status path lives in the player's melee hit code, which is the item-use code this folder never runs. **A volley's timing is not reproduced**: every slot spawns on the firing tick even when the player's use spaced them across its animation, which the simulator prices and live fire does not. The intervention and removal estimates protection reads stay on the prior. And no recorder column carries the learner's numbers yet: `AttackLearning.LastSampledFactor`, `LastMeanFactor` and `ShotOutcomes.LastClosed` are there for whoever owns the schema.
 
+**`ForecastUses.BestAimUse` is the profiler's `aim` section**, entered by the planner, the re-pricing and the hand alike and told apart by the path it is entered from; proposing the aims before any is simulated is its `candidates` child. On the crowd scene of 24 September 2026 the re-pricing's `aim.candidates` and `aim.simulate` together were about a third of the brain. `../../Diagnostics/CLAUDE.md` owns the profiler.
+
 ## Current state — 18 September 2026
 
 The arsenal split landed: `CompanionCombat` is the per-companion surface, `FireDueUse` is the hand, the planner lives under `Activities/Combat/Planning/`. The hands fire only on a Combat tick. Learned volleys, the flight recorder and the cursor spoof are built. Knowledge saves by full name and reloads under shuffled ids; an extra-projectile modifier changes the next simulated use without relearning, planted in the S5 row until mastery bonuses exist. A consumable's remaining throws are the stack in the slot (`UsesRemaining`); ammo is free, so a bow is unlimited.

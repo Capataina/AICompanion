@@ -33,6 +33,9 @@ public static class ProposeFiringStands
 {
     private const int GeneratorCount = 7;
 
+    /// <summary>The profiler section a stand proposal runs in; the uses it simulates nest under it.</summary>
+    private static readonly int StandsSection = Infrastructure.Diagnostics.BrainSections.Register("stands");
+
     /// <summary>Predicted ticks out the generators draw chains and centroids at: mid-segment, where the fight will be.</summary>
     private const int GeometryTick = 30;
 
@@ -40,6 +43,7 @@ public static class ProposeFiringStands
         IReadOnlyList<EnemyForecast> enemies, List<ThreatRecord> targets, ref DecisionWorkBudget budget,
         Vector2? origin = null, bool disableBankAims = false)
     {
+        using var section = Infrastructure.Diagnostics.BrainSections.Enter(StandsSection);
         var proposals = new List<StandProposal>();
         var seen = new HashSet<(int X, int Y)>();
         var weapons = combat.Weapons;

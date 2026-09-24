@@ -45,16 +45,26 @@ public sealed class Senses
         Tick++;
         Companion = companion;
         PlayerEntity = player;
-        Player.Update(player, companion);
+        using (Diagnostics.BrainSections.Enter(PlayerSection)) Player.Update(player, companion);
         // Straight after the player, because it reads his freshly observed intent and every later
         // sense and every consumer this tick must see one region rather than two.
-        Intent.Update(companion, Player);
-        Threats.Update(player, companion);
-        Encounter.Update(player, Threats);
-        Projectiles.Update(companion);
-        Loot.Update(companion, player);
-        Light.Update(companion, player);
-        Self.Update(companion);
+        using (Diagnostics.BrainSections.Enter(IntentSection)) Intent.Update(companion, Player);
+        using (Diagnostics.BrainSections.Enter(ThreatsSection)) Threats.Update(player, companion);
+        using (Diagnostics.BrainSections.Enter(EncounterSection)) Encounter.Update(player, Threats);
+        using (Diagnostics.BrainSections.Enter(ProjectilesSection)) Projectiles.Update(companion);
+        using (Diagnostics.BrainSections.Enter(LootSection)) Loot.Update(companion, player);
+        using (Diagnostics.BrainSections.Enter(LightSection)) Light.Update(companion, player);
+        using (Diagnostics.BrainSections.Enter(SelfSection)) Self.Update(companion);
         DistanceToPlayer = Microsoft.Xna.Framework.Vector2.Distance(companion.Center, player.Center);
     }
+
+    // One profiler section per sense, so a costly observation names the sense that paid for it.
+    private static readonly int PlayerSection = Diagnostics.BrainSections.Register("player");
+    private static readonly int IntentSection = Diagnostics.BrainSections.Register("intent");
+    private static readonly int ThreatsSection = Diagnostics.BrainSections.Register("threats");
+    private static readonly int EncounterSection = Diagnostics.BrainSections.Register("encounter");
+    private static readonly int ProjectilesSection = Diagnostics.BrainSections.Register("projectiles");
+    private static readonly int LootSection = Diagnostics.BrainSections.Register("loot");
+    private static readonly int LightSection = Diagnostics.BrainSections.Register("light");
+    private static readonly int SelfSection = Diagnostics.BrainSections.Register("self");
 }

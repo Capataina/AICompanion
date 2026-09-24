@@ -26,16 +26,14 @@ internal static class VerifyTheTickAllowanceOverride
     /// <summary>
     /// Files that may name the tunable, each with the reason.
     ///
-    /// <c>AuditDecisionContracts.cs</c> is the one reader outside the seam and it is listed rather than moved
-    /// because it decides only when a <c>decide-overran-allowance</c> record is written — its ceiling never
-    /// reaches a decision — and the file belongs to the diagnostics lane; under an override its records are
-    /// judged against the production ceiling, which the budget curve's rows say.
+    /// <c>AuditDecisionContracts.cs</c> was listed here until the section-profiler merge of 24 September 2026, when
+    /// its overrun ceiling moved onto the seam too, so under the budget curve's override its
+    /// <c>decide-overran-allowance</c> records are judged against the allowance actually installed.
     /// </summary>
     private static readonly string[] AllowedReaders =
     {
         "Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs",            // the declaration
         "Companion/Brain/Infrastructure/Selection/Computation/OverrideTickAllowance.cs", // the seam
-        "Companion/Brain/Infrastructure/Diagnostics/AuditDecisionContracts.cs",   // the overrun record's ceiling
     };
 
     private const string Tunable = "TotalPlanningMilliseconds";

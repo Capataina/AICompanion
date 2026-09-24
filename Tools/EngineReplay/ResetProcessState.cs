@@ -117,6 +117,13 @@ internal static class ResetProcessState
         live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.Hazards =
             Array.Empty<Microsoft.Xna.Framework.Rectangle>();
 
+        // The section profiler's tree, its snapshot, its recording thread and its on/off switch. A case that
+        // measures the profiler's cost turns it off for one arm, and a case that throws mid-tick leaves a scope
+        // open; neither may reach the next case. Both copies, because the movement core calls it and this
+        // project compiles the movement core a second time.
+        AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainSections.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainSections.Reset();
+
         // The player's diagnostics switches, which are a registered singleton exactly the way the
         // preferences below are, and which decide whether a recorder records at all:
         // `BrainTelemetry.Record` closes the session on the first tick it reads `RecordTelemetry` false.

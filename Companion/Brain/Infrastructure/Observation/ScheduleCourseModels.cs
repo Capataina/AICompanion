@@ -17,6 +17,10 @@ public sealed class ScheduleCourseModels
     private readonly CapturedCourseMotion motion;
     private readonly Dictionary<FactKey, Func<DecisionWorkBudget, DecisionFact?>> pending = new();
     private readonly Queue<FactKey> turns = new();
+    // The two kinds of model a decision waits on, timed apart because a course with travel in it and a fight
+    // priced against moving enemies are different costs with different fixes.
+    private static readonly int TravelSection = Diagnostics.BrainSections.Register("travel");
+    private static readonly int EnemyMotionSection = Diagnostics.BrainSections.Register("enemy-motion");
 
     public ScheduleCourseModels(ITileWorld world, long capabilityRevision, int capacity)
     {
@@ -38,7 +42,11 @@ public sealed class ScheduleCourseModels
         if (pending.Count == Capacity) { CapacityRefusals++; return false; }
         var query = new CaptureCourseTravel(world, request.From, request.Velocity, request.To, capabilityRevision,
             motion, observationTerrainRevision);
-        pending.Add(request.Key, budget => query.Continue(budget, maximumOperations: 1));
+        pending.Add(request.Key, budget =>
+        {
+            using var section = Diagnostics.BrainSections.Enter(TravelSection);
+            return query.Continue(budget, maximumOperations: 1);
+        });
         turns.Enqueue(request.Key);
         return true;
     }
@@ -48,7 +56,11 @@ public sealed class ScheduleCourseModels
         ValidateEnemyMotion(query);
         if (pending.ContainsKey(query.Key)) return true;
         if (pending.Count == Capacity) { CapacityRefusals++; return false; }
-        pending.Add(query.Key, budget => query.Continue(budget, maximumOperations: 1));
+        pending.Add(query.Key, budget =>
+        {
+            using var section = Diagnostics.BrainSections.Enter(EnemyMotionSection);
+            return query.Continue(budget, maximumOperations: 1);
+        });
         turns.Enqueue(query.Key);
         return true;
     }

@@ -118,12 +118,20 @@ public sealed class CaptureAssistanceOpportunities
     public IReadOnlyList<DecisionFact> Capture(Senses senses, ActionContext context)
     {
         var captured = new List<DecisionFact>();
-        PotSweep pots = CapturePots(senses, context);
+        PotSweep pots;
+        using (Diagnostics.BrainSections.Enter(PotsSection)) pots = CapturePots(senses, context);
         captured.AddRange(pots.Facts);
-        captured.AddRange(CaptureDrops(senses, context, new(double.PositiveInfinity), pots).Facts);
-        CaptureLighting(senses, context, captured);
+        using (Diagnostics.BrainSections.Enter(DropsSection))
+            captured.AddRange(CaptureDrops(senses, context, new(double.PositiveInfinity), pots).Facts);
+        using (Diagnostics.BrainSections.Enter(LightSection)) CaptureLighting(senses, context, captured);
         return captured.OrderBy(fact => fact.Key).ToArray();
     }
+
+    // The three sweeps this capture composes, timed apart. The replayed 22 September capture put this capture at a
+    // quarter of the whole brain on 24 September 2026, past the tenth of a phase the profiler splits at.
+    private static readonly int PotsSection = Diagnostics.BrainSections.Register("pots");
+    private static readonly int DropsSection = Diagnostics.BrainSections.Register("drops");
+    private static readonly int LightSection = Diagnostics.BrainSections.Register("light");
 
     public void ResetWorld() { itemGenerations.Reset(); factVersions.Clear(); frozenDrops = null; capturedDrops.Clear(); drops = new(); dropCensusRevision = 0; version = 0; }
 

@@ -18,6 +18,8 @@ namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 
 public static class ReevaluateAttackPlan
 {
+/// <summary>The profiler section a committed plan's re-pricing runs in.</summary>
+private static readonly int RepriceSection = Infrastructure.Diagnostics.BrainSections.Register("reprice");
 /// <summary>Which gate emptied the attack list on the last refusal, for a reader who has a released
 /// plan and no way to tell which of eight checks dropped its final use. A release reason of
 /// "uses-stopped-solving" names the symptom; this names the check. It is only ever read after a
@@ -58,6 +60,7 @@ public readonly record struct Repricing(CombatOutcome? Outcome, bool Cut)
 public static Repricing Reevaluate(in ActionContext ctx, CompanionCombat combat,
     IReadOnlyList<EnemyForecast> enemies, AttackPlan plan, CombatWeights weights, ref DecisionWorkBudget budget)
 {
+    using var section = Infrastructure.Diagnostics.BrainSections.Enter(RepriceSection);
     int tick = ctx.Senses.Tick;
     int horizon = CompanionCombat.HorizonTicks;
     AttackSegment segment = plan.Current(tick);

@@ -31,6 +31,12 @@ public sealed class AssembleCourseSnapshot
     private readonly CaptureAssistanceOpportunities assistance = new();
     private readonly CaptureGatheringOpportunities gathering = new();
     private long id;
+    // Each domain's capture timed apart, because freezing the observation is the part of a decision that grows
+    // with the world rather than with the search.
+    private static readonly int AssistanceSection = Diagnostics.BrainSections.Register("assistance");
+    private static readonly int GatheringSection = Diagnostics.BrainSections.Register("gathering");
+    private static readonly int CombatSection = Diagnostics.BrainSections.Register("combat");
+    private static readonly int ContactSection = Diagnostics.BrainSections.Register("contact");
 
     /// <summary>The snapshot most recently assembled, for the consumers that compare identity across
     /// ticks. Null until the first tick of a companion's life.</summary>
@@ -55,10 +61,12 @@ public sealed class AssembleCourseSnapshot
         // Assistance owns drops, pots and light; gathering owns ore and trunks. Combat's census is the
         // planner's own priced front rather than a world scan, which is why it needs the search result
         // and why it carries no coverage fact: a front is complete by construction or absent.
-        facts.AddRange(assistance.Capture(context.Senses, context));
-        facts.AddRange(gathering.Capture(context, budget));
-        facts.AddRange(CombatCourseFacts.Capture(context, combat, search));
+        using (Diagnostics.BrainSections.Enter(AssistanceSection)) facts.AddRange(assistance.Capture(context.Senses, context));
+        using (Diagnostics.BrainSections.Enter(GatheringSection)) facts.AddRange(gathering.Capture(context, budget));
+        using (Diagnostics.BrainSections.Enter(CombatSection)) facts.AddRange(CombatCourseFacts.Capture(context, combat, search));
         facts.Add(CaptureCompanionshipInputs.Capture(context, ordinal));
+        // The contact census, both victims and the player's motion: the inputs harm is priced from.
+        using var contact = Diagnostics.BrainSections.Enter(ContactSection);
         facts.Add(CaptureCourseContactCensus.Capture(budget).ToFact(ordinal));
         // Both victims, because both bodies' harm is priced. A victim that could not be captured under
         // this tick's allowance is simply absent, which the harm forecast reads as work it cannot price

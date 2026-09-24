@@ -92,9 +92,46 @@ public sealed class Brain
     /// column per suspect: the sixth run of 2026-09-08 was unplayable and the two searches
     /// already timed said forty percent of every second, which left the other sixty to guess.
     /// A phase that did not run this tick reads zero.
+    ///
+    /// Each phase is read from raw clock ticks rather than from <c>Stopwatch.Elapsed</c>, which truncates to
+    /// 100 ns, because the phase's own profiler section (<see cref="BrainSections"/>) opens after the lap starts
+    /// and closes before it ends on the same clock, and "a phase's sections never add up to more than its column"
+    /// is then exact rather than true to within a rounding.
     /// </summary>
     public double SensesMs, ReflexMs, DecideMs, PositionMs, NavigateMs, FinaliseMs, TotalMs;
-    private readonly System.Diagnostics.Stopwatch phase = new(), whole = new();
+    private readonly System.Diagnostics.Stopwatch whole = new();
+    private long lapStarted;
+
+    // The tick's profiler sections, one per phase and one per unit inside a phase a person would act on.
+    // Registered once at class load; `BrainSections` explains the tree they build.
+    private static readonly int SensesSection = BrainSections.Register("senses");
+    private static readonly int ReachFloodSection = BrainSections.Register("reach-flood");
+    private static readonly int HomesSection = BrainSections.Register("homes");
+    private static readonly int CombatKnowledgeSection = BrainSections.Register("combat-knowledge");
+    private static readonly int ChopperSection = BrainSections.Register("chopper");
+    private static readonly int ReflexSection = BrainSections.Register("reflex");
+    private static readonly int InterventionSection = BrainSections.Register("intervention-estimate");
+    private static readonly int CompanionshipSection = BrainSections.Register("companionship");
+    private static readonly int HitPredictionSection = BrainSections.Register("hit-prediction");
+    private static readonly int DecideSection = BrainSections.Register("decide");
+    private static readonly int PrepareSection = BrainSections.Register("prepare");
+    private static readonly int CourseSection = BrainSections.Register("course");
+    private static readonly int SelectSection = BrainSections.Register("select");
+    private static readonly int ExecuteSection = BrainSections.Register("execute");
+    private static readonly int PositionSection = BrainSections.Register("position");
+    private static readonly int NavigateSection = BrainSections.Register("navigate");
+    private static readonly int EvadeSection = BrainSections.Register("evade");
+    private static readonly int AccompanySection = BrainSections.Register("accompany");
+    private static readonly int RecoveryFlightSection = BrainSections.Register("recovery-flight");
+    private static readonly int FinaliseSection = BrainSections.Register("finalise");
+    private static readonly int GrantSection = BrainSections.Register("grant");
+    private static readonly int EngageSection = BrainSections.Register("engage");
+    private static readonly int IncidentalSection = BrainSections.Register("incidental");
+    private static readonly int OutcomeSection = BrainSections.Register("outcome");
+    // One section per registered activity's preparation, named for the activity, so `decide.prepare.combat` and
+    // `decide.prepare.mine` are two rows rather than one. Registered at construction, because the activity set is
+    // per brain; the registry is idempotent, so a second brain reuses the ids.
+    private int[]? prepareSections;
 
     /// <summary>
     /// How long the body has been sealed off from the player: counted from the first plan to a
@@ -146,6 +183,7 @@ public sealed class Brain
         // nothing is, so this is the Begin/End pair it always was; under a harness that installs an
         // ambient allowance per case, a fixture driving a whole tick no longer leaves the rows after
         // it with nothing to borrow.
+        BrainSections.BeginTick();
         LimitPlanningWork.Ownership allowance = LimitPlanningWork.Own(new DecisionWorkBudget(
             LimitPlanningWork.Unbounded ? double.PositiveInfinity : TickAllowance.Milliseconds,
             PlanningOperationAllowance));
@@ -159,6 +197,7 @@ public sealed class Brain
         {
             allowance.Dispose();
             TotalMs = whole.Elapsed.TotalMilliseconds;
+            BrainSections.EndTick(LastTick);
         }
     }
 
@@ -167,63 +206,94 @@ public sealed class Brain
 
     public void ApplyDownedControls(CompanionNPC companion)
     {
-        SuspendActivity(companion, "downed");
-        Course.Interrupt("downed");
-        LastRequest = PositionRequest.Hold;
-        FinaliseControls(companion, new ActivityControlRequest(Movement.Hold(companion.Motor.State, preemptedBy: "downed"), "downed", HandGrant.Unavailable));
+        // A downed tick runs no brain but does finalise, and its sections roll over as that tick's own rather than
+        // joining the next brain tick's tree.
+        BrainSections.BeginTick();
+        try
+        {
+            SuspendActivity(companion, "downed");
+            Course.Interrupt("downed");
+            LastRequest = PositionRequest.Hold;
+            FinaliseControls(companion, new ActivityControlRequest(Movement.Hold(companion.Motor.State, preemptedBy: "downed"), "downed", HandGrant.Unavailable));
+        }
+        finally { BrainSections.EndTick(Terraria.Main.GameUpdateCount); }
     }
 
     private void FinaliseControls(CompanionNPC companion, ActivityControlRequest request)
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
-        ActivityControlGrant grant = ControlGrants.Apply(companion, request, Activity);
-        var ctx = new ActionContext(companion, Senses, Roaming);
-        bool fired = Engage(companion, ctx, grant.Hand);
-        // Only an ordinary execution tick: recovery and downed grants belong to responses that own the body for another purpose.
-        if (request.ObserveProgress) Incidental.Consider(ctx, grant.Hand, fired, Activity.Current, Activity.Id);
-        if (request.CountReunion) CountStranded();
-        if (request.ObserveProgress)
+        using (BrainSections.Enter(FinaliseSection))
         {
-            WatchProgress(companion);
-            Activity.ObserveOutcome(ctx);
+            ActivityControlGrant grant;
+            using (BrainSections.Enter(GrantSection)) grant = ControlGrants.Apply(companion, request, Activity);
+            var ctx = new ActionContext(companion, Senses, Roaming);
+            bool fired;
+            using (BrainSections.Enter(EngageSection)) fired = Engage(companion, ctx, grant.Hand);
+            // Only an ordinary execution tick: recovery and downed grants belong to responses that own the body for another purpose.
+            if (request.ObserveProgress)
+                using (BrainSections.Enter(IncidentalSection)) Incidental.Consider(ctx, grant.Hand, fired, Activity.Current, Activity.Id);
+            if (request.CountReunion) CountStranded();
+            if (request.ObserveProgress)
+            {
+                WatchProgress(companion);
+                using (BrainSections.Enter(OutcomeSection)) Activity.ObserveOutcome(ctx);
+            }
+            Presentation = new ActivitySnapshot(Terraria.Main.GameUpdateCount, Activity.Id,
+                Activity.Current?.Family, Activity.Current?.Name, Activity.Phase,
+                companion.IsDowned, FollowRecovery.Active, MovementStalled);
         }
-        Presentation = new ActivitySnapshot(Terraria.Main.GameUpdateCount, Activity.Id,
-            Activity.Current?.Family, Activity.Current?.Name, Activity.Phase,
-            companion.IsDowned, FollowRecovery.Active, MovementStalled);
-        FinaliseMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        FinaliseMs = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * BrainSections.MillisecondsPerTimestamp;
     }
 
     private double Lap()
     {
-        double ms = phase.Elapsed.TotalMilliseconds;
-        phase.Restart();
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        double ms = (now - lapStarted) * BrainSections.MillisecondsPerTimestamp;
+        lapStarted = now;
         return ms;
     }
 
     private ActivityControlRequest TickPhases(CompanionNPC companion, Terraria.Player player)
     {
-        phase.Restart();
-        Senses.Update(companion.NPC, player);
-        // The reach flood grows every tick; where it is rooted and when a
-        // replacement takes over is decided on the positioner's rescore, which is where it is refreshed.
-        Senses.Reach.Grow();
-        ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Center);
-        companion.Combat.Tick();
-        companion.Chopper.Tick();
+        lapStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        using (BrainSections.Enter(SensesSection))
+        {
+            Senses.Update(companion.NPC, player);
+            // The reach flood grows every tick; where it is rooted and when a
+            // replacement takes over is decided on the positioner's rescore, which is where it is refreshed.
+            using (BrainSections.Enter(ReachFloodSection)) Senses.Reach.Grow();
+            using (BrainSections.Enter(HomesSection)) ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Center);
+            using (BrainSections.Enter(CombatKnowledgeSection)) companion.Combat.Tick();
+            using (BrainSections.Enter(ChopperSection)) companion.Chopper.Tick();
+        }
         SensesMs = Lap();
 
         var ctx = new ActionContext(companion, Senses, Roaming);
-        Senses.SetInterventionEstimate(companion.Combat.EstimateInterventionTicks(ctx));
-        Companionship.Observe(ctx);
+        var reflexScope = BrainSections.Enter(ReflexSection);
+        using (BrainSections.Enter(InterventionSection)) Senses.SetInterventionEstimate(companion.Combat.EstimateInterventionTicks(ctx));
+        using (BrainSections.Enter(CompanionshipSection)) Companionship.Observe(ctx);
 
-        if (FollowRecovery.Active && TryFollowRecovery(companion, player, false, out var initialRecovery)) return initialRecovery;
+        if (FollowRecovery.Active)
+        {
+            // A recovery tick laps here, so the intervention estimate and the companionship observation above
+            // are the reflex phase's on every tick rather than charged to `navigate_ms` on this one. Before
+            // the profiler they were, which is the one place its sections moved a phase column's meaning.
+            reflexScope.Dispose();
+            ReflexMs = Lap();
+            if (TryFollowRecovery(companion, player, false, out var initialRecovery)) return initialRecovery;
+            reflexScope = BrainSections.Enter(ReflexSection);
+        }
 
         // The reflex no longer takes the body: it names an imminent hit for the record and supplies the
         // predicate that the evade step bends the job's own controls against after navigation.
-        Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
+        System.Func<OrbState, int, bool> unsafeAtTick;
+        using (BrainSections.Enter(HitPredictionSection)) Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out unsafeAtTick);
         Navigator.UnsafeAtTick = Senses.Threats.Threats.Count == 0 && Senses.Projectiles.Threats.Count == 0 ? null : unsafeAtTick;
-        ReflexMs = Lap();
+        reflexScope.Dispose();
+        // Added rather than assigned: a recovery flight that ended above has already lapped this phase once.
+        ReflexMs += Lap();
 
+        var decideScope = BrainSections.Enter(DecideSection);
         // Hazards before choose: combat's HereAndCompany walk and the company park both read the
         // same enemy boxes the route will, and a search that ran first saw last tick's boxes or none.
         var obstacles = new System.Collections.Generic.List<Rectangle>();
@@ -279,16 +349,24 @@ public sealed class Brain
         // writes: the narrowing *moves into discovery*, where the censuses are already sliced and
         // budgeted against the frozen observation, rather than being skipped on the tick. That is a
         // design change rather than a condition on this loop, and it stays with the plan.
-        foreach (CompanionAction candidate in Actions) candidate.Prepare(ctx);
-        CourseDecision decision = Course.Decide(ctx, companion.Combat, Fighting?.LastSearch,
-            LimitPlanningWork.Current);
+        if (prepareSections == null || prepareSections.Length != Actions.Count)
+        {
+            prepareSections = new int[Actions.Count];
+            for (int i = 0; i < Actions.Count; i++) prepareSections[i] = BrainSections.Register(Actions[i].Name);
+        }
+        using (BrainSections.Enter(PrepareSection))
+            for (int i = 0; i < Actions.Count; i++)
+                using (BrainSections.Enter(prepareSections[i])) Actions[i].Prepare(ctx);
+        CourseDecision decision;
+        using (BrainSections.Enter(CourseSection))
+            decision = Course.Decide(ctx, companion.Combat, Fighting?.LastSearch, LimitPlanningWork.Current);
         CompanionAction? action = decision.Activity.Length == 0 ? null
             : Actions.Find(candidate => candidate.Name == decision.Activity);
         // The step goes to the activity with the selection, so the hand works the target the course
         // chose. Until 23 September 2026 only the position request carried it and every work activity
         // swung at a target of its own search — two choosers that agreed only when both picked the same
         // nearest thing.
-        Activity.Select(action, ctx, decision.Binding);
+        using (BrainSections.Enter(SelectSection)) Activity.Select(action, ctx, decision.Binding);
         ChoiceEvaluated = true;
         Activity.BeginExecution();
         LastRequest = decision.Binding is { } step ? ExecuteCourseBinding.RequestFor(step, ctx.Npc.Center)
@@ -308,11 +386,15 @@ public sealed class Brain
         // place carrying the sealed body west from column 38.6 to 16.0 and the roam then taking it 90 tiles
         // from him. Rejoining from behind a wall has to aim at the player's side; a request that roams the
         // pocket it is sealed in moves it away from him by construction.
-        _ = action?.Execute(ctx);
-        // A hand that refused the step it was handed says so, and the course is the only thing that can stop the step
-        // being ordered again; `DecideCourseEachTick.PerformerRefused` owns why.
-        if (action?.StepRefusal is { } refusal && decision.Binding is { } refusedStep)
-            Course.PerformerRefused(ctx, refusedStep, refusal);
+        using (BrainSections.Enter(ExecuteSection))
+        {
+            _ = action?.Execute(ctx);
+            // A hand that refused the step it was handed says so, and the course is the only thing that can stop the step
+            // being ordered again; `DecideCourseEachTick.PerformerRefused` owns why.
+            if (action?.StepRefusal is { } refusal && decision.Binding is { } refusedStep)
+                Course.PerformerRefused(ctx, refusedStep, refusal);
+        }
+        decideScope.Dispose();
         DecideMs = Lap();
         // The rule lives in `RecoverDistantCompanion.ReunionRequested`, which owns why each of its three
         // conditions is there. It is a named predicate rather than an expression here so that it can be
@@ -321,18 +403,24 @@ public sealed class Brain
             LastRequest.Kind, action?.HandsBusy == true, decision.Settled);
         if (TryFollowRecovery(companion, player, reunionRequested, out var selectedRecovery)) return selectedRecovery;
 
-        Vector2? spot = Positioner.Resolve(LastRequest, Senses);
+        Vector2? spot;
+        using (BrainSections.Enter(PositionSection)) spot = Positioner.Resolve(LastRequest, Senses);
         PositionMs = Lap();
         Controls movement;
         string movementOwner;
         try
         {
-            movement = Navigate(companion, spot, out movementOwner);
-            // Safety on top of the job: whatever the job asked for, bent away from a predicted hit when following it
-            // would meet one. The job keeps running and keeps its attempt and its hands; only the tick's direction
-            // changes, and the grant names the tick so the record can tell a bent tick from an ordinary one.
-            movement = Movement.Evade(companion.Motor.State, movement, Navigator.UnsafeAtTick, out bool bent);
-            if (bent) movementOwner = "evade";
+            using (BrainSections.Enter(NavigateSection))
+            {
+                movement = Navigate(companion, spot, out movementOwner);
+                // Safety on top of the job: whatever the job asked for, bent away from a predicted hit when following it
+                // would meet one. The job keeps running and keeps its attempt and its hands; only the tick's direction
+                // changes, and the grant names the tick so the record can tell a bent tick from an ordinary one.
+                bool bent;
+                using (BrainSections.Enter(EvadeSection))
+                    movement = Movement.Evade(companion.Motor.State, movement, Navigator.UnsafeAtTick, out bent);
+                if (bent) movementOwner = "evade";
+            }
         }
         finally
         {
@@ -351,12 +439,18 @@ public sealed class Brain
         if (!FollowRecovery.Update(mayStart, companion.IsDowned, !player.dead && player.active,
             companion.NPC.Center, player.Center, companion.Motor.ClearOfTerrain
                 && player.velocity.Y == 0f && companion.NPC.Center.Y <= player.Center.Y)) return false;
-        LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
-        Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
-        Course.Interrupt("follow-recovery-flight");
-        Movement.Hold(companion.Motor.State, preemptedBy: "follow-recovery-flight");
-        request = new ActivityControlRequest(Controls.None, "follow-recovery-flight", RecoveryVelocity:
-            FollowRecovery.Steer(companion.NPC.Center, companion.NPC.velocity, player.Center, player.velocity));
+        // The flight is the navigate phase of a recovery tick — `NavigateMs` is the column it lands in — so its
+        // section sits under `navigate`, and both close before the lap that reads the column.
+        using (BrainSections.Enter(NavigateSection))
+        using (BrainSections.Enter(RecoveryFlightSection))
+        {
+            LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
+            Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
+            Course.Interrupt("follow-recovery-flight");
+            Movement.Hold(companion.Motor.State, preemptedBy: "follow-recovery-flight");
+            request = new ActivityControlRequest(Controls.None, "follow-recovery-flight", RecoveryVelocity:
+                FollowRecovery.Steer(companion.NPC.Center, companion.NPC.velocity, player.Center, player.velocity));
+        }
         NavigateMs = Lap();
         return true;
     }
@@ -464,6 +558,7 @@ public sealed class Brain
             // was built and reverted on 22 September, because `Region.Accepts` is also combat's stand admission and a
             // lifted region cannot admit a melee stand beside a hostile standing where he stands.
             float head = Senses.Player.Position.Y - (Senses.Player.Bottom.Y - Senses.Player.Position.Y);
+            using var accompanying = BrainSections.Enter(AccompanySection);
             return Movement.Accompany(companion.Motor.State, region.Centre, region.HalfSize, region.Lead, head,
                 point => footprint is Rectangle asked && Infrastructure.Observation.PlayerSense.BodyTiles(point + new Vector2(0f, CircleContact.Radius),
                     (int)CircleContact.Diameter, (int)CircleContact.Diameter).Intersects(asked));

@@ -23,7 +23,7 @@ Checks/
 ├─ CheckTheFrame.cs                   the whole update against the engine's own timestep, reported with its split rather than as a share alone; the brain cost is read from the previous *update* rather than the previous line of the file, the guard `Measures/CLAUDE.md`'s `MeasureTheFrame.cs` section states
 ├─ CheckTheInstrument.cs              the body is never held in place by something the record does not name
 ├─ CheckThePlayersReference.cs        his own cursor's dark tile left unlit, and a usable hunt beside him idle, while keeping company won
-├─ CheckTheRecord.cs                  identities parse correctly, columns hold what they claim, the capture closed
+├─ CheckTheRecord.cs                  identities parse correctly, columns hold what they claim (its own textual set carries 0.48.0's `sections` and `alloc_sections` as a backstop to the declaration), the capture closed
 ├─ CheckTheWeaponKnowledge.cs         every companion shot paired with the flight its projectile flew, per projectile type, with the law named
 └─ CheckTravelEpisodes.cs             journeys take the time they were proven; stops have reasons
 ```
