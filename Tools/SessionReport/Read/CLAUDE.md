@@ -13,8 +13,11 @@ Read/
 ├─ DescribeCourseDecisions.cs the course as a story: decisions coalesced into runs by reason, activity and purpose
 ├─ ReadCourseChronicle.cs   validates typed course snapshots and distinguishes complete input from missing evidence
 ├─ ReadCourseDecisions.cs   the typed `course-decision` payload as a record, with unreadable payloads counted
-└─ ReadGodsEyeEvents.cs     keeps the last file read while path, write time and length are unchanged; streams events by line
+├─ ReadGodsEyeEvents.cs     keeps the last file read while path, write time and length are unchanged; streams events by line
+└─ DescribeWhereTheTimeGoes.cs the report's "where the time goes" block: section shares, allocation, collections, and the spike ticks with their sidecar trees, from schema 0.48.0
 ```
+
+**`DescribeWhereTheTimeGoes` reads the same `Profile` as `../Measures/MeasureWhereTheTimeGoes.cs`**, so the block and the ledger rows cannot disagree, and adds the one thing only the sidecar holds: each `cost-spike` occurrence's whole section tree, whose largest self times name what the worst ticks were spent on. A capture below 0.48.0 prints one `unrecorded` line naming the schema it declares.
 
 **Three files read a course and they answer different questions in a fixed order, which is the whole reason there are three.** `ReadCourseChronicle` is the gate and asks whether the evidence can be trusted at all — schema, envelope, snapshot manifests, terminal closure — returning coverage and never a story. `ReadCourseDecisions` parses the `course-decision` payload into a record and counts what it could not read rather than dropping it. `DescribeCourseDecisions` narrates those records, coalescing a run of ticks holding one decision into one line. The gate prints above the story in `Program`, deliberately, so a story is never read without the coverage statement saying how much of it is there. `Checks/CheckCourseDecisions.cs` and `Measures/MeasureCourseWork.cs` are the other two consumers of the same parse.
 

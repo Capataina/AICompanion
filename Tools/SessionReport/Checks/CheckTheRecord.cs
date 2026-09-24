@@ -229,7 +229,7 @@ public sealed class ColumnsHoldWhatTheyClaim : ICheck
         "sample_phase", "player_px", "player_vel", "player_liquid", "player_hit", "npc_hit",
         "player_state", "player_activity", "player_support", "control", "control_source",
         "follow_reason", "recovery_reason", "guard_reason", "mine_policy", "mine_status", "mine_target", "target_evidence",
-        "torch_reason", "lighting_sites",
+        "torch_reason", "lighting_sites", "sections", "alloc_sections",
     };
 
     public IEnumerable<Finding> Run(Session session)
