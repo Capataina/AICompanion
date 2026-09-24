@@ -20,11 +20,7 @@ internal static class VerifyGatheringOpportunityDiscovery
     public static int Run()
     {
         int red = 0;
-        void Row(string name, Action action)
-        {
-            try { action(); Console.WriteLine("GREEN " + name); }
-            catch (Exception error) { red++; Console.WriteLine("RED " + name + ": " + error.Message); }
-        }
+        void Row(string name, Action action) => red += RunOneRow.GreenOrRed(name, action);
         Row("G08 gathering census retains every ore purpose", EveryCandidateSurvives());
         Row("G11 gathering source resumes at its exact cut", CutResumes());
         Row("G02 gathering facts cannot mutate after capture", SnapshotIsImmutable());
@@ -57,7 +53,11 @@ internal static class VerifyGatheringOpportunityDiscovery
 
     private static Action SnapshotIsImmutable() => () =>
     {
-        GatheringOpportunityFact captured = new("mine-target", "ore:1:1,1", 1, 1, 1, 1, "mine", 18, 18, "usable", "native", "fixture");
+        // With the pick's captured work, as the census publishes every usable ore: a site with no `Work` offers
+        // no need by design (the source's own note, 22 September 2026), and this row read `Needs.Single()` of an
+        // empty list — `Sequence contains no elements` — from the day that rule landed until it was registered.
+        GatheringOpportunityFact captured = new("mine-target", "ore:1:1,1", 1, 1, 1, 1, "mine", 18, 18, "usable", "native", "fixture",
+            Work: PickWork(18));
         DecisionFact fact = Fact(captured);
         string frozen = fact.Value.Text;
         captured = captured with { RemainingAmount = 99, Reason = "mutated-after-capture" };
@@ -69,7 +69,7 @@ internal static class VerifyGatheringOpportunityDiscovery
     private static Action IncompleteCensusRemainsVisible() => () =>
     {
         DecisionFact incomplete = Fact(new GatheringOpportunityFact("mine-target", "ore:1:1,1", 1, 1, 1, 1, "mine", 400, 400,
-            "usable", "native;vein-complete=False", "fixture"), FactEvidence.Unresolved);
+            "usable", "native;vein-complete=False", "fixture", Work: PickWork(400)), FactEvidence.Unresolved);
         OpportunitySlice slice = new GatheringOpportunitySource("mine-target").Continue(Snapshot(4, false, incomplete), new DecisionWorkCursor(), new(double.PositiveInfinity));
         Opportunity opportunity = slice.Examined.Single();
         Require(opportunity.Dependencies.Reads.Any(read => read.Key == incomplete.Key && read.Evidence == FactEvidence.Unresolved)
@@ -139,5 +139,10 @@ internal static class VerifyGatheringOpportunityDiscovery
     private static DecisionFact Coverage(string domain, bool complete) => new(new FactKey(domain, "native-census"), 1,
         new FactValue(Text: JsonSerializer.Serialize(new GatheringCoverageFact(domain, 0, complete ? 1 : 0, complete, "fixture"))),
         complete ? FactEvidence.Observed : FactEvidence.Unresolved);
+    /// <summary>A copper pickaxe's captured work with the given damage left, so a hand-built site offers the
+    /// need a native capture would. The pick's own numbers are not the subject of either row that uses it.</summary>
+    private static CapturedToolWork PickWork(int damageRemaining)
+        => new(Terraria.ID.ItemID.CopperPickaxe, 0, 35, 15, 35, damageRemaining);
+
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 }
