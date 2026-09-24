@@ -107,7 +107,8 @@ internal static class ExtractScenarioFromCapture
         TerrainWindow window = ReconstructTerrainWindow.From(ReconstructTerrainWindow.ReadSnapshots(events),
             originX, originY, width, height, elapsed, unknownGlyph: '#');
         if (window.Malformed > 0)
-            throw new InvalidDataException($"{window.Malformed} terrain snapshot(s) at or before tick {tick} have dimensions that disagree with their payload");
+            throw new InvalidDataException($"{window.Malformed} terrain snapshot(s) in {Path.GetFileName(events)} could not be read — a line that does not parse, "
+                + $"a missing tile payload, or dimensions that disagree with it — so the window around tick {tick} may hold a hole nobody saw");
         int snapshots = window.Snapshots;
         if (snapshots == 0)
             throw new InvalidDataException($"no terrain snapshot written at or before tick {tick} covers the window around {start.X},{start.Y}");
