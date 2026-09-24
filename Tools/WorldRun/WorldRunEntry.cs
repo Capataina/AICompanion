@@ -106,6 +106,17 @@ internal static class WorldRunEntry
             return costFailures == 0 ? 0 : 1;
         }
 
+        // The replay recorder alone, on a world whose NPC and item tables are full: what every player pays per tick for it.
+        if (args.Contains("--recorder-cost"))
+        {
+            string costSuite = Value(args, "--suite=") ?? "replay recorder cost";
+            if (MissingWorld(world, costSuite, MeasureTheReplayRecorder.StillCase) is { } absent) return absent;
+            Main.dedServ = true;
+            int recorderFailures = MeasureTheReplayRecorder.Run(world!, Value(args, "--ticks=") is null ? 300 : ticks, costSuite, Value(args, "--record-to="));
+            PrintEmittedRows();
+            return recorderFailures == 0 ? 0 : 1;
+        }
+
         // A capture played back as its own inputs, or a capture this run writes and then plays back: both are
         // RunTheReproduction's, which owns the rows, the refusals and the two passes.
         if (Value(args, "--reproduce=") is not null || args.Contains("--self-consistency"))

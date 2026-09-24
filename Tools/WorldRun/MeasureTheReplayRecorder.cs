@@ -1,0 +1,162 @@
+extern alias live;
+using System.Diagnostics;
+using System.Globalization;
+using Microsoft.Xna.Framework;
+using Terraria;
+using Terraria.ID;
+using AICompanion.Tools.Ledger;
+using live::AICompanion.Companion.CharacterBody;
+using Inputs = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReplayInputs;
+using Queue = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.QueueDiagnosticRecords;
+
+/// <summary>
+/// What the replay recorder costs the game thread on a crowded world, measured on the recorder alone.
+///
+/// `RecordTelemetry` is on by default, so every player pays the `replay-inputs` recorder on every tick, and a player with many
+/// mods runs worlds whose NPC table is full and whose floor is covered in drops. The scenes the world run otherwise plays hold
+/// a dozen hostiles, so the recorder's cost there says nothing about the table it walks. This fills the table instead —
+/// every NPC slot but the companion's and every item slot — and calls the recorder's two halves directly around a tick that
+/// runs no brain, so the figure is the recorder's and nothing else's: once with every entity standing still, which is what a
+/// recorder that formats only what changed should find nearly free, and once with every entity moving every tick, which is
+/// the worst a real frame can ask of it.
+///
+/// Each tick waits for the writer's worker to drain the queue before the next is timed, because a recorder called in a tight
+/// loop outruns a disk that a real frame at sixty a second does not, and a refused line is a different cost from a written one.
+/// The figures are measures and never a pass line; a crowded scene's allocation per tick is filed beside its time because a
+/// collection is paid for by whoever allocated.
+/// </summary>
+internal static class MeasureTheReplayRecorder
+{
+    public const string StillCase = "replay-input recording per tick, 199 NPCs and 400 drops standing still";
+    public const string MovingCase = "replay-input recording per tick, 199 NPCs and 400 drops all moving";
+    public const string StillBytesCase = "replay-input recording allocation per tick, 199 NPCs and 400 drops standing still";
+    public const string MovingBytesCase = "replay-input recording allocation per tick, 199 NPCs and 400 drops all moving";
+
+    private static readonly int[] NpcTypes = { NPCID.Zombie, NPCID.BlueSlime, NPCID.DemonEye, NPCID.Skeleton };
+    private static readonly int[] ItemTypes = { ItemID.DirtBlock, ItemID.StoneBlock, ItemID.Wood, ItemID.Torch, ItemID.Gel };
+
+    public static int Run(string world, int ticks, string suite, string? recordTo)
+    {
+        LoadTheSavedWorld.Load(world);
+        PrepareTheHeadlessEngine.PinEveryRandomSource(1);
+        PrepareTheHeadlessEngine.StartTheWorldClockAt(1000);
+        var feet = new Vector2(Main.spawnTileX * 16f, Main.spawnTileY * 16f);
+        CompanionNPC companion = PrepareTheHeadlessEngine.AttachCompanion(feet - new Vector2(0f, 48f), feet);
+        string folder = recordTo ?? Path.Combine(Path.GetTempPath(), "aicompanion-recorder-cost",
+            DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff", CultureInfo.InvariantCulture));
+
+        int failures = 0;
+        foreach (bool moving in new[] { false, true })
+        {
+            FillTheTables(companion, feet);
+            AttachTheRecorder.Open(folder, "recorder-cost");
+            try
+            {
+                var (milliseconds, bytes, characters) = TimeTheRecorder(companion, ticks, moving);
+                string scene = moving ? "every NPC's position, velocity and first AI value and every drop's position changed each tick"
+                    : "nothing changed after the first tick";
+                string message = FormattableString.Invariant(
+                    $"{ticks} ticks after 30 warm-up ticks; {scene}; mean {milliseconds.Average():0.0000} ms, p50 {Percentile(milliseconds, 0.5):0.0000}, p99 {Percentile(milliseconds, 0.99):0.0000}; mean {bytes.Average():0} bytes allocated and {characters.Average():0} characters written a tick; the recorder's two halves called directly, no brain, the writer drained between ticks");
+                Console.WriteLine($"COST {(moving ? "moving" : "still")}: {message}");
+                string[] tags = { EmitLedgerRows.TimedTag, EmitLedgerRows.SampledTag };
+                EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, moving ? MovingCase : StillCase, milliseconds.Average(), "ms",
+                    direction: "lower", mode: "recorder-cost", tags: tags, message: message);
+                EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, moving ? MovingBytesCase : StillBytesCase, bytes.Average(), "bytes",
+                    direction: "lower", mode: "recorder-cost", tags: new[] { EmitLedgerRows.SampledTag }, message: message);
+            }
+            finally
+            {
+                AttachTheRecorder.Close();
+            }
+        }
+        if (recordTo == null) Directory.Delete(folder, recursive: true);
+        return failures;
+    }
+
+    /// <summary>Every NPC slot but the companion's and every item slot occupied, far from the body, each entity distinct.</summary>
+    private static void FillTheTables(CompanionNPC companion, Vector2 feet)
+    {
+        for (int slot = 0; slot < Main.maxNPCs; slot++)
+        {
+            if (ReferenceEquals(Main.npc[slot], companion.NPC)) continue;
+            Main.npc[slot] ??= new NPC();
+            NPC npc = Main.npc[slot];
+            npc.SetDefaults(NpcTypes[slot % NpcTypes.Length]);
+            npc.whoAmI = slot;
+            npc.position = feet + new Vector2(slot * 24f, -800f);
+            npc.velocity = new Vector2(0.5f, 0f);
+            npc.active = true;
+        }
+        for (int slot = 0; slot < Main.maxItems; slot++)
+        {
+            Main.item[slot] ??= new Item();
+            Item item = Main.item[slot];
+            item.SetDefaults(ItemTypes[slot % ItemTypes.Length]);
+            item.stack = 1 + slot % 7;
+            item.whoAmI = slot;
+            item.position = feet + new Vector2(slot * 12f, -1200f);
+            item.active = true;
+        }
+    }
+
+    private static (List<double> Milliseconds, List<double> Bytes, List<double> Characters) TimeTheRecorder(CompanionNPC companion, int ticks, bool moving)
+    {
+        var milliseconds = new List<double>(ticks);
+        var bytes = new List<double>(ticks);
+        var characters = new List<double>(ticks);
+        for (int tick = -30; tick < ticks; tick++)
+        {
+            PrepareTheHeadlessEngine.AdvanceTheWorldClock();
+            if (moving && tick > -30) MoveEverything(tick);
+            long charactersBefore = CharactersWritten();
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+            long started = Stopwatch.GetTimestamp();
+            Inputs.BeforeTheCompanionTick(companion);
+            Inputs.AfterTheCompanionTick(companion);
+            long elapsed = Stopwatch.GetTimestamp() - started;
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+            WaitForTheWriter();
+            if (tick < 0) continue;
+            milliseconds.Add(elapsed * 1000.0 / Stopwatch.Frequency);
+            bytes.Add(allocated);
+            characters.Add(CharactersWritten() - charactersBefore);
+        }
+        return (milliseconds, bytes, characters);
+    }
+
+    private static void MoveEverything(int tick)
+    {
+        float step = (tick % 2 == 0) ? 0.75f : -0.5f;
+        foreach (NPC npc in Main.npc)
+        {
+            if (npc == null || !npc.active || npc.ModNPC is CompanionNPC) continue;
+            npc.position += new Vector2(step, step * 0.5f);
+            npc.velocity = new Vector2(step, -step);
+            npc.ai[0] += 1f;
+        }
+        foreach (Item item in Main.item)
+        {
+            if (item == null || !item.active) continue;
+            item.position += new Vector2(0f, step);
+        }
+    }
+
+    /// <summary>The characters the recorder reports writing this session, through its public closing counters when it has them.</summary>
+    private static long CharactersWritten()
+        => (long)(typeof(Inputs).GetProperty("CharactersWritten", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+            ?.GetValue(null) ?? 0L);
+
+    /// <summary>Until the writer's worker has written or dropped everything enqueued, bounded at two seconds.</summary>
+    private static void WaitForTheWriter()
+    {
+        var waited = Stopwatch.StartNew();
+        while (Queue.Written + Queue.Dropped < Queue.Enqueued && waited.ElapsedMilliseconds < 2000) Thread.Sleep(1);
+    }
+
+    private static double Percentile(List<double> values, double quantile)
+    {
+        if (values.Count == 0) return double.NaN;
+        var sorted = values.OrderBy(v => v).ToList();
+        return sorted[Math.Min(sorted.Count - 1, (int)(quantile * sorted.Count))];
+    }
+}
