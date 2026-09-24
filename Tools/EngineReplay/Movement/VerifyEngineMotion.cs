@@ -130,6 +130,11 @@ internal static class VerifyEngineMotion
         // Perf tier as well: 138 s of a 232 s suite at 987319df, almost all of it three unbounded
         // uncached searches of about thirty seconds each, and its subject is cost rather than behaviour.
         ["attack planning on a forty-hostile crowd is measured unbounded and under the tick's own allowance"] = new[] { EmitLedgerRows.TimedTag, EmitLedgerRows.PerfTierTag },
+        // The audit's own subjects: each fires contract kinds on purpose or grades the counts itself, so the
+        // check `AuditEveryCase` runs after every case files their counts and fails none of them.
+        ["a decision that contradicts itself is named while it happens"] = new[] { AuditEveryCase.AuditsTheAuditTag },
+        ["every native effect the companion causes is the accepted step's"] = new[] { AuditEveryCase.AuditsTheAuditTag },
+        ["seeded event sequences nobody wrote break no decision contract"] = new[] { AuditEveryCase.AuditsTheAuditTag },
     };
 
     private static IReadOnlyList<string>? TagsOf(string name)

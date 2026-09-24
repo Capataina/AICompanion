@@ -238,6 +238,11 @@ internal static class VerifyCombatPurpose
         }
         finally
         {
+            // The body out of slot 0 and the audit's readers back. Without it the live reader stayed installed
+            // for the rest of this case, and the encounter scenes after this row — whose companions are in no
+            // slot — had every pickaxe strike judged against "no companion found", which the effect audit around
+            // every case read as two `effect-without-binding` firings (found 24 September 2026).
+            OpenTheRecorderOnACompanion.Clear();
             foreach (int type in filledNames) nameCache[type] = null!;
             config.RecordTelemetry = false;
             config.OnChanged();
