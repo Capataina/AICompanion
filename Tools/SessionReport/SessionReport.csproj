@@ -24,5 +24,11 @@
     -->
     <Compile Include="../Ledger/EmitLedgerRows.cs" />
     <Compile Include="../Ledger/ExitWithoutACrashReport.cs" />
+    <!--
+      The terrain around a recorded tick, rebuilt from the capture's terrain snapshots: the one
+      implementation, shared with NavReplay's scenario extractor so a rule about which snapshot counts
+      cannot differ between a cut fixture and a drawn picture. It names no game type.
+    -->
+    <Compile Include="../NavReplay/ReconstructTerrainWindow.cs" Link="Read/ReconstructTerrainWindow.cs" />
   </ItemGroup>
 </Project>

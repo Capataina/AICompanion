@@ -224,6 +224,57 @@ public static class Program
             }
         }
 
+        // One tick, everything the record holds about it. A range `<from>-<to>` prints one line per tick inside it
+        // where anything a diagnosis turns on changed, each naming what moved from what to what.
+        if (args.Length >= 3 && args[0] == "--explain")
+        {
+            string? explained = Resolve(args[1]);
+            if (explained == null) { Console.Error.WriteLine($"no session file at or under {args[1]}"); return 2; }
+            if (!TryTicks(args[2], out long from, out long to))
+            {
+                Console.Error.WriteLine($"--explain needs a tick or a range of ticks after the capture, like 1820 or 1800-1830; got {args[2].Length} character(s) that are neither");
+                return 2;
+            }
+            Session one;
+            try { one = Session.Load(explained); }
+            catch (Exception e) { Console.Error.WriteLine($"{explained}: {e.Message}"); return 2; }
+            Console.Write(from == to ? ExplainOneTick.Of(one, from) : ExplainOneTick.Window(one, from, to));
+            return 0;
+        }
+
+        // One tick drawn to a PNG, headlessly: terrain, bodies, region, steering target, hostiles and drops.
+        if (args.Length >= 4 && args[0] == "--picture")
+        {
+            string? drawn = Resolve(args[1]);
+            if (drawn == null) { Console.Error.WriteLine($"no session file at or under {args[1]}"); return 2; }
+            if (!TryTicks(args[2], out long pictureTick, out long pictureTo) || pictureTick != pictureTo)
+            {
+                Console.Error.WriteLine($"--picture needs one tick after the capture, like 1820; got {args[2].Length} character(s) that are not one");
+                return 2;
+            }
+            try
+            {
+                PictureSummary summary = DrawTickPicture.Draw(Session.Load(drawn), pictureTick, args[3]);
+                Console.WriteLine($"wrote {summary.Describe()}");
+                return 0;
+            }
+            catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"could not draw tick {pictureTick} of {drawn} into {args[3]}: {e.Message}");
+                return 2;
+            }
+        }
+
+        // `--pictures <dir>` rides on the ordinary report and may sit anywhere among its arguments.
+        string? picturesDirectory = null;
+        int picturesAt = Array.IndexOf(args, "--pictures");
+        if (picturesAt >= 0)
+        {
+            if (picturesAt + 1 >= args.Length) { Console.Error.WriteLine("--pictures needs a directory to write one PNG per finding into"); return 2; }
+            picturesDirectory = args[picturesAt + 1];
+            args = args.Take(picturesAt).Concat(args.Skip(picturesAt + 2)).ToArray();
+        }
+
         bool fullTimeline = args.Length > 0 && args[0] == "--timeline";
         if (fullTimeline)
             args = args[1..];
@@ -293,6 +344,12 @@ public static class Program
         Console.WriteLine();
         Console.Write(WriteBehaviourParity.Of(session, findings, skipped));
 
+        if (picturesDirectory != null)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"pictures  one PNG per definitive and potential finding, drawn at its first tick, in {picturesDirectory}; legend, background to foreground: {string.Join(", ", DrawTickPicture.LegendOrder)}");
+        }
+        int pictureIndex = 0;
         foreach (Severity severity in new[] { Severity.Definitive, Severity.Potential, Severity.Oddity })
         {
             Finding[] raw = findings.Where(f => f.Severity == severity)
@@ -317,6 +374,8 @@ public static class Program
                 Console.WriteLine($"  {finding.Title}");
                 Console.WriteLine($"    where  {where}");
                 Console.WriteLine($"    asked  {finding.Check}");
+                if (picturesDirectory != null && severity != Severity.Oddity)
+                    Console.WriteLine($"    picture  {PictureOf(session, finding, picturesDirectory, ++pictureIndex)}");
                 foreach (string line in Wrap(finding.Detail, 92))
                     Console.WriteLine($"    {line}");
             }
@@ -548,6 +607,35 @@ public static class Program
                     : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+
+    /// <summary>
+    /// A finding's picture, drawn at its first tick, or the reason it has none. A finding spanning no tick is
+    /// the reader's own or the whole capture's, and a picture of tick zero would be a picture of nothing it
+    /// found; a picture that cannot be drawn says why on the finding's own line rather than failing the report.
+    /// </summary>
+    private static string PictureOf(Session session, Finding finding, string directory, int index)
+    {
+        if (finding.FirstTick == 0 && finding.LastTick == 0) return "none: the finding names no tick";
+        string name = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{index:00}-{finding.Severity.ToString().ToLowerInvariant()}-tick-{finding.FirstTick}.png");
+        string path = Path.Combine(directory, name);
+        try { return DrawTickPicture.Draw(session, finding.FirstTick, path).Describe(); }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+        { return $"none: {e.Message}"; }
+    }
+
+    /// <summary>A tick <c>1820</c> or an inclusive range <c>1800-1830</c>, non-negative and in order.</summary>
+    internal static bool TryTicks(string text, out long from, out long to)
+    {
+        from = to = -1;
+        string[] parts = text.Split('-');
+        if (parts.Length == 1 && long.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out from))
+        { to = from; return true; }
+        return parts.Length == 2
+            && long.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out from)
+            && long.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out to)
+            && from <= to;
+    }
 
     private static IEnumerable<string> Wrap(string text, int width)
     {

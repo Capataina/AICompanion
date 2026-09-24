@@ -178,14 +178,7 @@ public static class WriteCourseTimeline
 
             long at = (long)(float.IsNaN(decided.Number[start]) ? from : decided.Number[start]);
             while (payloadAt < payloads.Length && payloads[payloadAt].Tick < from) payloadAt++;
-            // **The numbers and the release reason come off different records, because the producer
-            // never writes them on the same one.** See the release paragraph on the class.
-            CourseDecision? payload = null, released = null;
-            for (int p = payloadAt; p < payloads.Length && payloads[p].Tick <= to; p++)
-            {
-                if (payload is null || payloads[p].Settled || !payload.Settled) payload = payloads[p];
-                if (payloads[p].ReleaseReason.Length > 0) released = payloads[p];
-            }
+            var (payload, released) = PickFromSpan(payloads, payloadAt, to);
 
             var costs = Enumerable.Range(start, end - start + 1)
                 .Select(i => (double)cost.Number[i]).Where(v => !double.IsNaN(v)).OrderBy(v => v).ToArray();
@@ -203,6 +196,28 @@ public static class WriteCourseTimeline
                 census, ordered, median, worst));
         }
         return built;
+    }
+
+    /// <summary>
+    /// The record a decision's numbers come from and the record its release comes from, out of the payloads
+    /// traced inside its tick span. <b>The two come off different records, because the producer never writes
+    /// them on the same one</b> (see the release paragraph on the class): the numbers are the last settled
+    /// payload, or the last of any where none settled, and the release is the last payload carrying one.
+    /// Internal because <see cref="ExplainOneTick"/> reads a single decision through the same join, and two
+    /// joins of one record are how the table and the explanation would come to disagree.
+    /// </summary>
+    /// <param name="ordered">Every payload of the capture, in tick order.</param>
+    /// <param name="first">The index of the first payload at or after the span's first tick.</param>
+    /// <param name="to">The span's last tick.</param>
+    internal static (CourseDecision? Numbers, CourseDecision? Released) PickFromSpan(IReadOnlyList<CourseDecision> ordered, int first, long to)
+    {
+        CourseDecision? payload = null, released = null;
+        for (int p = first; p < ordered.Count && ordered[p].Tick <= to; p++)
+        {
+            if (payload is null || ordered[p].Settled || !payload.Settled) payload = ordered[p];
+            if (ordered[p].ReleaseReason.Length > 0) released = ordered[p];
+        }
+        return (payload, released);
     }
 
     /// <summary>Every domain's admission as <c>domain=usable/unknown/unusable</c>, shortest first so the
