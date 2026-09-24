@@ -4154,8 +4154,18 @@ public static class ChronicleTests
                 $"a tile no snapshot reached is {unknown}; unknown must never be drawn as rock or air");
             Require(At(950.5, 480) == DrawTickPicture.RegionLine, $"the region's left edge is {At(950.5, 480)}, not its outline");
             Require(At(66 * 16 + 8, 32 * 16 + 8) == DrawTickPicture.HostileFill, $"the censused hostile is {At(66 * 16 + 8, 32 * 16 + 8)}, not a hostile");
-            Require(summary.Hostiles == 1 && summary.Terrain.StartsWith("", StringComparison.Ordinal) && summary.Terrain.Contains("1 snapshot(s)", StringComparison.Ordinal),
+            Require(summary.Hostiles == 1 && summary.Terrain.Contains("1 snapshot(s)", StringComparison.Ordinal),
                 "the picture's summary does not say what it drew: " + summary.Describe());
+
+            // Every character the picture writes must be a glyph of its own, and a character the font lacks must not
+            // look like a digit: the first world-run picture printed its terrain note's ';' as a hollow box, which is a 0.
+            string written = string.Concat(DrawTickPicture.LegendOrder) + summary.Terrain
+                + "tick of schema synthetic action request nav hostiles other npcs drops off picture tiles x y terrain known from the combat snapshot at ticks old; no terrain-snapshot occurrence reached this window; 0123456789 ( ) % . , : - / _ = > ×";
+            string undrawn = new string(written.Where(ch => !Raster.Draws(ch)).Distinct().ToArray());
+            Require(undrawn.Length == 0, $"the picture writes characters its font cannot draw: \"{undrawn}\"");
+            string Rendered(char ch) { var r = new Raster(8, 12, DrawTickPicture.Background); r.Text(0, 0, ch.ToString(), DrawTickPicture.Ink); return Convert.ToHexString(r.Pixels); }
+            string missing = Rendered('§');
+            Require("0123456789".All(digit => Rendered(digit) != missing), "a character the font lacks is drawn exactly like a digit");
         }
         finally
         {

@@ -95,8 +95,10 @@ public sealed class Raster
 
     /// <summary>
     /// Text in a 3×5 bitmap font, each font pixel <paramref name="scale"/> pixels square, a column of space
-    /// between glyphs. Lower case is drawn as upper case; a character the font lacks is drawn as a hollow box
-    /// so a missing glyph is visible rather than silently dropped. Returns the width drawn.
+    /// between glyphs. Lower case is drawn as upper case; a character the font lacks is drawn as a solid block
+    /// so a missing glyph is visible rather than silently dropped — and a block rather than a hollow box,
+    /// because a hollow 3×5 box is the digit zero, and a missing semicolon read as a 0 is a number the record
+    /// never held.
     /// </summary>
     public int Text(int x, int y, string text, Rgb c, int scale = 2)
     {
@@ -104,7 +106,7 @@ public sealed class Raster
         foreach (char raw in text)
         {
             char ch = char.ToUpperInvariant(raw);
-            if (!Font.TryGetValue(ch, out string? rows)) rows = "111101101101111";
+            if (!Font.TryGetValue(ch, out string? rows)) rows = MissingGlyph;
             for (int r = 0; r < 5; r++)
                 for (int col = 0; col < 3; col++)
                     if (rows[r * 3 + col] == '1')
@@ -115,6 +117,12 @@ public sealed class Raster
     }
 
     public static int TextWidth(string text, int scale = 2) => text.Length * 4 * scale;
+
+    /// <summary>What a character the font lacks is drawn as: a filled block no glyph resembles.</summary>
+    internal const string MissingGlyph = "111111111111111";
+
+    /// <summary>Whether the font draws <paramref name="ch"/> as itself rather than as <see cref="MissingGlyph"/>.</summary>
+    internal static bool Draws(char ch) => Font.ContainsKey(char.ToUpperInvariant(ch));
 
     /// <summary>Each glyph as fifteen bits, three per row, top row first.</summary>
     private static readonly Dictionary<char, string> Font = new()
@@ -133,6 +141,6 @@ public sealed class Raster
         ['+'] = "000010111010000", ['/'] = "001001010100100", ['('] = "010100100100010", [')'] = "010001001001010",
         ['='] = "000111000111000", ['%'] = "101001010100101", ['>'] = "100010001010100", ['<'] = "001010100010001",
         ['#'] = "101111101111101", ['_'] = "000000000000111", ['?'] = "110001010000010", ['\''] = "010010000000000",
-        ['*'] = "000101010101000", ['×'] = "000101010101000",
+        ['*'] = "000101010101000", ['×'] = "000101010101000", [';'] = "000010000010100",
     };
 }

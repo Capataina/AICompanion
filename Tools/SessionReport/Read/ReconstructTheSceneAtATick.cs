@@ -62,10 +62,11 @@ public sealed class TickScene
 /// fewest.</b> Up to 0.45.0 the `candidate-funnel` occurrence named every hostile the combat census
 /// held, by slot and tile, whenever the list changed; 0.46.0 retired it with the family chooser, and
 /// after that the record places a hostile only at its spawn, its damage and its death (`npc-spawn`,
-/// `npc-damage`, `npc-death`, which a world run does not write because its staged actors do not pass
-/// through the spawn hook) and inside a `combat-snapshot` while a plan is held. A world-run capture at
-/// 0.48.0 therefore places a hostile on a handful of ticks, and the scene says so rather than drawing
-/// an empty world.</para>
+/// `npc-damage`, `npc-death`) and inside a `combat-snapshot` while a plan is held. A world run at 0.48.0
+/// wrote none of the first three on 24 September 2026 — their producers are a global-NPC hook and the
+/// terrain chunks a mod-system hook, and nothing in the world run's host calls either, which is inferred
+/// from the source rather than observed — so a world-run capture places a hostile on a handful of ticks,
+/// and the scene says so rather than drawing an empty world.</para>
 ///
 /// <para><b>Route corners are not in any schema.</b> <c>route_points</c> is a count (it replaced the
 /// walker's <c>path_steps</c>), <c>route_index</c> the segment the body is on, and the only points the
