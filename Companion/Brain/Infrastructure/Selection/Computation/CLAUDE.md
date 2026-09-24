@@ -6,9 +6,12 @@ These game-free owners separate computation limits from gameplay preference. A n
 Computation/
 ├─ CLAUDE.md                 ownership and suspension contract
 ├─ AllocateDecisionWork.cs   borrowed clock/count allowance with named consumption and cuts
+├─ OverrideTickAllowance.cs  the millisecond figure a brain tick installs, and the harness-only override of it
 ├─ ResumeDecisionWork.cs     cursor retained across frames and explicitly rebound on changed input
 └─ LimitDecisionStorage.cs   capacity with pinned objects, a per-group floor, and visible eviction/refusal
 ```
+
+**The tick's millisecond figure is read through `TickAllowance.Milliseconds` and nowhere else, so one override moves the whole decision.** In the game it is exactly `Weights.TotalPlanningMilliseconds`, because `OverrideMilliseconds` is null and nothing in the mod sets it; the world run's budget curve sets it to ask what a smaller allowance costs in behaviour. It needs no second seam because every nested slice — the route search's 8 ms, the reach flood's 2 ms, the meeting and player-side floods' 1 ms — takes the earlier of its own deadline and the tick's through `LimitPlanningWork.Deadline`, and spends through the tick's budget, so a 2 ms tick caps all of them without any being edited. The one other reader of the tunable is `AuditDecisionContracts.DecideCeilingMilliseconds`, which only decides when a `decide-overran-allowance` record is written and still reads the tunable, so under an override that record is judged against the production ceiling. `Tools/EngineReplay/DecisionMaking/VerifyTheTickAllowanceOverride.cs` fails on any new production reader that bypasses the seam. An override that is not a positive finite figure is refused rather than clamped.
 
 **`Cut` is sticky and is a property of the allowance, never of the caller that reads it.** It is set the first time any consumer is refused an operation and stays set until that allowance is gone, which is what makes `FirstCutSubsystem` meaningful and what makes a late read of `Cut` answer a wider question than it looks like it asks: not "was I cut" but "was anything cut this tick". A consumer that treats its own late `budget.Cut` as evidence about its own work is reading another subsystem's exhaustion as its own refusal. Combat's plan re-pricing did exactly that and released valid committed fights for a day because of it; the rule that came out of it lives in `../../../Activities/Combat/Planning/CLAUDE.md`, and the general form is that an exhausted bound is a third answer rather than a negative.
 

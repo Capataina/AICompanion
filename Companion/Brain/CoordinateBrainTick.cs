@@ -147,7 +147,7 @@ public sealed class Brain
         // ambient allowance per case, a fixture driving a whole tick no longer leaves the rows after
         // it with nothing to borrow.
         LimitPlanningWork.Ownership allowance = LimitPlanningWork.Own(new DecisionWorkBudget(
-            LimitPlanningWork.Unbounded ? double.PositiveInfinity : Weights.TotalPlanningMilliseconds,
+            LimitPlanningWork.Unbounded ? double.PositiveInfinity : TickAllowance.Milliseconds,
             PlanningOperationAllowance));
         ReflexMs = DecideMs = PositionMs = NavigateMs = FinaliseMs = 0;
         try
