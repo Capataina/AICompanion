@@ -108,7 +108,7 @@ The second half of "the same way" is JIT, and it points the opposite direction: 
 
 **A subset flag reaches its fixture before the default suite's own setup has run**, so a fixture that touches `Main` must set Terraria's save path itself or the static constructor throws on a null path.
 
-**Every one of these fixtures aborts on its first throw**, so a red names one row and says nothing about the rows behind it, and clearing one routinely reveals the next. A red waiting on somebody's decision is moved to the end of its file so the rows behind it still report; a red that will clear this afternoon stays where it is.
+**Six of these fixtures run every row and fail afterwards, and the rest still abort on their first throw.** Since 24 September 2026 `VerifyCombatPurpose`, `VerifyKnockbackAwareness`, `VerifyHuntProgress`, `VerifyHuntAdmissibility`, `VerifyOfferValidity` and `VerifySafetyIsALayerOnTheJob` run each row through `RunOneRow`, which files it as its own ledger sub-row (`<case> :: <row>`), so a red names its row and the rows behind it still report. `VerifyThreatAnticipation` and `VerifyPersonalDanger` still abort, and in them a red says nothing about the rows behind it and clearing one can reveal the next; a red waiting on somebody's decision is moved to the end of such a file, and a red that will clear this afternoon stays where it is.
 
 **A mutation run against a row that sits late in an abort-on-first-failure list proves nothing about that row.** Hoist it to the front before planting the defect it is supposed to catch.
 
