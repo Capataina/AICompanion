@@ -137,9 +137,28 @@ if (args.Contains("--hunt-admissibility")) return VerifyHuntAdmissibility.Run();
 if (args.Contains("--safety-layer")) return VerifyEngineMotion.Run(safetyLayerOnly: true);
 if (args.Contains("--dodge-repro")) return VerifyEngineMotion.Run(dodgeReproOnly: true);
 if (args.Contains("--activities")) return VerifyEngineMotion.Run(activitiesOnly: true);
-if (args.Any(a => a.StartsWith("--", StringComparison.Ordinal) && a is not "--lifecycle" and not "--liquids"))
+// The default suite's lanes, which verify uses to run it as parallel shards plus one timed lane:
+// --shard=i/n takes the ordinary cases whose position among them is i modulo n, --timed-lane takes every
+// timed or perf-tier case, and --perf lets the perf tier run rather than skip. VerifyEngineMotion.CaseSelection
+// says why a case lands in exactly one lane.
+bool perf = args.Contains("--perf");
+string? shardArgument = args.FirstOrDefault(a => a.StartsWith("--shard=", StringComparison.Ordinal));
+VerifyEngineMotion.CaseSelection? selection = null;
+if (shardArgument != null)
+{
+    string[] parts = shardArgument["--shard=".Length..].Split('/');
+    if (parts.Length != 2 || !int.TryParse(parts[0], out int shard) || !int.TryParse(parts[1], out int shards) || shards < 1 || shard < 0 || shard >= shards)
+    {
+        Console.Error.WriteLine($"EngineReplay: {shardArgument} is not --shard=<index>/<count> with 0 <= index < count");
+        return 2;
+    }
+    selection = VerifyEngineMotion.CaseSelection.OneShard(shard, shards);
+}
+else if (args.Contains("--timed-lane")) selection = VerifyEngineMotion.CaseSelection.Timed(perf);
+else selection = VerifyEngineMotion.CaseSelection.Everything(perf);
+if (args.Any(a => a.StartsWith("--", StringComparison.Ordinal) && a is not "--lifecycle" and not "--liquids" and not "--perf" and not "--timed-lane" && !a.StartsWith("--shard=", StringComparison.Ordinal)))
 {
     Console.Error.WriteLine("Unknown EngineReplay option. Refusing to substitute the default suite for the requested case.");
     return 2;
 }
-return VerifyEngineMotion.Run(args.Contains("--lifecycle"), args.Contains("--liquids"));
+return VerifyEngineMotion.Run(args.Contains("--lifecycle"), args.Contains("--liquids"), selection: selection);

@@ -115,9 +115,11 @@ fi
 
 # The instrument names are the ledger's own, so a red row read off a scoreboard is rerun by pasting
 # the name beside the case without translating anything. The arguments differ because four of the
-# five report through a self-test and EngineReplay is the suite itself.
+# five report through a self-test and EngineReplay is the suite itself. EngineReplay gets --perf
+# because a case asked for by name is run whatever its tier; without it a perf-tier case would file a
+# skip saying the tier was not due, which is the answer to a question nobody asked here.
 case "$instrument" in
-  engine-replay)  project="Tools/EngineReplay";  arguments="" ;;
+  engine-replay)  project="Tools/EngineReplay";  arguments="--perf" ;;
   ledger)         project="Tools/Ledger";        arguments="--self-test" ;;
   nav-replay)     project="Tools/NavReplay";     arguments="--self-test" ;;
   session-report) project="Tools/SessionReport"; arguments="--self-test" ;;

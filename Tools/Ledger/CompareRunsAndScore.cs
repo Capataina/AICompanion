@@ -86,7 +86,9 @@ public readonly record struct NoiseBand(bool Known, double Mean, double HalfWidt
 /// of. The delta is printed with the same arithmetic; what it loses is the word "drift", because a
 /// run that keeps the wall clock or stages a live scene answers a slightly different number every
 /// time and reporting that as a move makes every run of the suite look like a regression.
-public enum Change { NewRed, Fixed, Gone, StoppedReporting, NowReporting, New, Flaky, MeasureDrift, Sampled, Unchanged }
+/// <see cref="Incomparable"/> is a measure whose baseline was taken under different run conditions (its
+/// mode: the allowances, and the lane it ran in), so the two numbers are not one quantity and no delta is printed.
+public enum Change { NewRed, Fixed, Gone, StoppedReporting, NowReporting, New, Flaky, MeasureDrift, Sampled, Incomparable, Unchanged }
 
 public sealed record CaseChange(Change Change, string Key, string Before, string After, string Detail);
 
@@ -162,6 +164,12 @@ public static class Scoreboard
         // arrived, or a baseline that holds this case as something other than a measurement. An
         // average over nothing throws, and a scoreboard that dies has told the reader less than one
         // that says which side it could not read, so a missing side is reported rather than fatal.
+        // The suite's own rule is that a measure is comparable only to one taken the same way, and until 24
+        // September 2026 nothing enforced it: the diff was keyed on the case name alone, so a timing taken
+        // alone and one taken beside two hundred other cases were subtracted as if they were one quantity.
+        if (!string.Equals(was[0].Mode, now[0].Mode, StringComparison.Ordinal))
+            return new CaseChange(Change.Incomparable, key, Value(was), Value(now),
+                $"taken as \"{now[0].Mode}\", the baseline as \"{was[0].Mode}\"");
         double? before = Mean(was), after = Mean(now);
         string unit = now[0].Unit ?? "";
         if (before is null || after is null)
@@ -228,7 +236,7 @@ public static class Scoreboard
     /// The printed scoreboard, and the verdict. Unchanged cases are counted and not listed, because
     /// the scoreboard exists to be read after a build by somebody who wants to know what moved.
     /// </summary>
-    public static (string Text, int Exit) Render(Run after, Run? before, IReadOnlyList<Run> beforeRepeats)
+    public static (string Text, int Exit) Render(Run after, Run? before, IReadOnlyList<Run> beforeRepeats, IReadOnlyList<Run>? store = null)
     {
         var text = new StringBuilder();
         // A red tagged known-limitation is a defect the suite found and the board carries; it is
@@ -268,7 +276,7 @@ public static class Scoreboard
             var changes = Compare(before, after, beforeRepeats);
             stoppedReporting = changes.Count(c => c.Change == Change.StoppedReporting);
             gone = changes.Count(c => c.Change == Change.Gone);
-            foreach (Change kind in new[] { Change.NewRed, Change.StoppedReporting, Change.Gone, Change.Flaky, Change.Fixed, Change.MeasureDrift, Change.Sampled, Change.NowReporting, Change.New })
+            foreach (Change kind in new[] { Change.NewRed, Change.StoppedReporting, Change.Gone, Change.Flaky, Change.Fixed, Change.MeasureDrift, Change.Sampled, Change.Incomparable, Change.NowReporting, Change.New })
             {
                 var group = changes.Where(c => c.Change == kind).ToArray();
                 if (group.Length == 0) continue;
@@ -331,6 +339,8 @@ public static class Scoreboard
             foreach (LedgerRow row in after.Rows.Where(r => r.Verdict is "fail" or "error" && Known(r)))
                 text.AppendLine($"  known     {row.Instrument}/{row.Case} — {row.Message}");
         text.AppendLine();
+        text.Append(MachineReport.Render(after, before, store ?? Array.Empty<Run>()));
+        text.AppendLine();
         text.AppendLine(exit == 0
             ? $"ledger: {after.Rows.Count} rows, nothing red{carried}{coverage}"
             : $"ledger: {reds} red row(s){carried}{coverage}");
@@ -348,6 +358,7 @@ public static class Scoreboard
         Change.New => "new",
         Change.MeasureDrift => "measures that moved",
         Change.Sampled => "sampled measures — a second draw, not drift",
+        Change.Incomparable => "measures taken under different run conditions — not compared",
         _ => "unchanged",
     };
 }

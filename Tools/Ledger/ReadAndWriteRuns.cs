@@ -35,8 +35,16 @@ public sealed record RunHeader(
     int ConcurrentDotnet,
     string RanAt = "",
     string Note = "",
-    string Filter = "")
+    string Filter = "",
+    /// <summary>"ordinary", or "perf" when the run also took the perf tier's heavy cases. It is a header
+    /// field so a reader can tell the two kinds of run apart in a listing. Baseline selection needs no rule
+    /// of its own for it: an ordinary run skips the perf-tier cases a perf run measures, so
+    /// <see cref="Run.CoversRunsOf"/> already refuses to read either against the other.</summary>
+    string Tier = RunHeader.OrdinaryTier)
 {
+    public const string OrdinaryTier = "ordinary";
+    public const string PerfTier = "perf";
+
     /// <summary>
     /// The case filter the run was taken under, empty when it ran everything. It is a header field
     /// rather than a note because <see cref="RunStore.Baseline"/> has to act on it: a filtered run
@@ -45,7 +53,7 @@ public sealed record RunHeader(
     /// </summary>
     public bool Filtered => Filter.Length > 0;
 
-    public static RunHeader Now(string commit, bool dirty, string ranAt, string note, string filter = "")
+    public static RunHeader Now(string commit, bool dirty, string ranAt, string note, string filter = "", string tier = OrdinaryTier)
         => new(commit, dirty,
             DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
             Environment.MachineName,
@@ -53,7 +61,8 @@ public sealed record RunHeader(
             CountDotnet(),
             ranAt,
             note,
-            filter);
+            filter,
+            tier);
 
     /// <summary>
     /// The one-minute load average. macOS has no <c>/proc/loadavg</c>, so this asks the kernel
@@ -98,13 +107,24 @@ public sealed record RunHeader(
         text.Append(",\"ran_at\":").Append(EmitLedgerRows.Quote(RanAt));
         text.Append(",\"note\":").Append(EmitLedgerRows.Quote(Note));
         text.Append(",\"filter\":").Append(EmitLedgerRows.Quote(Filter));
+        text.Append(",\"tier\":").Append(EmitLedgerRows.Quote(Tier));
         return text.Append('}').ToString();
     }
 }
 
-/// <summary>One run file as read: its header, its rows, and the lines that were not either.</summary>
-public sealed record Run(string Path, RunHeader Header, IReadOnlyList<LedgerRow> Rows, int Malformed)
+/// <summary>One reading of <see cref="MachineBenchmark"/>, taken at a named point in a run: "start" when the
+/// run opened and "end" just before it was scored.</summary>
+public sealed record BenchmarkReading(string Phase, double Milliseconds)
 {
+    public string Serialise()
+        => $"{{\"kind\":\"benchmark\",\"phase\":{EmitLedgerRows.Quote(Phase)},\"ms\":{Math.Round(Milliseconds, 3).ToString("R", CultureInfo.InvariantCulture)}}}";
+}
+
+/// <summary>One run file as read: its header, its rows, the machine benchmark readings, and the lines that were none of those.</summary>
+public sealed record Run(string Path, RunHeader Header, IReadOnlyList<LedgerRow> Rows, int Malformed, IReadOnlyList<BenchmarkReading>? Benchmarks = null)
+{
+    public BenchmarkReading? BenchmarkAt(string phase) => Benchmarks?.LastOrDefault(b => b.Phase == phase);
+
     public string Name => System.IO.Path.GetFileName(Path);
 
     /// <summary>
@@ -187,6 +207,7 @@ public static class RunStore
         if (!File.Exists(path)) return null;
         RunHeader? header = null;
         var rows = new List<LedgerRow>();
+        var benchmarks = new List<BenchmarkReading>();
         int malformed = 0;
         foreach (string line in File.ReadLines(path))
         {
@@ -207,7 +228,13 @@ public static class RunStore
                         root.GetProperty("dotnet_processes").GetInt32(),
                         root.TryGetProperty("ran_at", out JsonElement ranAt) ? ranAt.GetString() ?? "" : "",
                         root.TryGetProperty("note", out JsonElement note) ? note.GetString() ?? "" : "",
-                        root.TryGetProperty("filter", out JsonElement filter) ? filter.GetString() ?? "" : "");
+                        root.TryGetProperty("filter", out JsonElement filter) ? filter.GetString() ?? "" : "",
+                        root.TryGetProperty("tier", out JsonElement tier) ? tier.GetString() ?? RunHeader.OrdinaryTier : RunHeader.OrdinaryTier);
+                    continue;
+                }
+                if (kind == "benchmark")
+                {
+                    benchmarks.Add(new BenchmarkReading(root.GetProperty("phase").GetString() ?? "", root.GetProperty("ms").GetDouble()));
                     continue;
                 }
                 if (kind != "row") { malformed++; continue; }
@@ -224,14 +251,21 @@ public static class RunStore
                         ? t.EnumerateArray().Select(e => e.GetString() ?? "").ToArray() : Array.Empty<string>(),
                     root.TryGetProperty("killed_by", out JsonElement k) ? k.GetString() : null,
                     root.TryGetProperty("message", out JsonElement g) ? g.GetString() ?? "" : "",
-                    root.TryGetProperty("duration_ms", out JsonElement du) && du.ValueKind == JsonValueKind.Number ? du.GetDouble() : 0));
+                    root.TryGetProperty("duration_ms", out JsonElement du) && du.ValueKind == JsonValueKind.Number ? du.GetDouble() : 0,
+                    root.TryGetProperty("alloc_mb", out JsonElement al) && al.ValueKind == JsonValueKind.Number
+                        ? new RowCost(al.GetDouble(), Int(root, "gc0"), Int(root, "gc1"), Int(root, "gc2"),
+                            root.TryGetProperty("heap_mb", out JsonElement hp) && hp.ValueKind == JsonValueKind.Number ? hp.GetDouble() : 0)
+                        : null));
             }
             catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException) { malformed++; }
         }
         // A file whose header never parsed is not a run. Returning one with an invented header
         // would put a row under a commit nobody ran it at, which is the one lie the store must not
         // tell, because every comparison below is keyed on that commit.
-        return header == null ? null : new Run(path, header, rows, malformed);
+        return header == null ? null : new Run(path, header, rows, malformed, benchmarks);
+
+        static int Int(JsonElement root, string name)
+            => root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Number ? (int)value.GetDouble() : 0;
     }
 
     /// <summary>Every run in the store, newest first by its own timestamp.</summary>

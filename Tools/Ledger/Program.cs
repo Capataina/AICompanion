@@ -34,8 +34,41 @@ switch (args[0])
         // over a recorded capture describes the build that wrote it, and the checkout it happens to
         // run in says nothing about that build's tree.
         bool dirty = Option("--commit") == null ? Git.Dirty(root) : Flag("--dirty");
-        var header = RunHeader.Now(commit, dirty, Git.Head(root), Option("--note") ?? "", Option("--filter") ?? "");
-        Console.WriteLine(RunStore.Begin(root, header));
+        string tier = Option("--tier") ?? RunHeader.OrdinaryTier;
+        if (tier is not (RunHeader.OrdinaryTier or RunHeader.PerfTier)) { Console.Error.WriteLine($"ledger begin: --tier is {RunHeader.OrdinaryTier} or {RunHeader.PerfTier}, not {tier}"); return 2; }
+        var header = RunHeader.Now(commit, dirty, Git.Head(root), Option("--note") ?? "", Option("--filter") ?? "", tier);
+        string path = RunStore.Begin(root, header);
+        // The start reading is taken here rather than by the caller, so no run can open without one.
+        File.AppendAllText(path, new BenchmarkReading("start", MachineBenchmark.Measure()).Serialise() + "\n");
+        Console.WriteLine(path);
+        return 0;
+    }
+    case "benchmark":
+    {
+        // The end reading, appended just before the run is scored, so the run says how fast the machine was
+        // at both ends of it.
+        if (args.Length < 3) { Usage(); return 2; }
+        if (RunStore.Read(args[1]) == null) { Console.Error.WriteLine($"ledger: {args[1]} is not a readable run file"); return 2; }
+        File.AppendAllText(args[1], new BenchmarkReading(args[2], MachineBenchmark.Measure()).Serialise() + "\n");
+        return 0;
+    }
+    case "perf-due":
+    {
+        // Exit 0 when the perf tier should run, 1 when it need not, with the reason on stdout either way.
+        PerfTierDecision.Answer answer = PerfTierDecision.Decide(root);
+        Console.WriteLine(answer.Reason);
+        return answer.Due ? 0 : 1;
+    }
+    case "timing":
+    {
+        // One instrument invocation's wall clock, recorded by verify as a measure so where a verify's time
+        // goes is in the run file rather than in a terminal. Tagged timed and sampled: it is a draw from the
+        // machine, compared against its own history and never against a number.
+        if (args.Length < 4) { Usage(); return 2; }
+        if (!double.TryParse(args[3], NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds)) { Console.Error.WriteLine($"ledger timing: {args[3]} is not a number of seconds"); return 2; }
+        Environment.SetEnvironmentVariable(EmitLedgerRows.RunPathVariable, args[1]);
+        EmitLedgerRows.Measure("verify", "Wall clock", args[2], seconds, "s", "down",
+            tags: new[] { EmitLedgerRows.TimedTag, EmitLedgerRows.SampledTag });
         return 0;
     }
     case "scoreboard":
@@ -44,7 +77,7 @@ switch (args[0])
         Run? after = RunStore.Read(args[1]);
         if (after == null) { Console.Error.WriteLine($"ledger: {args[1]} is not a readable run file"); return 2; }
         (Run? before, IReadOnlyList<Run> repeats) = ResolveBaseline(after);
-        (string text, int exit) = Scoreboard.Render(after, before, repeats);
+        (string text, int exit) = Scoreboard.Render(after, before, repeats, RunStore.All(root));
         Console.Write(text);
         return exit;
     }
@@ -54,7 +87,7 @@ switch (args[0])
         Run? a = Resolve(args[1]), b = Resolve(args[2]);
         if (a == null) { Console.Error.WriteLine($"ledger: no run for {args[1]}"); return 2; }
         if (b == null) { Console.Error.WriteLine($"ledger: no run for {args[2]}"); return 2; }
-        (string text, int exit) = Scoreboard.Render(b, a, RunStore.At(root, a.Header.Commit));
+        (string text, int exit) = Scoreboard.Render(b, a, RunStore.At(root, a.Header.Commit), RunStore.All(root));
         Console.Write(text);
         return exit;
     }
@@ -163,7 +196,10 @@ void Usage() => Console.Error.WriteLine(
     """
     usage: dotnet run --project Tools/Ledger -- <command>
       begin [--commit <hash>] [--dirty] [--note <text>]
-            [--filter <case>]                             open a run file; prints its path
+            [--filter <case>] [--tier ordinary|perf]      open a run file with a start benchmark; prints its path
+      benchmark <run.jsonl> <phase>                       append a machine benchmark reading (verify uses "end")
+      perf-due                                            exit 0 and say why when the perf tier should run, 1 when not
+      timing <run.jsonl> <label> <seconds>                record one instrument invocation's wall clock
       scoreboard <run.jsonl> [--baseline <commit|file>]   score a run against its baseline
       compare <A> <B>                                     two commits or two run files
       baseline [<commit>]                                 nearest ancestor with a clean run

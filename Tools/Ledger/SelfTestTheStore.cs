@@ -43,12 +43,88 @@ public static class SelfTestTheStore
             "a measure the producer declared a sample reports its delta without being called drift", SampledMeasures);
         failed += EmitLedgerRows.Case(Instrument, Suite,
             "every tool project compiles the guard that turns an escaped exception into an exit instead of a crash dialog", EveryToolCompilesTheCrashGuard);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "the perf tier is due for a change to anything compiled into the mod, the mastery tree included, and for nothing else", PerfTierPaths);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "a measure taken under different run conditions from its baseline is reported as not comparable rather than as a delta", MeasuresAcrossModes);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "a run's benchmark readings, tier and per-case memory cost read back as written, and none of them counts as malformed", BenchmarkAndCostRoundTrip);
         // The last line is what verify.sh shows for this instrument, and a self-test that prints
         // nothing when it passes reads exactly like one that ran nothing.
         Console.WriteLine(failed == 0
-            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip, the quoted intervals, the sampled-measure reading and the crash guard's reach."
-            : $"ledger self-test: {failed} of 8 store properties failed.");
+            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip, the quoted intervals, the sampled-measure reading, the crash guard's reach, the perf tier's paths, measures across modes and the benchmark round trip."
+            : $"ledger self-test: {failed} of 11 store properties failed.");
         return failed;
+    }
+
+    /// <summary>
+    /// The owner's own example is the row's first arm: the mastery tree lives under the profile card rather than
+    /// under Brain, and he named it as a change that must make the perf tier run. The negative arms are the
+    /// files that can never change what the mod does: a guide, a tool, a ledger run.
+    /// </summary>
+    private static int PerfTierPaths()
+    {
+        int failed = 0;
+        void Expect(string path, bool due)
+        {
+            bool actual = PerfTierDecision.CompiledIntoTheMod(new[] { path }).Count == 1;
+            if (actual != due)
+                failed += Failed($"{path} {(actual ? "made" : "did not make")} the perf tier due, where it {(due ? "must" : "must not")}");
+        }
+        Expect("Companion/ProfileCard/DefineMasteryGraph.cs", true);
+        Expect("Companion/Brain/Infrastructure/Selection/DecideCourseEachTick.cs", true);
+        Expect("AICompanion.cs", true);
+        Expect("AICompanion.csproj", true);
+        Expect("Companion/Brain/CLAUDE.md", false);
+        Expect("README.md", false);
+        Expect("Tools/EngineReplay/Movement/VerifyEngineMotion.cs", false);
+        Expect("Tools/Ledger/runs/abc-20260924-000000.jsonl", false);
+        Expect(".claude/worktrees/lane/Companion/Brain/Tick.cs", false);
+        return failed;
+    }
+
+    /// <summary>A timing taken in verify's timed lane and one taken in-suite are two quantities, and the
+    /// scoreboard must say so rather than subtract them. The untagged pair with matching modes is the control:
+    /// it must still print a delta, or the rule is refusing every comparison.</summary>
+    private static int MeasuresAcrossModes()
+    {
+        int failed = 0;
+        Run MeasuredAs(string mode, double value) => new("synthetic", RunHeader.Now("0000000", false, "0000000", "", ""),
+            new[] { new LedgerRow("engine-replay", "EngineReplay", "combat admission cost per score", "measure", value, "ms", "down", mode,
+                new[] { EmitLedgerRows.TimedTag, EmitLedgerRows.SampledTag }) }, 0);
+        CaseChange across = Only(Scoreboard.Compare(MeasuredAs("in-suite; unbounded-allowances", 6.1), MeasuredAs("in-suite; unbounded-allowances; alone", 2.7), Array.Empty<Run>()));
+        if (across.Change != Change.Incomparable)
+            failed += Failed($"a timing taken alone was read against one taken in-suite as {across.Change}, so two regimes were subtracted as one quantity");
+        CaseChange same = Only(Scoreboard.Compare(MeasuredAs("in-suite; unbounded-allowances; alone", 2.9), MeasuredAs("in-suite; unbounded-allowances; alone", 2.7), Array.Empty<Run>()));
+        if (same.Change != Change.Sampled)
+            failed += Failed($"two timings taken the same way reported {same.Change} rather than a sampled delta, so the mode rule is refusing comparisons it should allow");
+        return failed;
+    }
+
+    private static int BenchmarkAndCostRoundTrip()
+    {
+        string root = TemporaryRoot();
+        try
+        {
+            var header = new RunHeader("0000000", false, "2026-01-01T00:00:00Z", "test", 1, 1, Tier: RunHeader.PerfTier);
+            string path = Write(root, header, new LedgerRow(Instrument, Suite, "a case", "pass", DurationMs: 12,
+                Cost: new RowCost(3.5, 4, 1, 0, 88.25)));
+            File.AppendAllText(path, new BenchmarkReading("start", 210.5).Serialise() + "\n" + new BenchmarkReading("end", 1009).Serialise() + "\n");
+            Run? run = RunStore.Read(path);
+            if (run == null) return Failed("the written run did not read back at all");
+            int failed = 0;
+            if (run.Malformed != 0) failed += Failed($"{run.Malformed} line(s) of a run holding benchmark readings and a costed row read as malformed");
+            if (run.Header.Tier != RunHeader.PerfTier) failed += Failed($"the tier read back as {run.Header.Tier}");
+            if (run.BenchmarkAt("start")?.Milliseconds != 210.5 || run.BenchmarkAt("end")?.Milliseconds != 1009)
+                failed += Failed("the benchmark readings did not read back as written");
+            if (run.Rows.Single().Cost is not { AllocatedMb: 3.5, Gen0: 4, Gen1: 1, Gen2: 0, HeapAfterMb: 88.25 })
+                failed += Failed($"the row's memory cost read back as {run.Rows.Single().Cost}");
+            string report = MachineReport.Render(run, null, Array.Empty<Run>());
+            if (!report.Contains("4.79×", StringComparison.Ordinal))
+                failed += Failed($"the machine report does not state the end reading's ratio to the start (1009 over 210.5 is 4.79×): {report}");
+            return failed;
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     /// <summary>

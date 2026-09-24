@@ -48,7 +48,8 @@ while [ "$i" -le "$runs" ]; do
   # One process per repeat. Process isolation is the point rather than a convenience: a fixture
   # that leaves a process-wide static changed cannot reach the next attempt, so what this measures
   # is the case against the machine and not the case against its predecessors.
-  AIC_LEDGER_RUN="$run" AIC_LEDGER_CASE="$name" dotnet run --project Tools/EngineReplay >/dev/null 2>&1
+  # --perf: a case named for a flake batch runs whatever its tier, rather than filing a perf-tier skip.
+  AIC_LEDGER_RUN="$run" AIC_LEDGER_CASE="$name" dotnet run --project Tools/EngineReplay -- --perf >/dev/null 2>&1
   printf '.'
   i=$((i + 1))
 done

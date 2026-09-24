@@ -41,8 +41,12 @@ Run `sh Tools/build.sh session-report` then `dotnet Tools/SessionReport/bin/Debu
 
 `sh Tools/verify.sh` runs the build, the boundary check and every instrument, **and it no longer stops at the first failure**. That was not a style preference: assertions in these fixtures throw, EngineReplay summed thirty-eight of them in one expression, and the script exited on the first instrument that returned non-zero — so one throwing fixture took the rest of its chain with it and the run reported a single exit code that could not tell an unrun fixture from a passing one. The known intermittent fixture sits thirteenth of thirty-eight, so on the runs where it fired, twenty-two later fixtures reported nothing at all. Now every instrument runs to the end, every case writes its own row, and the ledger's scoreboard is the verdict. Exit 2 still means a check could not be asked rather than failed.
 
+**Verify builds everything once and then runs in three phases, and the order is what keeps a timing honest.** Every instrument is started from its built assembly rather than through `dotnet run --project`, which re-evaluated each project on every call: measured on 24 September 2026, 3.5 s per ledger call and 11 s per tool referencing the mod, across about thirteen calls a run. The parallel phase runs the four self-tests beside the engine suite split into one shard per performance core, each process writing its own part file and each given its own `TMPDIR`, since every fixture that writes a file writes under the temp directory. The timed lane then runs every case tagged timed or perf-tier with nothing else on the machine. The world runs come last, one at a time, because they keep the game's own millisecond allowances. The run opens and closes with a machine benchmark, and every invocation's wall clock is filed as a measure under instrument `verify`, so where the time went is in the run file.
+
 ```
-sh Tools/verify.sh                      everything, scored against the baseline
+sh Tools/verify.sh                      everything, scored against the baseline; the perf tier when due
+sh Tools/verify.sh --perf | --no-perf   force the perf tier on or off
+AIC_VERIFY_SHARDS=N sh Tools/verify.sh  the number of engine-suite shards, the performance-core count by default
 sh Tools/verify.sh --case "ore work"    only cases whose name contains the fragment
 sh Tools/verify.sh --rerun-red 5        rerun each red case five times and grade it
 sh Tools/measure-flake.sh 30 "ore work" one case many times at one commit, with its interval

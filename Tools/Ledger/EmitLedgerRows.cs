@@ -47,7 +47,18 @@ public sealed record LedgerRow(
     /// </summary>
     string? KilledBy = null,
     string Message = "",
-    double DurationMs = 0);
+    double DurationMs = 0,
+    /// <summary>What the case cost the process in memory, filled by <see cref="EmitLedgerRows.Case"/>. It is
+    /// here because a suite measured 2.3× slower per operation than the same case run alone (AIC-451) and the
+    /// untested explanation is heap pressure accumulating across cases; this field makes that readable in
+    /// order, case by case, without a profiler.</summary>
+    RowCost? Cost = null);
+
+/// <summary>
+/// One case's memory footprint: megabytes allocated while it ran, the collections of each generation it
+/// triggered, and the managed heap left standing after it (not forced, so it is what the next case inherits).
+/// </summary>
+public sealed record RowCost(double AllocatedMb, int Gen0, int Gen1, int Gen2, double HeapAfterMb);
 
 /// <summary>
 /// The one writer of ledger rows. Every instrument reports through this and nothing else, which is
@@ -195,11 +206,19 @@ public static class EmitLedgerRows
         }
     }
 
-    public static void Pass(string instrument, string suite, string @case, string message = "", double durationMs = 0, string mode = "in-suite", IReadOnlyList<string>? tags = null, string? killedBy = null)
-        => Row(new LedgerRow(instrument, suite, @case, "pass", Mode: mode, Tags: tags, KilledBy: killedBy, Message: message, DurationMs: durationMs));
+    public static void Pass(string instrument, string suite, string @case, string message = "", double durationMs = 0, string mode = "in-suite", IReadOnlyList<string>? tags = null, string? killedBy = null, RowCost? cost = null)
+        => Row(new LedgerRow(instrument, suite, @case, "pass", Mode: mode, Tags: tags, KilledBy: killedBy, Message: message, DurationMs: durationMs, Cost: cost));
 
-    public static void Fail(string instrument, string suite, string @case, string message, double durationMs = 0, string mode = "in-suite", IReadOnlyList<string>? tags = null, string? killedBy = null)
-        => Row(new LedgerRow(instrument, suite, @case, "fail", Mode: mode, Tags: tags, KilledBy: killedBy, Message: message, DurationMs: durationMs));
+    public static void Fail(string instrument, string suite, string @case, string message, double durationMs = 0, string mode = "in-suite", IReadOnlyList<string>? tags = null, string? killedBy = null, RowCost? cost = null)
+        => Row(new LedgerRow(instrument, suite, @case, "fail", Mode: mode, Tags: tags, KilledBy: killedBy, Message: message, DurationMs: durationMs, Cost: cost));
+
+    /// <summary>
+    /// Names the lane a process runs in, appended to every case's mode: verify sets it to "alone" for the
+    /// timed lane, which runs after the parallel shards with nothing else on the machine. Parallel shards set
+    /// nothing, because their rows are counts and verdicts that do not depend on the neighbours' CPU, and a
+    /// mode that changed with the shard count would make every measure incomparable with the last run.
+    /// </summary>
+    public const string LaneVariable = "AIC_LEDGER_LANE";
 
     /// <summary>A reason, never a pass. The reason is the whole value of the row.</summary>
     public static void Skipped(string instrument, string suite, string @case, string reason, IReadOnlyList<string>? tags = null)
@@ -214,7 +233,13 @@ public static class EmitLedgerRows
     /// the scoreboard against a baseline and a noise band, never against a threshold invented here.
     /// </summary>
     public static void Measure(string instrument, string suite, string @case, double value, string unit, string? direction = null, string mode = "in-suite", IReadOnlyList<string>? tags = null, string message = "")
-        => Row(new LedgerRow(instrument, suite, @case, "measure", value, unit, direction, mode, tags, Message: message));
+        => Row(new LedgerRow(instrument, suite, @case, "measure", value, unit, direction, WithLane(mode), tags, Message: message));
+
+    /// <summary>The mode with the process's lane appended, so a measure taken in verify's timed lane says it
+    /// ran alone even when its fixture emitted it directly rather than through <see cref="Case"/>.</summary>
+    private static string WithLane(string mode)
+        => Environment.GetEnvironmentVariable(LaneVariable) is { Length: > 0 } lane && !mode.EndsWith("; " + lane, StringComparison.Ordinal)
+            ? $"{mode}; {lane}" : mode;
 
     /// <summary>
     /// Run one named case, emit its row, and never let it take the rest of the suite with it.
@@ -240,26 +265,46 @@ public static class EmitLedgerRows
         // comparable only to one taken the same way, and a mode a caller had to remember to write
         // is a mode that will disagree with what the process was actually doing.
         bool keepProductionAllowances = tags?.Contains(ProductionAllowancesTag) == true;
-        mode = $"{mode}; {(keepProductionAllowances ? "production-allowances" : "unbounded-allowances")}";
+        mode = WithLane($"{mode}; {(keepProductionAllowances ? "production-allowances" : "unbounded-allowances")}");
         details.Clear();
         ResetBeforeCase?.Invoke(keepProductionAllowances);
+        var before = CostMark.Now();
         var clock = Stopwatch.StartNew();
         try
         {
             int failures = body();
             clock.Stop();
+            RowCost cost = before.Since();
             if (failures == 0)
-                Pass(instrument, suite, name, durationMs: clock.Elapsed.TotalMilliseconds, mode: mode, tags: tags, killedBy: killedBy);
+                Pass(instrument, suite, name, durationMs: clock.Elapsed.TotalMilliseconds, mode: mode, tags: tags, killedBy: killedBy, cost: cost);
             else
-                Fail(instrument, suite, name, Reason($"{failures} failure(s) reported by the fixture"), clock.Elapsed.TotalMilliseconds, mode, tags, killedBy);
+                Fail(instrument, suite, name, Reason($"{failures} failure(s) reported by the fixture"), clock.Elapsed.TotalMilliseconds, mode, tags, killedBy, cost);
             return failures;
         }
         catch (Exception e)
         {
             clock.Stop();
+            RowCost cost = before.Since();
             Console.WriteLine($"{name} failed: {e.GetType().Name}: {e.Message}");
-            Fail(instrument, suite, name, Reason($"{e.GetType().Name}: {Flatten(e.Message)}"), clock.Elapsed.TotalMilliseconds, mode, tags, killedBy);
+            Fail(instrument, suite, name, Reason($"{e.GetType().Name}: {Flatten(e.Message)}"), clock.Elapsed.TotalMilliseconds, mode, tags, killedBy, cost);
             return 1;
+        }
+    }
+
+    /// <summary>The process's allocation and collection counters at one instant, so a case's own share can
+    /// be taken as a difference. Reading them is cheap and forces nothing, so the measurement does not move
+    /// what it measures.</summary>
+    private readonly record struct CostMark(long Allocated, int Gen0, int Gen1, int Gen2)
+    {
+        public static CostMark Now() => new(GC.GetTotalAllocatedBytes(false), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
+
+        public RowCost Since()
+        {
+            CostMark after = Now();
+            return new RowCost(
+                Math.Round((after.Allocated - Allocated) / 1048576d, 3),
+                after.Gen0 - Gen0, after.Gen1 - Gen1, after.Gen2 - Gen2,
+                Math.Round(GC.GetTotalMemory(false) / 1048576d, 3));
         }
     }
 
@@ -291,6 +336,14 @@ public static class EmitLedgerRows
         if (row.KilledBy is { } killed) Text(text, "killed_by", killed);
         Text(text, "message", row.Message);
         Number(text, "duration_ms", Math.Round(row.DurationMs, 3));
+        if (row.Cost is { } cost)
+        {
+            Number(text, "alloc_mb", cost.AllocatedMb);
+            Number(text, "gc0", cost.Gen0);
+            Number(text, "gc1", cost.Gen1);
+            Number(text, "gc2", cost.Gen2);
+            Number(text, "heap_mb", cost.HeapAfterMb);
+        }
         return text.Append('}').ToString();
     }
 

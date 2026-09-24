@@ -24,7 +24,7 @@ using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement
 /// </summary>
 internal static class VerifyEngineMotion
 {
-    public static int Run(bool lifecycleOnly = false, bool liquidsOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyLayerOnly = false, bool dodgeReproOnly = false, bool activitiesOnly = false)
+    public static int Run(bool lifecycleOnly = false, bool liquidsOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyLayerOnly = false, bool dodgeReproOnly = false, bool activitiesOnly = false, CaseSelection? selection = null)
     {
         // The engine containers, the miniature world's dimensions and its tile map now belong to
         // ResetProcessState, which the entry point calls before dispatching any flag — they were
@@ -57,9 +57,45 @@ internal static class VerifyEngineMotion
         // whole chain with it. As a table, each fixture is a named case that reports its own verdict
         // and cannot reach its neighbours, and the emitter's own reset runs between them so a case
         // cannot inherit the world its predecessor left either.
+        CaseSelection lane = selection ?? CaseSelection.Everything(perf: false);
+        int ordinaryIndex = 0;
         foreach ((string name, Func<int> body) in DefaultCases())
-            failed += EmitLedgerRows.Case(Instrument, "EngineReplay", name, body, tags: TagsOf(name));
+        {
+            IReadOnlyList<string>? tags = TagsOf(name);
+            bool timed = tags?.Contains(EmitLedgerRows.TimedTag) == true;
+            bool heavy = tags?.Contains(EmitLedgerRows.PerfTierTag) == true;
+            if (!lane.Takes(timed, heavy, ordinaryIndex)) { if (!timed && !heavy) ordinaryIndex++; continue; }
+            if (!timed && !heavy) ordinaryIndex++;
+            if (heavy && !lane.Perf)
+            {
+                EmitLedgerRows.Skipped(Instrument, "EngineReplay", name,
+                    "perf tier: runs when anything the mod is built from changed since the last perf run, or under verify --perf", tags);
+                continue;
+            }
+            failed += EmitLedgerRows.Case(Instrument, "EngineReplay", name, body, tags: tags);
+        }
         return failed == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Which default cases this process runs. Verify splits the suite into parallel shards that take only
+    /// the ordinary cases, round-robin by their position among ordinary cases, and one timed lane that runs
+    /// afterwards, alone on the machine, taking every timed or perf-tier case. A process started by hand with
+    /// no lane flag takes everything, so a person running the suite sees what they always saw, with the
+    /// perf tier skipped by name unless they ask for it.
+    ///
+    /// A case is in exactly one lane by construction: <see cref="Takes"/> sends a timed or heavy case only to
+    /// the timed lane and an ordinary case only to the shard its index names. A shard writes no rows for the
+    /// cases it does not take, so the merged run holds one row per case rather than one per shard.
+    /// </summary>
+    internal readonly record struct CaseSelection(int Shard, int Shards, bool TimedLane, bool All, bool Perf)
+    {
+        public static CaseSelection Everything(bool perf) => new(0, 1, false, true, perf);
+        public static CaseSelection OneShard(int shard, int shards) => new(shard, shards, false, false, false);
+        public static CaseSelection Timed(bool perf) => new(0, 1, true, false, perf);
+
+        public bool Takes(bool timed, bool heavy, int ordinaryIndex)
+            => All || (TimedLane ? timed || heavy : !timed && !heavy && ordinaryIndex % Shards == Shard);
     }
 
     internal const string Instrument = "engine-replay";
