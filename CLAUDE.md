@@ -228,7 +228,8 @@ wave 1   verify builds once and runs in phases: parallel engine shards, a timed 
          no fixture goes red on a timing; every timing is a measure; a perf tier runs when the mod's code changed
 wave 2   a section profiler inside every brain tick and a spike fence relative to the session's own ticks,
          schema 0.48.0 (2a2f876); a load ladder, a budget curve and an in-game calibration in the world run (7dd9029)
-wave 3   a capture reproduces its own decisions tick for tick from every input the brain observed, schema 0.49.0 (8c4d479)
+wave 3   a capture reproduces its own decisions tick for tick from every input the brain observed, schema 0.49.0 (8c4d479);
+         the recorder made cheap and loss-safe in play and honest about played captures, schema 0.50.0 (020508f)
          SessionReport --explain <capture> <tick>, and --picture / --pictures draw a tick headlessly (d616260)
          every assertion files its own row; no fixture can hide from the default suite; every whole-brain case is
          audited on the decision and effect contracts (38ae184, 624d964)
@@ -236,7 +237,7 @@ wave 3   a capture reproduces its own decisions tick for tick from every input t
 
 **What it found about the brain, with no behaviour change made for it:** `decide.course.snapshot.assistance.light` is about 28 % of the brain's time and half its allocation on the replayed capture; the worst spike there was the recorder's own combat snapshot export charged to the decide phase (74.9 of 84 ms); the brain allocates 0.6 to 1.6 MB a tick; and the whole brain's median is the decision allowance plus about half a millisecond at every allowance tried, so the median is a setting and the tail, 15 to 26 ms at p99, is what the allowance does not move. No contract the audit grades fired as never-legitimate in any engine case. `Tools/WorldRun/CLAUDE.md` and `Companion/Brain/Infrastructure/Diagnostics/CLAUDE.md` carry the numbers.
 
-**Recording now costs about 0.36 ms more a tick on average (5.66 to 6.02 ms, p99 unchanged at about 12.8), and about 1 MB a minute more of sidecar**, measured twice each on the play-measures scene before and after the replay inputs landed; the replay recorder's own clock reads 0.05 ms a tick. It is paid only while `record_telemetry` is on.
+**Recording now costs about 0.36 ms more a tick on average (5.66 to 6.02 ms, p99 unchanged at about 12.8), and about 1 MB a minute more of sidecar**, measured twice each on the play-measures scene before and after the replay inputs landed; the replay recorder's own clock reads 0.05 ms a tick. It is paid only while `record_telemetry` is on — which is the default, so every player pays it, and that is why the recorder was then rebuilt to cost what changed rather than what exists: with 199 NPCs and 400 drops standing still it went from 0.48–0.97 ms and 237 KB a tick to 0.08–0.20 ms and 2 KB (`020508f`; its commit body carries the table). All of those figures are the repository's unoptimised debug build; the packaged build's cost is not measured.
 
 **The gate is `8aea71d4-20260924-221604.jsonl`**: 1,037 rows, nothing red, the one known limitation carried (a fight README wants becoming a bound step within three seconds, the owner's product question), both reproductions green inside verify at 600 of 600 and 7,200 of 7,200. The tree has still not been played since 22 September.
 

@@ -361,16 +361,26 @@ world_run "world run: soak seed 1" '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|SOAK|CAST) 
 # scene with its native hostiles and replays it in a fresh process, which grades the clock, the actors and the
 # random streams; the soak's own capture, just written above, carries the bot's tile breaks and the
 # companion's torches, which grades the terrain edits. A divergence names its first tick and the input that
-# differed (Tools/WorldRun/CLAUDE.md). Together about 40 s.
+# differed (Tools/WorldRun/CLAUDE.md). Each also replays with one input left out at a time and files a row that
+# must read "diverged", so the claim that the verdict can go red is a standing check rather than a commit body:
+# actors, the clock, the random streams and the player on the scene, the edits on the soak. The soak's folder is
+# removed on a pass and kept on a failure for reading. Together about a minute.
 world_run "world run: self-consistency" '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|RECORDED|REPRODUCED|CHILD|REMOVED|KEPT) ' \
   --self-consistency --route="$world_run_play_route" --world="$world_run_world" \
-  --from-tick=1 --ticks=600 \
+  --from-tick=1 --ticks=600 --drop-input-check=actors,clock,random,player \
   --suite="self-consistency $(basename "$world_run_play_route" .tsv)@1"
 soak_capture=$(ls -1t "$soak_capture_dir"/ModSources/AICompanion/Telemetry/*.tsv 2>/dev/null | head -1)
-world_run "world run: soak self-consistency" '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|REPRODUCE|REPRODUCED) ' \
+world_run "world run: soak self-consistency" '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|REPRODUCE|REPRODUCED|REMOVED|KEPT) ' \
   --reproduce="${soak_capture:-$soak_capture_dir/no-soak-capture.tsv}" \
-  --world="$world_run_world" --expect-every-tick --suite="self-consistency soak seed 1"
-rm -rf "$soak_capture_dir"
+  --world="$world_run_world" --expect-every-tick --drop-input-check=edits --own-folder="$soak_capture_dir" \
+  --suite="self-consistency soak seed 1"
+
+# What recording costs in play, where it is on by default: the replay recorder over a full table of 199 NPCs and
+# 400 drops, standing still and all moving, and the first line after a companion-less burst of edits. Measures
+# only, never a pass line; the pass/fail rows beside them are about correctness (the one-call readers agree with
+# the field tables, a burst flushes as one line the queue accepts, a refused line leaves a gap the reader names).
+world_run "world run: replay recorder cost" '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|COST|BURST|REFUSAL) ' \
+  --recorder-cost --world="$world_run_world" --suite="replay recorder cost"
 
 # The perf tier's world runs: how the brain's cost grows with load, what a smaller decision allowance costs
 # in behaviour, and the ratio of in-game to headless phase cost for the capture. All three file measures only
