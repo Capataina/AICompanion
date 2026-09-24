@@ -48,6 +48,9 @@ internal static class ReadReplayInputs
         string Clock,
         string? Random,
         string? RandomEnd,
+        /// <summary>`WorldGen.genRand`'s state at the tick's start and its end fingerprint, on a tick that drew from it.</summary>
+        string? GenRandom,
+        string? GenRandomEnd,
         string Ops,
         IReadOnlyList<TileEdit> CompanionEdits,
         string Decision,
@@ -174,6 +177,8 @@ internal static class ReadReplayInputs
             parts["clock"],
             parts.GetValueOrDefault("rand"),
             parts.GetValueOrDefault("rand-end"),
+            parts.GetValueOrDefault("grand"),
+            parts.GetValueOrDefault("grand-end"),
             parts["ops"],
             Edits(parts["cedits"]),
             decision,

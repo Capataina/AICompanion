@@ -51,7 +51,12 @@ internal static class RunTheReproduction
                 return 1;
             }
             Main.dedServ = true;
-            var result = Reproduce(reproduce, world, record, ticks, dropped, WorldRunEntry.Value(args, "--record-to="), printEach);
+            // `--passes=N` reproduces the same capture N times in this one process and files the last. A fresh process
+            // is what the verdict uses; this is the instrument for the state that survives between two brains in one
+            // process, which the first pass cannot show and every later pass does.
+            ReproduceTheCapture.Result result = null!;
+            for (int pass = 0, passes = Math.Max(1, WorldRunEntry.Int(args, "--passes=", 1)); pass < passes; pass++)
+                result = Reproduce(reproduce, world, record, ticks, dropped, WorldRunEntry.Value(args, "--record-to="), printEach);
             if (!expectEveryTick)
             {
                 EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, ShareCase, 100.0 * result.Reproduced / Math.Max(1, result.Ticks), "%",
@@ -89,10 +94,12 @@ internal static class RunTheReproduction
                 tags: new[] { EmitLedgerRows.SampledTag },
                 message: "the `replay-inputs` detail the recorder wrote per companion tick over the recording pass, before the sidecar's JSON envelope");
 
-        // The reproduction runs in a process of its own. Reproduced in the process that recorded it, the same capture
-        // disagreed with itself at its first tick (297 of 300 on 24 September 2026) while a fresh process reproduced all
-        // 300: a second brain in one process inherits state the harness's reset does not clear, which is the
-        // determinism section's cold-pass class, and a verdict about what a capture carries must not be charged for it.
+        // The reproduction runs in a process of its own, because the verdict is about what a capture carries and a second
+        // brain in one process is a different question. That question had a real answer: reproduced in the process that
+        // recorded it, a capture first came back 297 of 300 against a fresh process's 300, and the cause was the light
+        // sense's world light surviving the harness's reset (`ForgetEverythingLearnedAboutTheWorld` forgets it now). The
+        // next state of that kind would be charged to the record here if the passes shared a process; `--reproduce
+        // --passes=N` is where it shows instead.
         var child = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath ?? "dotnet")
         {
             RedirectStandardOutput = true,

@@ -437,6 +437,8 @@ internal static class WorldRunEntry
               --drop-input=<name>     leave one input out of a reproduction: actors, clock, random,
                                       light, player or edits
               --print-reproduction    one line per reproduced tick: same, or what differed
+              --passes=N              with --reproduce: reproduce N times in this one process, which
+                                      is where state surviving the harness's reset shows
               --expect-every-tick     file the self-consistency verdict rather than the share
 
             Three cost modes, each filing measures only (no time is a pass line):

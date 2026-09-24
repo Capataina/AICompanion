@@ -163,8 +163,12 @@ internal static class ReproduceTheCapture
                         Inputs.RestoreLightScannerSeed(seedBefore);
                     PrepareTheHeadlessEngine.DriveLightOnce(livePlayer.Bottom.ToTileCoordinates(), RunTheWorld.LightHalfWidth, RunTheWorld.LightHalfHeight);
                 }
-                if (dropped != DroppedInput.Random && frame.Random is { } state && state != "unreadable") Inputs.RestoreRandom(state);
-                string randomBefore = Inputs.CurrentRandomFingerprint();
+                if (dropped != DroppedInput.Random)
+                {
+                    if (frame.Random is { } state && state != "unreadable") Inputs.RestoreRandom("rand", state);
+                    if (frame.GenRandom is { } genState && genState != "unreadable") Inputs.RestoreRandom("grand", genState);
+                }
+                string randomBefore = Inputs.CurrentRandomFingerprint("rand"), genRandomBefore = Inputs.CurrentRandomFingerprint("grand");
                 if (dropped != DroppedInput.Clock) DecisionClock.Replay(frame.Clock);
 
                 edited.Clear();
@@ -192,15 +196,21 @@ internal static class ReproduceTheCapture
                 }
                 DecisionClock.StopReplaying();
 
-                string randomAfter = Inputs.CurrentRandomFingerprint();
-                bool replayDrew = randomAfter != randomBefore;
-                if (frame.RandomEnd is { } recordedEnd ? recordedEnd != randomAfter : replayDrew)
+                bool randomDisagreed = false;
+                foreach ((string name, string before, string? recordedEnd) in new[]
                 {
-                    randomTicks++;
-                    disagreements.Add(frame.RandomEnd is null
-                        ? "random: this tick drew from Main.rand and the play's did not"
-                        : $"random: the play's tick ended at {frame.RandomEnd} and this one at {randomAfter}");
+                    ("Main.rand", randomBefore, frame.RandomEnd),
+                    ("WorldGen.genRand", genRandomBefore, frame.GenRandomEnd),
+                })
+                {
+                    string after = Inputs.CurrentRandomFingerprint(name == "Main.rand" ? "rand" : "grand");
+                    if (recordedEnd is { } end ? end == after : after == before) continue;
+                    randomDisagreed = true;
+                    disagreements.Add(recordedEnd is null
+                        ? $"random: this tick drew from {name} and the play's did not"
+                        : $"random: {name} ended the play's tick at {recordedEnd} and this one at {after}");
                 }
+                if (randomDisagreed) randomTicks++;
 
                 var brain = companion.Brain;
                 string ops = brain.LastTick == Main.GameUpdateCount && brain.LastAllowance is { } allowance

@@ -200,8 +200,9 @@ public sealed class BrainTelemetry : ModSystem
     // 0.49.0 makes a capture a reproduction of its own decisions. No TSV column moves or goes; the sidecar gains one
     // `replay-inputs` occurrence per companion tick (`RecordReplayInputs.cs` owns the format): the player, every NPC and
     // dropped item the tick could observe, delta-encoded per slot and field; the world's terrain edits since the last
-    // tick as edits with their resulting tile; the light scanner's seed; the answers the decision clock gave, in order;
-    // the whole `Main.rand` state on a tick that drew from it; the allowance spent; the companion's own edits; and the
+    // tick as edits, with every tile the game reframed around them; a digest of the tiles around the body; the light
+    // scanner's seed; the answers the decision clock gave, in order; the whole state of `Main.rand` and of
+    // `WorldGen.genRand` on a tick that drew from it; the allowance spent; the companion's own edits; and the
     // decision the tick made. The `# closing=` line gains `replay-lines`, `replay-chars` and `replay-ms` (the game-thread
     // time the replay inputs cost the whole session). It is a version rather than
     // a silent append because the world run's `--reproduce` refuses anything below it by name: a capture without these

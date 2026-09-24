@@ -211,10 +211,28 @@ public static class ReplayInputs
     private static readonly List<Point> companionEdits = new();
     private static readonly HashSet<Point> companionEditsSeen = new();
     private static string pendingInputs = "";
-    private static readonly int[] randomAtStart = new int[58];
-    private static readonly int[] randomAtEnd = new int[58];
-    private static UnifiedRandom? randomObjectAtStart;
-    private static bool randomReadable = true;
+    /// <summary>
+    /// One of the game's shared random streams, watched across the companion's tick. There are two: `Main.rand`, which
+    /// the brain and the engine both draw from, and `WorldGen.genRand`, which the game's tile framing draws a frame
+    /// variant from when the companion breaks or places a tile — measured 24 September 2026, a second reproduction in one
+    /// process disagreed about one tick's terrain after the companion removed its own torch, because the frames around
+    /// it were drawn from a stream the first pass had advanced.
+    /// </summary>
+    private sealed class WatchedRandom
+    {
+        public readonly string Key;
+        public readonly Func<UnifiedRandom?> Current;
+        public readonly int[] Start = new int[58], End = new int[58];
+        public UnifiedRandom? StartObject;
+        public bool Readable = true;
+        public WatchedRandom(string key, Func<UnifiedRandom?> current) { Key = key; Current = current; }
+    }
+
+    private static readonly WatchedRandom[] watchedRandoms =
+    {
+        new("rand", () => Main.rand),
+        new("grand", () => WorldGen.genRand),
+    };
 
     /// <summary>The profiler's name for this file's own work, so the cost of carrying replay inputs is a share in the
     /// session reader's "where the time goes" rather than a number somebody has to take by hand. Both halves run outside
@@ -348,8 +366,11 @@ public static class ReplayInputs
         // can say its terrain is not the play's rather than leave that to be inferred from a decision that drifted.
         if (Main.GameUpdateCount % TerrainDigestEveryTicks == 0 || announced > 0)
             line.Append(";terrain=").Append(DescribeTerrainAround(body.Center));
-        randomObjectAtStart = Main.rand;
-        randomReadable = ReadRandom(Main.rand, randomAtStart);
+        foreach (WatchedRandom watched in watchedRandoms)
+        {
+            watched.StartObject = watched.Current();
+            watched.Readable = ReadRandom(watched.StartObject, watched.Start);
+        }
         pendingInputs = line.ToString();
         timestampsSpent += System.Diagnostics.Stopwatch.GetTimestamp() - started;
         DecisionClock.StartTape();
@@ -369,13 +390,19 @@ public static class ReplayInputs
         var line = new StringBuilder(pendingInputs, pendingInputs.Length + 512);
         line.Append(";clock=").Append(tape);
 
-        // The random stream is written only on a tick that drew from it, and then as the whole state the tick
-        // started from: every game system shares Main.rand, so a replay that does not run them cannot reach this
-        // state by drawing — it has to be handed it.
-        bool drew = !ReferenceEquals(Main.rand, randomObjectAtStart)
-            || !randomReadable || !ReadRandom(Main.rand, randomAtEnd) || !SameState(randomAtStart, randomAtEnd);
-        if (drew && randomReadable) line.Append(";rand=").Append(EncodeRandom(randomAtStart)).Append(";rand-end=").Append(RandomFingerprint(randomAtEnd));
-        else if (drew) line.Append(";rand=unreadable");
+        // A random stream is written only on a tick that drew from it, and then as the whole state the tick started
+        // from: every game system shares these streams, so a replay that does not run them cannot reach the state by
+        // drawing — it has to be handed it.
+        foreach (WatchedRandom watched in watchedRandoms)
+        {
+            UnifiedRandom? now = watched.Current();
+            bool drew = !ReferenceEquals(now, watched.StartObject)
+                || !watched.Readable || !ReadRandom(now, watched.End) || !SameState(watched.Start, watched.End);
+            if (drew && watched.Readable)
+                line.Append(';').Append(watched.Key).Append('=').Append(EncodeRandom(watched.Start))
+                    .Append(';').Append(watched.Key).Append("-end=").Append(RandomFingerprint(watched.End));
+            else if (drew) line.Append(';').Append(watched.Key).Append("=unreadable");
+        }
 
         var brain = companion.Brain;
         if (brain.LastTick == Main.GameUpdateCount && brain.LastAllowance is { } allowance)
@@ -524,7 +551,9 @@ public static class ReplayInputs
     }
 
     /// <summary>Harness-only: hand <c>Main.rand</c> the state a recorded tick started from.</summary>
-    public static void RestoreRandom(string encoded)
+    /// <summary>Harness-only: hand the stream named <paramref name="key"/> (`rand` or `grand`) the state a recorded tick
+    /// started from.</summary>
+    public static void RestoreRandom(string key, string encoded)
     {
         byte[] bytes = Convert.FromBase64String(encoded);
         if (bytes.Length != 58 * 4) throw new FormatException($"a recorded random state is 58 integers; got {bytes.Length} bytes");
@@ -532,15 +561,26 @@ public static class ReplayInputs
         Buffer.BlockCopy(bytes, 0, state, 0, bytes.Length);
         var random = new UnifiedRandom(0);
         if (!WriteRandom(random, state)) throw new MissingFieldException("UnifiedRandom's inext, inextp or SeedArray is gone; a recorded random state cannot be restored");
-        Main.rand = random;
+        switch (key)
+        {
+            case "rand": Main.rand = random; break;
+            case "grand":
+                // The getter rebuilds the stream from the world seed whenever the two seed fields disagree, so they are
+                // made to agree before the restored stream is put in place.
+                WorldGen._genRandSeed = WorldGen._lastSeed;
+                WorldGen._genRand = random;
+                break;
+            default: throw new ArgumentOutOfRangeException(nameof(key), key, "the recorded random streams are `rand` and `grand`");
+        }
     }
 
-    /// <summary>The fingerprint of <c>Main.rand</c>'s current state, in the shape `rand-end` is written, so a replay
-    /// can say whether its tick drew as many numbers as the play's.</summary>
-    public static string CurrentRandomFingerprint()
+    /// <summary>The fingerprint of the named stream's current state, in the shape its `-end` field is written, so a
+    /// replay can say whether its tick drew as many numbers as the play's.</summary>
+    public static string CurrentRandomFingerprint(string key)
     {
         var state = new int[58];
-        return ReadRandom(Main.rand, state) ? RandomFingerprint(state) : "unreadable";
+        UnifiedRandom? random = key == "grand" ? WorldGen.genRand : Main.rand;
+        return ReadRandom(random, state) ? RandomFingerprint(state) : "unreadable";
     }
 
     /// <summary>Harness-only: the light scanner's random stream set to a recorded seed, so the next scan lights the tiles
