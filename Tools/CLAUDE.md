@@ -11,6 +11,7 @@ Tools/
 ├─ run-case.sh                       runs one named case standalone, outside any run file
 ├─ measure-flake.sh                  one case many times at one commit, with the interval that bounds it
 ├─ backfill-capture.sh               turns a playtest recording into a ledger run under the revision that wrote it
+├─ compare-commits.sh                what a change changed in behaviour: one recorded scene played by two builds, tick by tick
 ├─ corpus.sh                         scenario corpus helper
 ├─ decompile.sh                      Terraria source lookup helper
 ├─ Ledger/                           one row per named case per run, committed, diffed against the nearest ancestor with a clean run
@@ -52,6 +53,8 @@ sh Tools/verify.sh --rerun-red 5        rerun each red case five times and grade
 sh Tools/measure-flake.sh 30 "ore work" one case many times at one commit, with its interval
 sh Tools/backfill-capture.sh <capture>  a recording as a ledger run under the revision that wrote it
 ```
+
+**`compare-commits.sh` answers "what did this change change" for the whole brain, where the suite answers it only for the scenes somebody wrote.** It builds two commits (or a commit and the working tree) and plays one recorded scene with each: the recorded route with the millisecond allowances lifted, which is deterministic, so every tick whose action or request differs, and the first tick the two bodies part, is the code and not the machine; and the play-measures run under the game's own clock, whose measures the ledger's own compare scores as one sample against one sample. A body can part with every decision equal, because a steering tunable changes how the body moves inside one decision, which is why the parting is reported beside the decisions rather than folded into them: raising `AccompanyWanderSpeedPx` from 1.5 to 2.5 left 300 of 300 decisions equal and put the bodies 234 px apart by tick 245. Its first use settled a question the suite could not: `987319df` against `aa4f1b36`, across the two tooling waves of 24 September 2026 that were ruled to change no behaviour, made the same decision and held the same position on 600 of 600 ticks. A commit is built in a detached worktree beside the repository, because the project imports `../tModLoader.targets`, and removed on exit; the scene defaults to the 22 September capture's first 600 ticks (`AIC_COMPARE_CAPTURE`, `AIC_COMPARE_TICKS`). About two minutes a pair on this machine, niced.
 
 `Ledger/` is what makes any of the above a trend rather than a verdict. Every instrument reports one row per named case through its emitter and through nothing else, so "every case reports" is a property rather than a habit, and no instrument parses another's printed output — a print is for a person, and the moment a second program reads it every print becomes an undeclared contract. A run stores under the commit its rows describe, which for a playtest recording is the revision the recorder stamped rather than the checkout, so a capture made before the ledger existed still becomes a run at its own commit. `Ledger/CLAUDE.md` owns the row schema, the six verdicts and the two statistical rules; the one thing worth carrying here is that a measure is never graded against a threshold, because a number nobody declared becoming a pass line is what collapses "ever green" into "green now".
 
