@@ -58,11 +58,35 @@ internal static class VerifyEngineMotion
         // and cannot reach its neighbours, and the emitter's own reset runs between them so a case
         // cannot inherit the world its predecessor left either.
         foreach ((string name, Func<int> body) in DefaultCases())
-            failed += EmitLedgerRows.Case(Instrument, "EngineReplay", name, body);
+            failed += EmitLedgerRows.Case(Instrument, "EngineReplay", name, body, tags: TagsOf(name));
         return failed == 0 ? 0 : 1;
     }
 
     internal const string Instrument = "engine-replay";
+
+    /// <summary>
+    /// The tags a default case carries, keyed on its name, so the table below stays one line per fixture.
+    /// A name here that the table does not hold is a tag on nothing, and <see cref="TagsOf"/> refuses that at
+    /// the first lookup rather than letting a renamed case silently lose its tags.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> CaseTags = new(StringComparer.Ordinal)
+    {
+    };
+
+    private static IReadOnlyList<string>? TagsOf(string name)
+    {
+        if (!caseTagsChecked)
+        {
+            var names = DefaultCases().Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
+            var orphans = CaseTags.Keys.Where(key => !names.Contains(key)).ToList();
+            if (orphans.Count > 0)
+                throw new InvalidOperationException($"CaseTags names {orphans.Count} case(s) the default table does not hold: {string.Join("; ", orphans)}");
+            caseTagsChecked = true;
+        }
+        return CaseTags.TryGetValue(name, out string[]? tags) ? tags : null;
+    }
+
+    private static bool caseTagsChecked;
 
     /// <summary>
     /// The default suite, one named case per fixture. The name is the question the fixture answers,

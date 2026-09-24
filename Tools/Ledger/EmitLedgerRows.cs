@@ -118,6 +118,23 @@ public static class EmitLedgerRows
     public const string SampledTag = "sampled";
 
     /// <summary>
+    /// A case whose subject is wall-clock time, or a measure that is a time. The owner ruled on 24
+    /// September 2026 that no time is a pass line: "two milliseconds for a specific playthrough might look
+    /// a lot different than another playthrough", so a timing is a measure compared against its own
+    /// history, never a threshold that goes red. The tag also decides where a case runs: a timed case
+    /// never shares the machine with a parallel shard, because a timing taken under competition measures
+    /// the competition.
+    /// </summary>
+    public const string TimedTag = "timed";
+
+    /// <summary>
+    /// A case heavy enough that an ordinary verify skips it. It runs in the perf tier, which verify runs
+    /// when anything the brain is built from has changed since the last perf run, and on `--perf`. The
+    /// crowd planning row, 138 s of a 232 s suite at 987319df, is the case this exists for.
+    /// </summary>
+    public const string PerfTierTag = "perf-tier";
+
+    /// <summary>
     /// What an instrument does to the process before each case: put every static a case can reach
     /// back to a known state, and set the wall-clock allowances for the regime this case asked for
     /// (the argument is true where the case keeps the production allowances).
