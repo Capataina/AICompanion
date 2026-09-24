@@ -983,11 +983,13 @@ internal static class VerifyAttackPlanning
 
     /// <summary>
     /// C1: forty hostiles, two handed weapons (the kit has two slots, not four) and a forty-pellet
-    /// volley, the full proposal set. Per-rescore planning time at the 50th, 90th and 99th
-    /// percentiles, with the simulation cache and without it. Phase E is not accepted until the
-    /// 99th with the cache fits inside one frame.
+    /// volley, the full proposal set. Three arms, every one a measure and none a pass line: an
+    /// unbounded search with the simulation cache and without it, and the search under the tick's
+    /// own allowance on the real clock, with how many of its twelve searches produced a plan. The
+    /// owner ruled on 24 September 2026 that no fixture goes red because something took too long,
+    /// and every figure here, the plan count included, is decided by how fast the machine ran.
     /// </summary>
-    public static int PlanningCostOnACrowdFitsAFrame()
+    public static int MeasurePlanningOnAFortyHostileCrowd()
     {
         var companion = VerifyCompanionLifecycle.Create();
         Main.tileSolid[TileID.Dirt] = true;
@@ -1106,20 +1108,23 @@ internal static class VerifyAttackPlanning
             $"attack planning cost: cache p50={Pct(cached, 0.5f):0.000} p90={Pct(cached, 0.9f):0.000} p99={cached99:0.000}; " +
             $"no-cache p50={Pct(uncached, 0.5f):0.000} p90={Pct(uncached, 0.9f):0.000} p99={Pct(uncached, 0.99f):0.000}"));
         Console.Out.Flush();
+        // Both unbounded arms run under `FixtureBudget`, `(double.PositiveInfinity, long.MaxValue)` with a
+        // clock that never advances, so they say how far the search *would* run rather than what a tick
+        // spends: in the game `Brain.Tick` always has an allowance open and the combat search borrows it.
+        // They were once asserted against a frame and never passed in twenty-one recorded runs, because
+        // production never asks that question. The no-cache arm is how the cache's worth is known.
+        const string crowd = "forty zombies, a boomstick and a wooden bow, the full proposal set";
+        EmitTimingMeasures.Timing("crowd planning, unbounded with the simulation cache: search p50", Pct(cached, 0.5f),
+            $"{crowd}; {cached.Length} searches after three untimed warm-ups", EmitTimingMeasures.UnboundedAllowances);
+        EmitTimingMeasures.Timing("crowd planning, unbounded with the simulation cache: search p99", cached99,
+            $"{crowd}; {cached.Length} searches after three untimed warm-ups, so p99 is the slowest", EmitTimingMeasures.UnboundedAllowances);
+        EmitTimingMeasures.Timing("crowd planning, unbounded without the simulation cache: search p50", Pct(uncached, 0.5f),
+            $"{crowd}; {uncached.Length} searches, each from an empty cache, after one untimed warm-up", EmitTimingMeasures.UnboundedAllowances);
 
-        // The assertion above asked whether an *unbounded* search fits a frame, and it has never once
-        // been true: twenty-one recorded runs, no pass, going back to the row's first appearance. That
-        // is not a regression anybody introduced — it is a question production never asks. `FixtureBudget`
-        // is `(double.PositiveInfinity, long.MaxValue)` with a clock that never advances, while in the
-        // game `Brain.Tick` always has an allowance open and the combat search borrows it, so the search
-        // is cut long before it reaches thirty-eight milliseconds. The unbounded figures above are kept
-        // and printed, because how far the search *would* run is a real scaling signal and the no-cache
-        // arm is how the cache's worth is known; they are measures, not a pass line.
-        //
-        // What production actually risks is not cost, and this is the part a cost assertion was standing
-        // in for badly: the search wants far more time than a tick has, so every live plan is made on a
-        // fraction of it. The question worth failing on is therefore whether a cut search still produces
-        // a usable plan, and whether it honours the deadline it was given rather than overrunning it.
+        // What production risks is not cost: the search wants far more time than a tick has, so every live
+        // plan is made on a fraction of it. What this arm shows is whether a cut search still produces a
+        // usable plan and how far past its deadline it runs, and both answers are the machine's as much as
+        // the code's, because the budget below keeps the real clock.
         var underAllowance = new double[12];
         // Why an empty search was empty, counted by the search's own reason. A count of empties says a
         // defect exists; the reason says whether the cut landed before the first opener was found or
@@ -1179,49 +1184,27 @@ internal static class VerifyAttackPlanning
             $"attack planning under the tick's own allowance: p50={Pct(underAllowance, 0.5f):0.000} p99={allowance99:0.000} ms against an allowance of {Weights.TotalPlanningMilliseconds:0.000}; {planned} of {underAllowance.Length} produced a plan, {cut} were cut{empties}"));
         Console.Out.Flush();
 
-        // Twice the allowance, matching the slack the lighting cost row uses for the same reason: the
-        // deadline is checked between operations, so an overrun of one atomic slice is the contract
-        // rather than a defect, and a tight ceiling would be testing the harness instead of the brain.
-        double ceiling = Weights.TotalPlanningMilliseconds * 2d;
-        Require(allowance99 < ceiling,
-            $"the combat search must honour the deadline it borrowed plus one atomic slice; "
-            + $"p99 {allowance99:0.000} ms against a ceiling of {ceiling:0.000} ms");
-        // Last deliberately, because it is red on a filed defect rather than on something about to be
-        // fixed, and this suite's rule is that such a row goes last so the rows behind it still report.
-        //
-        // A cut is expected and is not the failure; a cut that yields nothing is. G04 requires a useful
-        // opener to survive the broader search being cut, and `SearchAttackPlans` implements exactly
-        // that — it prices a single opener stand before stand discovery may spend the allowance.
-        //
-        // **Both of this row's historical diagnoses were wrong, and the instrument was the defect.**
-        // Worth reading before anything here is changed again, because each looked convincing.
-        //
-        // It was first filed against the prelude — `EnsureForecast` forecasting forty hostiles before
-        // the opener is reached. Timing every step of the search's opening on this scene refuted it on
-        // 21 September 2026: forecasting all forty, choosing targets, assessing the opener's stand and
-        // building the eval targets cost 0.04 to 0.09 ms together, while the whole twelve milliseconds
-        // goes inside `PriceLevelOne` for the opener alone — about 12 ms on a cold simulation cache
-        // against 0.4 ms on a warm one.
-        //
-        // That led to the second diagnosis, that the guarantee is starved on a cold cache, which is
-        // every live tick because `CacheSimulatedUses.ClearAtTick` clears on every tick change while
-        // this loop holds one `Senses.Tick`. Correct about the regime and wrong about the conclusion.
-        // Clearing the cache before every measured search *and* warming with two untimed ones returns
-        // twelve of twelve with the brain untouched: the guarantee does survive a cold-cache cut on a
-        // forty-hostile crowd. The two failures were the first searches of the loop paying one-time
-        // costs that belong to neither production nor the deadline this row is about.
-        //
-        // A narrowing was built and reverted on that evidence — pricing the opener against the most
-        // urgent target alone, which cut its cost about threefold and moved this row from ten of twelve
-        // to eleven. It looked like the fix and was measuring the unwarmed searches; with the warm-ups
-        // in, the unnarrowed opener also reaches twelve. `SearchAttackPlans` carries why it is not there.
-        //
-        // What survives all of it is the cost itself, which is real and is `AIC-445`: the opener costs
-        // about 12 ms cold, every live tick is cold, and that is what a 22 ms mean on a four-hostile
-        // scene with a boss is made of. This row is about the guarantee and not about the cost.
-        Require(planned == underAllowance.Length,
-            $"a search cut by the tick's own allowance must still return a usable plan on a forty-hostile "
-            + $"crowd; {planned} of {underAllowance.Length} did, with {cut} cut");
+        // The deadline is checked between operations, so a search runs past its allowance by up to one
+        // atomic slice by contract, and how long a slice takes is the machine's. The p99 was held under
+        // twice the allowance until 24 September 2026; a search that stopped honouring its deadline is a
+        // step of several times against this measure's own history, which the scoreboard catches.
+        string underTheClock = $"{crowd}; {underAllowance.Length} searches, each from an empty simulation cache after two untimed "
+            + $"warm-ups, under a {Weights.TotalPlanningMilliseconds:0.###} ms allowance on the real clock; {cut} cut{empties}";
+        EmitTimingMeasures.Timing("crowd planning under the tick's own allowance: search p50", Pct(underAllowance, 0.5f),
+            underTheClock, EmitTimingMeasures.ProductionAllowances);
+        EmitTimingMeasures.Timing("crowd planning under the tick's own allowance: search p99", allowance99,
+            underTheClock, EmitTimingMeasures.ProductionAllowances);
+        // G04 requires a useful opener to survive the broader search being cut, and `SearchAttackPlans`
+        // prices a single opener stand before stand discovery may spend the allowance. On this crowd the
+        // opener costs about 12 ms on a cold simulation cache against 0.4 ms warm (`AIC-445`), and every
+        // live tick is cold, so whether it finishes inside a twelve-millisecond allowance depends on the
+        // machine's speed: a count here that falls below twelve on a slow machine is the clock, and it
+        // was a verdict until 24 September 2026. The guarantee itself is proven deterministically, with an
+        // operation cap and a clock that never advances, by `VerifyRetainedCombatBudget
+        // .AUsefulOpenerSurvivesABroaderSearchCut`; this is its forty-hostile scale on real time.
+        // `Combat/Planning/CLAUDE.md` carries the two wrong diagnoses this count has already had.
+        EmitTimingMeasures.Measure("crowd planning under the tick's own allowance: searches that produced a plan, of twelve",
+            planned, "plans", "up", underTheClock, EmitTimingMeasures.ProductionAllowances);
         return 0;
     }
 

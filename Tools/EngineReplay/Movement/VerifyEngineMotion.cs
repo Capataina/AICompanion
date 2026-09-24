@@ -71,6 +71,15 @@ internal static class VerifyEngineMotion
     /// </summary>
     private static readonly Dictionary<string, string[]> CaseTags = new(StringComparer.Ordinal)
     {
+        // Timed: each files a wall-clock measure, and none of them gates its verdict on one.
+        ["combat is admitted only where it can be executed"] = new[] { EmitLedgerRows.TimedTag },
+        ["the light and reach senses answer in three values"] = new[] { EmitLedgerRows.TimedTag },
+        ["weapon, target, stand and aim are valued by what the companion's own shots achieved"] = new[] { EmitLedgerRows.TimedTag },
+        ["the free-space flood over a screen-sized room finishes in a handful of slices"] = new[] { EmitLedgerRows.TimedTag },
+        ["the way to the player is resumed until it is answered and never read as a proof before it is"] = new[] { EmitLedgerRows.TimedTag },
+        // Perf tier as well: 138 s of a 232 s suite at 987319df, almost all of it three unbounded
+        // uncached searches of about thirty seconds each, and its subject is cost rather than behaviour.
+        ["attack planning on a forty-hostile crowd is measured unbounded and under the tick's own allowance"] = new[] { EmitLedgerRows.TimedTag, EmitLedgerRows.PerfTierTag },
     };
 
     private static IReadOnlyList<string>? TagsOf(string name)
@@ -181,7 +190,7 @@ internal static class VerifyEngineMotion
         ("a floor roller takes the low flank", VerifyAttackPlanning.AFloorRollerTakesTheLowFlank),
         ("a grenade then pierce is timed to the explosion", VerifyAttackPlanning.AGrenadeThenPierceIsTimedToTheExplosion),
         ("a bank shot plans with a bouncing weapon only", VerifyAttackPlanning.ABankShotPlansWithABouncingWeaponOnly),
-        ("planning cost on a crowd fits a frame", VerifyAttackPlanning.PlanningCostOnACrowdFitsAFrame),
+        ("attack planning on a forty-hostile crowd is measured unbounded and under the tick's own allowance", VerifyAttackPlanning.MeasurePlanningOnAFortyHostileCrowd),
         ("the overlay carries the committed-plan layer", VerifyAttackPlanning.TheOverlayCarriesThePlanLayer),
         ("an extra projectile adds its spawn and changes the prediction", VerifySimulatedUses.ExtraProjectileAddsItsSpawnAndChangesThePrediction),
         ("knowledge saved by name survives shuffled numeric ids", VerifyVolleyLearning.KnowledgeSurvivesANameKeyedSaveUnderShuffledIds),

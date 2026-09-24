@@ -94,7 +94,7 @@ internal static class VerifyLightAndReachSenses
             () => ACarriedLightNeverMakesAPassageReadLit("player torch", tr, tg, tb));
         Each("a: a light pet never makes a passage read lit",
             () => ACarriedLightNeverMakesAPassageReadLit("light pet", .45f, .75f, .95f));
-        Each("a: taking and blurring a large screen's world light costs a small part of a tick", TheWorldLightCostsLittle);
+        Each("a: taking and blurring a large screen's world light is measured per scan", MeasureTheWorldLightOnALargeScreen);
         Each("b: a dark wing away from a lit body is offered with a Reachable site", ADarkWingIsOfferedWithAReachableSite);
         Each("b: nearer darkness the body cannot reach does not hide the darkness it can", NearerUnreachableDarknessDoesNotHideAReachableSite);
         Each("c: two sites in one dark region are worked without going back to the player", TwoSitesAreWorkedWithoutReturning);
@@ -453,10 +453,12 @@ internal static class VerifyLightAndReachSenses
     /// <summary>
     /// What reading the world's own light costs on the scan of a large screen: its tiles plus the engine's margin on every side,
     /// a few torches among dark air and rock. The sense pays the copy taken between scan and blur on every scan, and the engine's
-    /// own blur of it once per scan that something asks about. The ceiling is the whole tick's planning allowance, so the row
-    /// fails on a read that has become a tick's work rather than on a figure that records today's machine.
+    /// own blur of it once per scan that something asks about. The cost is filed as two measures, the take and the blur, because
+    /// they grow for different reasons. Until 24 September 2026 their sum was held under the whole tick's planning allowance,
+    /// which is a pass line on the machine; a read that has become a tick's work is a step of an order of magnitude against the
+    /// row's own history, which is what the scoreboard's comparison now catches.
     /// </summary>
-    private static void TheWorldLightCostsLittle()
+    private static void MeasureTheWorldLightOnALargeScreen()
     {
         Scene((_, _) => .02f);
         // A 3840 by 2160 screen in tiles, with ProcessScan's 28-tile inflation on each side.
@@ -484,9 +486,9 @@ internal static class VerifyLightAndReachSenses
             blur += WorldLight.LastBlurMs;
         }
         Require(WorldLight.Captures - capturedBefore == scans, $"premise: every scan is taken once; taken {WorldLight.Captures - capturedBefore} of {scans}");
-        double perScan = (take + blur) / scans;
-        Require(perScan < Weights.TotalPlanningMilliseconds,
-            $"taking and blurring a {area.Width}x{area.Height} scan took {perScan:0.000} ms, past the whole tick's planning allowance of {Weights.TotalPlanningMilliseconds:0.000} ms");
+        string scene = $"a {area.Width}x{area.Height}-tile scan (a 3840x2160 screen plus the engine's margin), a third rock and one tile in a hundred a torch, mean over {scans} scans";
+        EmitTimingMeasures.Timing("world light: taking the scan, per scan on a large screen", take / scans, "the copy the sense takes between the engine's scan and its blur; " + scene);
+        EmitTimingMeasures.Timing("world light: blurring the scan, per scan on a large screen", blur / scans, "the engine's own LightMap.Blur over that copy; " + scene);
         Console.WriteLine($"        world light on a {area.Width}x{area.Height} scan: {take / scans:0.000} ms to take and {blur / scans:0.000} ms to blur, per scan (this machine)");
     }
 
@@ -673,26 +675,16 @@ internal static class VerifyLightAndReachSenses
         // before it looks at anything. These numbers describe this machine and are never asserted.
         Console.WriteLine($"        two torches at ticks {first} and {second}, {placed.Count} placed, no keeping-company tick between them; "
             + $"decide over a wholly dark floor max {decideMax:0.000} ms, mean {decideTotal / Math.Max(1, ticks):0.000} ms over {ticks} ticks");
-        // With the allowances lifted nothing bounds this but the search's own shape, so the ceiling is a blunt
-        // order-of-magnitude guard rather than a statement about any one fix — it measured 37–39 ms both before
-        // and after the site bound, because that bound only bites once a deadline exists to expire. It is here
-        // so a future change that makes the scan quadratic again fails a run instead of printing a larger number
-        // nobody reads. Cold and warm differ twelvefold on this line, so the ceiling is set for the cold case.
-        // This was a 120 ms ceiling and is a measure now, and the reason is that it stopped measuring what
-        // it claimed. It exists to catch the region scan going quadratic again, but it times the whole
-        // decision with the allowances lifted — which under the course brain is an unbounded search over
-        // every usable site. While the census published sites the placer would refuse, that search priced
-        // three orders and the figure sat at 37-39 ms; with the census fixed it prices about 205 and the
-        // figure is around 1830 ms. Nothing got slower per unit of work: the search found work to do.
-        //
-        // Demoting it is only honest because the property it was standing in for is asserted elsewhere and
-        // more strictly than before. `MeasureTheRegionScanUnderProductionAllowances` runs this same scene
-        // under the allowances the game applies and now asserts on the decision itself, where it measures
-        // 14.7 ms max and 4.8 ms mean over 600 ticks against a frame of 16.67 ms. That is the number a
-        // player feels; this one describes a regime production never enters.
+        // With the allowances lifted this times the whole decision as an unbounded search over every usable
+        // site, so it measures how much work the course finds as much as what each unit costs: while the
+        // census published sites the placer would refuse the search priced three orders and read 37-39 ms,
+        // and with the census fixed it prices about 205 and reads around 1830 ms. It was a 120 ms ceiling
+        // until 21 September 2026 for that reason, and it is a measure now. The regime production enters is
+        // the row below; this one says how far the search would run with nothing stopping it.
         Console.WriteLine($"        MEASURE deciding over a wholly dark floor with the planning allowances lifted: "
-            + $"max {decideMax:0.000} ms, mean {decideTotal / Math.Max(1, ticks):0.000} ms over {ticks} ticks "
-            + $"(unbounded search; the production-allowance row is the cost guard)");
+            + $"max {decideMax:0.000} ms, mean {decideTotal / Math.Max(1, ticks):0.000} ms over {ticks} ticks");
+        EmitTimingMeasures.Timing("dark floor, allowances lifted: worst decide on one tick", decideMax,
+            $"place-torches and keep-company only, {ticks} ticks until the second torch landed; an unbounded search over every usable site");
     }
 
     /// <summary>
@@ -700,7 +692,7 @@ internal static class VerifyLightAndReachSenses
     /// has: every rescore nominates a region and scans a box around every one of its members. The case above
     /// runs with the allowances lifted, which prices the scan with nothing stopping it; this one runs the same
     /// scene under the allowances the live tick actually applies, which is the number that says whether the
-    /// scan needs a deadline probe of its own or whether the family's preparation share already holds it.
+    /// tick's planning allowance bounds the decision at all.
     /// </summary>
     private static void MeasureTheRegionScanUnderProductionAllowances()
     {
@@ -721,26 +713,15 @@ internal static class VerifyLightAndReachSenses
             }
             Console.WriteLine($"        dark floor under production allowances: decide max {decideMax:0.000} ms, mean {decideTotal / 600:0.000} ms "
                 + "over 600 ticks (this machine)");
-            // A pass line, because the regression this exists to catch was found by a person reading a printed
-            // number and would have shipped otherwise. The ceiling is the tick's own planning allowance with
-            // room for the measurement and for a cold run's JIT, not a record of today's figure: the property
-            // is that the allowance bounds this preparation at all, which is precisely what was untrue when a
-            // cheaper proof deleted the loop's bound and one preparation reached 37.6 ms. It is deliberately
-            // slack rather than tight, because the same code measures 7.8 ms inside the warmed default suite
-            // and 13.0 ms run alone, and a ceiling between those two numbers tests the harness.
-            double ceiling = Weights.TotalPlanningMilliseconds * 2d;
-            // The assertion moved from preparation to the decision on 21 September 2026, because under the
-            // course brain the preparation it named no longer runs: the tick asks a course rather than the
-            // family chooser, so `NearbyAssistance preparation max` now reads 0.000 ms and a ceiling above
-            // zero cannot fail. A criterion nothing can violate is a rubber stamp rather than a pass, and
-            // it would have gone on reading green through any cost the course itself grew.
-            //
-            // `DecideMs` is where that cost now lives, and the property is unchanged: the tick's planning
-            // allowance must bound this scene at all. The preparation figure is still printed, because a
-            // number returning to nonzero would mean the legacy path is back on the tick.
-            Require(decideMax < ceiling,
-                $"deciding on a wholly dark floor must stay inside twice the tick's planning "
-                + $"allowance; measured {decideMax:0.000} ms against a ceiling of {ceiling:0.000} ms");
+            // The regression this exists to show was found by a person reading a printed number: a cheaper
+            // proof deleted the loop's bound and one preparation reached 37.6 ms against a twelve-millisecond
+            // allowance. It held twice the tick's planning allowance as a pass line until 24 September 2026,
+            // and the same code measured 7.8 ms in the warmed suite and 13.0 ms alone, so the line sat between
+            // two regimes of the harness. A lost bound is a step of several times against this figure's own
+            // history, which is what the scoreboard's comparison now catches without a number written here.
+            string scene = $"place-torches and keep-company only, 600 ticks on a wholly dark floor; the tick's planning allowance is {Weights.TotalPlanningMilliseconds:0.###} ms";
+            EmitTimingMeasures.Timing("dark floor under production allowances: worst decide on one tick", decideMax, scene);
+            EmitTimingMeasures.Timing("dark floor under production allowances: mean decide per tick", decideTotal / 600, scene);
         }
         finally { LimitPlanningWork.Unbounded = lifted; }
     }

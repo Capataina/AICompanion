@@ -113,10 +113,13 @@ internal static class VerifyFreeSpace
             }
             EmitLedgerRows.Measure(VerifyEngineMotion.Instrument, "Movement", "free-space-flood-slices-for-a-screen", slices, "slices", "down",
                 message: $"{expansions} corners in {slices} slices of {AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ReachFloodExpansions}");
+            // The two timings are tagged as samples of wall-clock time, which the slice count is not: under
+            // the lifted allowances a flood advances exactly its expansion count per slice, whatever the clock.
+            string[] timed = { EmitLedgerRows.TimedTag, EmitLedgerRows.SampledTag };
             EmitLedgerRows.Measure(VerifyEngineMotion.Instrument, "Movement", "free-space-flood-ms-per-thousand-corners", warm / expansions * 1000d, "ms", "down",
-                message: $"over a clearance field already built; the cold pass that built {builds} chunks took {cold:0.0} ms in all");
+                tags: timed, message: $"over a clearance field already built; the cold pass that built {builds} chunks took {cold:0.0} ms in all");
             EmitLedgerRows.Measure(VerifyEngineMotion.Instrument, "Movement", "clearance-field-ms-per-chunk", (cold - warm) / Math.Max(1, builds), "ms", "down",
-                message: "the one-off cost of a sixteen-by-sixteen chunk, paid once per chunk per terrain revision");
+                tags: timed, message: "the one-off cost of a sixteen-by-sixteen chunk, paid once per chunk per terrain revision");
             Require(slices <= 6, $"a screen-sized room must close in a handful of slices; it took {slices}");
             return 0;
         }

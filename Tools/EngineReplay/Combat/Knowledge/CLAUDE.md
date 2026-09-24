@@ -72,7 +72,7 @@ Always `DYLD_LIBRARY_PATH` at tModLoader's `Libraries/Native/OSX`. A subset flag
 
 ## Current state — 21 September 2026
 
-Every case in this folder passes on the last fully clean whole-suite run, `Tools/Ledger/runs/4abf171-20260921-212441.jsonl` — 208 rows, 158 pass, nothing red and nothing skipped. The seven arc-learning figures file as measures rather than pass lines, as they always have.
+Every case in this folder passes on the last fully clean whole-suite run, `Tools/Ledger/runs/4abf171-20260921-212441.jsonl` — 208 rows, 158 pass, nothing red and nothing skipped. The seven arc-learning figures file as measures rather than pass lines, as they always have. The learner's cost does too since 24 September 2026: `VerifyWeaponLearning`'s cost scene files the trained arm, the slower untrained arm and the difference between them as timed measures, where it used to require the difference to stay under a millisecond — a wall-clock line that a gap of half a millisecond crosses on a machine running five times slower, which happened mid-run the day before. Its case, `weapon, target, stand and aim are valued by what the companion's own shots achieved`, carries the `timed` tag.
 
 ## Planned work
 

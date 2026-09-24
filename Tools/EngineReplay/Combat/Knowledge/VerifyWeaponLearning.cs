@@ -480,7 +480,10 @@ internal static class VerifyWeaponLearning
     /// bows, the proposal targets the search bounds itself to. Three arms back to back in one process — untrained, trained on forty
     /// outcomes per weapon with a debuff rate, untrained again — so neither JIT nor the machine's load is credited to the
     /// learner. The senses are advanced between decisions outside the stopwatch so every search runs on a fresh tick.
-    /// Declared before the run: the trained arm's mean is within a millisecond of the slower untrained arm's.
+    /// The learner's added cost is the trained arm's mean less the slower untrained arm's, filed as a measure with both arms
+    /// beside it. It was held under a millisecond until 24 September 2026, which is a pass line on the machine: a 0.5 ms gap
+    /// crosses it on a machine running five times slower, which happened mid-run the day before. A learner that grew
+    /// expensive is a step against this measure's own history, and the scoreboard's comparison is what catches it now.
     /// </summary>
     private static void TheLearnersCostPerDecisionIsMeasured()
     {
@@ -528,7 +531,11 @@ internal static class VerifyWeaponLearning
         factorClock.Stop();
         double untrained = Math.Max(coldUntrained.Mean, warmUntrained.Mean);
         EmitLedgerRows.Detail(FormattableString.Invariant($"cost per ranking of 8 hostiles, 2 weapons, ms (lower is better): untrained mean {coldUntrained.Mean:0.000} then {warmUntrained.Mean:0.000} (p95 {warmUntrained.P95:0.000}); trained mean {trainedArm.Mean:0.000} (p95 {trainedArm.P95:0.000}); one sampled factor with a fresh draw {factorClock.Elapsed.TotalMilliseconds * 1000.0 / 10000:0.0} us"));
-        Require(trainedArm.Mean - untrained < 1.0, $"the learner adds under a millisecond to a full ranking; trained={trainedArm.Mean} untrained={untrained}");
+        const string ranking = "one full plan search over 8 hostiles with 2 bows, mean over 60 decisions after 10 untimed, arms run back to back in one process";
+        EmitTimingMeasures.Timing("weapon learning: cost the trained learner adds to one ranking", trainedArm.Mean - untrained,
+            FormattableString.Invariant($"trained mean {trainedArm.Mean:0.000} ms less the slower untrained mean {untrained:0.000} ms; {ranking}"));
+        EmitTimingMeasures.Timing("weapon learning: one ranking with a trained learner", trainedArm.Mean, ranking);
+        EmitTimingMeasures.Timing("weapon learning: one ranking with an untrained learner, the slower arm", untrained, ranking);
     }
 
     /// <summary>

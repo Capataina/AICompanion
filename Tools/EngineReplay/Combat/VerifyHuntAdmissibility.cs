@@ -25,8 +25,8 @@ internal static class VerifyHuntAdmissibility
         VerifyWalkableFiringPositionKeepsTheTarget();
         VerifySealedTargetIsRefused();
         VerifyUnfinishedSearchIsUndecidedNotRefused();
-        VerifyTheCheckIsAffordableOnAHopelessCrowd();
-        Console.WriteLine("combat admissibility: a repositionable target is kept, an unshootable target is refused, an unfinished search is undecided rather than refused, and the check stays affordable");
+        MeasureTheCheckOnAHopelessCrowd();
+        Console.WriteLine("combat admissibility: a repositionable target is kept, an unshootable target is refused, an unfinished search is undecided rather than refused, and the check's cost on a hopeless crowd is measured");
         return 0;
     }
 
@@ -37,12 +37,14 @@ internal static class VerifyHuntAdmissibility
     /// retry limit is reached each tick, and a body in motion keeps moving out from under the
     /// verdict cache.
     ///
-    /// The bound is loose on purpose. It is here to catch an order-of-magnitude regression — a cache
-    /// key that stops holding, a sample stride that collapses to one — rather than to police a few
-    /// microseconds, because a tight timing assertion on a shared machine fails for reasons that
-    /// have nothing to do with this code.
+    /// A measure and not a pass line. This row carried a 5 ms bound until 24 September 2026 and went
+    /// red at 8.2 ms the day before because the machine slowed 4.8 times mid-run, with the parent
+    /// commit reproducing it in the same minute, so the bound was testing the machine. The regression
+    /// it stood guard over — a cache key that stops holding or a sample stride that collapses to one,
+    /// which once cost fifty milliseconds a tick — is a tenfold step against this row's own history,
+    /// and the scoreboard's comparison of each timing with its history is what catches it now.
     /// </summary>
-    private static void VerifyTheCheckIsAffordableOnAHopelessCrowd()
+    private static void MeasureTheCheckOnAHopelessCrowd()
     {
         BuildFloor();
         for (int x = 5; x < 115; x++)
@@ -80,12 +82,11 @@ internal static class VerifyHuntAdmissibility
         double perTick = clock.Elapsed.TotalMilliseconds / Ticks;
         Console.WriteLine($"combat admissibility cost: {perTick:0.000} ms per score over {Ticks} ticks with {threats.Count} unshootable targets");
         // Two weapons, nine sealed bodies, a muzzle that walks two pixels a tick so the planned-sim
-        // cache cannot hold a single answer. The bound is still an order-of-magnitude catch — a
-        // cache key that stops holding used to cost fifty milliseconds a tick — not a few
-        // microseconds of machine load. 2 ms was the one-weapon from-here check; the seven
-        // generators against a moving crowd sit a little over that and a frame (16 ms) is the fail.
-        Require(perTick < 5.0d,
-            $"establishing firing opportunity costs {perTick:0.000} ms per tick on a hopeless crowd, which is a whole frame budget spent deciding not to fight");
+        // cache cannot hold a single answer. The measure's name is the ledger's key for its history,
+        // so renaming it starts that history again.
+        EmitTimingMeasures.Timing("combat admissibility: cost per score on a hopeless moving crowd", perTick,
+            $"the combat stance's prepare-and-score, mean over {Ticks} ticks after one untimed warm-up, two weapons, "
+            + $"{threats.Count} sealed targets, the companion moving two pixels a tick");
     }
 
     private const int FloorY = 80;
