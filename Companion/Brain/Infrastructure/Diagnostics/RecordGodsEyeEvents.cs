@@ -214,6 +214,14 @@ public static class GodsEyeEvents
     }
 
     /// <summary>
+    /// One companion tick's replay inputs: what the tick found in the world and what it was allowed, with the
+    /// decision it made beside them. `ReplayInputs` (`RecordReplayInputs.cs`, which the headless tools do not compile)
+    /// owns the format and is the only producer.
+    /// </summary>
+    internal static void RecordReplayInputs(NPC companion, string detail)
+        => Write("replay-inputs", 0, "", "", "", companion.Center, companion.velocity, Vector2.Zero, 0, detail);
+
+    /// <summary>
     /// Records only the callback this mod observed. A returned ModSystem callback is useful
     /// lifecycle evidence, but cannot establish that Terraria completed the outer operation.
     /// </summary>

@@ -73,6 +73,9 @@ public sealed class Brain
     public PositionRequest LastRequest { get; private set; }
     public CompanionAction? LastAction => Activity.Current;
     public ulong LastTick { get; private set; } = ulong.MaxValue;
+    /// <summary>The allowance the last brain tick installed, kept after the tick gave it back so the recorder can
+    /// say what the tick spent and where it was cut. Read-only evidence; nothing decides from it.</summary>
+    public DecisionWorkBudget? LastAllowance { get; private set; }
     public bool ChoiceEvaluated { get; private set; }
     public bool MovementStalled { get; private set; }
     public string ActivityStatus => FollowRecovery.Active ? "Catching up" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
@@ -184,9 +187,10 @@ public sealed class Brain
         // ambient allowance per case, a fixture driving a whole tick no longer leaves the rows after
         // it with nothing to borrow.
         BrainSections.BeginTick();
-        LimitPlanningWork.Ownership allowance = LimitPlanningWork.Own(new DecisionWorkBudget(
+        LastAllowance = new DecisionWorkBudget(
             LimitPlanningWork.Unbounded ? double.PositiveInfinity : TickAllowance.Milliseconds,
-            PlanningOperationAllowance));
+            PlanningOperationAllowance);
+        LimitPlanningWork.Ownership allowance = LimitPlanningWork.Own(LastAllowance);
         ReflexMs = DecideMs = PositionMs = NavigateMs = FinaliseMs = 0;
         try
         {

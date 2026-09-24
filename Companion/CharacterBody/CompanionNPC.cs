@@ -161,6 +161,9 @@ public class CompanionNPC : ModNPC
     public override void AI()
     {
         Player player = Main.LocalPlayer;
+        // Before anything of the companion's runs, so a recorded session holds the world exactly as this tick
+        // found it: a replay puts it back and asks the same tick again. Inert unless a recording is open.
+        global::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReplayInputs.BeforeTheCompanionTick(this);
         MirrorStats(player);
         // A hand claim lasts one AI tick. Every consumer below reads the freshly resolved item;
         // a previous torch or weapon must not occupy its own fallback's hand on the next tick.
@@ -218,6 +221,7 @@ public class CompanionNPC : ModNPC
 
         UpdateFacing();
         StandIn.Sync(NPC, IsDowned);
+        global::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReplayInputs.AfterTheCompanionTick(this);
         global::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry.Record(this);
     }
 

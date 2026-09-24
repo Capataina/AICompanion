@@ -196,7 +196,17 @@ public sealed class BrainTelemetry : ModSystem
     //             `profiler-overflowed` and `profiler-unbalanced`. `ProfileBrainSections.cs` and
     //             `DetectCostSpikes.cs` own the two mechanisms. The `record` subtree of a row's `sections` is the
     //             previous row's recorder, the same phase `record_ms` has.
-    private const string Schema = "0.48.0";
+    //
+    // 0.49.0 makes a capture a reproduction of its own decisions. No TSV column moves or goes; the sidecar gains one
+    // `replay-inputs` occurrence per companion tick (`RecordReplayInputs.cs` owns the format): the player, every NPC and
+    // dropped item the tick could observe, delta-encoded per slot and field; the world's terrain edits since the last
+    // tick as edits with their resulting tile; the light scanner's seed; the answers the decision clock gave, in order;
+    // the whole `Main.rand` state on a tick that drew from it; the allowance spent; the companion's own edits; and the
+    // decision the tick made. The `# closing=` line gains `replay-lines`, `replay-chars` and `replay-ms` (the game-thread
+    // time the replay inputs cost the whole session). It is a version rather than
+    // a silent append because the world run's `--reproduce` refuses anything below it by name: a capture without these
+    // inputs replays into a confident wrong answer rather than a partial one.
+    private const string Schema = "0.49.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -367,6 +377,7 @@ public sealed class BrainTelemetry : ModSystem
             writer?.Dispose(); writer = null;
             diagnosticWriter = FlushDiagnosticRecords.Start(path, eventsPath);
             GodsEyeEvents.Open(eventsPath);
+            ReplayInputs.BeginSession();
             WriteMetadata();
             GodsEyeEvents.RecordLifecycle("world-entry", "observed=ModSystem.OnWorldLoad;tag-load=not-yet-observed;outer-load=unobservable");
             pendingPlayerHit = null;
@@ -400,6 +411,7 @@ public sealed class BrainTelemetry : ModSystem
             // Reservation can succeed before a sidecar or later initialisation fails. Release
             // that stream here rather than abandoning the handle until garbage collection.
             GodsEyeEvents.RecordLifecycle("recorder-initialization-failed", "capture=incomplete;outer-load=unobservable");
+            ReplayInputs.EndSession();
             GodsEyeEvents.Close();
             try { writer?.Dispose(); }
             catch (Exception closeError) { Mod.Logger.Warn($"BrainTelemetry: cleanup after open failure: {closeError.Message}"); }
@@ -502,6 +514,7 @@ public sealed class BrainTelemetry : ModSystem
         AuditDecisionContracts.Flush();
         // A spike window still open when the session ends is written rather than lost, for the same reason.
         FlushCostSpike(CompanionNPC.Instance?.NPC);
+        ReplayInputs.EndSession();
         GodsEyeEvents.Close();
         try
         {
@@ -521,7 +534,7 @@ public sealed class BrainTelemetry : ModSystem
             // `ReadLiveCourseForAudit.Install` never having run. Both are silent in play otherwise.
             // `effects-audited` (0.47.0) is the effect contract's denominator: a session whose hand did
             // nothing has two zero violation counts that mean nothing, and this is what says so.
-            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead};effects-audited={AuditDecisionContracts.EffectsAudited};cost-spikes={CostSpikes};cost-spike-dumps={CostSpikeDumps};profiler-overflowed={BrainSections.Overflowed};profiler-unbalanced={BrainSections.Unbalanced}");
+            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead};effects-audited={AuditDecisionContracts.EffectsAudited};cost-spikes={CostSpikes};cost-spike-dumps={CostSpikeDumps};profiler-overflowed={BrainSections.Overflowed};profiler-unbalanced={BrainSections.Unbalanced};replay-lines={ReplayInputs.LinesWritten};replay-chars={ReplayInputs.CharactersWritten};replay-ms={ReplayInputs.MillisecondsSpent.ToString("0.0", CultureInfo.InvariantCulture)}");
             diagnosticWriter.Stop(TimeSpan.FromMilliseconds(100), reason, rowsWritten);
         }
         catch (Exception e)

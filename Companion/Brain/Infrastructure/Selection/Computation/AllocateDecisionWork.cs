@@ -68,7 +68,11 @@ public sealed class DecisionWorkBudget
         if (DeadlineTimestamp == long.MaxValue) return false;
         if (++checksSinceClock < clockStride) return false;
         checksSinceClock = 0;
-        return deadlineSeen = timestamp() >= DeadlineTimestamp;
+        // The real clock is asked through the decision clock, so a recorded session can hand its replay the same
+        // answer; an injected clock is a fixture's own reproducible one and is asked directly.
+        return deadlineSeen = clockStride == RealClockStride
+            ? DecisionClock.Passed(DeadlineTimestamp)
+            : timestamp() >= DeadlineTimestamp;
     }
     public double ElapsedMilliseconds => (timestamp() - started) * 1000d / frequency;
     public double OverrunMilliseconds => DeadlineTimestamp == long.MaxValue ? 0d
@@ -90,5 +94,142 @@ public sealed class DecisionWorkBudget
         OperationsUsed += operations;
         consumed[subsystem] = consumed.GetValueOrDefault(subsystem) + operations;
         return true;
+    }
+}
+
+/// <summary>
+/// The one question a decision asks the wall clock — has this deadline passed — so that a recorded session can
+/// hand its replay the same answers in the same order.
+///
+/// <para>Three places cut work by the clock and every one of them asks here: the allowance's own strided check
+/// above, <c>LimitPlanningWork.Expired</c> against the narrowed deadline, and the route search's per-expansion
+/// check. An operation count cannot stand in for them, which is why this exists rather than a recorded
+/// <see cref="DecisionWorkBudget.OperationsUsed"/>: the route search reads its own deadline between metered
+/// expansions, <c>Narrow</c> tightens a deadline no operation count knows about, and an <c>Exhausted</c> poll
+/// that returns false lets unmetered work run before the next poll sees the cut. Replaying the *answers*
+/// reproduces every one of those cuts at the check where the play took it, whatever the replaying machine's
+/// speed.</para>
+///
+/// <para>Default-inert. With no tape running and no replay installed, <see cref="Passed"/> is exactly the clock
+/// comparison each caller made before it. The recorder starts a tape at the top of the companion's tick and ends
+/// it at the bottom (<c>ReplayInputs</c>), which costs one branch and, on a tick that asks, a counter bump per
+/// question. <see cref="Replay"/> is harness-only: the world run's <c>--reproduce</c> installs one tick's answers
+/// before that tick and nothing in the mod ever calls it.</para>
+///
+/// <para>The tape is run-length encoded, alternating from "not passed": <c>812.1.30.4</c> is 812 answers of not
+/// passed, one passed, thirty not, four passed. A tick that asked nothing writes an empty tape.</para>
+/// </summary>
+public static class DecisionClock
+{
+    private static bool taping;
+    private static readonly List<int> runs = new();
+    private static bool runValue;
+    private static int runLength;
+
+    private static int[]? replay;
+    private static int replayRun;
+    private static int replayLeftInRun;
+
+    /// <summary>Whether a harness has installed recorded answers.</summary>
+    public static bool Replaying => replay != null;
+
+    /// <summary>Questions asked after the installed answers ran out. Nonzero means the replay asked more than the
+    /// play did, which is a divergence upstream of the clock rather than a clock fault.</summary>
+    public static int ReplayOverruns { get; private set; }
+
+    /// <summary>Recorded answers the replay never asked for this tick: the play asked more than the replay did.</summary>
+    public static int ReplayUnasked
+    {
+        get
+        {
+            if (replay == null) return 0;
+            int left = replayLeftInRun;
+            for (int run = replayRun + 1; run < replay.Length; run++) left += replay[run];
+            return left;
+        }
+    }
+
+    /// <summary>Whether <paramref name="deadline"/>, a <see cref="Stopwatch"/> timestamp, has passed.</summary>
+    public static bool Passed(long deadline)
+    {
+        if (replay != null) return NextRecordedAnswer();
+        bool passed = Stopwatch.GetTimestamp() >= deadline;
+        if (taping) Append(passed);
+        return passed;
+    }
+
+    /// <summary>Begin recording this tick's answers, discarding any tape left open.</summary>
+    public static void StartTape()
+    {
+        taping = true;
+        runs.Clear();
+        runValue = false;
+        runLength = 0;
+    }
+
+    /// <summary>Stop recording and return the tick's tape, empty when nothing asked.</summary>
+    public static string EndTape()
+    {
+        taping = false;
+        if (runLength > 0 || runs.Count > 0) runs.Add(runLength);
+        string tape = runs.Count == 0 ? "" : string.Join(".", runs);
+        runs.Clear();
+        runLength = 0;
+        runValue = false;
+        return tape;
+    }
+
+    /// <summary>Harness-only: answer every question from <paramref name="tape"/> until <see cref="StopReplaying"/>.
+    /// A malformed tape is refused with its shape named, because a replay that silently read part of one is cutting
+    /// its searches somewhere nobody chose.</summary>
+    public static void Replay(string tape)
+    {
+        var parsed = new List<int>();
+        if (tape.Length > 0)
+            foreach (string part in tape.Split('.'))
+            {
+                if (!int.TryParse(part, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int length) || length < 0)
+                    throw new FormatException($"a decision-clock tape is dot-separated non-negative run lengths; got \"{tape}\" with the part \"{part}\"");
+                parsed.Add(length);
+            }
+        replay = parsed.ToArray();
+        replayRun = 0;
+        replayLeftInRun = replay.Length == 0 ? 0 : replay[0];
+        ReplayOverruns = 0;
+    }
+
+    /// <summary>Harness-only: go back to the real clock.</summary>
+    public static void StopReplaying()
+    {
+        replay = null;
+        replayRun = 0;
+        replayLeftInRun = 0;
+    }
+
+    private static void Append(bool passed)
+    {
+        if (passed != runValue)
+        {
+            runs.Add(runLength);
+            runValue = passed;
+            runLength = 0;
+        }
+        runLength++;
+    }
+
+    private static bool NextRecordedAnswer()
+    {
+        int[] tape = replay!;
+        while (replayLeftInRun == 0 && replayRun + 1 < tape.Length)
+            replayLeftInRun = tape[++replayRun];
+        if (replayLeftInRun == 0)
+        {
+            // The play never asked this question. Answering "passed" ends whatever work asked it at once, so a
+            // replay that has already diverged cannot run an unbounded search on the strength of it.
+            ReplayOverruns++;
+            return true;
+        }
+        replayLeftInRun--;
+        return (replayRun & 1) == 1;
     }
 }

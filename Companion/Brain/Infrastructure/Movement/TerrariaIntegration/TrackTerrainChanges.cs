@@ -14,7 +14,16 @@ public static class TerrainChanges
     public static readonly TerrainEditLog Edits = new();
 
     public static int Revision => Edits.Revision;
-    public static void Changed(int x, int y) => Edits.Record(x, y);
+    public static void Changed(int x, int y)
+    {
+        Edits.Record(x, y);
+        EditObserved?.Invoke(x, y);
+    }
+
+    /// <summary>Told of every announced edit, after the edit log. Null unless the recorder is writing a session,
+    /// which is how a capture carries terrain edits as edits rather than as a running count. A delegate rather than
+    /// a call, because this file is compiled into the headless tools and the recorder is not.</summary>
+    public static System.Action<int, int>? EditObserved { get; set; }
 
     /// <summary>Everything changed and no tile can be named: a world loading or unloading, or a
     /// fixture rebuilding its scene. Every retained search asks the record and finds its revision

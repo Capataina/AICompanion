@@ -106,7 +106,9 @@ public static class LimitPlanningWork
         long own = milliseconds > 0 ? Stopwatch.GetTimestamp() + (long)(milliseconds * Stopwatch.Frequency / 1000d) : 0;
         return deadline == 0 ? own : own == 0 ? deadline : Math.Min(deadline, own);
     }
-    public static bool Expired => current?.Exhausted == true || (!Unbounded && deadline != 0 && Stopwatch.GetTimestamp() >= deadline);
+    /// <summary>Whether the standing allowance or the narrowed deadline has run out. The clock is asked through
+    /// <see cref="DecisionClock"/>, so a replay can be handed the answers the play got.</summary>
+    public static bool Expired => current?.Exhausted == true || (!Unbounded && deadline != 0 && DecisionClock.Passed(deadline));
     /// <summary>For a consumer timing its own loop against a local allowance rather than a deadline.</summary>
     public static bool Spent(Stopwatch clock, double milliseconds) => !Unbounded && clock.Elapsed.TotalMilliseconds >= milliseconds;
 }
