@@ -224,6 +224,24 @@ public static class Program
             }
         }
 
+        // One tick, everything the record holds about it. A range `<from>-<to>` prints one line per tick inside it
+        // where anything a diagnosis turns on changed, each naming what moved from what to what.
+        if (args.Length >= 3 && args[0] == "--explain")
+        {
+            string? explained = Resolve(args[1]);
+            if (explained == null) { Console.Error.WriteLine($"no session file at or under {args[1]}"); return 2; }
+            if (!TryTicks(args[2], out long from, out long to))
+            {
+                Console.Error.WriteLine($"--explain needs a tick or a range of ticks after the capture, like 1820 or 1800-1830; got {args[2].Length} character(s) that are neither");
+                return 2;
+            }
+            Session one;
+            try { one = Session.Load(explained); }
+            catch (Exception e) { Console.Error.WriteLine($"{explained}: {e.Message}"); return 2; }
+            Console.Write(from == to ? ExplainOneTick.Of(one, from) : ExplainOneTick.Window(one, from, to));
+            return 0;
+        }
+
         bool fullTimeline = args.Length > 0 && args[0] == "--timeline";
         if (fullTimeline)
             args = args[1..];
@@ -548,6 +566,19 @@ public static class Program
                     : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+
+    /// <summary>A tick <c>1820</c> or an inclusive range <c>1800-1830</c>, non-negative and in order.</summary>
+    internal static bool TryTicks(string text, out long from, out long to)
+    {
+        from = to = -1;
+        string[] parts = text.Split('-');
+        if (parts.Length == 1 && long.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out from))
+        { to = from; return true; }
+        return parts.Length == 2
+            && long.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out from)
+            && long.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out to)
+            && from <= to;
+    }
 
     private static IEnumerable<string> Wrap(string text, int width)
     {

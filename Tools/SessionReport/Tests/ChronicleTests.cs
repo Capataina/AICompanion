@@ -81,6 +81,7 @@ public static class ChronicleTests
             TheAuditsOwnWiringIsWitnessedByTheCapture();
             TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
             TheSectionProfileIsReadAndAnOlderCaptureDeclinesByName();
+            ExplainingATickPrintsWhatTheRecordHoldsAndNamesWhatItLacks();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
             Console.WriteLine($"Chronicle self-tests passed ({Ran.Count} assertion groups).{DeclaredButSilent()}");
@@ -3191,7 +3192,9 @@ public static class ChronicleTests
                 string text = DescribeSession.Of(session) + DescribeGodsEyeEvents.Of(tsv, true) + JoinAttemptEvidence.Describe(tsv, session, true)
                     + Chronicle.Of(session, true) + MultiRunReport.Of(new[] { tsv })
                     + WriteCourseTimeline.Of(session, true)
-                    + WriteBehaviourParity.Of(session, findings, skipped);
+                    + WriteBehaviourParity.Of(session, findings, skipped)
+                    // The one-tick explanation and its window form read the same damaged rows and sidecar.
+                    + ExplainOneTick.Of(session, 20) + ExplainOneTick.Window(session, 0, 40);
                 return (findings.ToArray(), skipped, text);
             }
             void NoContradiction(string variant, Finding[] findings)
@@ -3896,6 +3899,122 @@ public static class ChronicleTests
         finally
         {
             File.Delete(file);
+        }
+    }
+
+    /// <summary>
+    /// <c>--explain</c> on a five-tick synthetic capture whose every value is distinctive, so each line of
+    /// the explanation can be traced to the one cell or occurrence that holds it.
+    ///
+    /// <para>The decision fixture varies <c>settled</c> and <c>release-reason</c> together, because the
+    /// producer never writes both on one record and a fixture writing every payload settled cannot tell a
+    /// reader that picks the right record from one that picks the wrong one. The leaders fixture puts the
+    /// newest <c>decision</c> occurrence on a still-deciding tick that names none, because that is what a
+    /// real capture does on most ticks. The hostile fixture spawns a hostile, damages it under its spawn
+    /// identity with no slot in the damage record, and kills it, so the slot has to be learned from the
+    /// spawn and the death has to retire it. And the capture carries no frame, profile, allocation or fence
+    /// column at all, so every one of those must be named absent rather than printed blank.</para>
+    /// </summary>
+    private static void ExplainingATickPrintsWhatTheRecordHoldsAndNamesWhatItLacks()
+    {
+        object Field(string kind, string text) => new { Kind = kind, Text = text };
+        string Event(int seq, long tick, string kind, string detail, string label = "", int subject = 0, float x = 0, float y = 0)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = tick * 16.0, kind, subject, related = "", label, channel = "",
+                pos_x = x, pos_y = y, vel_x = 0f, vel_y = 0f, expected_x = 0f, expected_y = 0f, amount = 0, detail });
+        string Payload(int seq, long tick, bool settled, string release)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = tick * 16.0, kind = "course-course-decision",
+                subject = 0, related = "", label = "", channel = "", pos_x = 0f, pos_y = 0f, vel_x = 0f, vel_y = 0f,
+                expected_x = 0f, expected_y = 0f, amount = 0, detail = "",
+                payload_kind = ReadCourseDecisions.Kind, payload_version = 1, phase = "brain", observation_ordinal = tick, receipt_watermark = 0L,
+                payload = new { Kind = ReadCourseDecisions.Kind, Version = 1, Fields = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["reason"] = Field("text", settled ? "course-published" : "deciding"),
+                    ["activity"] = Field("text", "combat"),
+                    ["settled"] = Field("flag", settled ? "true" : "false"),
+                    ["purpose"] = Field("text", settled ? "fire" : ""),
+                    ["steps"] = Field("integer", settled ? "3" : "0"),
+                    ["orders-priced"] = Field("integer", settled ? "9" : "0"),
+                    ["orders-refused"] = Field("integer", settled ? "5" : "0"),
+                    ["search-exhausted"] = Field("flag", "true"),
+                    ["release-reason"] = Field("text", release),
+                    ["facts"] = Field("integer", "41"),
+                    ["refused:target-capture-missing"] = Field("integer", settled ? "5" : "0"),
+                } } });
+
+        string tsv = Path.Combine(Path.GetTempPath(), $"aic-explain-{Guid.NewGuid():N}.tsv");
+        string events = ReadGodsEyeEvents.PathFor(tsv);
+        try
+        {
+            File.WriteAllText(tsv, "# schema=0.44.0\n"
+                + "tick\taction\tchoice_id\tchoice_tick\tnpc_px\tplayer_px\tintent_region\tspot\tlookahead\tbrain_ms\tdecide_ms\tthreats\n"
+                + "1\tkeep-company\t1\t1\t1000,500\t1080,560.00\t1100,480;200,100\t62,31\t-\t3.50\t2.00\t0\n"
+                + "2\tkeep-company\t1\t1\t1004,500\t1082,560.00\t1100,480;200,100\t62,31\t-\t3.60\t2.10\t1\n"
+                + "3\tcombat\t2\t3\t1008,502\t1084,560.00\t1100,480;200,100\t70,30\t1020.50,490.25\t7.25\t6.00\t1\n"
+                + "4\tcombat\t2\t3\t1012,504\t1086,560.00\t1100,480;200,100\t70,30\t1024.50,490.25\t7.75\t6.50\t1\n"
+                + "5\tcombat\t2\t3\t1016,506\t1088,560.00\t1100,480;200,100\t70,30\t1028.50,490.25\t8.00\t6.75\t0\n");
+            File.WriteAllLines(events, new[]
+            {
+                Event(0, 0, "session", ""),
+                Event(1, 1, "npc-spawn", "slot=3", label: "Zombie", subject: 7, x: 1200, y: 500),
+                Event(2, 2, "decision", "scores=;course:combat=value:0.123,useful:0.456,harm:0.010,gap:0.020;"
+                    + $"{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}combat=usable:2,unknown:1,unusable:0,reason:-;course-refused:target-capture-missing=5"),
+                Event(3, 3, "decision", "scores=;course-decision=deciding,activity=combat;"),
+                Event(4, 3, "npc-damage", "raw=8;effective=8;life-now=40", label: "Zombie", subject: 7, x: 1210, y: 505),
+                Payload(5, 4, settled: true, release: ""),
+                Payload(6, 5, settled: false, release: "course-complete"),
+                Event(7, 5, "npc-death", "slot=3", label: "Zombie", subject: 7, x: 1215, y: 505),
+                Event(8, 6, "session-end", "normal-close"),
+            });
+            Session session = Session.Load(tsv);
+            string page = ExplainOneTick.Of(session, 4);
+            void Says(string expected, string why)
+                => Require(page.Contains(expected, StringComparison.Ordinal), $"--explain {why}: expected \"{expected}\" in\n{page}");
+
+            Says("row 4 of 5", "did not locate the row");
+            Says("ticks 3–5 (the rows carrying this decision identity); 2 course-decision payload(s)", "did not span the decision by its identity");
+            // The numbers come off the settled record at tick 4 and the release off the unsettled one at tick 5.
+            Says("at tick 4: reason course-published · activity combat · settled · bound step fire · steps 3 · orders priced 9, refused 5", "read the decision's numbers off the wrong record");
+            Says("released  course-complete at tick 5", "lost the release, which rides on a different record from the numbers");
+            Says("refused   target-capture-missing 5", "dropped the payload's refusal tally");
+            Says("from the decision occurrence at tick 2 (2 tick(s) old", "did not date the leaders it read");
+            Says("the latest occurrence, at tick 3, names none", "hid that the newest occurrence carried no leader");
+            Says("combat         value 0.123 · useful 0.456 · harm 0.010 · gap 0.020", "did not print the leader's value terms");
+            Says("combat         usable 2 · unknown 1 · unusable 0", "did not print the census admission");
+            Says("npc_px 1012,504", "did not print the companion's recorded centre");
+            Says("player_px 1086,560.00", "did not print the player's recorded feet");
+            Says("centre 1100,480, half 200×100 px, so x 900..1300 and y 380..580; the orb is inside", "misread the intent region");
+            Says("lookahead 1024.50,490.25", "did not print the steering target");
+            Says("slot 3 Zombie at 1210,505 (npc-damage, 1 tick(s) old)", "did not place the damaged hostile by its spawn's slot");
+            Says("brain_ms 7.75", "did not print the tick's brain cost");
+            Says("sections  (absent)", "printed the absent section profile as something other than absent");
+            foreach (string column in new[] { "frame_ms", "sections", "tick_alloc_bytes", "cost_fence_ms", "control_source" })
+                Require(System.Text.RegularExpressions.Regex.IsMatch(page, @"^absent .*\b" + column + @"\b", System.Text.RegularExpressions.RegexOptions.Multiline),
+                    $"--explain did not name {column} in its closing absent line:\n{page}");
+            Require(!System.Text.RegularExpressions.Regex.IsMatch(page, @"^absent .*\bnpc_px\b", System.Text.RegularExpressions.RegexOptions.Multiline),
+                "--explain named a column the capture carries as absent");
+
+            // The death at tick 5 retires the hostile.
+            Require(ExplainOneTick.Of(session, 5).Contains("hostiles  0 placed", StringComparison.Ordinal), "a hostile the record saw die was still placed");
+            // A tick past the last row explains the last row and says so; a tick before the first refuses.
+            Require(ExplainOneTick.Of(session, 9).Contains("the capture holds no row at tick 9", StringComparison.Ordinal), "a tick past the capture was explained as if it were recorded");
+            Require(ExplainOneTick.Of(session, 0).Contains("before the capture's first row", StringComparison.Ordinal), "a tick before the capture was explained");
+
+            string window = ExplainOneTick.Window(session, 1, 5);
+            Require(window.Contains("choice_id 1 → 2", StringComparison.Ordinal) && window.Contains("action keep-company → combat", StringComparison.Ordinal)
+                    && window.Contains("threats 0 → 1", StringComparison.Ordinal),
+                "the window form did not name what moved at the ticks it changed:\n" + window);
+            Require(window.Contains("4 of 5 row(s) changed something", StringComparison.Ordinal),
+                "the window form counted changed ticks wrongly:\n" + window);
+            Require(window.Contains("never reported as changing: request", StringComparison.Ordinal),
+                "the window form did not name a watched column the capture lacks:\n" + window);
+            Require(Program.TryTicks("1800-1830", out long a, out long b) && a == 1800 && b == 1830 && Program.TryTicks("7", out a, out b) && a == 7 && b == 7
+                    && !Program.TryTicks("30-10", out _, out _) && !Program.TryTicks("-5", out _, out _) && !Program.TryTicks("x", out _, out _),
+                "the tick argument accepted a malformed range or refused a well-formed one");
+        }
+        finally
+        {
+            File.Delete(tsv);
+            File.Delete(events);
         }
     }
 
