@@ -217,6 +217,29 @@ Read a playtest with `sh Tools/build.sh session-report` then `dotnet Tools/Sessi
 - **A number in any of these folder files is either a fact of the world or a dated measurement.** The behaviour tunables are the `Weights` class in `Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs` — the class and the file are not named the same thing, which is worth knowing before searching for `Weights.cs`, because there is no such file. A threshold quoted in prose anywhere else is a documentation defect rather than the current value.
 
 
+## Current state — 2026-09-24
+
+**The day rebuilt the harness and left the companion's behaviour alone, and that second half is measured rather than asserted.** The owner asked for "God's View" to be faster, harder to fool and able to analyse more in one go, with no behaviour change and no timing as a pass line. Three waves of lanes landed it, and `Tools/compare-commits.sh 987319df aa4f1b36` — the tree before the work against the tree after the first two waves — made the same decision and held the same position on 600 of 600 replayed ticks of the 22 September capture. The waves in one tree:
+
+```
+wave 1   verify builds once and runs in phases: parallel engine shards, a timed lane alone, world runs serial;
+         a machine benchmark at both ends and each case's memory, so a slow machine names itself (b2734e8 … f3b45fa)
+         no tool aborts into a macOS crash dialog any more: an escaped exception exits 70 (b2734e8)
+         no fixture goes red on a timing; every timing is a measure; a perf tier runs when the mod's code changed
+wave 2   a section profiler inside every brain tick and a spike fence relative to the session's own ticks,
+         schema 0.48.0 (2a2f876); a load ladder, a budget curve and an in-game calibration in the world run (7dd9029)
+wave 3   a capture reproduces its own decisions tick for tick from every input the brain observed, schema 0.49.0 (8c4d479)
+         SessionReport --explain <capture> <tick>, and --picture / --pictures draw a tick headlessly (d616260)
+         every assertion files its own row; no fixture can hide from the default suite; every whole-brain case is
+         audited on the decision and effect contracts (38ae184, 624d964)
+```
+
+**What it found about the brain, with no behaviour change made for it:** `decide.course.snapshot.assistance.light` is about 28 % of the brain's time and half its allocation on the replayed capture; the worst spike there was the recorder's own combat snapshot export charged to the decide phase (74.9 of 84 ms); the brain allocates 0.6 to 1.6 MB a tick; and the whole brain's median is the decision allowance plus about half a millisecond at every allowance tried, so the median is a setting and the tail, 15 to 26 ms at p99, is what the allowance does not move. No contract the audit grades fired as never-legitimate in any engine case. `Tools/WorldRun/CLAUDE.md` and `Companion/Brain/Infrastructure/Diagnostics/CLAUDE.md` carry the numbers.
+
+**Recording now costs about 0.36 ms more a tick on average (5.66 to 6.02 ms, p99 unchanged at about 12.8), and about 1 MB a minute more of sidecar**, measured twice each on the play-measures scene before and after the replay inputs landed; the replay recorder's own clock reads 0.05 ms a tick. It is paid only while `record_telemetry` is on.
+
+**The gate is `8aea71d4-20260924-221604.jsonl`**: 1,037 rows, nothing red, the one known limitation carried (a fight README wants becoming a bound step within three seconds, the owner's product question), both reproductions green inside verify at 600 of 600 and 7,200 of 7,200. The tree has still not been played since 22 September.
+
 ## Current state — 2026-09-23
 
 **The hands now perform exactly what the course chose, and nothing else anywhere in the brain chooses a target.** Until `04f9df2` the course bound a target and flew the body to its pose while every work activity swung at the nearest target of its own private search, so the body and the hand had two choosers that agreed only by coincidence. The course's step now reaches the activity (`OwnCurrentActivity.Select` → `CompanionAction.Accept`). Mining and chopping strike the tile the step's use names (`e6f977f6`, `812766d7`), collection and lighting work only their bound drop, pot or site (`c5cb40bb`), and combat adopts the step by finding its exact native use in a plan it holds (`2658041d`). Who performs a domain is read from the activities' own `CourseDomains`. **A pot is collection work** by the owner's ruling (`collect-target`, purpose `break-pot`). A pot or torch in passing is performed only once the course accepts a one-step binding for it, priced under the same encounter and protection relevance a decision reads. Downing and recovery flight drop the course and any decision in flight (`3ea60e37`).
