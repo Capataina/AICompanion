@@ -46,6 +46,7 @@
     <!-- The ledger's row writer, as a source file: every case here reports through it and through
          nothing else, so the suite's verdicts survive the process that produced them. -->
     <Compile Include="../Ledger/EmitLedgerRows.cs" />
+    <Compile Include="../Ledger/ExitWithoutACrashReport.cs" />
     <Reference Include="tModLoader"><HintPath>$(TModLoaderRoot)/tModLoader.dll</HintPath></Reference>
     <!-- The generated On_ detours live here rather than in tModLoader.dll, and the mod build picks the
          whole Libraries tree up while this project names each assembly. TrackTerrainChanges is one of the

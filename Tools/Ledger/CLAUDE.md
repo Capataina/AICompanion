@@ -9,6 +9,7 @@ Ledger/
 ├─ CLAUDE.md
 ├─ Ledger.csproj          a plain console project; compiles nothing from the mod tree
 ├─ EmitLedgerRows.cs      the row, the six verdicts, and the one writer — included as a source file by every other Tools project
+├─ ExitWithoutACrashReport.cs an escaped exception printed and turned into exit 70 rather than an abort — compiled beside the writer everywhere
 ├─ ReadAndWriteRuns.cs    the run header, the store, and baseline resolution through git ancestry
 ├─ CompareRunsAndScore.cs the Wilson interval, the noise band, the sampled reading, and the printed scoreboard
 ├─ SelfTestTheStore.cs    the store's own rules: commit widths, the baseline refusals, the round trip, the sampled pair

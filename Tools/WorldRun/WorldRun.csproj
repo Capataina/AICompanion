@@ -16,6 +16,7 @@
          passes while this project fails with the name missing. -->
     <ProjectReference Include="../../AICompanion.csproj" Aliases="live" AdditionalProperties="BuildMod=false" />
     <Compile Include="../Ledger/EmitLedgerRows.cs" />
+    <Compile Include="../Ledger/ExitWithoutACrashReport.cs" />
     <Reference Include="tModLoader"><HintPath>$(TModLoaderRoot)/tModLoader.dll</HintPath></Reference>
     <Reference Include="FNA"><HintPath>$(TModLoaderRoot)/Libraries/FNA/1.0.0/FNA.dll</HintPath></Reference>
     <Reference Include="ReLogic"><HintPath>$(TModLoaderRoot)/Libraries/ReLogic/1.0.0/ReLogic.dll</HintPath></Reference>

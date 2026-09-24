@@ -41,6 +41,7 @@
     <!-- The ledger's row writer, as a source file. It names no game type, so including it here
          does not cross the navigation boundary this project exists on the game-free side of. -->
     <Compile Include="../Ledger/EmitLedgerRows.cs" />
+    <Compile Include="../Ledger/ExitWithoutACrashReport.cs" />
     <!--
       The whole navigation tree, by pattern rather than file by file, with the one file that
       names the game excluded. Listing them by hand meant a new file in the core compiled into

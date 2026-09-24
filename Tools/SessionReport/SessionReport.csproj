@@ -23,5 +23,6 @@
       drag a reference graph across that boundary to share one file.
     -->
     <Compile Include="../Ledger/EmitLedgerRows.cs" />
+    <Compile Include="../Ledger/ExitWithoutACrashReport.cs" />
   </ItemGroup>
 </Project>

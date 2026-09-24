@@ -41,12 +41,42 @@ public static class SelfTestTheStore
             "a deliberately red case can be produced on demand, so the rerun loop can be exercised", ForcedRed);
         failed += EmitLedgerRows.Case(Instrument, Suite,
             "a measure the producer declared a sample reports its delta without being called drift", SampledMeasures);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "every tool project compiles the guard that turns an escaped exception into an exit instead of a crash dialog", EveryToolCompilesTheCrashGuard);
         // The last line is what verify.sh shows for this instrument, and a self-test that prints
         // nothing when it passes reads exactly like one that ran nothing.
         Console.WriteLine(failed == 0
-            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip, the quoted intervals and the sampled-measure reading."
-            : $"ledger self-test: {failed} of 7 store properties failed.");
+            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip, the quoted intervals, the sampled-measure reading and the crash guard's reach."
+            : $"ledger self-test: {failed} of 8 store properties failed.");
         return failed;
+    }
+
+    /// <summary>
+    /// <see cref="ExitWithoutACrashReport"/> works because its file is compiled, so the only way to lose it is a
+    /// project that stops compiling it: a new tool, or a project file rewritten. Every project that compiles the
+    /// row writer is a tool this repository runs, so each of those must compile the guard beside it. This
+    /// project compiles its own folder and is covered by construction.
+    /// </summary>
+    private static int EveryToolCompilesTheCrashGuard()
+    {
+        string root = Git.Root(Directory.GetCurrentDirectory());
+        string tools = Path.Combine(root, "Tools");
+        string ledgerFolder = Path.Combine(tools, "Ledger");
+        var projects = Directory.GetDirectories(tools)
+            .Where(folder => !string.Equals(Path.GetFullPath(folder), Path.GetFullPath(ledgerFolder), StringComparison.Ordinal))
+            .SelectMany(folder => Directory.GetFiles(folder, "*.csproj"))
+            .Where(project => File.ReadAllText(project).Contains("EmitLedgerRows.cs", StringComparison.Ordinal))
+            .ToList();
+        if (projects.Count == 0)
+            return Failed($"no project under {tools} compiles EmitLedgerRows.cs, so this row checked nothing");
+        var missing = projects
+            .Where(project => !File.ReadAllText(project).Contains("ExitWithoutACrashReport.cs", StringComparison.Ordinal))
+            .Select(project => Path.GetRelativePath(root, project))
+            .ToList();
+        if (missing.Count > 0)
+            return Failed($"{missing.Count} of {projects.Count} tool project(s) compile the row writer without the crash guard, so an escaped exception there aborts and opens the dialog: {string.Join(", ", missing)}");
+        Console.WriteLine($"  {projects.Count} tool projects compile the crash guard beside the row writer");
+        return 0;
     }
 
     /// <summary>

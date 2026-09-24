@@ -58,7 +58,7 @@ Unhandled exception. System.…                     a standalone flag, where not
 
 A run once showed sixty-four GREEN lines, zero `^RED` and zero "case(s) failed" and still exited 1. **Do not grep for a verdict prefix: read the log end to end and trust the exit code**, or read the run file, which is the only complete account — the suite files 208 rows as of 21 September 2026 and the printed log is longer than that, so a number written here for its length would be wrong within the week. A fixture family's own verdict prefix is never the suite's signal.
 
-The standalone flags are the fourth row's cause and it is structural rather than a defect: `Program.cs` dispatches most flags straight into the fixture, so an assertion escapes as an unhandled exception and the process exits 134. The same case inside the default suite is caught by the emitter and reported as one red row. A flag exiting 134 and a default-suite case failing with the same message are one failure seen twice.
+The standalone flags are the fourth row's cause and it is structural rather than a defect: `Program.cs` dispatches most flags straight into the fixture, so an assertion escapes as an unhandled exception, which `../Ledger/ExitWithoutACrashReport.cs` prints with the command line and turns into exit 70. Until 24 September 2026 it aborted with 134 instead, and every abort opened a "dotnet quit unexpectedly" dialog on the owner's screen. The same case inside the default suite is caught by the emitter and reported as one red row. A flag exiting 70 and a default-suite case failing with the same message are one failure seen twice.
 
 ## The flag table
 

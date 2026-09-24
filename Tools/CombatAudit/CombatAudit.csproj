@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="../../AICompanion.csproj" Aliases="live" AdditionalProperties="BuildMod=false" />
     <Compile Include="../Ledger/EmitLedgerRows.cs" />
+    <Compile Include="../Ledger/ExitWithoutACrashReport.cs" />
     <Compile Include="../SessionReport/Read/ReadGodsEyeEvents.cs" />
     <Compile Include="../SessionReport/Session.cs" />
     <Reference Include="tModLoader"><HintPath>$(TModLoaderRoot)/tModLoader.dll</HintPath></Reference>
