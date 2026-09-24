@@ -132,6 +132,11 @@ internal static class ReproduceTheCapture
                     Place(frame.Npcs, npcs, Main.npc, (slot, fields) => Inputs.ApplyNpc(Main.npc[slot], fields), slot => Main.npc[slot].active = false);
                     Place(frame.Items, items, Main.item, (slot, fields) => Inputs.ApplyItem(Main.item[slot], fields), slot => Main.item[slot].active = false);
                 }
+                if (frame.EditsLost > 0)
+                {
+                    terrainTicks++;
+                    disagreements.Add($"terrain: the recorder dropped {frame.EditsLost} world edit(s) before this tick, because too many waited for a companion tick, so this world lacks them");
+                }
                 if (dropped != DroppedInput.Edits)
                 {
                     // Every tile first, then the announcements in the play's order and number, because each moves the

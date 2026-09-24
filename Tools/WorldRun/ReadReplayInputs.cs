@@ -42,6 +42,9 @@ internal static class ReadReplayInputs
         IReadOnlyList<SlotChange> Npcs,
         IReadOnlyList<SlotChange> Items,
         IReadOnlyList<TileEdit> WorldEdits,
+        /// <summary>World edits the recorder counted and did not keep before this tick, because too many waited for a
+        /// companion tick; zero on an ordinary line.</summary>
+        int EditsLost,
         ulong? LightSeed,
         /// <summary>`left,top:hash` of the tiles around the body, on the ticks the recorder took one, else null.</summary>
         string? Terrain,
@@ -172,6 +175,7 @@ internal static class ReadReplayInputs
             Slots(parts["npc"]),
             Slots(parts["item"]),
             Edits(parts["edits"]),
+            parts.TryGetValue("edits-lost", out string? lost) ? int.Parse(lost, CultureInfo.InvariantCulture) : 0,
             parts["light"] == "-" ? null : ulong.Parse(parts["light"], CultureInfo.InvariantCulture),
             parts.GetValueOrDefault("terrain"),
             parts["clock"],

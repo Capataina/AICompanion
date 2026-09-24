@@ -208,6 +208,11 @@ public static class ReplayInputs
     /// </summary>
     private static readonly Dictionary<Point, string> tilesBeforeEdits = new();
     private const int ReframeRadius = 3;
+
+    /// <summary>How many announced world edits may wait for a companion tick: a minute of the fastest mining the game allows
+    /// is a few hundred, so this is far past any real stretch between ticks and still a bounded few megabytes of snapshots.</summary>
+    private const int MaximumPendingEdits = 4096;
+    private static int worldEditsLost;
     private static readonly List<Point> companionEdits = new();
     private static readonly HashSet<Point> companionEditsSeen = new();
     private static string pendingInputs = "";
@@ -258,6 +263,7 @@ public static class ReplayInputs
         sessionOpen = true;
         lastNpc.Clear(); lastItem.Clear(); lastPlayer = null; lastWorld = null; lastInventory = ""; lastGear = "";
         worldEdits.Clear(); worldEditsSeen.Clear(); tilesBeforeEdits.Clear(); companionEdits.Clear(); companionEditsSeen.Clear();
+        worldEditsLost = 0;
         pendingInputs = "";
         recordingThisTick = false;
         LinesWritten = 0;
@@ -282,6 +288,11 @@ public static class ReplayInputs
         if (insideCompanionTick) { if (companionEditsSeen.Add(tile)) companionEdits.Add(tile); }
         else
         {
+            // Edits wait here for the next companion tick, and a session with no companion ticking — none spawned yet, or
+            // one downed — would otherwise hold every edit the player makes for as long as that lasts. Past the bound the
+            // edits are counted instead of kept, and the next line says how many, so a replay across that tick names the
+            // loss rather than replaying a world that silently lacks them.
+            if (worldEdits.Count >= MaximumPendingEdits) { worldEditsLost++; return; }
             worldEdits.Add((tile, true));
             worldEditsSeen.Add(tile);
             for (int dy = -ReframeRadius; dy <= ReframeRadius; dy++)
@@ -360,6 +371,7 @@ public static class ReplayInputs
         }
         worldEdits.Clear();
         worldEditsSeen.Clear();
+        if (worldEditsLost > 0) { line.Append(";edits-lost=").Append(I(worldEditsLost)); worldEditsLost = 0; }
 
         line.Append(";light=").Append(ReadLightScannerSeed() is { } seed ? seed.ToString(Invariant) : "-");
         // Every sixtieth tick, and on any tick the world was edited, a digest of the tiles around the body, so a replay
