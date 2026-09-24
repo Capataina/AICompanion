@@ -198,6 +198,7 @@ internal static class VerifyEngineMotion
         ("a bound fight is occupied and declared for its whole length", VerifyCombatCourseBinding.ABoundFightIsOccupiedAndDeclaredForItsWholeLength),
         ("a decision that spans ticks keeps the fight the body is already in", VerifyADecisionInFlightKeepsTheFight.Run),
         ("what one decision costs to assemble and to carry", VerifyWhatEachDecisionCosts.Run),
+        ("the tick's allowance is the tunable unless a harness overrides it, and every reader takes the override", VerifyTheTickAllowanceOverride.Run),
         ("the search keeps the best order the winner beat", VerifyTheSearchRetainsItsRunnerUp.Run),
         ("a body taken by downing drops the course it was performing", VerifyATakenBodyDropsItsCourse.Run),
         ("collecting, lighting and pot breaking bind steps a course can hold", VerifyAssistanceCourseBindings.Run),

@@ -135,7 +135,36 @@ internal static class RunTheWorld
         /// arrival is excluded for the reason given on its own field.
         /// </summary>
         public bool AFightIsWanted => HostilesInRegion > 0 || HostilesArrivingAtPlayer > 0;
+
+        // The brain's own phase clocks for this tick, read off the fields the recorder writes as
+        // `senses_ms`, `reflex_ms`, `position_ms`, `navigate_ms`, `finalise_ms` and `flood_ms`, so the load
+        // ladder files the same quantities a capture carries. `DecideMs` and `BrainMs` above are the other two.
+        public double SensesMs { get; init; }
+        public double ReflexMs { get; init; }
+        public double PositionMs { get; init; }
+        public double NavigateMs { get; init; }
+        public double FinaliseMs { get; init; }
+        public double FloodMs { get; init; }
+        /// <summary>The route search's time this tick, or NaN when <see cref="TakeThePlanPhase"/> was off —
+        /// the navigator's counter is taken destructively, and a recorder attached to the run takes it first.</summary>
+        public double PlanMs { get; init; }
+        /// <summary>Bytes this thread allocated inside the companion's own update and the body's move, and
+        /// nothing of the harness around them.</summary>
+        public long BrainAllocatedBytes { get; init; }
+        /// <summary>How many hostiles the threat sense held this tick, which is the load a ladder rung
+        /// actually delivered rather than the count it staged.</summary>
+        public int ThreatsSensed { get; init; }
     }
+
+    /// <summary>
+    /// Whether the tick loop takes the navigator's route-search time into <see cref="PlayTick.PlanMs"/>.
+    ///
+    /// Off by default because <c>Navigator.TakePlanMs</c> zeroes what it returns, and the recorder calls it
+    /// inside the companion's update: a harness that took it as well would read zero on every recorded run
+    /// and, worse, would read a sum over several ticks the first time it asked. The load ladder attaches no
+    /// recorder and turns it on, and it is then taken on every tick so each read is exactly one tick's.
+    /// </summary>
+    public static bool TakeThePlanPhase { get; set; }
 
     internal sealed record Outcome(
         IReadOnlyList<Vector2> CompanionCentres,
@@ -411,6 +440,10 @@ internal static class RunTheWorld
             // host runs none of the game's startup — arrives as a stack trace with no tick on it,
             // and finding the tick costs another whole-capture run. Naming it here turns the next
             // round into `--from-tick=<tick minus a few hundred> --ticks=400`, which is seconds.
+            // The brain's own allocation, bracketed tightly: the trace line, the refusal copy and the
+            // lists below allocate far more than the brain does, and none of it is the brain's. The
+            // counter is per thread and costs a read, so it allocates nothing itself.
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             try
             {
                 companion.AI();
@@ -425,6 +458,7 @@ internal static class RunTheWorld
                     + $"navigator {b.Navigator.Status}, body at {companion.NPC.position.X:0},{companion.NPC.position.Y:0}, "
                     + $"player at {player.Bottom.X:0},{player.Bottom.Y:0}", failure);
             }
+            long brainAllocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
             // After the companion's own tick, because the engine updates NPCs in slot order and the
             // companion is an early slot: the brain therefore decides against where each hostile was
@@ -470,7 +504,18 @@ internal static class RunTheWorld
                 brain.LastAction?.Name == "combat", inRegion, atPlayer, atCompanion, soonest,
                 course.DecisionId, course.Facts?.Facts.Count ?? 0, DescribeLeaders(course.LastLeaders),
                 brain.Fighting is { } stance
-                    ? stance.AcceptOutcome + "/" + stance.EligibilityReason + "/" + companion.Combat.LastFireOutcome : "-"));
+                    ? stance.AcceptOutcome + "/" + stance.EligibilityReason + "/" + companion.Combat.LastFireOutcome : "-")
+            {
+                SensesMs = brain.SensesMs,
+                ReflexMs = brain.ReflexMs,
+                PositionMs = brain.PositionMs,
+                NavigateMs = brain.NavigateMs,
+                FinaliseMs = brain.FinaliseMs,
+                FloodMs = brain.Positioner.LastFloodMs,
+                PlanMs = TakeThePlanPhase ? brain.Navigator.TakePlanMs() : double.NaN,
+                BrainAllocatedBytes = brainAllocated,
+                ThreatsSensed = brain.Senses.Threats.Threats.Count,
+            });
             // Asked after the tick's resolve, because the reach flood is advanced by the
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.

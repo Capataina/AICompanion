@@ -354,6 +354,22 @@ done
 world_run "world run: soak seed 1" '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|SOAK|CAST) ' \
   --soak --world="$world_run_world" --seed=1 --ticks=7200 --suite="soak seed 1"
 
+# The perf tier's world runs: how the brain's cost grows with load, what a smaller decision allowance costs
+# in behaviour, and the ratio of in-game to headless phase cost for the capture. All three file measures only
+# and together take a few minutes, which is why they run only when the perf tier does. An ordinary run files
+# none of their rows, and needs no skip rows either: the coverage rule already keeps an ordinary run and a perf
+# run from being each other's baseline. `Tools/WorldRun/CLAUDE.md` owns what each measures and what it cannot.
+if [ "$tier" = perf ]; then
+  world_run "world run: load ladder seed 1" '^(MEASURE|SKIPPED|LADDER|RUNG) ' \
+    --load-ladder --world="$world_run_world" --seed=1 --suite="load ladder seed 1"
+  world_run "world run: budget curve" '^(MEASURE|SKIPPED|CURVE|ALLOWANCE) ' \
+    --budget-curve --route="$world_run_play_route" --world="$world_run_world" --repeats=2 \
+    --suite="budget curve $(basename "$world_run_play_route" .tsv)"
+  world_run "world run: calibrate" '^(MEASURE|SKIPPED|CALIBRATE) ' \
+    --calibrate="$world_run_play_route" --world="$world_run_world" \
+    --suite="calibrate $(basename "$world_run_play_route" .tsv)"
+fi
+
 # Rerunning a red is how one observation becomes a claim about a rate. A case that fails once and
 # passes once at the same commit is flaky by observation rather than by suspicion, which is the
 # only definition a ledger can supply — and the arithmetic for how many runs a claim needs is in
