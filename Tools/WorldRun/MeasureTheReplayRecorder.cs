@@ -31,6 +31,7 @@ internal static class MeasureTheReplayRecorder
     public const string MovingCase = "replay-input recording per tick, 199 NPCs and 400 drops all moving";
     public const string StillBytesCase = "replay-input recording allocation per tick, 199 NPCs and 400 drops standing still";
     public const string MovingBytesCase = "replay-input recording allocation per tick, 199 NPCs and 400 drops all moving";
+    public const string ReadersCase = "the replay recorder's one-call readers agree with its field tables";
 
     private static readonly int[] NpcTypes = { NPCID.Zombie, NPCID.BlueSlime, NPCID.DemonEye, NPCID.Skeleton };
     private static readonly int[] ItemTypes = { ItemID.DirtBlock, ItemID.StoneBlock, ItemID.Wood, ItemID.Torch, ItemID.Gel };
@@ -53,12 +54,27 @@ internal static class MeasureTheReplayRecorder
             try
             {
                 var (milliseconds, bytes, characters) = TimeTheRecorder(companion, ticks, moving);
+                // The recorder's one-call readers exist only for speed; a field they read differently from the table would
+                // leave a change unrecorded, so both scenes' last state is checked against the per-field definition — after
+                // every field of every entity has been given a value distinct from its neighbours' and its slot's, because a
+                // freshly filled table holds life equal to its maximum and a dozen false flags, and a reader that swapped two
+                // such fields would agree on it.
+                GiveEveryFieldItsOwnValue();
+                if (Inputs.WholeReadersAgree(out string disagreement))
+                    EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, ReadersCase + (moving ? " after every entity moved" : " on the filled table"),
+                        "every live NPC's and item's raw values read the same through the one-call reader and through each field's table entry",
+                        mode: "recorder-cost");
+                else
+                {
+                    failures++;
+                    EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, ReadersCase + (moving ? " after every entity moved" : " on the filled table"),
+                        disagreement, mode: "recorder-cost");
+                }
                 string scene = moving ? "every NPC's position, velocity and first AI value and every drop's position changed each tick"
                     : "nothing changed after the first tick";
                 string message = FormattableString.Invariant(
-                    $"{ticks} ticks after 30 warm-up ticks; {scene}; mean {milliseconds.Average():0.0000} ms, p50 {Percentile(milliseconds, 0.5):0.0000}, p99 {Percentile(milliseconds, 0.99):0.0000}; mean {bytes.Average():0} bytes allocated and {characters.Average():0} characters written a tick; the recorder's two halves called directly, no brain, the writer drained between ticks");
-                Console.WriteLine($"COST {(moving ? "moving" : "still")}: {message}");
-                string[] tags = { EmitLedgerRows.TimedTag, EmitLedgerRows.SampledTag };
+                    $"{ticks} ticks after 30 warm-up ticks; {scene}; mean {milliseconds.Average():0.0000} ms, p50 {Percentile(milliseconds, 0.5):0.0000}, p99 {Percentile(milliseconds, 0.99):0.0000}, of which the top half (the inputs) {topHalf * 1000.0 / Stopwatch.Frequency / ticks:0.0000}; mean {bytes.Average():0} bytes allocated and {characters.Average():0} characters written a tick; the recorder's two halves called directly, no brain, the writer drained between ticks");
+                Console.WriteLine($"COST {(moving ? "moving" : "still")}: {message}");                string[] tags = { EmitLedgerRows.TimedTag, EmitLedgerRows.SampledTag };
                 EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, moving ? MovingCase : StillCase, milliseconds.Average(), "ms",
                     direction: "lower", mode: "recorder-cost", tags: tags, message: message);
                 EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, moving ? MovingBytesCase : StillBytesCase, bytes.Average(), "bytes",
@@ -104,6 +120,7 @@ internal static class MeasureTheReplayRecorder
         var milliseconds = new List<double>(ticks);
         var bytes = new List<double>(ticks);
         var characters = new List<double>(ticks);
+        topHalf = 0;
         for (int tick = -30; tick < ticks; tick++)
         {
             PrepareTheHeadlessEngine.AdvanceTheWorldClock();
@@ -112,8 +129,10 @@ internal static class MeasureTheReplayRecorder
             long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             long started = Stopwatch.GetTimestamp();
             Inputs.BeforeTheCompanionTick(companion);
+            long halfway = Stopwatch.GetTimestamp();
             Inputs.AfterTheCompanionTick(companion);
             long elapsed = Stopwatch.GetTimestamp() - started;
+            if (tick >= 0) topHalf += halfway - started;
             long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
             WaitForTheWriter();
             if (tick < 0) continue;
@@ -123,6 +142,51 @@ internal static class MeasureTheReplayRecorder
         }
         return (milliseconds, bytes, characters);
     }
+
+    /// <summary>
+    /// Every field the recorder reads off an NPC or a drop set to a value no other field of that entity holds, and each
+    /// boolean to both values across the table, so the reader check can tell any two fields apart.
+    /// </summary>
+    private static void GiveEveryFieldItsOwnValue()
+    {
+        foreach (NPC npc in Main.npc)
+        {
+            if (npc == null || !npc.active || npc.ModNPC is CompanionNPC) continue;
+            int slot = npc.whoAmI, value = slot * 100;
+            float Next() => ++value + 0.25f;
+            bool Flag(int field) => (slot + field) % 2 == 0;
+            live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.AssumeGeneration(npc, ++value);
+            live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.AssumeShot(npc, value, (uint)(++value), ++value);
+            npc.position = new Vector2(Next(), Next());
+            npc.velocity = new Vector2(Next(), Next());
+            npc.oldPosition = new Vector2(Next(), Next());
+            npc.life = ++value; npc.lifeMax = ++value;
+            npc.direction = ++value; npc.directionY = ++value; npc.spriteDirection = ++value;
+            for (int index = 0; index < 4; index++) { npc.ai[index] = Next(); npc.localAI[index] = Next(); }
+            npc.target = ++value;
+            npc.noGravity = Flag(1); npc.noTileCollide = Flag(2); npc.collideX = Flag(3); npc.collideY = Flag(4);
+            npc.wet = Flag(5); npc.lavaWet = Flag(6); npc.honeyWet = Flag(7);
+            npc.damage = ++value; npc.defense = ++value; npc.knockBackResist = Next();
+            npc.friendly = Flag(8); npc.dontTakeDamage = Flag(9);
+            npc.realLife = ++value; npc.width = ++value; npc.height = ++value; npc.scale = Next();
+            npc.frame.Y = ++value; npc.timeLeft = ++value; npc.justHit = Flag(10);
+            npc.immune[Main.myPlayer] = ++value;
+            for (int index = 0; index < npc.buffType.Length; index++) { npc.buffType[index] = ++value; npc.buffTime[index] = ++value; }
+        }
+        foreach (Item item in Main.item)
+        {
+            if (item == null || !item.active) continue;
+            int slot = item.whoAmI, value = slot * 100;
+            item.stack = ++value;
+            item.position = new Vector2(++value + 0.5f, ++value + 0.5f);
+            item.velocity = new Vector2(++value + 0.5f, ++value + 0.5f);
+            item.noGrabDelay = ++value; item.keepTime = ++value; item.beingGrabbed = slot % 2 == 0;
+            item.playerIndexTheItemIsReservedFor = ++value; item.timeSinceItemSpawned = ++value; item.wet = slot % 2 == 1;
+        }
+    }
+
+    /// <summary>Timestamps spent in the top half, the inputs, over the timed ticks of the scene being measured.</summary>
+    private static long topHalf;
 
     private static void MoveEverything(int tick)
     {
