@@ -216,9 +216,10 @@ public static class GodsEyeEvents
     /// <summary>
     /// One companion tick's replay inputs: what the tick found in the world and what it was allowed, with the
     /// decision it made beside them. `ReplayInputs` (`RecordReplayInputs.cs`, which the headless tools do not compile)
-    /// owns the format and is the only producer.
+    /// owns the format and is the only producer. Returns whether the line reached the writer's queue, because the line is
+    /// delta-encoded and its producer has to start the next one from nothing when it did not.
     /// </summary>
-    internal static void RecordReplayInputs(NPC companion, string detail)
+    internal static bool RecordReplayInputs(NPC companion, string detail)
         => Write("replay-inputs", 0, "", "", "", companion.Center, companion.velocity, Vector2.Zero, 0, detail);
 
     /// <summary>
@@ -507,13 +508,16 @@ public static class GodsEyeEvents
     private static int Next(Dictionary<int, int> map, int slot) { int generation = map.TryGetValue(slot, out int prior) ? prior + 1 : 1; map[slot] = generation; return slot * 1_000_000 + generation; }
     private static int Stable(Dictionary<int, int> map, int slot) => map.TryGetValue(slot, out int generation) ? slot * 1_000_000 + generation : Next(map, slot);
 
-    private static void Write(string kind, int subject, string related, string label, string channel, Vector2 position, Vector2 velocity, Vector2 expected, int amount, string detail)
+    /// <summary>Hand one occurrence to the writer's queue; false when the stream was not accepting or the queue refused it.</summary>
+    private static bool Write(string kind, int subject, string related, string label, string channel, Vector2 position, Vector2 velocity, Vector2 expected, int amount, string detail)
     {
-        if (!Accepting()) return;
+        if (!Accepting()) return false;
         var record = new EventRecord(1, sequence++, Main.GameUpdateCount, BrainTelemetry.ElapsedMilliseconds, kind, subject, related, label, channel,
             position.X, position.Y, velocity.X, velocity.Y, expected.X, expected.Y, amount, detail);
-        if (!QueueDiagnosticRecords.TryEnqueueLegacy(record,
-            QueueDiagnosticRecords.EstimateLegacy(kind, related, label, channel, detail))) { Dropped++; disabled = true; }
+        if (QueueDiagnosticRecords.TryEnqueueLegacy(record, QueueDiagnosticRecords.EstimateLegacy(kind, related, label, channel, detail))) return true;
+        Dropped++;
+        disabled = true;
+        return false;
     }
 
     private static void Disable(Exception error)

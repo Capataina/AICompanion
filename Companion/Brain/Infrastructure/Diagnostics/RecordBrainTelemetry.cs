@@ -207,7 +207,16 @@ public sealed class BrainTelemetry : ModSystem
     // time the replay inputs cost the whole session). It is a version rather than
     // a silent append because the world run's `--reproduce` refuses anything below it by name: a capture without these
     // inputs replays into a confident wrong answer rather than a partial one.
-    private const string Schema = "0.49.0";
+    //
+    // 0.50.0 moves the `replay-inputs` line to format 2 and moves no TSV column. Every line carries its ordinal `n`, so a
+    // line the queue refused is a gap a reader names, and the line after a refused one is a keyframe (`key=1`) that writes
+    // the whole scene again; the companion's own NPC slot (`self`), the weapon knowledge's digest on a keyframe (`kn`) and
+    // its revision when it moves (`kr`), the cargo bag (`bag`), the hostile projectiles the hit prediction reads (`proj`),
+    // and the rest of the world state the encounter and light senses read (`pm fm sr ivx scw sch` in `world`); pending
+    // world edits are coalesced per tile with their announcement count (`a3`) under a bound on the tiles they snapshot;
+    // and the decision digest gains what the hand released and what the bag took. The `# closing=` line gains
+    // `replay-refused`. It is a version because a reader of 0.49.0 lines compares a different digest and cannot see a gap.
+    private const string Schema = "0.50.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -535,7 +544,7 @@ public sealed class BrainTelemetry : ModSystem
             // `ReadLiveCourseForAudit.Install` never having run. Both are silent in play otherwise.
             // `effects-audited` (0.47.0) is the effect contract's denominator: a session whose hand did
             // nothing has two zero violation counts that mean nothing, and this is what says so.
-            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead};effects-audited={AuditDecisionContracts.EffectsAudited};cost-spikes={CostSpikes};cost-spike-dumps={CostSpikeDumps};profiler-overflowed={BrainSections.Overflowed};profiler-unbalanced={BrainSections.Unbalanced};replay-lines={ReplayInputs.LinesWritten};replay-chars={ReplayInputs.CharactersWritten};replay-ms={ReplayInputs.MillisecondsSpent.ToString("0.0", CultureInfo.InvariantCulture)}");
+            QueueDiagnosticRecords.TryEnqueueTsv($"# closing={reason};rows={rowsWritten};events-offered={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions};decisions-audited={AuditDecisionContracts.Audited};audit-observations-read={AuditDecisionContracts.ObservationsRead};effects-audited={AuditDecisionContracts.EffectsAudited};cost-spikes={CostSpikes};cost-spike-dumps={CostSpikeDumps};profiler-overflowed={BrainSections.Overflowed};profiler-unbalanced={BrainSections.Unbalanced};replay-lines={ReplayInputs.LinesWritten};replay-refused={ReplayInputs.LinesRefused};replay-chars={ReplayInputs.CharactersWritten};replay-ms={ReplayInputs.MillisecondsSpent.ToString("0.0", CultureInfo.InvariantCulture)}");
             diagnosticWriter.Stop(TimeSpan.FromMilliseconds(100), reason, rowsWritten);
         }
         catch (Exception e)

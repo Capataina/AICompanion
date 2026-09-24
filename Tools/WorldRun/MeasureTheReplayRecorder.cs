@@ -85,9 +85,137 @@ internal static class MeasureTheReplayRecorder
                 AttachTheRecorder.Close();
             }
         }
+        failures += FlushABurstOfEdits(companion, feet, folder, suite);
+        failures += RefuseOneLine(companion, feet, folder, suite);
         if (recordTo == null) Directory.Delete(folder, recursive: true);
         return failures;
     }
+
+    public const string BurstCase = "a companion-less burst of world edits flushes as one bounded line the queue accepts";
+    public const string BurstCostCase = "the first replay-input line after a companion-less burst of 20,000 edits";
+
+    /// <summary>
+    /// A stretch with no companion ticking while the player edits the world — the session opens at world load, before any
+    /// companion exists — collapsed into its worst case: 20,000 distinct tiles announced, 5,000 of them twice more, and
+    /// then one companion tick. The recorder must bound what it kept, write the line in one bounded piece and name what it
+    /// could not keep as `edits-lost`, and the queue must take the line, because a refused line costs every frame after it.
+    /// </summary>
+    private static int FlushABurstOfEdits(CompanionNPC companion, Vector2 feet, string folder, string suite)
+    {
+        FillTheTables(companion, feet);
+        AttachTheRecorder.Open(folder, "recorder-cost-burst");
+        try
+        {
+            Point origin = feet.ToTileCoordinates() + new Point(-100, -80);
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+            long announcing = Stopwatch.GetTimestamp();
+            for (int index = 0; index < 20000; index++)
+                live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Changed(origin.X + index % 200, origin.Y + index / 200);
+            for (int repeat = 0; repeat < 2; repeat++)
+                for (int index = 0; index < 5000; index++)
+                    live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Changed(origin.X + index % 200, origin.Y + index / 200);
+            double announceMs = (Stopwatch.GetTimestamp() - announcing) * 1000.0 / Stopwatch.Frequency;
+            long allocatedWhileAnnouncing = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+            PrepareTheHeadlessEngine.AdvanceTheWorldClock();
+            long charactersBefore = CharactersWritten();
+            long refusedBefore = LinesRefused();
+            long started = Stopwatch.GetTimestamp();
+            Inputs.BeforeTheCompanionTick(companion);
+            Inputs.AfterTheCompanionTick(companion);
+            double flushMs = (Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency;
+            WaitForTheWriter();
+            long characters = CharactersWritten() - charactersBefore;
+            long refused = LinesRefused() - refusedBefore;
+            string written = LastLine();
+            int lost = written.Split(';').FirstOrDefault(part => part.StartsWith("edits-lost=", StringComparison.Ordinal)) is { } part
+                ? int.Parse(part["edits-lost=".Length..], CultureInfo.InvariantCulture) : 0;
+            string edits = written.Split(';').FirstOrDefault(part => part.StartsWith("edits=", StringComparison.Ordinal)) ?? "";
+            int entries = edits.Length > 6 ? edits.Split('|').Length : 0;
+            // The bound the recorder's own snapshot cap implies for the edits, at a generous sixty characters an entry. The
+            // rest of the line is this scene's full keyframe of 600 entities, which the cost cases above already price.
+            long bound = (long)live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReplayInputs.MaximumSnapshotTiles * 60;
+            string message = FormattableString.Invariant(
+                $"20,000 distinct tiles announced plus 10,000 repeats with no companion ticking ({announceMs:0.0} ms and {allocatedWhileAnnouncing:0} bytes to hear them), then one tick: {characters} characters written in {flushMs:0.00} ms, {edits.Length} of them the edits' {entries} entries, edits-lost={lost}, {refused} line(s) refused; the edits may hold at most {bound} characters");
+            Console.WriteLine($"BURST {message}");
+            EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, BurstCostCase, flushMs, "ms", direction: "lower", mode: "recorder-cost",
+                tags: new[] { EmitLedgerRows.TimedTag, EmitLedgerRows.SampledTag }, message: message);
+            bool bounded = characters > 0 && edits.Length <= bound && refused == 0 && lost > 0
+                && entries <= live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReplayInputs.MaximumSnapshotTiles;
+            if (bounded)
+            {
+                EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, BurstCase, message, mode: "recorder-cost");
+                return 0;
+            }
+            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, BurstCase, message, mode: "recorder-cost");
+            return 1;
+        }
+        finally
+        {
+            AttachTheRecorder.Close();
+        }
+    }
+
+    public const string RefusedLineCase = "a refused replay-inputs line leaves a gap the reader names and a keyframe after it";
+
+    /// <summary>
+    /// The writer's queue refusing one line, forced by switching its admission off for exactly one line: the recorder must
+    /// number past the lost line, start the next from nothing (`key=1`), and the reader must refuse the capture naming the
+    /// gap rather than reproduce frames that are deltas against a line nobody wrote.
+    /// </summary>
+    private static int RefuseOneLine(CompanionNPC companion, Vector2 feet, string folder, string suite)
+    {
+        FillTheTables(companion, feet);
+        string telemetry = AttachTheRecorder.Open(folder, "recorder-cost-refusal");
+        var accepting = typeof(Queue).GetField("accepting", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingFieldException("QueueDiagnosticRecords.accepting is gone; the refusal case cannot make the queue refuse a line");
+        var lines = new List<string>();
+        long refusedBefore = LinesRefused();
+        try
+        {
+            for (int tick = 0; tick < 4; tick++)
+            {
+                PrepareTheHeadlessEngine.AdvanceTheWorldClock();
+                MoveEverything(tick);
+                Inputs.BeforeTheCompanionTick(companion);
+                if (tick == 1) accepting.SetValue(null, false);
+                try { Inputs.AfterTheCompanionTick(companion); }
+                finally { if (tick == 1) accepting.SetValue(null, true); }
+                lines.Add(LastLine());
+                WaitForTheWriter();
+            }
+        }
+        finally
+        {
+            AttachTheRecorder.Close();
+        }
+        long refused = LinesRefused() - refusedBefore;
+        string capture = Directory.GetFiles(telemetry, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
+        string? refusal = ReadReplayInputs.Read(capture).Refusal;
+        bool keyframeAfter = lines[2].Contains(";n=2;", StringComparison.Ordinal) && lines[2].Contains(";key=1", StringComparison.Ordinal);
+        bool deltaBefore = lines[1].Contains(";n=1;", StringComparison.Ordinal) && !lines[1].Contains(";key=1", StringComparison.Ordinal);
+        bool deltaAfter = lines[3].Contains(";n=3;", StringComparison.Ordinal) && !lines[3].Contains(";key=1", StringComparison.Ordinal);
+        bool named = refusal != null && refusal.Contains("n=1..1", StringComparison.Ordinal);
+        string message = FormattableString.Invariant(
+            $"4 ticks with the queue refusing the second line: {refused} line(s) refused; the third line {(keyframeAfter ? "is" : "is NOT")} n=2 with key=1 ({lines[2].Length} characters against {lines[3].Length} for the delta after it); the fourth {(deltaAfter ? "is" : "is NOT")} a delta again; the reader {(named ? "refused naming n=1..1" : "did not name the gap")}: {refusal ?? "no refusal"}");
+        Console.WriteLine($"REFUSAL {message}");
+        if (refused == 1 && keyframeAfter && deltaBefore && deltaAfter && named)
+        {
+            EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, RefusedLineCase, message, mode: "recorder-cost");
+            return 0;
+        }
+        EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, RefusedLineCase, message, mode: "recorder-cost");
+        return 1;
+    }
+
+    /// <summary>The line the recorder last built, read from its reused buffer, so the burst case can read what it wrote.</summary>
+    private static string LastLine()
+        => typeof(Inputs).GetField("line", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)?.GetValue(null)?.ToString()
+            ?? throw new MissingFieldException("ReplayInputs.line is gone; the burst case cannot read the line it measures");
+
+    private static long LinesRefused()
+        => (long)(typeof(Inputs).GetProperty("LinesRefused", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+            ?.GetValue(null) ?? throw new MissingMemberException("ReplayInputs.LinesRefused is gone; the burst case cannot tell a refused line"));
 
     /// <summary>Every NPC slot but the companion's and every item slot occupied, far from the body, each entity distinct.</summary>
     private static void FillTheTables(CompanionNPC companion, Vector2 feet)

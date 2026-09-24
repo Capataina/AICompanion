@@ -383,6 +383,7 @@ public sealed class FireDueUse
         combat.Cooldown = weapon.UseTime;
         ctx.Companion.StartAnimation(weapon.ItemType, Math.Max(10, weapon.BaseUseTime));
         ctx.Companion.SetAimRotation(launch);
+        combat.LastRelease = new CompanionCombat.Release(Main.GameUpdateCount, weaponSlot, weapon.ItemType, aimed.Aim.AimPoint, target.whoAmI, launch);
         combat.NoteFired();
         combat.Planner.NoteUseFired(ctx.Senses.Tick);
         return true;

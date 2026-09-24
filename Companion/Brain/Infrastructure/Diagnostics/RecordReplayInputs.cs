@@ -42,7 +42,7 @@ namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 public static class ReplayInputs
 {
     /// <summary>The line's own format version, written first so a reader can refuse one it does not know.</summary>
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 2;
 
     private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
 
@@ -189,6 +189,28 @@ public static class ReplayInputs
     };
 
     /// <summary>
+    /// What the hit prediction reads off a hostile projectile (<c>ObserveProjectiles</c>, which the evade layer and the
+    /// navigator's unsafe ticks read inside the companion's tick): its box, its velocity with its extra updates, and its
+    /// damage. Only a projectile that sense would consider — hostile, with damage — is written, and a replay places it
+    /// with exactly these fields rather than through <c>SetDefaults</c>, so a modded projectile needs no content loaded.
+    /// </summary>
+    public static readonly Field<Projectile>[] ProjectileFields =
+    {
+        IntField<Projectile>("t", p => p.type, (p, v) => p.type = v),
+        FloatField<Projectile>("x", p => p.position.X, (p, v) => p.position.X = v),
+        FloatField<Projectile>("y", p => p.position.Y, (p, v) => p.position.Y = v),
+        IntField<Projectile>("wd", p => p.width, (p, v) => p.width = v),
+        IntField<Projectile>("ht", p => p.height, (p, v) => p.height = v),
+        FloatField<Projectile>("vx", p => p.velocity.X, (p, v) => p.velocity.X = v),
+        FloatField<Projectile>("vy", p => p.velocity.Y, (p, v) => p.velocity.Y = v),
+        IntField<Projectile>("eu", p => p.extraUpdates, (p, v) => p.extraUpdates = v),
+        IntField<Projectile>("dm", p => p.damage, (p, v) => p.damage = v),
+    };
+
+    /// <summary>Whether a projectile is one the hit prediction reads, and so one the record carries.</summary>
+    public static bool IsRecordedProjectile(Projectile? projectile) => projectile != null && projectile.active && projectile.hostile && projectile.damage > 0;
+
+    /// <summary>
     /// What the brain reads off the player. His inventory and the companion's gear are their own fields on the line
     /// rather than rows here, because each is a list that changes rarely and is written whole when it does.
     /// </summary>
@@ -247,6 +269,15 @@ public static class ReplayInputs
         IntField<object?>("inv", _ => Main.invasionType, (_, v) => Main.invasionType = v),
         IntField<object?>("invd", _ => Main.invasionDelay, (_, v) => Main.invasionDelay = v),
         IntField<object?>("invs", _ => Main.invasionSize, (_, v) => Main.invasionSize = v),
+        // The rest of what `ObserveEncounterContext` reads (the pumpkin and frost moons, slime rain, where an invasion
+        // stands) and the screen size `ObserveLight` sizes its window from, which in play is the player's own screen.
+        BoolField<object?>("pm", _ => Main.pumpkinMoon, (_, v) => Main.pumpkinMoon = v),
+        BoolField<object?>("fm", _ => Main.snowMoon, (_, v) => Main.snowMoon = v),
+        BoolField<object?>("sr", _ => Main.slimeRain, (_, v) => Main.slimeRain = v),
+        new("ivx", _ => Main.invasionX.ToString("R", Invariant), (_, v) => Main.invasionX = double.Parse(v, NumberStyles.Float, Invariant), 1,
+            (_, into) => { into[0] = BitConverter.DoubleToInt64Bits(Main.invasionX); return true; }),
+        IntField<object?>("scw", _ => Main.screenWidth, (_, v) => Main.screenWidth = v),
+        IntField<object?>("sch", _ => Main.screenHeight, (_, v) => Main.screenHeight = v),
     };
 
     // ---- session state: what was last written per slot, so each line carries only what moved ----
@@ -433,25 +464,46 @@ public static class ReplayInputs
     /// <summary>The line being built: the inputs half at the top of the tick, finished at the bottom, one buffer reused
     /// for the session so a tick allocates only the string it hands the writer.</summary>
     private static readonly StringBuilder line = new(4096);
-    /// <summary>The world's edits since the last companion tick, in announcement order and with repeats, because each
-    /// announcement moves the edit log's revision and a replay must move it as many times; and after them, marked as not
-    /// announced, the eight neighbours of each, because the game reframes a broken tile's neighbours without announcing
-    /// them and a frame is a shape to the terrain reader (a platform's top, a tree's trunk).</summary>
-    private static readonly List<(Point Tile, bool Announced)> worldEdits = new();
-    private static readonly HashSet<Point> worldEditsSeen = new();
+    private static readonly Table<Projectile> ProjectileTable = new(ProjectileFields);
+    private static readonly DeltaState?[] projectileStates = new DeltaState?[Main.maxProjectiles];
+    private static string lastBag = "";
+    private static long[] lastBagRaw = Array.Empty<long>();
+    /// <summary>The line's ordinal this session, written as `n` on every line whether or not the queue takes it, so a lost
+    /// line leaves a gap a reader can see.</summary>
+    private static long lineOrdinal;
+    /// <summary>The next line writes everything, as at a session's start: set when a session opens and when the queue
+    /// refused a line, because every later delta was taken against what that lost line would have said.</summary>
+    private static bool nextIsKeyframe;
+    private static int lastSelf = -1, lastKnowledgeRevision = int.MinValue;
+    /// <summary>
+    /// The tiles the world announced as edited since the last companion tick, each once, in the order of its first
+    /// announcement, with how many times it was announced: each announcement moves the edit log's revision, so a replay
+    /// announces a tile as many times as the play did. A tile announced a thousand times while no companion ticked is one
+    /// entry, which is what keeps the next line bounded however long the stretch was.
+    /// </summary>
+    private static readonly Dictionary<Point, int> announcedCounts = new();
+    private static readonly List<Point> announcedOrder = new();
     /// <summary>
     /// Each tile within <see cref="ReframeRadius"/> of an announced edit, as it stood when the edit was announced, so the
     /// next tick can write down every one the game changed. The game frames an unframed tile the first time a neighbour's
     /// framing reaches it, and a world read straight from its file is full of them: measured 24 September 2026 on a
     /// seeded soak, a dirt tile two columns from a broken one went from an unset frame to 18,18 with nothing announced,
     /// and a replay that wrote only the broken tile's eight neighbours disagreed with the play's terrain on the next edit.
+    /// Kept as raw values rather than text, so hearing an edit allocates nothing but the dictionary's own slots.
     /// </summary>
-    private static readonly Dictionary<Point, string> tilesBeforeEdits = new();
+    private static readonly Dictionary<Point, TileState> tilesBeforeEdits = new();
     private const int ReframeRadius = 3;
 
-    /// <summary>How many announced world edits may wait for a companion tick: a minute of the fastest mining the game allows
-    /// is a few hundred, so this is far past any real stretch between ticks and still a bounded few megabytes of snapshots.</summary>
-    private const int MaximumPendingEdits = 4096;
+    /// <summary>
+    /// How many tiles the pending edits may hold snapshots of, which bounds everything the next line writes about them:
+    /// every entry is one of these tiles, so the line's edits never exceed this many entries of about forty characters —
+    /// about 90,000 characters, well inside the one-megabyte partition the line is queued into. A compact vein of a few
+    /// hundred broken tiles, or forty scattered ones, fits. An announcement whose neighbourhood would take the set past
+    /// this is counted instead of kept, and the next line says how many as `edits-lost`, which a replay names as a terrain
+    /// disagreement on that tick. The previous bound counted announcements rather than tiles (4,096 of them, each with a
+    /// 49-tile snapshot) and could put 200,000 entries on one line, which the queue would refuse.
+    /// </summary>
+    public const int MaximumSnapshotTiles = 2048;
     private static int worldEditsLost;
     private static readonly List<Point> companionEdits = new();
     private static readonly HashSet<Point> companionEditsSeen = new();
@@ -487,6 +539,9 @@ public static class ReplayInputs
     /// <summary>Lines written this session, for the recorder's own accounting.</summary>
     internal static long LinesWritten { get; private set; }
 
+    /// <summary>Lines the writer's queue refused this session; each leaves a gap in `n` and makes the next line a keyframe.</summary>
+    internal static long LinesRefused { get; private set; }
+
     /// <summary>Characters written this session, so the cost of carrying replay inputs is a number in the capture.</summary>
     internal static long CharactersWritten { get; private set; }
 
@@ -501,8 +556,10 @@ public static class ReplayInputs
     {
         sessionOpen = true;
         ForgetWhatWasWritten();
-        worldEdits.Clear(); worldEditsSeen.Clear(); tilesBeforeEdits.Clear(); companionEdits.Clear(); companionEditsSeen.Clear();
+        announcedCounts.Clear(); announcedOrder.Clear(); tilesBeforeEdits.Clear(); companionEdits.Clear(); companionEditsSeen.Clear();
         worldEditsLost = 0;
+        lineOrdinal = 0;
+        LinesRefused = 0;
         line.Clear();
         recordingThisTick = false;
         LinesWritten = 0;
@@ -524,22 +581,24 @@ public static class ReplayInputs
     private static void NoteEdit(int x, int y)
     {
         var tile = new Point(x, y);
-        if (insideCompanionTick) { if (companionEditsSeen.Add(tile)) companionEdits.Add(tile); }
-        else
+        if (insideCompanionTick) { if (companionEditsSeen.Add(tile)) companionEdits.Add(tile); return; }
+        // Edits wait here for the next companion tick, and a session with no companion ticking — none spawned yet, or one
+        // gone — collects every edit the player makes for as long as that lasts. A tile announced again only counts; a new
+        // tile is kept only while its whole neighbourhood fits under the snapshot bound, and is otherwise counted as lost,
+        // so the next line is bounded and says what it could not carry rather than replaying a world that silently lacks it.
+        if (announcedCounts.TryGetValue(tile, out int announced)) { announcedCounts[tile] = announced + 1; return; }
+        int newTiles = 0;
+        for (int dy = -ReframeRadius; dy <= ReframeRadius; dy++)
+        for (int dx = -ReframeRadius; dx <= ReframeRadius; dx++)
+            if (!tilesBeforeEdits.ContainsKey(new Point(x + dx, y + dy))) newTiles++;
+        if (tilesBeforeEdits.Count + newTiles > MaximumSnapshotTiles) { worldEditsLost++; return; }
+        announcedCounts[tile] = 1;
+        announcedOrder.Add(tile);
+        for (int dy = -ReframeRadius; dy <= ReframeRadius; dy++)
+        for (int dx = -ReframeRadius; dx <= ReframeRadius; dx++)
         {
-            // Edits wait here for the next companion tick, and a session with no companion ticking — none spawned yet, or
-            // one downed — would otherwise hold every edit the player makes for as long as that lasts. Past the bound the
-            // edits are counted instead of kept, and the next line says how many, so a replay across that tick names the
-            // loss rather than replaying a world that silently lacks them.
-            if (worldEdits.Count >= MaximumPendingEdits) { worldEditsLost++; return; }
-            worldEdits.Add((tile, true));
-            worldEditsSeen.Add(tile);
-            for (int dy = -ReframeRadius; dy <= ReframeRadius; dy++)
-            for (int dx = -ReframeRadius; dx <= ReframeRadius; dx++)
-            {
-                var near = new Point(x + dx, y + dy);
-                if (!tilesBeforeEdits.ContainsKey(near)) tilesBeforeEdits[near] = DescribeTile(near.X, near.Y);
-            }
+            var near = new Point(x + dx, y + dy);
+            if (!tilesBeforeEdits.ContainsKey(near)) tilesBeforeEdits[near] = TileState.Read(near.X, near.Y);
         }
     }
 
@@ -553,11 +612,25 @@ public static class ReplayInputs
         using var profiled = BrainSections.Enter(ReplaySection);
 
         line.Clear();
-        line.Append("v=").Append(FormatVersion).Append(";tick=").Append(Main.GameUpdateCount.ToString(Invariant));
+        line.Append("v=").Append(FormatVersion).Append(";n=").Append(lineOrdinal).Append(";tick=").Append(Main.GameUpdateCount.ToString(Invariant));
+        bool keyframe = nextIsKeyframe;
+        nextIsKeyframe = false;
+        if (keyframe) line.Append(";key=1");
         NPC body = companion.NPC;
         line.Append(";body=").Append(F(body.position.X)).Append(',').Append(F(body.position.Y)).Append(',')
             .Append(F(body.velocity.X)).Append(',').Append(F(body.velocity.Y)).Append(',').Append(I(body.life))
             .Append(',').Append(B(companion.IsDowned));
+        // The companion's own NPC slot, which a replay puts it in so every recorded actor keeps its own slot.
+        if (body.whoAmI != lastSelf) { line.Append(";self=").Append(body.whoAmI); lastSelf = body.whoAmI; }
+        // The weapon knowledge the save loaded and the hooks between ticks feed: a digest of all of it on a keyframe, so a
+        // replay can say whether it began from the same belief, and the revision whenever it moved, so a replay can say
+        // on which tick knowledge it does not carry arrived.
+        if (keyframe) line.Append(";kn=").Append(DescribeKnowledge());
+        if (WeaponKnowledge.KnowledgeRevision.Current != lastKnowledgeRevision)
+        {
+            lastKnowledgeRevision = WeaponKnowledge.KnowledgeRevision.Current;
+            line.Append(";kr=").Append(lastKnowledgeRevision);
+        }
 
         Player player = Main.LocalPlayer;
         line.Append(";player=");
@@ -566,6 +639,8 @@ public static class ReplayInputs
         AppendDelta(line, null, WorldTable, worldState);
         if (InventoryMoved(player)) { string inventory = DescribeInventory(player); if (inventory != lastInventory) { line.Append(";inv=").Append(inventory); lastInventory = inventory; } }
         if (GearMoved(player)) { string gear = DescribeGear(player); if (gear != lastGear) { line.Append(";gear=").Append(gear); lastGear = gear; } }
+        // The cargo bag, which collection prices every drop against and the player can rearrange through its panel.
+        if (BagMoved(companion)) { string bag = DescribeBag(companion); if (bag != lastBag) { line.Append(";bag=").Append(bag); lastBag = bag; } }
 
         line.Append(";npc=");
         bool first = true;
@@ -582,32 +657,17 @@ public static class ReplayInputs
             Item item = Main.item[slot];
             AppendSlot(line, slot, item != null && item.active ? item : null, ItemTable, itemStates, ref first);
         }
+        line.Append(";proj=");
+        first = true;
+        for (int slot = 0; slot < Main.maxProjectiles; slot++)
+        {
+            Projectile projectile = Main.projectile[slot];
+            AppendSlot(line, slot, IsRecordedProjectile(projectile) ? projectile : null, ProjectileTable, projectileStates, ref first);
+        }
 
         line.Append(";edits=");
-        int announced = worldEdits.Count;
-        for (int index = 0; index < announced; index++)
-            for (int dy = -1; dy <= 1; dy++)
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                var neighbour = new Point(worldEdits[index].Tile.X + dx, worldEdits[index].Tile.Y + dy);
-                if (worldEditsSeen.Add(neighbour)) worldEdits.Add((neighbour, false));
-            }
-        foreach ((Point near, string before) in tilesBeforeEdits)
-            if (!worldEditsSeen.Contains(near) && DescribeTile(near.X, near.Y) != before)
-            {
-                worldEditsSeen.Add(near);
-                worldEdits.Add((near, false));
-            }
-        tilesBeforeEdits.Clear();
-        for (int index = 0; index < worldEdits.Count; index++)
-        {
-            if (index > 0) line.Append('|');
-            (Point tile, bool wasAnnounced) = worldEdits[index];
-            line.Append(I(tile.X)).Append(',').Append(I(tile.Y)).Append(',').Append(DescribeTile(tile.X, tile.Y))
-                .Append(',').Append(wasAnnounced ? 'a' : 'n');
-        }
-        worldEdits.Clear();
-        worldEditsSeen.Clear();
+        int announced = announcedOrder.Count;
+        AppendPendingEdits(line);
         if (worldEditsLost > 0) { line.Append(";edits-lost=").Append(I(worldEditsLost)); worldEditsLost = 0; }
 
         line.Append(";light=").Append(ReadLightScannerSeed() is { } seed ? seed.ToString(Invariant) : "-");
@@ -620,6 +680,7 @@ public static class ReplayInputs
             watched.StartObject = watched.Current();
             watched.Readable = ReadRandom(watched.StartObject, watched.Start);
         }
+        NoteTheTickStart(companion);
         timestampsSpent += System.Diagnostics.Stopwatch.GetTimestamp() - started;
         DecisionClock.StartTape();
     }
@@ -670,10 +731,56 @@ public static class ReplayInputs
         // Last, because the decision digest carries `|` and `,` of its own and a reader takes the rest of the line.
         line.Append(";decision=").Append(DescribeDecision(companion));
         string detail = line.ToString();
-        LinesWritten++;
-        CharactersWritten += detail.Length;
-        GodsEyeEvents.RecordReplayInputs(companion.NPC, detail);
+        lineOrdinal++;
+        if (GodsEyeEvents.RecordReplayInputs(companion.NPC, detail))
+        {
+            LinesWritten++;
+            CharactersWritten += detail.Length;
+        }
+        else
+        {
+            // Every later line is a delta against this one, so a line the queue refused would silently corrupt every frame
+            // after it. The ordinal already moved, so a reader sees the gap; the next line starts from nothing, so a capture
+            // carries a whole scene again from there.
+            LinesRefused++;
+            ForgetWhatWasWritten();
+        }
         timestampsSpent += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+    }
+
+    /// <summary>
+    /// The world's edits since the last companion tick: every announced tile with its announcement count (`a` once,
+    /// `a3` three times), then the eight neighbours of each and every other snapshotted tile the game changed, marked `n`
+    /// because only the game's framing touched them. Each entry is `x,y,state,mark`, joined by `|`.
+    /// </summary>
+    private static void AppendPendingEdits(StringBuilder into)
+    {
+        if (announcedOrder.Count == 0 && tilesBeforeEdits.Count == 0) return;
+        bool firstEntry = true;
+        void Entry(Point tile, string mark)
+        {
+            if (!firstEntry) into.Append('|');
+            firstEntry = false;
+            into.Append(tile.X).Append(',').Append(tile.Y).Append(',').Append(DescribeTile(tile.X, tile.Y)).Append(',').Append(mark);
+        }
+        foreach (Point tile in announcedOrder)
+        {
+            int count = announcedCounts[tile];
+            Entry(tile, count == 1 ? "a" : "a" + count.ToString(Invariant));
+        }
+        foreach (Point tile in announcedOrder)
+            for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                var neighbour = new Point(tile.X + dx, tile.Y + dy);
+                if (announcedCounts.ContainsKey(neighbour) || !tilesBeforeEdits.Remove(neighbour)) continue;
+                Entry(neighbour, "n");
+            }
+        foreach ((Point near, TileState before) in tilesBeforeEdits)
+            if (!announcedCounts.ContainsKey(near) && !TileState.Read(near.X, near.Y).Equals(before)) Entry(near, "n");
+        tilesBeforeEdits.Clear();
+        announcedCounts.Clear();
+        announcedOrder.Clear();
     }
 
     /// <summary>
@@ -683,7 +790,47 @@ public static class ReplayInputs
     /// left out on purpose, because two runs in one process do not share them and a replay compared on them would
     /// disagree on its first tick about nothing the brain decided.
     /// </summary>
-    public static string DescribeDecision(CompanionNPC companion)
+    public static string DescribeDecision(CompanionNPC companion) => DescribeDecision(companion, FormatVersion);
+
+    /// <summary>
+    /// The decision digest in the shape <paramref name="format"/> wrote it, so a replay compares a capture against the
+    /// digest it holds. Format 2 adds what the hand released this tick — weapon slot and item, the aim point to the pixel,
+    /// the target's slot and the launch — and what the bag took: its transfer count and a fingerprint of the bag and the
+    /// player's inventory after the tick. Without them a different weapon, aim or target, or a pickup that went elsewhere,
+    /// left the digest unchanged whenever the one-word fire outcome and the body's motion agreed.
+    /// </summary>
+    public static string DescribeDecision(CompanionNPC companion, int format)
+    {
+        string digest = DescribeDecisionFormatOne(companion);
+        if (format < 2) return digest;
+        string released = companion.Combat.LastRelease is { } release && release.Tick == Main.GameUpdateCount
+            ? $"{release.WeaponSlot}:{release.ItemType}:{(int)MathF.Round(release.AimPoint.X)},{(int)MathF.Round(release.AimPoint.Y)}:{release.TargetWhoAmI}:{F(release.Launch.X)},{F(release.Launch.Y)}"
+            : "-";
+        var bag = companion.Bag;
+        return $"{digest}|{released}|{bag.TransferSequence - transfersAtTickStart}:{FingerprintItems(bag.Items)}:{FingerprintItems(Main.LocalPlayer.inventory)}";
+    }
+
+    /// <summary>The bag's transfer count when the tick began, so the digest carries this tick's transfers rather than the session's.</summary>
+    private static long transfersAtTickStart;
+
+    /// <summary>Note the bag's transfer count at the top of a tick. The recorder calls it on every recorded tick; a replay,
+    /// which records nothing, calls it before each replayed tick so the two digests count transfers the same way.</summary>
+    public static void NoteTheTickStart(CompanionNPC companion) => transfersAtTickStart = companion.Bag.TransferSequence;
+
+    /// <summary>An FNV hash of every slot's type, prefix and stack, air included, so any change to what a list holds moves it.</summary>
+    private static string FingerprintItems(Item[] items)
+    {
+        uint hash = 2166136261;
+        void Mix(int value) { unchecked { hash ^= (uint)value; hash *= 16777619; } }
+        foreach (Item? item in items)
+        {
+            if (item == null || item.IsAir) { Mix(0); continue; }
+            Mix(item.type); Mix(item.prefix); Mix(item.stack);
+        }
+        return hash.ToString("x8", Invariant);
+    }
+
+    private static string DescribeDecisionFormatOne(CompanionNPC companion)
     {
         var brain = companion.Brain;
         var decided = brain.Course.Last;
@@ -789,6 +936,112 @@ public static class ReplayInputs
         return hash.ToString("x8", Invariant);
     }
 
+    /// <summary>The ten values <see cref="DescribeTile"/> writes, held raw so a pending edit's snapshot costs no text.</summary>
+    private readonly record struct TileState(ushort Type, bool Has, int Slope, bool Half, bool Actuated, ushort Wall,
+        byte LiquidAmount, int LiquidType, short FrameX, short FrameY)
+    {
+        public static TileState Read(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return default;
+            Tile tile = Main.tile[x, y];
+            return new TileState(tile.TileType, tile.HasTile, (int)tile.Slope, tile.IsHalfBlock, tile.IsActuated, tile.WallType,
+                tile.LiquidAmount, tile.LiquidType, tile.TileFrameX, tile.TileFrameY);
+        }
+    }
+
+    /// <summary>
+    /// A digest of the weapon knowledge the brain holds — the flight laws, volley shapes, learned attack models and effects
+    /// the save loaded and play has taught since — as the FNV hash of its own export and that export's length, so a replay
+    /// can say whether it began from the same belief. The export is the persistence format, so this costs one save's worth
+    /// of formatting, and it is taken only on a keyframe. The export's three revision counters are left out: they are cache
+    /// keys that every learner's reset advances rather than zeroes, so two processes holding identical knowledge disagree
+    /// on them — measured 25 September 2026, a second reproduction in one process read the same 173-character export with
+    /// different counters and a different digest.
+    /// </summary>
+    public static string DescribeKnowledge()
+    {
+        var bundle = System.Text.Json.Nodes.JsonNode.Parse(WeaponKnowledge.PersistWeaponKnowledge.ExportAll())?.AsObject();
+        foreach (string counter in new[] { "KnowledgeRevision", "OutcomeRevision", "EffectsRevision" }) bundle?.Remove(counter);
+        string exported = bundle?.ToJsonString() ?? "";
+        uint hash = 2166136261;
+        foreach (char character in exported) { unchecked { hash ^= character; hash *= 16777619; } }
+        return $"{hash:x8}.{exported.Length}";
+    }
+
+    /// <summary>Whether any bag slot's type, prefix or stack moved since the last line.</summary>
+    private static bool BagMoved(CompanionNPC companion)
+    {
+        Item[] items = companion.Bag.Items;
+        bool moved = lastBagRaw.Length != items.Length * 2;
+        if (moved) lastBagRaw = new long[items.Length * 2];
+        for (int slot = 0; slot < items.Length; slot++)
+        {
+            Item? item = items[slot];
+            long kind = item == null ? 0 : ((long)item.type << 32) | (uint)item.prefix, stack = item?.stack ?? 0;
+            if (lastBagRaw[slot * 2] == kind && lastBagRaw[slot * 2 + 1] == stack) continue;
+            lastBagRaw[slot * 2] = kind;
+            lastBagRaw[slot * 2 + 1] = stack;
+            moved = true;
+        }
+        return moved;
+    }
+
+    /// <summary>Every occupied bag slot as `slot:type:prefix:stack`, joined by `/`.</summary>
+    private static string DescribeBag(CompanionNPC companion)
+    {
+        Item[] items = companion.Bag.Items;
+        var text = new StringBuilder();
+        for (int slot = 0; slot < items.Length; slot++)
+        {
+            Item item = items[slot];
+            if (item == null || item.IsAir) continue;
+            if (text.Length > 0) text.Append('/');
+            text.Append(slot).Append(':').Append(item.type).Append(':').Append(item.prefix).Append(':').Append(item.stack);
+        }
+        return text.ToString();
+    }
+
+    /// <summary>Harness-only: the companion's bag as recorded, in <see cref="DescribeBag"/>'s shape.</summary>
+    public static void ApplyBag(CompanionNPC companion, string value)
+    {
+        if (DescribeBag(companion) == value) return;
+        var wanted = new Dictionary<int, (int Type, int Prefix, int Stack)>();
+        if (value.Length > 0)
+            foreach (string entry in value.Split('/'))
+            {
+                string[] parts = entry.Split(':');
+                wanted[ParseInt(parts[0])] = (ParseInt(parts[1]), ParseInt(parts[2]), ParseInt(parts[3]));
+            }
+        // In place, as the inventory is, so an item the bag already held keeps its identity across the replay.
+        Item[] items = companion.Bag.Items;
+        for (int slot = 0; slot < items.Length; slot++)
+        {
+            items[slot] ??= new Item();
+            Item item = items[slot];
+            if (wanted.TryGetValue(slot, out var recorded))
+            {
+                if (item.type != recorded.Type || item.prefix != recorded.Prefix)
+                {
+                    item.SetDefaults(recorded.Type);
+                    if (recorded.Prefix != 0) item.Prefix(recorded.Prefix);
+                }
+                item.stack = recorded.Stack;
+            }
+            else if (!item.IsAir) item.TurnToAir();
+        }
+    }
+
+    /// <summary>Harness-only: make a projectile slot hold the hostile shot recorded there, with only the fields the hit
+    /// prediction reads, so no content has to be loaded for its type.</summary>
+    public static void ApplyProjectile(Projectile projectile, IReadOnlyDictionary<string, string> values)
+    {
+        foreach (var field in ProjectileFields)
+            if (values.TryGetValue(field.Key, out string? value)) field.Write(projectile, value);
+        projectile.hostile = true;
+        projectile.friendly = false;
+        projectile.active = true;
+    }
+
     public static string DescribeTile(int x, int y)
     {
         if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return "0.0.0.0.0.0.0.0.0.0";
@@ -841,15 +1094,19 @@ public static class ReplayInputs
 
     // ---- encoding ----
 
-    /// <summary>Every subject's delta state forgotten, so the next line writes the whole scene.</summary>
+    /// <summary>Every subject's delta state forgotten, so the next line is a keyframe that writes the whole scene.</summary>
     private static void ForgetWhatWasWritten()
     {
-        foreach (DeltaState? state in npcStates) { state?.Forget(); if (state != null) state.Present = false; }
-        foreach (DeltaState? state in itemStates) { state?.Forget(); if (state != null) state.Present = false; }
+        foreach (DeltaState?[] states in new[] { npcStates, itemStates, projectileStates })
+            foreach (DeltaState? state in states)
+                if (state != null) { state.Forget(); state.Present = false; }
         playerState.Forget();
         worldState.Forget();
-        lastInventory = ""; lastGear = "";
-        lastInventoryRaw = Array.Empty<long>(); lastGearRaw = Array.Empty<long>();
+        lastInventory = ""; lastGear = ""; lastBag = "";
+        lastInventoryRaw = Array.Empty<long>(); lastGearRaw = Array.Empty<long>(); lastBagRaw = Array.Empty<long>();
+        lastSelf = -1;
+        lastKnowledgeRevision = int.MinValue;
+        nextIsKeyframe = true;
     }
 
     /// <summary>Append each field of <paramref name="entity"/> whose value moved since <paramref name="state"/> last wrote
@@ -878,10 +1135,15 @@ public static class ReplayInputs
             Field<T> field = fields[index];
             if (read[index])
             {
-                Span<long> rawNow = now.AsSpan(table.Offsets[index], field.RawWidth);
-                Span<long> stored = state.Raw.AsSpan(table.Offsets[index], field.RawWidth);
-                if (state.RawKnown[index] && rawNow.SequenceEqual(stored)) continue;
-                rawNow.CopyTo(stored);
+                // Element by element rather than through span slices: a changed subject walks every field here, and in an
+                // unoptimised build each slice, comparison and copy is a call — measured 25 September 2026, the sliced
+                // form made an every-entity-moving tick cost more than formatting every field had.
+                long[] stored = state.Raw;
+                int offset = table.Offsets[index], end = offset + field.RawWidth;
+                bool same = state.RawKnown[index];
+                for (int at = offset; same && at < end; at++) same = now[at] == stored[at];
+                if (same) continue;
+                for (int at = offset; at < end; at++) stored[at] = now[at];
                 state.RawKnown[index] = true;
             }
             else state.RawKnown[index] = false;
