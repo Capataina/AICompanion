@@ -66,6 +66,24 @@ public static class ReplayInputs
         // The entity's own idea of its slot, recorded rather than assumed: the census names a target by it, and an entity
         // the engine spawned through a path that never set it carries whatever the slot's last occupant left.
         new("wh", n => I(n.whoAmI), (n, v) => n.whoAmI = ParseInt(v)),
+        // The slot's spawn generation and the last shot a hostile fired, which the game's own spawn hooks feed between
+        // companion ticks (`HostileAttackSources`) and combat keys its targets and prices recent damage on. A replay that
+        // does not run those hooks is handed both; a new generation also forgets the slot's observed motion, as the
+        // spawn hook does, so a reused slot is not predicted from its last occupant's path.
+        new("gen", n => I(Observation.HostileAttackSources.Generation(n)), (n, v) =>
+        {
+            int generation = ParseInt(v);
+            if (Observation.HostileAttackSources.Generation(n) == generation) return;
+            Observation.HostileAttackSources.Spawn(n);
+            Observation.HostileAttackSources.AssumeGeneration(n, generation);
+        }),
+        new("sh", n => Observation.HostileAttackSources.ExportShot(n) is { } shot ? $"{shot.Tick}.{shot.Damage}" : "-", (n, v) =>
+        {
+            if (v == "-") { Observation.HostileAttackSources.AssumeShot(n, -1, 0, 0); return; }
+            string[] parts = v.Split('.');
+            Observation.HostileAttackSources.AssumeShot(n, Observation.HostileAttackSources.Generation(n),
+                uint.Parse(parts[0], Invariant), ParseInt(parts[1]));
+        }),
         new("x", n => F(n.position.X), (n, v) => n.position.X = ParseFloat(v)),
         new("y", n => F(n.position.Y), (n, v) => n.position.Y = ParseFloat(v)),
         new("vx", n => F(n.velocity.X), (n, v) => n.velocity.X = ParseFloat(v)),

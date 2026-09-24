@@ -84,8 +84,12 @@ internal static class RunTheReproduction
         Main.dedServ = true;
 
         // Six hundred ticks unless told otherwise, the recorded route's own default; `--ticks=0` is the whole capture.
-        string written = RecordAScene(source, world, WorldRunEntry.Int(args, "--from-tick=", 1), WorldRunEntry.Int(args, "--ticks=", 600),
-            WorldRunEntry.Value(args, "--record-to=") ?? Path.Combine(Path.GetTempPath(), "aicompanion-self-consistency", DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff", CultureInfo.InvariantCulture)));
+        // A folder this run chose is this run's to remove, and it is removed only on a pass: a failed verdict's capture is
+        // the reproduction of the failure, so it stays and the row names it. A folder the caller named is the caller's.
+        string? requestedFolder = WorldRunEntry.Value(args, "--record-to=");
+        string recordFolder = requestedFolder ?? Path.Combine(Path.GetTempPath(), "aicompanion-self-consistency",
+            DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff", CultureInfo.InvariantCulture));
+        string written = RecordAScene(source, world, WorldRunEntry.Int(args, "--from-tick=", 1), WorldRunEntry.Int(args, "--ticks=", 600), recordFolder);
         Console.WriteLine($"RECORDED {written}");
         var own = ReadReplayInputs.Read(written);
         if (own.Refusal == null)
@@ -128,8 +132,15 @@ internal static class RunTheReproduction
             EmitLedgerRows.Fail(ScoreTheRun.Instrument, consistencySuite, VerdictCase,
                 $"the reproduction process exited {process.ExitCode} without filing the verdict; its last output: {Tail(output + errors.Result)}",
                 mode: "self-consistency");
+            Console.WriteLine($"KEPT {recordFolder}, the capture the failed reproduction read");
             return 1;
         }
+        if (process.ExitCode == 0 && requestedFolder == null)
+        {
+            Directory.Delete(recordFolder, recursive: true);
+            Console.WriteLine($"REMOVED {recordFolder}, the capture this passing run recorded");
+        }
+        else Console.WriteLine($"KEPT {recordFolder}");
         return process.ExitCode;
     }
 
