@@ -62,7 +62,12 @@ play_side() {
   if [ -n "$commit" ]; then
     short=$(git rev-parse --short "$commit")
     tree="$repo/../AICompanion-compare-$short-$label"
-    git -C "$repo" worktree add --detach --force "$tree" "$commit" >/dev/null 2>&1 || { echo "compare-commits: could not check out $commit" >&2; return 1; }
+    # A run killed outright (SIGKILL, a closed terminal) cannot clean up, and its worktree then blocks this path
+    # for every later run. The path is this script's own naming scheme, so a worktree standing there is ours to
+    # remove; git refuses to add onto any other existing directory, which leaves a stranger's untouched.
+    git -C "$repo" worktree remove --force "$tree" >/dev/null 2>&1
+    git -C "$repo" worktree add --detach --force "$tree" "$commit" >"$scratch/$label.checkout" 2>&1 \
+      || { echo "compare-commits: could not check out $commit:" >&2; cat "$scratch/$label.checkout" >&2; return 1; }
     echo "$tree" >>"$scratch/worktrees"
     name="$short"
   else
@@ -83,12 +88,14 @@ play_side() {
   [ -s "$scratch/$label.trace" ] || { echo "compare-commits: $label printed no trace"; tail -20 "$scratch/$label.route"; return 1; }
 
   echo "compare-commits: $label plays the whole capture under the game's allowances with its own scene"
-  run_file=$( cd "$tree" && command dotnet Tools/Ledger/bin/Debug/net8.0/Ledger.dll begin --note "compare-commits $label" )
-  ( cd "$tree" && AIC_LEDGER_RUN="$run_file" command dotnet Tools/WorldRun/bin/Debug/net8.0/WorldRun.dll \
+  # `ledger begin` opens its file in the tree's own run store, which for the working-tree side is the
+  # repository's; the file is moved to the scratch directory at once and the rows are written there, so no
+  # exit path — an interrupt mid-run included — leaves a stray run file in the store.
+  opened=$( cd "$tree" && command dotnet Tools/Ledger/bin/Debug/net8.0/Ledger.dll begin --note "compare-commits $label" )
+  mv "$opened" "$scratch/$label.jsonl" || { echo "compare-commits: ledger begin opened no run file ($opened)" >&2; return 1; }
+  ( cd "$tree" && AIC_LEDGER_RUN="$scratch/$label.jsonl" command dotnet Tools/WorldRun/bin/Debug/net8.0/WorldRun.dll \
       --route="$capture" --world="$world" --from-tick=1 --ticks=0 --play-measures \
       --suite="compare play measures" ) >"$scratch/$label.play" 2>&1
-  cp "$run_file" "$scratch/$label.jsonl"
-  [ "$tree" = "$repo" ] && rm -f "$run_file"
   return 0
 }
 

@@ -168,9 +168,28 @@ public sealed record Run(string Path, RunHeader Header, IReadOnlyList<LedgerRow>
     /// Cases the new run measures and the baseline never held are not covered by either rule, and
     /// deliberately: that is a case being added, which must stay possible without disqualifying
     /// every ancestor in the store.
+    ///
+    /// Both rules read outer cases, never sub-rows (<see cref="EmitLedgerRows.SubRowSeparator"/>). A sub-row
+    /// belongs to the case that files it, and a red that aborts a fixture, or an audit row filed only when
+    /// something was audited, leaves a run holding fewer of its case's sub-rows than a green run did; read row by
+    /// row, that refused every green ancestor exactly on the runs a diff is for (the wave-3 review, 24 September
+    /// 2026). A run that reports the case covers its sub-rows; the case's own row still says whether it passed.
     /// </summary>
     public bool CoversRunsOf(Run candidate)
-        => !candidate.SkippedOnly.Overlaps(Reporting) && candidate.Reporting.IsSubsetOf(Reporting);
+        => !candidate.SkippedOnlyCases.Overlaps(ReportingCases) && candidate.ReportingCases.IsSubsetOf(ReportingCases);
+
+    /// <summary><see cref="Reporting"/> read by outer case: a case is reporting when any of its rows or sub-rows is
+    /// not a skip.</summary>
+    public IReadOnlySet<string> ReportingCases => reportingCases ??= Reporting.Select(OuterCase).ToHashSet(StringComparer.Ordinal);
+    private HashSet<string>? reportingCases;
+
+    /// <summary>Outer cases every one of whose rows is a skip.</summary>
+    public IReadOnlySet<string> SkippedOnlyCases => skippedOnlyCases ??= Rows.Select(Key).Select(OuterCase)
+        .Except(ReportingCases).ToHashSet(StringComparer.Ordinal);
+    private HashSet<string>? skippedOnlyCases;
+
+    internal static string OuterCase(string key)
+        => key.IndexOf(EmitLedgerRows.SubRowSeparator, StringComparison.Ordinal) is int at and >= 0 ? key[..at] : key;
 
     internal static string Key(LedgerRow row) => $"{row.Instrument}/{row.Suite}/{row.Case}";
 }

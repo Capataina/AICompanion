@@ -27,7 +27,8 @@ public sealed record PictureSummary(string Path, long Tick, int OriginX, int Ori
 ///
 /// <para><b>The legend's order is fixed and is also the order the picture paints in</b>, background to
 /// foreground: solid, platform or half block, the four liquids, air, unknown, the two trails, the region
-/// outline, the path from the orb through its steering target to its destination, the destination and the
+/// outline, a straight line from the orb to its steering target and a dashed straight line on to its destination
+/// (not the route, whose corners no schema records, so it can cross a wall the route goes round), the destination and the
 /// navigator's goal, the activity's own target, drops, hostiles, the player and the orb last so nothing
 /// hides them. Unknown terrain is grey with a diagonal hatch and never the colour of rock, because the
 /// reconstruction's two consumers want opposite things from an unknown tile and this one must not be read

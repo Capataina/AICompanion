@@ -296,6 +296,18 @@ public static class SelfTestTheStore
             { Console.WriteLine("a baseline covering fewer cases than the new run adds must still be eligible, or no case can ever be added"); failed++; }
         if (!wide.CoversRunsOf(wide))
             { Console.WriteLine("a run of identical coverage must be eligible"); failed++; }
+
+        // A red that aborts a fixture files fewer of its case's sub-rows than the green parent did; the parent must
+        // still be the baseline, because the new run reports the case. The control is a whole case gone missing.
+        string sub = EmitLedgerRows.SubRowSeparator;
+        Run greenParent = Synthetic(("a", "pass"), ("a" + sub + "row one", "pass"), ("a" + sub + "row two", "pass"), ("b", "pass"));
+        Run redChild = Synthetic(("a", "fail"), ("a" + sub + "row one", "fail"), ("b", "pass"));
+        if (!redChild.CoversRunsOf(greenParent))
+            { Console.WriteLine("a red run that filed fewer sub-rows of a case it still reports refused its green parent as a baseline"); failed++; }
+        if (Synthetic(("a", "fail"), ("a" + sub + "row one", "fail")).CoversRunsOf(greenParent))
+            { Console.WriteLine("a run missing a whole case the parent measured was accepted, so sub-rows are being read as covering their neighbours"); failed++; }
+        if (Synthetic(("a", "pass"), ("a" + sub + "row one", "pass"), ("b", "pass")).CoversRunsOf(Synthetic(("a", "pass"), ("b", "skipped"), ("b" + sub + "x", "skipped"))) )
+            { Console.WriteLine("a parent that held a whole case only as skips was accepted for a run that measures it"); failed++; }
         return failed;
     }
 
