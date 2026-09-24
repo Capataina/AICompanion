@@ -113,6 +113,16 @@ public static class ReadLiveCourseForAudit
         DecideCourseEachTick? course;
         try { course = CharacterBody.CompanionNPC.Instance?.Brain.Course; }
         catch (Exception) { return null; }
+        return ReadCourse(course);
+    }
+
+    /// <summary>
+    /// The same flattening for a course handed in rather than found on the live companion: the engine suite
+    /// builds its companions without registering the game's single instance, so its per-case audit hands the
+    /// course of the companion the case built.
+    /// </summary>
+    public static DecisionInputs? ReadCourse(DecideCourseEachTick? course)
+    {
         if (course == null) return null;
 
         var admitted = new List<CensusAdmission>();

@@ -7,6 +7,7 @@ using Audit = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.Audit
 using BoundStepForAudit = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BoundStepForAudit;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using ReadLiveCourseForAudit = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.ReadLiveCourseForAudit;
+using RecordCourseTrace = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.RecordCourseTrace;
 using StepBinding = live::AICompanion.Companion.Brain.Infrastructure.Selection.Courses.StepBinding;
 
 /// <summary>
@@ -15,14 +16,15 @@ using StepBinding = live::AICompanion.Companion.Brain.Infrastructure.Selection.C
 ///
 /// <para><b>What reaches the audit in a headless case, and what cannot.</b> The eight contract kinds come in
 /// through three doors with different locks. The six decision contracts are audited inside
-/// <c>RecordCourseTrace.Record</c>, which runs them only while <c>GodsEyeEvents.Active</c> — a recording is
-/// open — and <c>decide-overran-allowance</c> is called from the recorder's own per-tick row. So those
-/// seven are only ever counted in a case that opens a recording through <c>OpenTheRecorderOnACompanion</c>;
-/// in every other case they are structurally zero, and zero there means "not asked", never "kept". The two
-/// effect contracts need no recording, only a <c>BindingSource</c> to judge an effect against, and that is
-/// what this file supplies to every case: the step the case's companion was handed, read from the
-/// companion <see cref="VerifyCompanionLifecycle.Create"/> built last. Opening the decision audit to every
-/// case needs a harness-only seam in <c>RecordCourseTrace</c>, which is the mod's code and not this suite's.</para>
+/// <c>RecordCourseTrace.Record</c>, which in the game runs them only while a recording is open; this file sets
+/// its harness-only <c>AuditWithoutRecording</c> before every case, so every decision a case's brain records is
+/// audited whether or not the case opened a recording, against a <c>Source</c> reading the course of the
+/// companion <see cref="VerifyCompanionLifecycle.Create"/> built last (a case that built none audits with no
+/// observation, which the contracts that need one skip). <c>decide-overran-allowance</c> is still called only
+/// from the recorder's own per-tick row, so it is counted only where a case opened a recording, and it is a
+/// wall clock this suite never grades anyway. The two effect contracts need no recording, only a
+/// <c>BindingSource</c> to judge an effect against, and this file supplies that too: the step the case's
+/// companion was handed.</para>
 ///
 /// <para><b>Why not the live reader.</b> <c>ReadLiveCourseForAudit.ReadBinding</c> finds the companion by
 /// scanning <c>Main.npc</c>, and <c>Create</c> puts no body in a slot, so that reader returns "no step" for
@@ -86,6 +88,8 @@ internal static class AuditEveryCase
     {
         latest = null;
         Audit.BindingSource = ReadTheCaseCompanionsStep;
+        Audit.Source = () => latest == null ? null : ReadLiveCourseForAudit.ReadCourse(latest.Brain.Course);
+        RecordCourseTrace.AuditWithoutRecording = true;
     }
 
     private static BoundStepForAudit? ReadTheCaseCompanionsStep()

@@ -43,6 +43,15 @@ public sealed class CourseTracePayload
 public static class RecordCourseTrace
 {
     /// <summary>
+    /// Harness-only: audit every decision whether or not a recording is open. False in the game, where nothing
+    /// sets it, so a session with recording off still pays one boolean read here. The engine suite sets it
+    /// before every case, because its whole-brain fixtures mostly drive the brain with no recording open and the
+    /// contracts' counts are kept whether or not a violation is written; the audit's only output while the
+    /// recorder is off is those counts, which the suite's after-case check reads.
+    /// </summary>
+    public static bool AuditWithoutRecording { get; set; }
+
+    /// <summary>
     /// Records one course occurrence, auditing a decision against its contracts on the way through.
     ///
     /// The audit sits here rather than in the course owner because this is the seam a diagnostic is
@@ -63,7 +72,7 @@ public static class RecordCourseTrace
         // occurrence nobody would write and two payload fields on a record nobody would keep. The
         // gate is here rather than inside the audit so that the delegate hop is not paid either: a
         // session with recording disabled runs this method to a single boolean read.
-        IReadOnlyList<KeyValuePair<string, CourseTraceValue>> extra = GodsEyeEvents.Active
+        IReadOnlyList<KeyValuePair<string, CourseTraceValue>> extra = GodsEyeEvents.Active || AuditWithoutRecording
             ? AuditDecisionContracts.Observe(context, payload)
             : Array.Empty<KeyValuePair<string, CourseTraceValue>>();
         if (extra.Count > 0)
