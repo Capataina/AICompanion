@@ -22,6 +22,8 @@
     <Compile Include="ReadScenarioBlocks.cs" />
     <Compile Include="MirrorScenarioWorlds.cs" />
     <Compile Include="ExtractScenarioFromCapture.cs" />
+    <!-- Game-free, and compiled into ../SessionReport as well, which draws a tick's picture from the same reconstruction. -->
+    <Compile Include="ReconstructTerrainWindow.cs" />
     <Compile Include="VerifyMirrorExactness.cs" />
     <Compile Include="VerifyCorridorMiddle.cs" />
     <Compile Include="VerifyArrivalHolds.cs" />

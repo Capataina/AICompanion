@@ -97,66 +97,28 @@ internal static class ExtractScenarioFromCapture
             if (p.Y >= originY + height) height = p.Y - originY + 3;
         }
 
-        var glyphs = new char[height, width];
-        var known = new bool[height, width];
-        for (int y = 0; y < height; y++)
-            for (int x = 0; x < width; x++)
-                glyphs[y, x] = '#';
-
         double elapsed = double.Parse(row["wall_elapsed_ms"], CultureInfo.InvariantCulture);
         string events = Path.ChangeExtension(capture, null) + "-events.jsonl";
         if (!File.Exists(events))
             throw new FileNotFoundException($"the capture's terrain lives in {Path.GetFileName(events)}, which is not beside it");
-        int snapshots = 0;
+        // The reconstruction is shared with the session reader's tick picture (`ReconstructTerrainWindow`);
+        // what is this extractor's own is closing every unknown tile as solid, so no search routes
+        // through terrain nobody saw.
+        TerrainWindow window = ReconstructTerrainWindow.From(ReconstructTerrainWindow.ReadSnapshots(events),
+            originX, originY, width, height, elapsed, unknownGlyph: '#');
+        if (window.Malformed > 0)
+            throw new InvalidDataException($"{window.Malformed} terrain snapshot(s) at or before tick {tick} have dimensions that disagree with their payload");
+        int snapshots = window.Snapshots;
+        if (snapshots == 0)
+            throw new InvalidDataException($"no terrain snapshot written at or before tick {tick} covers the window around {start.X},{start.Y}");
+        char[,] glyphs = window.Glyphs;
+        int knownTiles = window.KnownTiles;
         // The age of the oldest snapshot that contributed a tile, because coverage says every tile
         // is *known* and not that every tile is *current*: the recorder writes a chunk only when it
         // changed since it last wrote it, so a chunk mined while nobody was near it keeps the shape
         // it had when it was last seen. A window whose oldest contributing chunk is minutes behind
         // the tick is a window that may be describing terrain that no longer existed.
-        double oldestMs = double.MaxValue, newestMs = double.MinValue;
-        foreach (string line in File.ReadLines(events))
-        {
-            // The cheap string test before the parse: the events file runs to tens of megabytes and
-            // parsing every line as JSON to discard all but four hundred of them is most of the
-            // command's wall clock.
-            if (!line.Contains("terrain-snapshot", StringComparison.Ordinal)) continue;
-            using JsonDocument document = JsonDocument.Parse(line);
-            JsonElement e = document.RootElement;
-            if (e.GetProperty("kind").GetString() != "terrain-snapshot") continue;
-            // Joined on the recorder's own stopwatch rather than on the tick, the way the native
-            // water replay joins it: the two streams are written by different producers and only the
-            // elapsed millisecond is guaranteed to mean the same thing in both.
-            double snapshotMs = e.GetProperty("wall_elapsed_ms").GetDouble();
-            if (snapshotMs > elapsed) continue;
-            int cx = (int)(e.GetProperty("pos_x").GetSingle() / 16) - originX;
-            int cy = (int)(e.GetProperty("pos_y").GetSingle() / 16) - originY;
-            var fields = e.GetProperty("detail").GetString()!.Split(';').Select(p => p.Split('=', 2))
-                .Where(p => p.Length == 2).ToDictionary(p => p[0], p => p[1]);
-            if (!fields.TryGetValue("tiles", out string? tiles)) continue;
-            int sw = int.Parse(fields["width"], CultureInfo.InvariantCulture);
-            int sh = int.Parse(fields["height"], CultureInfo.InvariantCulture);
-            if (tiles.Length != sw * sh) throw new InvalidDataException("a terrain snapshot's dimensions disagree with its payload");
-            if (cx >= width || cy >= height || cx + sw <= 0 || cy + sh <= 0) continue;
-            snapshots++;
-            oldestMs = Math.Min(oldestMs, snapshotMs);
-            newestMs = Math.Max(newestMs, snapshotMs);
-            for (int i = 0; i < tiles.Length; i++)
-            {
-                int x = cx + i % sw, y = cy + i / sw;
-                // '?' is the recorder's own mark for a tile outside the loaded world. It stays
-                // unknown, which stays solid, rather than becoming the air its glyph is not.
-                if (x < 0 || y < 0 || x >= width || y >= height || tiles[i] == '?') continue;
-                glyphs[y, x] = tiles[i];
-                known[y, x] = true;
-            }
-        }
-        if (snapshots == 0)
-            throw new InvalidDataException($"no terrain snapshot written at or before tick {tick} covers the window around {start.X},{start.Y}");
-
-        int knownTiles = 0;
-        for (int y = 0; y < height; y++)
-            for (int x = 0; x < width; x++)
-                if (known[y, x]) knownTiles++;
+        double oldestMs = window.OldestMs, newestMs = window.NewestMs;
 
         var trailInWindow = trail.Where(t => t.X >= originX && t.Y >= originY && t.X < originX + width && t.Y < originY + height).ToList();
         string name = into ?? Path.Combine("Tools", "Scenarios",
