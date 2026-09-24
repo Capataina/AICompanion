@@ -82,6 +82,8 @@ public static class ChronicleTests
             TheFrameLedgerSplitsTheUpdateAndSeparatesDrawsFromUpdates();
             TheSectionProfileIsReadAndAnOlderCaptureDeclinesByName();
             ExplainingATickPrintsWhatTheRecordHoldsAndNamesWhatItLacks();
+            APngRoundTripsThroughAStandardInflateWithEveryCrcRight();
+            ATickPictureDrawsWhatTheRecordPlacedAndLeavesTheRestUnknown();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
             Console.WriteLine($"Chronicle self-tests passed ({Ran.Count} assertion groups).{DeclaredButSilent()}");
@@ -3195,6 +3197,10 @@ public static class ChronicleTests
                     + WriteBehaviourParity.Of(session, findings, skipped)
                     // The one-tick explanation and its window form read the same damaged rows and sidecar.
                     + ExplainOneTick.Of(session, 20) + ExplainOneTick.Window(session, 0, 40);
+                // A tick's picture over the same damage: a refusal naming what is missing is the one allowed outcome
+                // besides a picture, because `--pictures` prints that refusal on the finding's line; anything else escaping is a defect.
+                string picture = Path.Combine(Path.GetTempPath(), $"aic-damaged-{Guid.NewGuid():N}.png"); files.Add(picture);
+                try { DrawTickPicture.Draw(session, 20, picture); } catch (InvalidDataException) { }
                 return (findings.ToArray(), skipped, text);
             }
             void NoContradiction(string variant, Finding[] findings)
@@ -3956,14 +3962,18 @@ public static class ChronicleTests
             {
                 Event(0, 0, "session", ""),
                 Event(1, 1, "npc-spawn", "slot=3", label: "Zombie", subject: 7, x: 1200, y: 500),
-                Event(2, 2, "decision", "scores=;course:combat=value:0.123,useful:0.456,harm:0.010,gap:0.020;"
+                // The combat census holds slot 3, which is the record's only witness that the zombie is hostile;
+                // the bunny in slot 8 is spawned and never censused, so it is placed but not called a hostile.
+                Event(2, 1, "npc-spawn", "slot=8", label: "Bunny", subject: 9, x: 900, y: 540),
+                Event(3, 2, "candidate-funnel", "counts=offered=1;entries=npc3:3@75,31:outvalued>offered[plan=1;weighted=0.5]", label: "combat"),
+                Event(4, 2, "decision", "scores=;course:combat=value:0.123,useful:0.456,harm:0.010,gap:0.020;"
                     + $"{ACensusAdmissionSurvivesItsBinder.AdmittedPrefix}combat=usable:2,unknown:1,unusable:0,reason:-;course-refused:target-capture-missing=5"),
-                Event(3, 3, "decision", "scores=;course-decision=deciding,activity=combat;"),
-                Event(4, 3, "npc-damage", "raw=8;effective=8;life-now=40", label: "Zombie", subject: 7, x: 1210, y: 505),
-                Payload(5, 4, settled: true, release: ""),
-                Payload(6, 5, settled: false, release: "course-complete"),
-                Event(7, 5, "npc-death", "slot=3", label: "Zombie", subject: 7, x: 1215, y: 505),
-                Event(8, 6, "session-end", "normal-close"),
+                Event(5, 3, "decision", "scores=;course-decision=deciding,activity=combat;"),
+                Event(6, 3, "npc-damage", "raw=8;effective=8;life-now=40", label: "Zombie", subject: 7, x: 1210, y: 505),
+                Payload(7, 4, settled: true, release: ""),
+                Payload(8, 5, settled: false, release: "course-complete"),
+                Event(9, 5, "npc-death", "slot=3", label: "Zombie", subject: 7, x: 1215, y: 505),
+                Event(10, 6, "session-end", "normal-close"),
             });
             Session session = Session.Load(tsv);
             string page = ExplainOneTick.Of(session, 4);
@@ -3985,6 +3995,9 @@ public static class ChronicleTests
             Says("centre 1100,480, half 200×100 px, so x 900..1300 and y 380..580; the orb is inside", "misread the intent region");
             Says("lookahead 1024.50,490.25", "did not print the steering target");
             Says("slot 3 Zombie at 1210,505 (npc-damage, 1 tick(s) old)", "did not place the damaged hostile by its spawn's slot");
+            Says("hostiles  1 placed", "did not count the censused zombie as the one hostile");
+            Says("other npcs 1 placed", "did not keep the never-censused bunny apart from the hostiles");
+            Says("slot 8 Bunny at 900,540 (npc-spawn, 3 tick(s) old)", "did not place the bunny where it spawned");
             Says("brain_ms 7.75", "did not print the tick's brain cost");
             Says("sections  (absent)", "printed the absent section profile as something other than absent");
             foreach (string column in new[] { "frame_ms", "sections", "tick_alloc_bytes", "cost_fence_ms", "control_source" })
@@ -3994,7 +4007,9 @@ public static class ChronicleTests
                 "--explain named a column the capture carries as absent");
 
             // The death at tick 5 retires the hostile.
-            Require(ExplainOneTick.Of(session, 5).Contains("hostiles  0 placed", StringComparison.Ordinal), "a hostile the record saw die was still placed");
+            string afterDeath = ExplainOneTick.Of(session, 5);
+            Require(afterDeath.Contains("hostiles  0 placed", StringComparison.Ordinal) && !afterDeath.Contains("Zombie at", StringComparison.Ordinal),
+                "a hostile the record saw die was still placed");
             // A tick past the last row explains the last row and says so; a tick before the first refuses.
             Require(ExplainOneTick.Of(session, 9).Contains("the capture holds no row at tick 9", StringComparison.Ordinal), "a tick past the capture was explained as if it were recorded");
             Require(ExplainOneTick.Of(session, 0).Contains("before the capture's first row", StringComparison.Ordinal), "a tick before the capture was explained");
@@ -4015,6 +4030,138 @@ public static class ChronicleTests
         {
             File.Delete(tsv);
             File.Delete(events);
+        }
+    }
+
+    /// <summary>
+    /// The PNG writer, checked against the format rather than against itself. The CRC is first held to the
+    /// published check value of the CRC-32 PNG uses (<c>"123456789"</c> → <c>CBF43926</c>) and to the IEND
+    /// chunk's constant CRC (<c>AE 42 60 82</c>), both of which are facts of the standard and not of this code;
+    /// only then is it trusted to verify every chunk. The image data is inflated by the framework's own
+    /// <see cref="System.IO.Compression.ZLibStream"/>, every scanline must open with filter byte 0, and the
+    /// pixels must come back exactly.
+    /// </summary>
+    private static void APngRoundTripsThroughAStandardInflateWithEveryCrcRight()
+    {
+        Require(EncodePng.Crc32(Encoding.ASCII.GetBytes("123456789")) == 0xCBF43926u,
+            $"the CRC-32 is not the one PNG names: check value {EncodePng.Crc32(Encoding.ASCII.GetBytes("123456789")):X8}, expected CBF43926");
+        byte[] pixels = { 255, 0, 0, 0, 255, 0, 0, 0, 255, 10, 20, 30, 40, 50, 60, 70, 80, 90 };
+        byte[] png = EncodePng.Encode(3, 2, pixels);
+        var (width, height, rgb, chunks) = DecodePngForTest(png);
+        Require(width == 3 && height == 2, $"IHDR read back as {width}×{height}, expected 3×2");
+        Require(rgb.SequenceEqual(pixels), "the pixels did not survive the round trip: " + string.Join(",", rgb));
+        Require(chunks.SequenceEqual(new[] { "IHDR", "IDAT", "IEND" }), "the chunks were " + string.Join(",", chunks));
+        Require(png[^4] == 0xAE && png[^3] == 0x42 && png[^2] == 0x60 && png[^1] == 0x82,
+            $"the IEND chunk's CRC is not the standard's AE426082: {png[^4]:X2}{png[^3]:X2}{png[^2]:X2}{png[^1]:X2}");
+        bool refused = false;
+        try { EncodePng.Encode(3, 2, new byte[5]); } catch (ArgumentException) { refused = true; }
+        Require(refused, "an RGB buffer of the wrong length was encoded rather than refused");
+    }
+
+    /// <summary>
+    /// A PNG decoded the long way: the signature, every chunk's CRC over its type and data, IHDR's fields,
+    /// the concatenated IDAT inflated, and each scanline's filter byte required to be 0 — this writer's only
+    /// filter, so anything else is the writer being wrong rather than a filter to undo.
+    /// </summary>
+    internal static (int Width, int Height, byte[] Rgb, List<string> Chunks) DecodePngForTest(byte[] png)
+    {
+        // A helper rather than a group: it throws on its own so the run's group count names only real groups.
+        static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
+        Require(png.Take(8).SequenceEqual(EncodePng.Signature), "the PNG signature is wrong");
+        int at = 8, width = 0, height = 0;
+        var chunks = new List<string>();
+        using var idat = new MemoryStream();
+        while (at < png.Length)
+        {
+            int length = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(at));
+            string type = Encoding.ASCII.GetString(png, at + 4, 4);
+            uint crc = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png.AsSpan(at + 8 + length));
+            Require(crc == EncodePng.Crc32(png.AsSpan(at + 4, 4 + length)), $"the {type} chunk's CRC does not cover its type and data");
+            chunks.Add(type);
+            if (type == "IHDR")
+            {
+                Require(length == 13, $"IHDR is {length} bytes, not 13");
+                width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(at + 8));
+                height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(at + 12));
+                Require(png[at + 16] == 8 && png[at + 17] == 2 && png[at + 18] == 0 && png[at + 19] == 0 && png[at + 20] == 0,
+                    "IHDR is not 8-bit truecolour, deflate, filter method 0, no interlace");
+            }
+            if (type == "IDAT") idat.Write(png, at + 8, length);
+            at += 12 + length;
+        }
+        idat.Position = 0;
+        using var inflated = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(idat, System.IO.Compression.CompressionMode.Decompress)) zlib.CopyTo(inflated);
+        byte[] raw = inflated.ToArray();
+        int stride = width * 3;
+        Require(raw.Length == height * (stride + 1), $"the inflated image is {raw.Length} bytes, expected {height * (stride + 1)} for {width}×{height} with a filter byte a row");
+        var rgb = new byte[width * height * 3];
+        for (int y = 0; y < height; y++)
+        {
+            Require(raw[y * (stride + 1)] == 0, $"scanline {y} opens with filter {raw[y * (stride + 1)]}, not 0");
+            Buffer.BlockCopy(raw, y * (stride + 1) + 1, rgb, y * stride, stride);
+        }
+        return (width, height, rgb, chunks);
+    }
+
+    /// <summary>
+    /// A tick's picture on a synthetic capture whose one terrain snapshot is sixteen tiles square — air above
+    /// row 34, rock from it — so the window around the bodies is part known and part not, and each pixel read
+    /// back has one right colour: the orb's centre is the orb, a known rock tile is rock, a known air tile is
+    /// air, a tile no snapshot reached is the unknown grey or its hatch and never rock, the region's left edge
+    /// is the region's outline, and the censused hostile is a hostile. The known-tile count must be the
+    /// snapshot's 256, which is what says the snapshot landed where its pixel origin puts it.
+    /// </summary>
+    private static void ATickPictureDrawsWhatTheRecordPlacedAndLeavesTheRestUnknown()
+    {
+        string Event(int seq, long tick, string kind, string detail, string label = "", float x = 0, float y = 0)
+            => JsonSerializer.Serialize(new { v = 1, seq, tick, wall_elapsed_ms = tick * 16.0, kind, subject = 0, related = "", label, channel = "",
+                pos_x = x, pos_y = y, vel_x = 0f, vel_y = 0f, expected_x = 0f, expected_y = 0f, amount = 0, detail });
+        string tiles = string.Concat(Enumerable.Range(0, 16).Select(r => new string(24 + r < 34 ? '.' : '#', 16)));
+        string tsv = Path.Combine(Path.GetTempPath(), $"aic-picture-{Guid.NewGuid():N}.tsv");
+        string events = ReadGodsEyeEvents.PathFor(tsv), png = Path.ChangeExtension(tsv, ".png");
+        try
+        {
+            File.WriteAllText(tsv, "# schema=0.44.0\n"
+                + "tick\twall_elapsed_ms\taction\tnpc_px\tplayer_px\tintent_region\tspot\tlookahead\n"
+                + "1\t16\tkeep-company\t990,500\t1100,544.00\t1050,480;100,60\t64,30\t-\n"
+                + "2\t32\tkeep-company\t995,500\t1100,544.00\t1050,480;100,60\t64,30\t-\n"
+                + "3\t48\tkeep-company\t1000,500\t1100,544.00\t1050,480;100,60\t64,30\t-\n");
+            File.WriteAllLines(events, new[]
+            {
+                Event(0, 0, "session", ""),
+                Event(1, 1, ReconstructTerrainWindow.Kind, $"width=16;height=16;clipped=0;tiles={tiles}", "local-world", 896, 384),
+                Event(2, 2, "candidate-funnel", "counts=offered=1;entries=npc4:3@66,32:outvalued>offered[plan=1;weighted=0.5]", "combat"),
+                Event(3, 4, "session-end", "normal-close"),
+            });
+            PictureSummary summary = DrawTickPicture.Draw(Session.Load(tsv), 3, png);
+            var (width, _, rgb, _) = DecodePngForTest(File.ReadAllBytes(png));
+            Rgb At(double worldX, double worldY)
+            {
+                int x = (int)(DrawTickPicture.MapLeft + (worldX / 16 - summary.OriginX) * summary.PixelsPerTile);
+                int y = (int)(DrawTickPicture.MapTop + (worldY / 16 - summary.OriginY) * summary.PixelsPerTile);
+                int i = (y * width + x) * 3;
+                return new Rgb(rgb[i], rgb[i + 1], rgb[i + 2]);
+            }
+            Rgb TileCentre(int tx, int ty) => At(tx * 16 + 8, ty * 16 + 8);
+
+            Require(summary.KnownTiles == 256, $"the picture knew {summary.KnownTiles} tiles where the one snapshot holds 256 inside the window");
+            Require(At(1000, 500) == DrawTickPicture.CompanionFill, $"the orb's centre is {At(1000, 500)}, not the orb");
+            Require(TileCentre(58, 37) == DrawTickPicture.Solid, $"a known rock tile is {TileCentre(58, 37)}, not rock");
+            Require(TileCentre(58, 26) == DrawTickPicture.Air, $"a known air tile is {TileCentre(58, 26)}, not air");
+            Rgb unknown = TileCentre(summary.OriginX + 1, 37);
+            Require(unknown == DrawTickPicture.Unknown || unknown == DrawTickPicture.UnknownHatch,
+                $"a tile no snapshot reached is {unknown}; unknown must never be drawn as rock or air");
+            Require(At(950.5, 480) == DrawTickPicture.RegionLine, $"the region's left edge is {At(950.5, 480)}, not its outline");
+            Require(At(66 * 16 + 8, 32 * 16 + 8) == DrawTickPicture.HostileFill, $"the censused hostile is {At(66 * 16 + 8, 32 * 16 + 8)}, not a hostile");
+            Require(summary.Hostiles == 1 && summary.Terrain.StartsWith("", StringComparison.Ordinal) && summary.Terrain.Contains("1 snapshot(s)", StringComparison.Ordinal),
+                "the picture's summary does not say what it drew: " + summary.Describe());
+        }
+        finally
+        {
+            File.Delete(tsv);
+            File.Delete(events);
+            File.Delete(png);
         }
     }
 

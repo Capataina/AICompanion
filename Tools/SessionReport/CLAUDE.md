@@ -87,10 +87,12 @@ dotnet $R --multirun Telemetry/<a>.tsv Telemetry/<b>.tsv      # each run keeps i
 dotnet $R --html <out>.html Telemetry/<a>.tsv Telemetry/<b>.tsv  # headless, self-contained actor scrubber
 dotnet $R --explain Telemetry/<stamp>.tsv 1820                # everything the record holds about one tick
 dotnet $R --explain Telemetry/<stamp>.tsv 1800-1830           # the ticks in a window where something a diagnosis turns on changed
+dotnet $R --picture Telemetry/<stamp>.tsv 1820 <out>.png      # one tick drawn headlessly: terrain, bodies, region, hostiles, drops, legend
+dotnet $R Telemetry/<stamp>.tsv --pictures <dir>              # the ordinary report, with a PNG per definitive and potential finding
 dotnet $R --self-test                                         # deterministic chronology parser and narration tests
 ```
 
-Exit 0 when nothing definitive was found and 1 when something was, so the run is a check and not only a report. `--explain` is a question rather than a check and exits 0 whenever it could answer, 2 when the capture or the tick argument could not be read; `Write/CLAUDE.md` carries what it prints and why each periodic source says how old it is. The one-run folder form remains a newest-run convenience. `--multirun` and `--html` expand every `.tsv` in each supplied folder, preserving first and last captures rather than silently reducing a folder to one session; an unreadable selected TSV remains in the multi-run output as unavailable coverage and makes its verdict non-clean. The sibling `<stamp>-plans.txt` is read automatically when it sits beside the `.tsv`, and its window count and reasons are tallied in the header block with the replay command that opens them.
+Exit 0 when nothing definitive was found and 1 when something was, so the run is a check and not only a report. `--explain` and `--picture` are questions rather than checks and exit 0 whenever they could answer, 2 when the capture, the tick argument or the output could not be used; `Write/CLAUDE.md` carries what it prints and why each periodic source says how old it is. The one-run folder form remains a newest-run convenience. `--multirun` and `--html` expand every `.tsv` in each supplied folder, preserving first and last captures rather than silently reducing a folder to one session; an unreadable selected TSV remains in the multi-run output as unavailable coverage and makes its verdict non-clean. The sibling `<stamp>-plans.txt` is read automatically when it sits beside the `.tsv`, and its window count and reasons are tallied in the header block with the replay command that opens them.
 
 ## The chronology says what the record saw, then labels the inference it earns
 

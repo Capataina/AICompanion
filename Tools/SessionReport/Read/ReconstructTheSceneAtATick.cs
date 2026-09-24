@@ -41,7 +41,10 @@ public sealed class TickScene
     public (float X, float Y, long Tick)? ActivityTarget { get; init; }
     public IReadOnlyList<(float X, float Y)> CompanionTrail { get; init; } = Array.Empty<(float, float)>();
     public IReadOnlyList<(float X, float Y)> PlayerTrail { get; init; } = Array.Empty<(float, float)>();
+    /// <summary>NPCs the combat census or a combat snapshot held: the record's own witness that they were hostile.</summary>
     public IReadOnlyList<Sighting> Hostiles { get; init; } = Array.Empty<Sighting>();
+    /// <summary>NPCs placed by a spawn or a damage record and never held by the combat census: critters, or hostiles the census never saw.</summary>
+    public IReadOnlyList<Sighting> OtherNpcs { get; init; } = Array.Empty<Sighting>();
     public IReadOnlyList<Sighting> Drops { get; init; } = Array.Empty<Sighting>();
     /// <summary>Hostile sightings left out because they were older than <see cref="ReconstructTheSceneAtATick.SightingHorizon"/>.</summary>
     public int StaleHostiles { get; init; }
@@ -143,6 +146,9 @@ public static class ReconstructTheSceneAtATick
         // `npc-damage` names its hostile by the spawn's generation identity and carries no slot, so the slot is
         // learned from the `npc-spawn` that minted the identity.
         var slotBySubject = new Dictionary<int, int>();
+        // The tick each slot's current occupant spawned, and the last tick the combat census or a combat snapshot held the slot.
+        var spawned = new Dictionary<int, long>();
+        var censused = new Dictionary<int, long>();
         foreach (GodsEyeEvent e in log.Events)
         {
             if (e.tick > tick) continue;
@@ -172,7 +178,11 @@ public static class ReconstructTheSceneAtATick
                         float y = int.Parse(m.Groups[5].Value, CultureInfo.InvariantCulture) * 16 + 8f;
                         seen.Add(new Sighting($"type {m.Groups[3].Value}", slot, x, y, e.tick, $"{e.label} funnel", Exact: false));
                     }
-                    if (e.label == "combat") { funnelHostiles = seen; funnelHostileTick = e.tick; }
+                    if (e.label == "combat")
+                    {
+                        funnelHostiles = seen; funnelHostileTick = e.tick;
+                        foreach (Sighting s in seen) censused[s.Slot] = e.tick;
+                    }
                     else if (e.label == "collect") { funnelDrops = seen; funnelDropTick = e.tick; }
                     break;
                 }
@@ -184,6 +194,7 @@ public static class ReconstructTheSceneAtATick
                     int slot = SlotOf(e);
                     if (slot >= 0) slotBySubject[e.subject] = slot;
                     else if (!slotBySubject.TryGetValue(e.subject, out slot)) break;
+                    if (e.kind == "npc-spawn") spawned[slot] = e.tick;
                     hostiles[slot] = new Sighting(e.label, slot, e.pos_x, e.pos_y, e.tick, e.kind, Exact: true);
                     break;
                 }
@@ -196,7 +207,7 @@ public static class ReconstructTheSceneAtATick
                 }
                 case "combat-snapshot":
                     sources.Add("combat-snapshot");
-                    foreach (Sighting s in SnapshotNpcs(e)) hostiles[s.Slot] = s;
+                    foreach (Sighting s in SnapshotNpcs(e)) { hostiles[s.Slot] = s; censused[s.Slot] = e.tick; }
                     break;
                 case "drop-sighted":
                     sources.Add("drop-sighted");
@@ -215,6 +226,7 @@ public static class ReconstructTheSceneAtATick
                 if (!hostiles.TryGetValue(s.Slot, out Sighting? known) || known.SeenTick < s.SeenTick) hostiles[s.Slot] = s;
 
         var placed = new List<Sighting>();
+        var others = new List<Sighting>();
         int stale = 0;
         foreach (Sighting s in hostiles.Values)
         {
@@ -222,7 +234,10 @@ public static class ReconstructTheSceneAtATick
             // A funnel entry older than the last funnel is a hostile the census had dropped by then.
             if (s.Source == "combat funnel" && s.SeenTick < funnelHostileTick) continue;
             if (s.Age(tick) > SightingHorizon) { stale++; continue; }
-            placed.Add(s);
+            // Hostile only if the combat census or a combat snapshot held this slot's current occupant: a spawn
+            // names squirrels, fireflies and bunnies as readily as zombies, and the record has no other witness.
+            bool hostile = censused.TryGetValue(s.Slot, out long held) && held >= spawned.GetValueOrDefault(s.Slot, long.MinValue);
+            (hostile ? placed : others).Add(s);
         }
 
         if (funnelDrops != null && tick - funnelDropTick <= SightingHorizon) drops.AddRange(funnelDrops);
@@ -237,7 +252,7 @@ public static class ReconstructTheSceneAtATick
             Companion = companion, PlayerFeet = player, Region = region, Spot = spot, Lookahead = lookahead,
             NavigatorGoal = goal, ActivityTarget = activityTarget,
             CompanionTrail = companionTrail, PlayerTrail = playerTrail,
-            Hostiles = placed.OrderBy(s => s.Slot).ToList(), Drops = standing, StaleHostiles = stale,
+            Hostiles = placed.OrderBy(s => s.Slot).ToList(), OtherNpcs = others.OrderBy(s => s.Slot).ToList(), Drops = standing, StaleHostiles = stale,
             SightingSources = sources.Count == 0 ? "none" : string.Join(", ", sources),
             Absent = absent,
         };

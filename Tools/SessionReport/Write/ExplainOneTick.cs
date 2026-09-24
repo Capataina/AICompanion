@@ -309,6 +309,10 @@ public static class ExplainOneTick
         foreach (Sighting h in scene.Hostiles)
             text.Append(string.Create(CultureInfo.InvariantCulture,
                 $"            slot {h.Slot} {h.Name} at {h.X:0},{h.Y:0} ({h.Source}, {h.Age(scene.Tick):n0} tick(s) old{(h.Exact ? "" : ", tile centre")}){Distance(h, scene)}\n"));
+        text.Append($"  other npcs {scene.OtherNpcs.Count} placed by a spawn or damage record and never held by the combat census, so not known to be hostile\n");
+        foreach (Sighting n in scene.OtherNpcs)
+            text.Append(string.Create(CultureInfo.InvariantCulture,
+                $"            slot {n.Slot} {n.Name} at {n.X:0},{n.Y:0} ({n.Source}, {n.Age(scene.Tick):n0} tick(s) old){Distance(n, scene)}\n"));
         text.Append($"  drops     {scene.Drops.Count} placed\n");
         foreach (Sighting d in scene.Drops)
             text.Append(string.Create(CultureInfo.InvariantCulture,
