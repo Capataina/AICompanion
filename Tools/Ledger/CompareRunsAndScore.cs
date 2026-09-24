@@ -215,6 +215,33 @@ public static class Scoreboard
     }
 
     private static string Format(double value, string unit) => $"{value.ToString("0.###", CultureInfo.InvariantCulture)}{(unit.Length > 0 ? " " + unit : "")}";
+    /// <summary>
+    /// Folds the first-seen rows nobody needs to read one by one — a case that passed on its first run, and every
+    /// sub-row of a case that did not fail — into one count per instrument, and returns what is still listed: every
+    /// first-seen measure of an outer case, and anything first seen failing, erroring or skipped. A case filing each
+    /// assertion as its own row put 724 first-seen rows on one scoreboard (38ae1848, 24 September 2026), 1,448 lines
+    /// in which the handful of new measures a reader wanted were unfindable; a pass seen for the first time says
+    /// only that the case exists, which the count says as well.
+    /// </summary>
+    internal static CaseChange[] FoldFirstSeen(CaseChange[] group, StringBuilder text)
+    {
+        static bool Quiet(CaseChange change) => change.After == "pass"
+            || (change.Key.Contains(EmitLedgerRows.SubRowSeparator, StringComparison.Ordinal) && change.After is not ("fail" or "error" or "skipped"));
+        var folded = group.Where(Quiet).ToArray();
+        if (folded.Length > 0)
+        {
+            var byInstrument = folded.GroupBy(change => change.Key.Split('/')[0]).OrderBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g =>
+                {
+                    int subRows = g.Count(change => change.Key.Contains(EmitLedgerRows.SubRowSeparator, StringComparison.Ordinal));
+                    int cases = g.Count() - subRows;
+                    return $"{g.Key} {cases} case(s){(subRows > 0 ? $" and {subRows} sub-row(s)" : "")}";
+                });
+            text.AppendLine($"    first seen passing, counted rather than listed: {string.Join("; ", byInstrument)}");
+        }
+        return group.Where(change => !Quiet(change)).ToArray();
+    }
+
     private static string Value(LedgerRow[] rows) => Mean(rows) is { } mean ? Format(mean, rows[0].Unit ?? "") : "no number";
 
     /// <summary>
@@ -282,6 +309,7 @@ public static class Scoreboard
                 if (group.Length == 0) continue;
                 text.AppendLine();
                 text.AppendLine($"  {Label(kind)} ({group.Length})");
+                if (kind == Change.New) group = FoldFirstSeen(group, text);
                 foreach (CaseChange change in group)
                 {
                     text.AppendLine($"    {change.Key}");

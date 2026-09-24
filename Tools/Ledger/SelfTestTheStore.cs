@@ -51,11 +51,13 @@ public static class SelfTestTheStore
             "a run's benchmark readings, tier and per-case memory cost read back as written, and none of them counts as malformed", BenchmarkAndCostRoundTrip);
         failed += EmitLedgerRows.Case(Instrument, Suite,
             "an assertion inside a case files its own row under the case, and naming that row selects the case", SubRowsFileUnderTheirCase);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "first-seen passes and sub-rows are counted on the scoreboard, and a first-seen measure or failure is still listed", FirstSeenRowsFold);
         // The last line is what verify.sh shows for this instrument, and a self-test that prints
         // nothing when it passes reads exactly like one that ran nothing.
         Console.WriteLine(failed == 0
-            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip, the quoted intervals, the sampled-measure reading, the crash guard's reach, the perf tier's paths, measures across modes, the benchmark round trip and sub-rows."
-            : $"ledger self-test: {failed} of 12 store properties failed.");
+            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip, the quoted intervals, the sampled-measure reading, the crash guard's reach, the perf tier's paths, measures across modes, the benchmark round trip, sub-rows and the first-seen fold."
+            : $"ledger self-test: {failed} of 13 store properties failed.");
         return failed;
     }
 
@@ -153,6 +155,35 @@ public static class SelfTestTheStore
         CaseChange same = Only(Scoreboard.Compare(MeasuredAs("in-suite; unbounded-allowances; alone", 2.9), MeasuredAs("in-suite; unbounded-allowances; alone", 2.7), Array.Empty<Run>()));
         if (same.Change != Change.Sampled)
             failed += Failed($"two timings taken the same way reported {same.Change} rather than a sampled delta, so the mode rule is refusing comparisons it should allow");
+        return failed;
+    }
+
+    /// <summary>A scoreboard that lists every first-seen row buries the new measures and failures a reader came for, so
+    /// passes and quiet sub-rows fold into a count per instrument; the control is that a first-seen measure, a first-seen
+    /// failing sub-row and a first-seen skip are each still listed by name.</summary>
+    private static int FirstSeenRowsFold()
+    {
+        int failed = 0;
+        string sub = EmitLedgerRows.SubRowSeparator;
+        var group = new[]
+        {
+            new CaseChange(Change.New, "engine-replay/EngineReplay/a case", "-", "pass", ""),
+            new CaseChange(Change.New, "engine-replay/EngineReplay/a case" + sub + "row one", "-", "pass", ""),
+            new CaseChange(Change.New, "engine-replay/EngineReplay/a case" + sub + "contract audit", "-", "3 violations", "first measurement"),
+            new CaseChange(Change.New, "engine-replay/EngineReplay/a case" + sub + "row two", "-", "fail", "it broke"),
+            new CaseChange(Change.New, "world-run/soak/a new cost", "-", "4.2 ms", "first measurement"),
+            new CaseChange(Change.New, "world-run/soak/a skipped case", "-", "skipped", "no world"),
+        };
+        var text = new System.Text.StringBuilder();
+        CaseChange[] listed = Scoreboard.FoldFirstSeen(group, text);
+        string[] names = listed.Select(change => change.Key.Split('/')[^1]).ToArray();
+        if (!text.ToString().Contains("engine-replay 1 case(s) and 2 sub-row(s)", StringComparison.Ordinal))
+            failed += Failed($"the folded count did not say one case and two sub-rows for engine-replay: {text}");
+        foreach (string expected in new[] { "a case" + sub + "row two", "a new cost", "a skipped case" })
+            if (!names.Contains(expected))
+                failed += Failed($"\"{expected}\" was folded into the count, where a first-seen failure, measure or skip must stay listed");
+        if (listed.Length != 3)
+            failed += Failed($"{listed.Length} row(s) stayed listed where three should: {string.Join(", ", names)}");
         return failed;
     }
 
