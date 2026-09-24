@@ -265,6 +265,11 @@ internal static class ResetProcessState
         live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Reset();
         live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.Source = null;
         live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.AuditDecisionContracts.BindingSource = null;
+        // The world's own light the sense last captured, and the area it covered: a static a fresh process holds
+        // empty. The world run found it carrying a pass's last light area into the next pass's first tick, which
+        // moved lighting's discovery by a screen of tiles and one deadline poll (Tools/WorldRun/
+        // PrepareTheHeadlessEngine.cs, 24 September 2026); a case here inherits the previous case's the same way.
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.WorldLight.Forget();
 
         // The map before the search policy, because the policy plugs a fresh world wrapper over
         // whatever map is standing, and the wrapper has to wrap the empty one.

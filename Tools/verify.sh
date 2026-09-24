@@ -351,8 +351,26 @@ done
 # thirty-three seconds. Two minutes is what this script can carry; the hour-long form is a command
 # somebody runs on purpose before a package, and `Tools/WorldRun/CLAUDE.md` carries it. The seed is fixed
 # so the same two minutes are compared from run to run; a machine with no .wld files its own skip.
+soak_capture_dir=$(mktemp -d)
 world_run "world run: soak seed 1" '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|SOAK|CAST) ' \
-  --soak --world="$world_run_world" --seed=1 --ticks=7200 --suite="soak seed 1"
+  --soak --world="$world_run_world" --seed=1 --ticks=7200 --suite="soak seed 1" --record-to="$soak_capture_dir"
+
+# A capture must reproduce its own decisions from its own recorded inputs, tick for tick: the actors, the
+# decision clock's answers, the random streams and the terrain edits it recorded, played back. Two shapes,
+# because each grades what the other cannot. The self-consistency run records ten seconds of the 22 September
+# scene with its native hostiles and replays it in a fresh process, which grades the clock, the actors and the
+# random streams; the soak's own capture, just written above, carries the bot's tile breaks and the
+# companion's torches, which grades the terrain edits. A divergence names its first tick and the input that
+# differed (Tools/WorldRun/CLAUDE.md). Together about 40 s.
+world_run "world run: self-consistency" '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|RECORDED|REPRODUCED|CHILD|REMOVED|KEPT) ' \
+  --self-consistency --route="$world_run_play_route" --world="$world_run_world" \
+  --from-tick=1 --ticks=600 \
+  --suite="self-consistency $(basename "$world_run_play_route" .tsv)@1"
+soak_capture=$(ls -1t "$soak_capture_dir"/ModSources/AICompanion/Telemetry/*.tsv 2>/dev/null | head -1)
+world_run "world run: soak self-consistency" '^(PASS|FAIL|SKIP|SKIPPED|MEASURE|REPRODUCE|REPRODUCED) ' \
+  --reproduce="${soak_capture:-$soak_capture_dir/no-soak-capture.tsv}" \
+  --world="$world_run_world" --expect-every-tick --suite="self-consistency soak seed 1"
+rm -rf "$soak_capture_dir"
 
 # The perf tier's world runs: how the brain's cost grows with load, what a smaller decision allowance costs
 # in behaviour, and the ratio of in-game to headless phase cost for the capture. All three file measures only
