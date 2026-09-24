@@ -534,13 +534,14 @@ internal static class GradeThePlayMeasures
 
         double[] decide = play.Select(t => t.DecideMs).OrderBy(v => v).ToArray();
         double[] brain = play.Select(t => t.BrainMs).OrderBy(v => v).ToArray();
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "decide cost p50", Percentile(decide, 0.50), "ms", "down", "production-clock", sampled,
+        string[] timed = { SampleTag, EmitLedgerRows.TimedTag };
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "decide cost p50", Percentile(decide, 0.50), "ms", "down", "production-clock", timed,
             message: "the course search's own phase under the game's own allowances, which is the regime a player met; not comparable to a figure taken with the allowances lifted; " + scene);
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "decide cost p99", Percentile(decide, 0.99), "ms", "down", "production-clock", sampled,
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "decide cost p99", Percentile(decide, 0.99), "ms", "down", "production-clock", timed,
             message: "as above; " + scene);
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "whole-brain cost p50", Percentile(brain, 0.50), "ms", "down", "production-clock", sampled,
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "whole-brain cost p50", Percentile(brain, 0.50), "ms", "down", "production-clock", timed,
             message: "against a 16.67 ms frame; " + scene);
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "whole-brain cost p99", Percentile(brain, 0.99), "ms", "down", "production-clock", sampled,
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "whole-brain cost p99", Percentile(brain, 0.99), "ms", "down", "production-clock", timed,
             message: "against a 16.67 ms frame; " + scene);
 
         int collections = play.Count == 0 ? 0 : play[^1].Gen2Collections - play[0].Gen2Collections;

@@ -19,7 +19,7 @@ Planning/
 
 ## The crowd row has had three diagnoses, and the third is that the instrument was the defect
 
-`planning cost on a crowd fits a frame` is the most instructive row in this folder and the one most likely to mislead a reader who finds it red. Its history, in order, because each step looked convincing:
+`attack planning on a forty-hostile crowd is measured unbounded and under the tick's own allowance` is the most instructive row in this folder, and it cannot go red any more: every figure it files is a measure, the plan count included, because each depends on how fast the machine ran. It was `planning cost on a crowd fits a frame` until 24 September 2026, and the rename started its ledger history again. Its history, in order, because each step looked convincing:
 
 ```
 e2bf53d  the row had never passed — twenty-one recorded runs, no pass — and it was measuring a
@@ -40,13 +40,21 @@ ec62a61  of the two assertions, "a cut search still returns a usable plan" faile
          as production is, and putting two untimed searches in front of them, returns twelve of
          twelve with the brain untouched. The two failures were the loop's first searches paying
          one-time costs belonging to neither production nor the deadline
+
+24 Sep   both assertions became measures under the owner's ruling that no fixture goes red because
+         something took too long. The deadline one timed the machine outright; the plan count did
+         too, because the opener costs about 12 ms cold against a 12 ms allowance on the real
+         clock, so a slow machine cuts it before it is priced. The guarantee the count stood for is
+         proven deterministically by `a useful combat opener fires while broader search is cut`
 ```
 
 A fix was built on the second diagnosis — pricing the opener against the most urgent target alone — and it moved the row from ten of twelve to eleven, which reads exactly like a fix working. It was **reverted**, because with the warm-ups in, the unnarrowed opener also reaches twelve, so the narrowing would have given up the opener being the best from-here shot in exchange for nothing. `SearchAttackPlans` carries a comment saying that narrowing is deliberately absent, because it is the first thing the next reader will propose.
 
 **The durable shape, which this tree has now paid for three times: a change measured against an instrument that is itself wrong reads as an improvement in proportion to how wrong the instrument is.**
 
-What survives all of it is a real cost that nothing here asserts: the opener is about 12 ms on a cold simulation cache, every live search on a crowd starts cold, and that is `AIC-445`. The row is about the *guarantee* and not about the cost, and conflating the two is what let a wrong cause sit on the card for a day.
+What survives all of it is a real cost: the opener is about 12 ms on a cold simulation cache, every live search on a crowd starts cold, and that is `AIC-445`. The guarantee and the cost are two questions, and conflating them is what let a wrong cause sit on the card for a day. The guarantee is proven with an operation cap and a clock that never advances, in `VerifyRetainedCombatBudget`; this row files how often it holds at forty hostiles on real time, beside what the searches cost, and a count below twelve is read against the row's own history rather than as a defect.
+
+The row carries `timed` and `perf-tier` in `../../Movement/VerifyEngineMotion.cs`'s `CaseTags`, because it is 138 s of a 232 s suite at `987319df`, almost all of it the three uncached searches of about thirty seconds each, and its subject is cost. An ordinary verify therefore skips it.
 
 ## Any timing here carries its regime, or it is not a number
 
@@ -101,13 +109,13 @@ Two assertions are deliberately *not* made in the first row, and the reason is t
 
 `VerifyCombatCourseBinding`'s row and `PlannedUseCarriesSimulatorTargetDamage` are reachable **only** through `--retained-course-combat`; neither is in the default-case table, so a whole-suite run does not exercise them.
 
-## Current state — 21 September 2026
+## Current state — 24 September 2026
 
-Every case in this folder passes. `planning cost on a crowd fits a frame` is green for the first time in its life after `185a567` — twelve of twelve producing a plan with the brain untouched — and its entire production diff that day was fourteen lines of comment.
+Every case in this folder passes, and none of them asserts on wall-clock time. The crowd row became green for the first time in its life after `185a567` (twelve of twelve producing a plan with the brain untouched, and a production diff of fourteen lines of comment), and on 24 September 2026 it stopped having a verdict at all: its cached, uncached and under-allowance searches and its plan count are measures filed through `../../EmitTimingMeasures.cs`, under the new name above.
 
 ## Planned work
 
-`VerifyAttackPlanning.cs` is 1,549 lines, about nine times this suite's median file and roughly four times what one reading holds, and it is the largest split candidate in the combat tree. The boundary it would follow is already visible in the file: the eight scene rows that name a plan shape, the front and weights rows that touch no scene at all, and the cost rows whose whole subject is the harness's own regime. It is code, and nothing under this tree edits code, so this is a plan rather than an edit. A later session must move the nineteen `RunOneRow.Case` registrations in `Tools/EngineReplay/Program.cs`'s `AttackPlanning()` and the eleven entries in `Tools/EngineReplay/Movement/VerifyEngineMotion.cs`'s default-case table, keep every case *name* byte-identical so the ledger's baseline still matches, and re-check the abort ordering — the cost rows currently sit where they do because a red on something filed goes last.
+`VerifyAttackPlanning.cs` is 1,532 lines, about nine times this suite's median file and roughly four times what one reading holds, and it is the largest split candidate in the combat tree. The boundary it would follow is already visible in the file: the eight scene rows that name a plan shape, the front and weights rows that touch no scene at all, and the cost rows whose whole subject is the harness's own regime. It is code, and nothing under this tree edits code, so this is a plan rather than an edit. A later session must move the nineteen `RunOneRow.Case` registrations in `Tools/EngineReplay/Program.cs`'s `AttackPlanning()` and the eleven entries in `Tools/EngineReplay/Movement/VerifyEngineMotion.cs`'s default-case table, keep every case *name* byte-identical so the ledger's baseline still matches, and carry each name's `CaseTags` entry with it, since a tag keyed on a name the table no longer holds throws at the first lookup.
 
 ## Cross-folder
 

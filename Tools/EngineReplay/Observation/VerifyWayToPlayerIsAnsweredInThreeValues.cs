@@ -245,10 +245,13 @@ internal static class VerifyWayToPlayerIsAnsweredInThreeValues
         double P(List<double> values, double share) { var sorted = values.OrderBy(v => v).ToList(); return sorted[Math.Min(sorted.Count - 1, (int)(sorted.Count * share))]; }
         const string mode = "production-allowances";
         const string name = "the way to the player is resumed until it is answered and never read as a proof before it is";
-        EmitLedgerRows.Measure(Instrument, Suite, name + ": worst tick, ms, as built", now.Max(), "ms", "lower", mode);
-        EmitLedgerRows.Measure(Instrument, Suite, name + ": 90th percentile tick, ms, as built", P(now, 0.9), "ms", "lower", mode);
-        EmitLedgerRows.Measure(Instrument, Suite, name + ": worst tick, ms, rebuilt to exhaustion", before.Max(), "ms", "lower", mode);
-        EmitLedgerRows.Measure(Instrument, Suite, name + ": 90th percentile tick, ms, rebuilt to exhaustion", P(before, 0.9), "ms", "lower", mode);
+        // "down" is the direction the scoreboard reads; this row said "lower" until 24 September 2026, which
+        // the scoreboard prints as a measure with no direction declared good.
+        string[] timed = { EmitLedgerRows.TimedTag, EmitLedgerRows.SampledTag };
+        EmitLedgerRows.Measure(Instrument, Suite, name + ": worst tick, ms, as built", now.Max(), "ms", "down", mode, timed);
+        EmitLedgerRows.Measure(Instrument, Suite, name + ": 90th percentile tick, ms, as built", P(now, 0.9), "ms", "down", mode, timed);
+        EmitLedgerRows.Measure(Instrument, Suite, name + ": worst tick, ms, rebuilt to exhaustion", before.Max(), "ms", "down", mode, timed);
+        EmitLedgerRows.Measure(Instrument, Suite, name + ": 90th percentile tick, ms, rebuilt to exhaustion", P(before, 0.9), "ms", "down", mode, timed);
         Console.WriteLine($"MEASURE way to the player cost, walking 6 px/tick on Free under the live deadline: as built worst {now.Max():0.00} ms, p90 {P(now, 0.9):0.00} ms, median {P(now, 0.5):0.00} ms; "
             + $"rebuilt to exhaustion worst {before.Max():0.00} ms, p90 {P(before, 0.9):0.00} ms, median {P(before, 0.5):0.00} ms, rebuilt on {rebuilds} of 600 ticks, stopped short of exhaustion on {stoppedShort}");
     }
