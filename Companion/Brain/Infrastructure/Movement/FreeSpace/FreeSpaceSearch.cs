@@ -219,7 +219,8 @@ public sealed class FreeSpaceSearch
             }
             if (closed.Count >= NodeLimit) return Finish(StopReason.NodeLimit);
             if (spent >= expansionBudget) { Stop = StopReason.ExpansionBudget; return false; }
-            if (deadline != 0 && System.Diagnostics.Stopwatch.GetTimestamp() >= deadline) { Stop = StopReason.Deadline; return false; }
+            // Asked through the decision clock, so a replay of a recorded session cuts this search at the same expansion.
+            if (deadline != 0 && Selection.Computation.DecisionClock.Passed(deadline)) { Stop = StopReason.Deadline; return false; }
         }
         return Finish(StopReason.Exhausted);
     }

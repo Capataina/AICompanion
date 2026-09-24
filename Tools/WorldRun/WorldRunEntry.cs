@@ -106,6 +106,15 @@ internal static class WorldRunEntry
             return costFailures == 0 ? 0 : 1;
         }
 
+        // A capture played back as its own inputs, or a capture this run writes and then plays back: both are
+        // RunTheReproduction's, which owns the rows, the refusals and the two passes.
+        if (Value(args, "--reproduce=") is not null || args.Contains("--self-consistency"))
+        {
+            int reproductionFailures = RunTheReproduction.Run(args);
+            PrintEmittedRows();
+            return reproductionFailures == 0 ? 0 : 1;
+        }
+
         if (capture == null && scenario == null) { Usage(); return 2; }
 
         // A committed scenario as a checkpoint. The scenario is in the repository, so only the world
@@ -380,7 +389,7 @@ internal static class WorldRunEntry
     internal static string? Value(string[] args, string flag)
         => args.FirstOrDefault(a => a.StartsWith(flag, StringComparison.Ordinal)) is { } found ? found[flag.Length..] : null;
 
-    private static int Int(string[] args, string flag, int fallback)
+    internal static int Int(string[] args, string flag, int fallback)
         => Value(args, flag) is { } text ? int.Parse(text, CultureInfo.InvariantCulture) : fallback;
 
     private static void Usage()
@@ -419,6 +428,18 @@ internal static class WorldRunEntry
               --hostile-motion=native|synthetic
                                       how a placed hostile moves; native is the game's own
                                       NPC.UpdateNPC and synthetic is a straight walk at the player
+              --reproduce=<capture>   a schema 0.49.0+ capture played back as its own inputs: every
+                                      actor, the player, the clock's answers and the random state put
+                                      back per tick, the companion's decisions compared with the
+                                      recorded ones; files the share reproduced (a measure)
+              --self-consistency      record --route's scene with the mod's recorder, then reproduce
+                                      that capture in a fresh process; the verdict is every tick
+              --drop-input=<name>     leave one input out of a reproduction: actors, clock, random,
+                                      light, player or edits
+              --print-reproduction    one line per reproduced tick: same, or what differed
+              --passes=N              with --reproduce: reproduce N times in this one process, which
+                                      is where state surviving the harness's reset shows
+              --expect-every-tick     file the self-consistency verdict rather than the share
 
             Three cost modes, each filing measures only (no time is a pass line):
               --load-ladder           the seeded bot held at 0, 5, 10, 20 and 40 zombies near him, each

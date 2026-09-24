@@ -351,6 +351,13 @@ internal static class PrepareTheHeadlessEngine
         live::AICompanion.Companion.Progression.CompanionExperience.DefaultEnemyLife = live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLifeInThisWorld;
         live::AICompanion.Companion.Progression.CompanionExperience.NormalEnemyLife = () => live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLife(Terraria.DataStructures.GameModeData.NormalMode);
         live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.CompanionTorches.Clear();
+        // The world's own light the sense last captured, and the area the engine had scanned — which the game forgets
+        // on world unload and this host never unloads a world. Left standing, a second pass's first tick read the first
+        // pass's last light area as its coverage, so lighting's discovery scanned a screen of tiles the fresh pass did
+        // not, polled the deadline once more and was cut one operation sooner: measured 24 September 2026, a capture
+        // reproduced 300 of 300 on the first pass in a process and 296 of 300 on every later pass, diverging at its
+        // first tick, until this line.
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.WorldLight.Forget();
         // The audit's per-session memory, cleared for the same reason as everything above it: its two
         // counts and its fact ages are static, so a second pass would inherit the first's and the row
         // that grades them would read two runs summed. The recorder's own OnWorldLoad clears it too,

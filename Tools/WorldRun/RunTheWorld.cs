@@ -31,7 +31,7 @@ internal static class RunTheWorld
     /// than the screen would light places the live game never lit and make the run's light field
     /// more generous than the one the capture was recorded under.
     /// </summary>
-    private const int LightHalfWidth = 80, LightHalfHeight = 60;
+    internal const int LightHalfWidth = 80, LightHalfHeight = 60;
 
     /// <summary>
     /// What the combat variant saw, per tick. The zombie is the instrument's own staging — frozen,
