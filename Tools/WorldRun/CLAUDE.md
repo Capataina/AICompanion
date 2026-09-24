@@ -11,21 +11,25 @@ WorldRun/
 ├─ CLAUDE.md                    this guide
 ├─ WorldRun.csproj              the mod under the `live` alias, plus the ledger's row writer as a source file
 ├─ Program.cs                   library resolution and the save-path redirect, before anything touches Main
-├─ WorldRunEntry.cs             the flag table, the skip paths, the play-measures command, and what one run prints
+├─ WorldRunEntry.cs             the flag table, the skip paths, the play-measures command, the three cost modes' dispatch, and what one run prints
 ├─ LoadTheSavedWorld.cs         a real .wld into Main.tile, without the loader machinery
 ├─ PrepareTheHeadlessEngine.cs  tile tables, loader hooks, entity and string tables, the light engine, the companion and its engine slot, the mod instance, the reset
 ├─ ReadRecordedRoute.cs         a capture read as a player track, two declared kits, and the header's settings line
 ├─ ReadRecordedActors.cs        the same capture's events sidecar read as a cast: hostiles, drops, settings, the last credited kill
-├─ StageRecordedActors.cs       that cast put into the world and taken out of it, and how a placed hostile moves
+├─ StageRecordedActors.cs       that cast put into the world and taken out of it, how a placed hostile moves, the drops the run's companion took, and the ladder's leash
 ├─ ApplyTheRecordedPreferences.cs  the companion's settings taken from the session rather than from this process
 ├─ AttachTheRecorder.cs         the mod's own recorder and the audit's installer, writing a capture marked synthetic where no reader of real ones looks
-├─ RunTheWorld.cs               the tick loop, what it records about every tick, and the per-tick decision record the play measures read
+├─ RunTheWorld.cs               the tick loop, what it records about every tick, and the per-tick decision record the play measures and the cost modes read — phase clocks and the brain's own allocation included
 ├─ CountTheFrozenObservationByKind.cs  what the observation is made of per decision and where its light sites are — a file when AIC_FACT_KINDS names one, and a graded window row either way
 ├─ RunTheScenario.cs            a committed scenario window played in its world: the grid checked against the tiles, the orb flown to a standing player
 ├─ ScoreTheRun.cs               determinism, the recorded comparison, the checkpoint matrix
 ├─ GradeThePlayMeasures.cs      the verdicts, their floors and refusals to grade, the growth verdict over the replay's own decisions, and the measures over one production-clock pass
 ├─ DriveASeededScene.cs         a player nobody recorded: a seeded bot walking, stopping and mining, and the cast built from its own track
 ├─ RunTheSoak.cs                the long run's own tick loop, sampled once per decision, and the three verdicts it grades
+├─ RunTheLoadLadder.cs          the brain's cost at 0 to 40 hostiles near the player and in a dense cave, and the exponent of its growth
+├─ RunTheBudgetCurve.cs         the play-measures scene at several decision allowances, behaviour beside cost
+├─ RunTheCalibration.cs         a capture's in-game phase timings over the same capture's headless ones, per phase
+├─ SummariseCostDistributions.cs  nearest-rank percentiles, spreads over repeats, the log-log fit and the machine's load
 └─ ExploreWithoutTheTrack.cs    Go-Explore over body poses, with the reach sense as the progress score
 ```
 
@@ -374,6 +378,67 @@ dotnet run -p:UseAppHost=false --project Tools/WorldRun -- --soak \
 ```
 
 `sh Tools/verify.sh` runs the two-minute form at seed 1 and files its rows into the run like any other. Two things the soak deliberately does not cover: the bot does not fight, build, use an item or go underground, so a behaviour it cannot perform is a behaviour the soak says nothing about; and there is no determinism row, because the command keeps the production clock and two passes under a wall clock are two afternoons.
+
+## Three cost modes answer what a play cannot be asked, and none of them files a verdict
+
+The owner ruled on 24 September 2026 that no time is a pass line and that a spike is relative to the run it happened in, so these three commands file measures and nothing else — every timing tagged `timed` and `sampled`, every behaviour share `sampled`, and all of them `perf-tier`, because each costs minutes of the machine and belongs in verify's perf tier rather than beside every commit. All three keep the production clock, so every figure is a draw rather than a property of the tree, and a figure without the machine's load beside it is not comparable with anything: each run prints the kernel's load averages before and after, and every row carries them.
+
+**All three reuse `RunTheWorld.Play` rather than adding a tick loop**, which is the reason `PlayTick` carries the brain's other phase clocks (`SensesMs`, `ReflexMs`, `PositionMs`, `NavigateMs`, `FinaliseMs`, `FloodMs`), the route search's time (`PlanMs`, taken only when `TakeThePlanPhase` is on, because `Navigator.TakePlanMs` zeroes what it returns and the recorder takes it first on any recorded run), the threat sense's own count, and the bytes the thread allocated inside `companion.AI()` and the body's move — bracketed there and nowhere wider, because the trace line and the refusal copy the loop builds allocate more than the brain does. The soak's reason for a separate loop was per-tick retention over an hour; a rung of twelve hundred ticks and a replay of 2,340 retain nothing that matters. Two readings of the phase columns trip people: `flood_ms` is the last reach-flood slice's cost and repeats on ticks that ran none, exactly as the recorder's column does, and a phase's p50 is often zero because it runs on a minority of ticks.
+
+```
+dotnet run -p:UseAppHost=false --project Tools/WorldRun -- --load-ladder --world=<path>.wld
+                                       [--seed=N] [--ticks=<per rung>] [--rungs=0,5,10,20,40] [--no-cave] [--suite=<name>]
+dotnet run -p:UseAppHost=false --project Tools/WorldRun -- --budget-curve --route=<capture.tsv> --world=<path>.wld
+                                       [--allowances=2,4,8,12] [--repeats=N] [--ticks=0] [--suite=<name>]
+dotnet run -p:UseAppHost=false --project Tools/WorldRun -- --calibrate=<capture.tsv> --world=<path>.wld
+                                       [--ticks=0] [--record-to=<dir>] [--suite=<name>]
+```
+
+**The load ladder asks how the brain's cost grows with the number of hostiles near the player.** One seeded scene — `DriveASeededScene`'s bot, its track drawn once and replayed by every rung, with its tile breaks dropped because terrain churn is the soak's question — is held at 0, 5, 10, 20 and 40 vanilla zombies placed beside him on the first tick and kept alive for the rung, since nothing here deals damage. The rungs double above five so the log-log fit is spaced evenly and the forty rung, a large event crowd, is five rungs away rather than nine. A zombie walks a pixel a tick and the bot three, so the stage's leash (`StageRecordedActors.LeashPixels`, 600 px, which is the ten-second horizon README's fight scenes want a fight inside) puts a straggler back beside him, and the rows carry the re-placements and the load the threat sense actually held, because a rung is named for what it staged and measured by what it delivered. Every rung runs twice, ascending then descending, in a freshly reloaded world with a freshly attached companion after a forced collection, behind one discarded warm-up rung, because this process runs slower per operation the longer it lives and an ascending-only ladder would credit that drift to the load. Per rung it files the whole brain's p50, p95, p99, max and mean, every phase's p50 and p99, the brain's allocation per tick at the mean and p99, and the gen-2 collections; across rungs, the cost per added hostile between neighbours and the exponent of the marginal cost — the least-squares slope of log(cost(N) − cost(0)) on log(N), on the mean because costs add, and at p99 beside it because a spike is what a player feels. **The dense-cave rungs** stand a player still in the pocket underground near the spawn whose screen-sized surroundings are closest to 55 % solid, at zero and ten hostiles, the ten placed only where a zombie's body fits in air; the surface bot never leaves the surface, and the play that motivated the profiler was a descent. What it cannot say: the bot does not fight, mine or go underground, hostiles never die, and a zombie is one AI among hundreds.
+
+**The budget curve asks what a smaller decision allowance costs in behaviour.** It replays the play-measures scene — the 22 September capture's own hostiles, drops and settings under the game's own clock — once per allowance per repeat, at 2, 4, 8 and the production 12 ms by default, and files per allowance the share of wanted-fight ticks the companion was not fighting on, the empty-course share, orders refused per tick, the drops the companion collected (`StageRecordedActors.DropsTakenByTheRun`: a placed drop gone before the recording's own pickup, which only the companion can cause in a host that runs no item update), decide and whole-brain p50 and p99, the share of ticks whose decide phase outran the allowance, and gen-2 collections. It grades none of the play-measures verdicts, because at 2 ms they go red by the question's own premise. The allowance moves through `TickAllowance.OverrideMilliseconds` (`Companion/Brain/Infrastructure/Selection/Computation/CLAUDE.md` owns why one seam reaches the whole decision), and the 12 ms point runs with the override *unset*, so it is the mod's own default path; the run's `ALLOWANCE` line prints every reader's figure at the default and under each override, which is the proof the seam is inert when unset. The order alternates ascending and descending across repeats for the ladder's reason, behind a discarded 300-tick warm-up, because the first smoke run put the 2 ms point first and its worst decide tick was 227 ms of compilation. One reader does not move: the overrun audit's ceiling still reads the tunable, so `decide-overran-allowance` records under an override are judged against 12 + 8 ms, and no row here reads them.
+
+**The calibration asks what a headless number means in the game.** It replays a capture through the play-measures path with the mod's own recorder attached, then reads the phase columns — `senses_ms`, `reflex_ms`, `decide_ms`, `position_ms`, `navigate_ms`, `plan_ms`, `flood_ms`, `finalise_ms` and `brain_ms`, by header name — out of both the capture and the synthetic one the replay wrote, and files per phase the ratio in-game over headless at p50 and p99. Both sides come from the same recorder code, so a column means the same thing on each; a harness reading the brain's fields itself would be a second producer. **It compares distributions and never ticks**, because the replay diverges from the play within a hundred ticks, and over the ticks each phase *ran* on each side (above zero at the recorder's two decimals), because a median over mostly idle ticks is the median of the zeros; a p50 ratio needs twenty such ticks a side and a p99 ratio a hundred, and below that the row is a skip naming the counts. What no ratio here carries: rendering, other mods and the game's own update are absent from the headless side and the frame column has no counterpart, so the ratio converts a brain figure and never a frame; the in-game side ran the build that was played and the headless side this tree, so a phase whose work changed between them reads as a change of speed; and a deadline-bounded phase — decide, the route search, the reach flood — has its tail pinned near the allowance on both sides, so its p99 ratio says little about the machine and the unbounded phases carry the conversion. The in-game capture's header does not record its process architecture; the root guide sampled the game running x86-64 under Rosetta on this machine, and the headless row prints its own.
+
+**The first figures, 24 September 2026, on this lane's tree off `5d04dcb8`, with the diagnostics lane building on the same machine throughout (load averages 5.3 to 7.5).** They are draws, and the load is the first thing to read beside them.
+
+```
+budget curve, 22 Sep capture, 2 runs per allowance, 150 s
+allowance   brain p50   brain p99   decide p50   not fighting   empty course   drops taken   decide over allowance
+  2 ms        2.72        15.4        0.90         100 %           20.7 %         0 of 2          27.4 %
+  4 ms        4.56        14.4        2.25         100 %           38.2 %         1 of 2          34.1 %
+  8 ms        8.47        17.2        5.68        89.3 % (97, 82)  41.1 %         2 of 2          29.1 %
+ 12 ms       12.11        26.0        8.23        73.1 % (70, 76)  39.9 %         2 of 2          23.7 %
+```
+
+**The whole brain's p50 is the allowance plus about half a millisecond at every point**, which is the curve's main finding: a decision loops on its budget until the budget is gone (the Computation guide's "a budget bounds a decision, not a round of it"), so on this scene the brain's median cost is a setting rather than a measure of work, and cutting the allowance buys frame time one for one. What it costs is fighting: under 8 ms the companion never fights a wanted fight on this capture, and a drop goes uncollected at 4 ms and both at 2. **The decide phase outran its allowance on a quarter to a third of ticks at every point**, by whatever a slice already under way carries past the deadline, which is where a decide p99 of 19 ms under a 12 ms allowance comes from; the Computation guide's stride note names the mechanism and this is the first measurement of how often it bites. The 12 ms point, run with the override unset, printed every reader at 12 ms; under each override the tick read the override and the audit still read 12, as designed.
+
+```
+load ladder, seed 1, 1,200 ticks a rung, both passes, two ladders about ten minutes apart (202 s and 209 s)
+rung              brain mean       brain p99        allocation per tick   gen-2 per pass
+surface   0       8.77 / 8.53      15.9 / 15.7      0.70 / 0.77 MB        0.5 / 0.5
+surface   5       8.36 / 8.79      17.9 / 17.4      0.60 / 0.68 MB        1.5 / 3
+surface  10       8.52 / 8.79      16.6 / 17.3      0.64 / 0.64 MB        2 / 2.5
+surface  20       9.89 / 10.75     18.0 / 23.0      0.74 / 0.77 MB        3 / 4.5
+surface  40      11.65 / 12.30     22.4 / 31.5      0.90 / 0.83 MB        6.5 / 7
+cave      0      12.47 / 13.66     33.5 / 34.5      1.39 / 1.56 MB        1 / 3
+cave     10      14.28 / 13.40     48.4 / 43.5      1.32 / 1.34 MB        3 / 6
+milliseconds per brain tick; each cell is ladder one / ladder two, each the mean of that ladder's two passes
+```
+
+**Load costs the brain little on the surface and terrain costs it a lot underground.** Above ten hostiles each added one costs 0.08 to 0.20 ms of mean brain time; below ten the empty rung cost *more* than five and ten on the first ladder, because the decision fills its allowance whatever is in the world, so the marginal exponent skipped there and fitted 1.46 (r² 0.86) on the second — a figure that moves between skip and fit on two ladders ten minutes apart is not yet a property of the brain. The elasticity is the stable reading — 0.174 filed by the second ladder and 0.165 from the first ladder's means under the same fit, which that ladder predates — 0.17 on the mean, a fixed cost that forty zombies raise by about 40 %, and 0.30 at p99, where forty hostiles took the tail from 17 to between 22 and 31 ms. **The allocation is the figure to take to the profiler**: 0.6 to 0.9 MB per brain tick on the surface and 1.3 to 1.6 MB in the cave, which at sixty ticks a second is 36 to 94 MB a second through the collector — the brain's own bytes, bracketed around its update and nothing else. The cave's p50 sits on the allowance and its p99 at 33 to 48 ms, two to three frames, with no hostile needed. This mode's own per-tick sampling costs 10 to 11 ns.
+
+```
+calibration, 22 Sep capture (0.38.13, source revision unrecorded) against its headless replay at 4f491110
+phase      in-game / headless p50            p99
+senses     0.43 / 1.25 ms   0.34            3.30 / 9.64 ms   0.34
+decide     8.45 / 8.55 ms   0.99           42.95 / 24.52 ms  1.75
+brain     10.11 / 12.24 ms  0.83           43.26 / 31.10 ms  1.39
+```
+
+**These ratios are not yet a conversion factor, and the calibration says so in every row.** The capture was played on 0.38.13 and the replay ran this tree, and between them the frozen observation stopped leaking and the light census was bounded, so a senses phase three times dearer headlessly and an in-game decide tail twice the headless one are the builds differing as much as the hosts. Two runs of the calibration twenty minutes apart moved the brain p99 ratio from 1.85 to 1.39, so its tail is a draw as well. Seven of the eighteen ratios skip on the recorder's resolution (a phase at 0.01 ms is one quantum; the first version filed a reach-flood ratio of 200 for 2.00 over 0.01) or on too few ticks run. The conversion factor exists from the first capture of this tree played in the game, and the row's message names both source revisions so a reader can tell which kind of ratio it is holding.
+
+**Where section-level numbers slot in once the diagnostics lane's profiler lands.** The ladder reads phases through the `Phases` table in `RunTheLoadLadder.cs` off `PlayTick`, so a per-section figure is a field read off that lane's per-tick snapshot beside the phase clocks in `RunTheWorld` and a line in the table. The calibration reads columns by name from `RunTheCalibration.Phases`, so section columns the recorder writes are a name each in that list, and are compared the moment an in-game capture carries them too — which no capture taken before the profiler can.
 
 ## Running it
 

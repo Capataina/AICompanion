@@ -85,6 +85,32 @@ internal sealed class StageRecordedActors
     /// that claims the whole cast while three of eighteen actors stand in the world is a row nobody
     /// can weigh.
     /// </summary>
+    /// <summary>
+    /// How many placed drops left the world before the recording's own pickup took them, which in this
+    /// host can only be the run's companion collecting them: no item update runs here, so nothing
+    /// despawns a drop and no player code picks one up. A partial stack left lying is not counted.
+    /// </summary>
+    public int DropsTakenByTheRun { get; private set; }
+
+    /// <summary>
+    /// How far a placed hostile may stray from the player before it is put back beside him, in pixels, or
+    /// null to leave it wherever its own AI took it — which is every recorded scene.
+    ///
+    /// It exists for the load ladder, whose question is what the brain costs with N hostiles near the
+    /// player. A zombie walks a pixel a tick and the bot three, so without it a rung staged at forty would
+    /// deliver forty hostiles strung out behind a walking player and the rung would measure a smaller
+    /// fight than it names. A re-placement is staging and is counted in <see cref="LeashReplacements"/>.
+    /// </summary>
+    public float? LeashPixels { get; set; }
+
+    /// <summary>How many times the leash put a hostile back beside the player.</summary>
+    public int LeashReplacements { get; private set; }
+
+    /// <summary>Where a leashed hostile is put back, from a fixed seed so two rungs of one ladder re-place alike.</summary>
+    private Random leashOffsets = new(LeashSeed);
+    private const int LeashSeed = 0x1EA5;
+    private readonly List<int> takenThisTick = new();
+
     public string Describe()
         => $"{PlacedHostiles} of {cast.Hostiles.Count} recorded NPCs and {PlacedDrops} of {cast.Drops.Count} recorded drops placed from the events sidecar at their own ticks, slots and positions"
         + (PlacedAlreadyAlive > 0
@@ -120,6 +146,9 @@ internal sealed class StageRecordedActors
         PlacedHostiles = 0;
         PlacedDrops = 0;
         PlacedAlreadyAlive = 0;
+        DropsTakenByTheRun = 0;
+        LeashReplacements = 0;
+        leashOffsets = new Random(LeashSeed);
         openedAt = null;
     }
 
@@ -171,6 +200,18 @@ internal sealed class StageRecordedActors
                 npc.life = 0;
                 npc.active = false;
             }
+        }
+
+        // A placed drop gone before the recording took it was taken by the run's companion, and it is
+        // forgotten here so the recording's own retirement later cannot reach into its item slot — which
+        // by then may hold a different drop placed into the freed slot.
+        takenThisTick.Clear();
+        foreach ((int recordedSlot, int itemSlot) in dropSlots)
+            if (!Main.item[itemSlot].active) takenThisTick.Add(recordedSlot);
+        foreach (int recordedSlot in takenThisTick)
+        {
+            dropSlots.Remove(recordedSlot);
+            DropsTakenByTheRun++;
         }
 
         foreach (ReadRecordedActors.Drop drop in cast.Drops)
@@ -250,6 +291,22 @@ internal sealed class StageRecordedActors
             Vector2 toward = player.Center - npc.Center;
             if (toward.LengthSquared() > 1f)
                 npc.position += Vector2.Normalize(toward) * SyntheticPacePixelsPerTick;
+        }
+        if (LeashPixels is { } leash) KeepThemNear(player, leash);
+    }
+
+    /// <summary>Puts every placed hostile further than the leash back beside the player, six to twenty
+    /// tiles to one side at his feet's height, which is where the soak's cast places a zombie too.</summary>
+    private void KeepThemNear(Player player, float leash)
+    {
+        foreach (int slot in staged)
+        {
+            NPC npc = Main.npc[slot];
+            if (!npc.active || Vector2.DistanceSquared(npc.Center, player.Center) <= leash * leash) continue;
+            float side = leashOffsets.Next(2) == 0 ? -1f : 1f;
+            npc.Center = player.Bottom + new Vector2(side * (6 + leashOffsets.Next(15)) * 16f, -24f);
+            npc.velocity = Vector2.Zero;
+            LeashReplacements++;
         }
     }
 

@@ -66,6 +66,46 @@ internal static class WorldRunEntry
             return soakFailures == 0 ? 0 : 1;
         }
 
+        // The three cost modes. Each files measures only — the owner's ruling of 24 September 2026 is that
+        // no time is a pass line — and each is a command someone runs on purpose, reached from verify only
+        // through its perf tier, because each costs minutes of the machine.
+        if (args.Contains("--load-ladder"))
+        {
+            if (MissingWorld(world, Value(args, "--suite=") ?? "load ladder", "brain cost per tick by hostiles near the player") is { } skipped) return skipped;
+            Main.dedServ = true;
+            int ladderFailures = RunTheLoadLadder.Run(world!, Int(args, "--seed=", 1),
+                Value(args, "--ticks=") is null ? RunTheLoadLadder.DefaultDwellTicks : ticks,
+                Value(args, "--rungs=") is { } rungs ? Numbers(rungs, "--rungs=").Select(r => (int)r).ToArray() : RunTheLoadLadder.DefaultRungs,
+                Value(args, "--suite=") ?? "load ladder", !args.Contains("--no-light"), !args.Contains("--no-cave"));
+            PrintEmittedRows();
+            return ladderFailures == 0 ? 0 : 1;
+        }
+        if (args.Contains("--budget-curve") || Value(args, "--calibrate=") is not null)
+        {
+            bool calibrating = Value(args, "--calibrate=") is not null;
+            string mode = calibrating ? "calibrate" : "budget curve";
+            string? source = calibrating ? Value(args, "--calibrate=") : capture;
+            string defaultSuite = $"{mode} {Path.GetFileNameWithoutExtension(source ?? "no capture")}";
+            string modeSuite = Value(args, "--suite=") ?? defaultSuite;
+            string anchor = calibrating ? "in-game over headless brain cost at p50" : "decide cost p50 at a 12 ms allowance";
+            if (source == null || !File.Exists(source))
+            {
+                string reason = $"no capture at {source ?? "<none given>"}; Telemetry/ is gitignored and lives only in the main checkout, so name it absolutely";
+                EmitLedgerRows.Skipped(ScoreTheRun.Instrument, modeSuite, anchor, reason);
+                Console.WriteLine($"SKIP {reason}");
+                return 0;
+            }
+            if (MissingWorld(world, modeSuite, anchor) is { } skipped) return skipped;
+            Main.dedServ = true;
+            int costFailures = calibrating
+                ? RunTheCalibration.Run(source, world!, Value(args, "--ticks=") is null ? 0 : ticks, modeSuite, Value(args, "--record-to="))
+                : RunTheBudgetCurve.Run(source, world!,
+                    Value(args, "--allowances=") is { } list ? Numbers(list, "--allowances=") : RunTheBudgetCurve.DefaultAllowances,
+                    Int(args, "--repeats=", 2), Value(args, "--ticks=") is null ? 0 : ticks, modeSuite);
+            PrintEmittedRows();
+            return costFailures == 0 ? 0 : 1;
+        }
+
         if (capture == null && scenario == null) { Usage(); return 2; }
 
         // A committed scenario as a checkpoint. The scenario is in the repository, so only the world
@@ -300,6 +340,40 @@ internal static class WorldRunEntry
             : $"IDENTITY MISMATCH — the capture was recorded in world {recorded} and this is {loaded.Hash}";
     }
 
+    /// <summary>A skipped row and exit 0 when the world is absent, which is the same absence of evidence every
+    /// other command here files as a skip; null when the world is there.</summary>
+    private static int? MissingWorld(string? world, string suite, string @case)
+    {
+        if (world != null && File.Exists(world)) return null;
+        string reason = $"no world file at {world ?? "<none given>"}; a .wld is never committed, so the world must be named with --world=";
+        EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, @case, reason);
+        Console.WriteLine($"SKIP {reason}");
+        return 0;
+    }
+
+    private static void PrintEmittedRows()
+    {
+        foreach (LedgerRow row in EmitLedgerRows.Emitted)
+            Console.WriteLine($"{row.Verdict.ToUpperInvariant()} {row.Case}"
+                + (row.Value is { } value ? $" = {value.ToString("0.###", CultureInfo.InvariantCulture)} {row.Unit}" : "")
+                + (row.Message.Length > 0 ? $" :: {row.Message}" : ""));
+    }
+
+    /// <summary>A comma-separated list of positive numbers, refused with the shape of what arrived rather than
+    /// half-parsed, because a curve or a ladder run at a silently dropped point is filed as a complete one.</summary>
+    private static double[] Numbers(string text, string flag)
+    {
+        var parsed = new List<double>();
+        foreach (string part in text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) || !double.IsFinite(value) || value < 0)
+                throw new ArgumentException($"{flag} expects comma-separated non-negative numbers; \"{part}\" is not one");
+            parsed.Add(value);
+        }
+        if (parsed.Count == 0) throw new ArgumentException($"{flag} expects at least one number and got \"{text}\"");
+        return parsed.Distinct().ToArray();
+    }
+
     internal static string? Value(string[] args, string flag)
         => args.FirstOrDefault(a => a.StartsWith(flag, StringComparison.Ordinal)) is { } found ? found[flag.Length..] : null;
 
@@ -342,6 +416,19 @@ internal static class WorldRunEntry
               --hostile-motion=native|synthetic
                                       how a placed hostile moves; native is the game's own
                                       NPC.UpdateNPC and synthetic is a straight walk at the player
+
+            Three cost modes, each filing measures only (no time is a pass line):
+              --load-ladder           the seeded bot held at 0, 5, 10, 20 and 40 zombies near him, each
+                                      rung twice (ascending, then descending), plus a standing player in
+                                      a dense cave at 0 and 10; per rung the whole brain's p50/p95/p99/max,
+                                      every phase's p50/p99, allocation per tick, gen-2 collections, and
+                                      the exponent of cost growth. Needs --world; takes --seed, --ticks
+                                      (per rung, 1,200 by default), --rungs=0,5,… and --no-cave
+              --budget-curve          --route's scene replayed at several decision allowances, filing per
+                                      allowance the play measures' behaviour beside the decide cost.
+                                      Takes --allowances=2,4,8,12 and --repeats=N (2 by default)
+              --calibrate=<capture>   that capture replayed headlessly with the recorder attached, filing
+                                      per phase the ratio in-game over headless at p50 and p99
 
             The world is never committed and Telemetry/ is gitignored, so both paths are named rather
             than discovered, and an absent one is a skipped row rather than a failure.
