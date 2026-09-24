@@ -103,10 +103,81 @@ public static class EmitLedgerRows
     /// </summary>
     public static string? CaseFilter => Environment.GetEnvironmentVariable("AIC_LEDGER_CASE") is { Length: > 0 } name ? name : null;
 
+    /// <remarks>A fragment naming a sub-row (<c>outer :: row</c>, which is what the scoreboard prints and
+    /// what <c>--rerun-red</c> passes back) selects its outer case, because a sub-row only exists inside the
+    /// run of the case that files it.</remarks>
     public static bool Selected(string name)
         => CaseFilter is not { } filter
            || filter.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(OuterCaseOf)
                     .Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+
+    private static string OuterCaseOf(string fragment)
+    {
+        int at = fragment.IndexOf(SubRowSeparator.Trim(), StringComparison.Ordinal);
+        return at < 0 ? fragment : fragment[..at].Trim();
+    }
+
+    /// <summary>
+    /// What joins a case's name to the name of one assertion inside it: <c>outer :: row</c>.
+    ///
+    /// <para>A sub-row is its own ledger row, so a fixture that runs a dozen scenes files a dozen verdicts
+    /// and a red on the third no longer hides the other eleven from anything reading the run file. The outer
+    /// case still files its own row with its name unchanged, so every baseline the outer names already had
+    /// survives; the sub-rows arrive as <c>new</c> on the first run that carries them and nothing goes
+    /// <c>gone</c>. A failing assertion is therefore two red rows — the sub-row naming it and the outer case
+    /// counting it — which is the price of keeping the outer baselines.</para>
+    ///
+    /// <para>It carries no <c>/</c> because the store keys a row as <c>instrument/suite/case</c> and
+    /// <c>--rerun-red</c> takes the case back out of that key by splitting on the slash; a slash inside a
+    /// sub-row's own name is written as <c>∕</c> (U+2215) for the same reason.</para>
+    /// </summary>
+    public const string SubRowSeparator = " :: ";
+
+    /// <summary>The tag every sub-row carries beside its outer case's own, so a reader can take the
+    /// assertions apart from the cases without parsing names.</summary>
+    public const string SubRowTag = "sub-row";
+
+    /// <summary>The case whose body is running now, or null outside one (a flag run straight into a
+    /// fixture). It exists so a row filed from inside the body — a sub-row, an audit's count — can name
+    /// the case it belongs to and inherit the regime the case was stamped with.</summary>
+    public readonly record struct RunningCase(string Instrument, string Suite, string Name, string Mode, IReadOnlyList<string>? Tags);
+
+    public static RunningCase? Current { get; private set; }
+
+    private static readonly Dictionary<string, int> subRowNames = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Files one assertion's verdict as its own row under the running case, keyed
+    /// <c>outer :: name</c>. Outside a case it files nothing and returns false, because a flag run has no
+    /// case for the row to belong to and its print is already the whole report. A name used twice in one
+    /// case is numbered (<c>name #2</c>) rather than filed as a repeat, since the scoreboard reads rows
+    /// sharing a key as samples of one measurement.
+    /// </summary>
+    public static bool SubRow(string name, bool passed, string message = "", double durationMs = 0)
+    {
+        if (Current is not { } outer) return false;
+        string row = name.Replace('/', '∕').Trim();
+        int seen = subRowNames.TryGetValue(row, out int had) ? had + 1 : 1;
+        subRowNames[row] = seen;
+        if (seen > 1) row += $" #{seen}";
+        var tags = (outer.Tags ?? Array.Empty<string>()).Append(SubRowTag).ToArray();
+        Row(new LedgerRow(outer.Instrument, outer.Suite, outer.Name + SubRowSeparator + row, passed ? "pass" : "fail",
+            Mode: outer.Mode, Tags: tags, Message: Flatten(message), DurationMs: durationMs));
+        return true;
+    }
+
+    /// <summary>
+    /// What an instrument checks about every case after its body returns, beside the body's own
+    /// assertions: the engine suite reads the decision and effect audits here, so a fixture that drove the
+    /// brain is also graded on the contracts the brain keeps in play. It returns how many failures it adds,
+    /// may call <see cref="Detail"/> so its reason folds into the case's row, and may file measures.
+    ///
+    /// A delegate for the same reason <see cref="ResetBeforeCase"/> is one: this file is compiled into every
+    /// tool and only the instrument knows what its process holds. It runs after a body that threw as well,
+    /// so a red case still files what the audit saw, but it cannot turn that case green.
+    /// </summary>
+    public static Func<string, int>? AfterCase;
 
     /// <summary>
     /// A case that must keep the production wall-clock allowances in force, because the allowance is
@@ -284,14 +355,20 @@ public static class EmitLedgerRows
         bool keepProductionAllowances = tags?.Contains(ProductionAllowancesTag) == true;
         mode = WithLane($"{mode}; {(keepProductionAllowances ? "production-allowances" : "unbounded-allowances")}");
         details.Clear();
+        subRowNames.Clear();
         ResetBeforeCase?.Invoke(keepProductionAllowances);
         var before = CostMark.Now();
         int rowsBefore = emitted.Count;
         var clock = Stopwatch.StartNew();
+        // Saved and put back rather than cleared, so a case run inside another (the ledger's own self-test
+        // does that to prove sub-rows) hands the enclosing case back its identity.
+        RunningCase? enclosing = Current;
+        Current = new RunningCase(instrument, suite, name, mode, tags);
         try
         {
             int failures = body();
             clock.Stop();
+            failures += CheckAfterCase(name);
             RowCost cost = before.Since();
             if (RequireTimedRouting && tags?.Contains(TimedTag) != true
                 && emitted.Skip(rowsBefore).Any(r => r.Verdict == "measure" && r.Tags?.Contains(TimedTag) == true))
@@ -308,9 +385,28 @@ public static class EmitLedgerRows
         catch (Exception e)
         {
             clock.Stop();
-            RowCost cost = before.Since();
             Console.WriteLine($"{name} failed: {e.GetType().Name}: {e.Message}");
+            // The throw is the verdict; the check still runs so what the audit saw on the way down is filed.
+            CheckAfterCase(name);
+            RowCost cost = before.Since();
             Fail(instrument, suite, name, Reason($"{e.GetType().Name}: {Flatten(e.Message)}"), clock.Elapsed.TotalMilliseconds, mode, tags, killedBy, cost);
+            return 1;
+        }
+        finally
+        {
+            Current = enclosing;
+        }
+    }
+
+    /// <summary>Runs <see cref="AfterCase"/>, turning a check that breaks into one failure with its reason
+    /// rather than letting it take the case's own row with it.</summary>
+    private static int CheckAfterCase(string name)
+    {
+        if (AfterCase is not { } check) return 0;
+        try { return check(name); }
+        catch (Exception e)
+        {
+            Detail($"the after-case check itself threw on {name}: {e.GetType().Name}: {Flatten(e.Message)}");
             return 1;
         }
     }

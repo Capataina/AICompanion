@@ -49,11 +49,66 @@ public static class SelfTestTheStore
             "a measure taken under different run conditions from its baseline is reported as not comparable rather than as a delta", MeasuresAcrossModes);
         failed += EmitLedgerRows.Case(Instrument, Suite,
             "a run's benchmark readings, tier and per-case memory cost read back as written, and none of them counts as malformed", BenchmarkAndCostRoundTrip);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "an assertion inside a case files its own row under the case, and naming that row selects the case", SubRowsFileUnderTheirCase);
         // The last line is what verify.sh shows for this instrument, and a self-test that prints
         // nothing when it passes reads exactly like one that ran nothing.
         Console.WriteLine(failed == 0
-            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip, the quoted intervals, the sampled-measure reading, the crash guard's reach, the perf tier's paths, measures across modes and the benchmark round trip."
-            : $"ledger self-test: {failed} of 11 store properties failed.");
+            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip, the quoted intervals, the sampled-measure reading, the crash guard's reach, the perf tier's paths, measures across modes, the benchmark round trip and sub-rows."
+            : $"ledger self-test: {failed} of 12 store properties failed.");
+        return failed;
+    }
+
+    /// <summary>
+    /// The sub-row contract, driven through a real nested case with the run file suspended so none of these
+    /// synthetic rows reaches the store: three assertions with the middle one red must file three sub-rows
+    /// keyed <c>outer :: name</c>, the third still filed after the second failed, the outer case red, a repeated
+    /// name numbered rather than filed as a repeat, and a slash in a name kept out of the store key. The
+    /// selection half is the one <c>--rerun-red</c> leans on: it passes a sub-row's name back as the filter.
+    /// </summary>
+    private static int SubRowsFileUnderTheirCase()
+    {
+        int failed = 0;
+        const string outer = "a synthetic case holding three assertions";
+        bool wasSuspended = EmitLedgerRows.Suspended;
+        string? filter = Environment.GetEnvironmentVariable("AIC_LEDGER_CASE");
+        int before = EmitLedgerRows.Emitted.Count;
+        EmitLedgerRows.Suspended = true;
+        Environment.SetEnvironmentVariable("AIC_LEDGER_CASE", null);
+        try
+        {
+            int outerFailures = EmitLedgerRows.Case("synthetic", "SubRows", outer, () =>
+            {
+                int red = 0;
+                EmitLedgerRows.SubRow("the first holds", passed: true);
+                EmitLedgerRows.SubRow("the second fails", passed: false, "planted");
+                red++;
+                EmitLedgerRows.SubRow("the third / after it", passed: true);
+                EmitLedgerRows.SubRow("the first holds", passed: true);
+                return red;
+            });
+            string[] cases = EmitLedgerRows.Emitted.Skip(before).Select(row => $"{row.Case}={row.Verdict}").ToArray();
+            string[] expected =
+            {
+                $"{outer} :: the first holds=pass", $"{outer} :: the second fails=fail", $"{outer} :: the third ∕ after it=pass",
+                $"{outer} :: the first holds #2=pass", $"{outer}=fail",
+            };
+            if (outerFailures != 1 || !cases.SequenceEqual(expected))
+                failed += Failed($"the nested case filed [{string.Join("; ", cases)}] returning {outerFailures}, where it must file [{string.Join("; ", expected)}] returning 1");
+            if (EmitLedgerRows.Current != null && EmitLedgerRows.Current.Value.Name == outer)
+                failed += Failed("the nested case left itself as the running case after it returned");
+
+            Environment.SetEnvironmentVariable("AIC_LEDGER_CASE", $"{outer} :: the second fails");
+            if (!EmitLedgerRows.Selected(outer))
+                failed += Failed("a filter naming a sub-row did not select its outer case, so --rerun-red on a sub-row reruns nothing");
+            if (EmitLedgerRows.Selected("another case entirely"))
+                failed += Failed("a filter naming a sub-row selected a case it does not belong to");
+        }
+        finally
+        {
+            EmitLedgerRows.Suspended = wasSuspended;
+            Environment.SetEnvironmentVariable("AIC_LEDGER_CASE", filter);
+        }
         return failed;
     }
 
