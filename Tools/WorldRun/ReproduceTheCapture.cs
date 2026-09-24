@@ -31,7 +31,7 @@ internal static class ReproduceTheCapture
 {
     /// <summary>An input the reproduction can be told to leave out, so a run can show which inputs a window depends
     /// on — and so the self-consistency verdict can be shown to fail when one is missing.</summary>
-    internal enum DroppedInput { None, Actors, Clock, Random, Light, Player }
+    internal enum DroppedInput { None, Actors, Clock, Random, Light, Player, Edits }
 
     internal sealed record Divergence(int Index, ulong Tick, IReadOnlyList<string> Disagreements, string Recorded, string Replayed);
 
@@ -46,6 +46,7 @@ internal static class ReproduceTheCapture
         int OpsMismatchTicks,
         int EditMismatchTicks,
         int BodyMismatchTicks,
+        int TerrainMismatchTicks,
         long RecordedCharacters,
         double Seconds,
         DroppedInput Dropped);
@@ -97,7 +98,7 @@ internal static class ReproduceTheCapture
 
         var npcs = new Dictionary<int, Dictionary<string, string>>();
         var items = new Dictionary<int, Dictionary<string, string>>();
-        int reproduced = 0, diverged = 0, clockTicks = 0, randomTicks = 0, opsTicks = 0, editTicks = 0, bodyTicks = 0;
+        int reproduced = 0, diverged = 0, clockTicks = 0, randomTicks = 0, opsTicks = 0, editTicks = 0, bodyTicks = 0, terrainTicks = 0;
         long characters = 0;
         Divergence? first = null;
         var clock = Stopwatch.StartNew();
@@ -128,16 +129,32 @@ internal static class ReproduceTheCapture
                 }
                 if (dropped != DroppedInput.Actors || index == 0)
                 {
-                    Place(frame.Npcs, npcs, Main.npc, (slot, fields) => Inputs.ApplyNpc(Main.npc[slot], slot, fields), slot => Main.npc[slot].active = false);
-                    Place(frame.Items, items, Main.item, (slot, fields) => Inputs.ApplyItem(Main.item[slot], slot, fields), slot => Main.item[slot].active = false);
+                    Place(frame.Npcs, npcs, Main.npc, (slot, fields) => Inputs.ApplyNpc(Main.npc[slot], fields), slot => Main.npc[slot].active = false);
+                    Place(frame.Items, items, Main.item, (slot, fields) => Inputs.ApplyItem(Main.item[slot], fields), slot => Main.item[slot].active = false);
                 }
-                foreach (ReadReplayInputs.TileEdit edit in frame.WorldEdits)
+                if (dropped != DroppedInput.Edits)
                 {
-                    Inputs.ApplyTile(edit.X, edit.Y, edit.State);
-                    TerrainChanges.Changed(edit.X, edit.Y);
+                    // Every tile first, then the announcements in the play's order and number, because each moves the
+                    // edit log's revision once; a reframed neighbour is written and never announced, as in the play.
+                    foreach (ReadReplayInputs.TileEdit edit in frame.WorldEdits) Inputs.ApplyTile(edit.X, edit.Y, edit.State);
+                    foreach (ReadReplayInputs.TileEdit edit in frame.WorldEdits)
+                        if (edit.Announced) TerrainChanges.Changed(edit.X, edit.Y);
                 }
                 foreach ((string key, string value) in frame.WorldChanges) world[key] = value;
                 Inputs.ApplyWorld(world);
+                // The tiles are an input nobody places whole, so they are checked where the play took a digest: a
+                // disagreement here names the terrain before any decision drifts on it.
+                if (frame.Terrain is { } digest)
+                {
+                    int colon = digest.IndexOf(':');
+                    string[] corner = digest[..colon].Split(',');
+                    string replayed = Inputs.HashTerrain(int.Parse(corner[0], CultureInfo.InvariantCulture), int.Parse(corner[1], CultureInfo.InvariantCulture));
+                    if (replayed != digest[(colon + 1)..])
+                    {
+                        terrainTicks++;
+                        disagreements.Add($"terrain: the tiles in the window at {digest[..colon]} hashed {digest[(colon + 1)..]} in the play and {replayed} here");
+                    }
+                }
 
                 PrepareTheHeadlessEngine.StartTheWorldClockAt(frame.Tick);
                 if (RunTheWorld.DriveLight)
@@ -225,7 +242,7 @@ internal static class ReproduceTheCapture
         }
         clock.Stop();
         return new Result(record.Capture, frames.Count, reproduced, first, diverged, clockTicks, randomTicks, opsTicks, editTicks, bodyTicks,
-            characters, clock.Elapsed.TotalSeconds, dropped);
+            terrainTicks, characters, clock.Elapsed.TotalSeconds, dropped);
     }
 
     /// <summary>Accumulate this tick's slot changes and make the live array hold exactly what the record holds.</summary>
@@ -263,7 +280,7 @@ internal static class ReproduceTheCapture
             + $"recorded decision [{first.Recorded}] against replayed [{first.Replayed}]; "
             + string.Create(CultureInfo.InvariantCulture,
                 $"disagreeing ticks by kind: clock {result.ClockMismatchTicks}, random {result.RandomMismatchTicks}, allowance {result.OpsMismatchTicks}, "
-                + $"companion edits {result.EditMismatchTicks}, body {result.BodyMismatchTicks}")
+                + $"companion edits {result.EditMismatchTicks}, body {result.BodyMismatchTicks}, terrain {result.TerrainMismatchTicks}")
             + (result.Dropped == DroppedInput.None ? "" : $"; input deliberately left out: {result.Dropped}");
     }
 }

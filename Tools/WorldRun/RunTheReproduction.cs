@@ -196,7 +196,8 @@ internal static class RunTheReproduction
         "random" => ReproduceTheCapture.DroppedInput.Random,
         "light" => ReproduceTheCapture.DroppedInput.Light,
         "player" => ReproduceTheCapture.DroppedInput.Player,
-        _ => throw new ArgumentException($"--drop-input= takes actors, clock, random, light or player; got \"{text}\""),
+        "edits" => ReproduceTheCapture.DroppedInput.Edits,
+        _ => throw new ArgumentException($"--drop-input= takes actors, clock, random, light, player or edits; got \"{text}\""),
     };
 
     private static int Skip(string suite, string @case, string reason)

@@ -435,7 +435,7 @@ internal static class WorldRunEntry
               --self-consistency      record --route's scene with the mod's recorder, then reproduce
                                       that capture in a fresh process; the verdict is every tick
               --drop-input=<name>     leave one input out of a reproduction: actors, clock, random,
-                                      light or player
+                                      light, player or edits
               --print-reproduction    one line per reproduced tick: same, or what differed
               --expect-every-tick     file the self-consistency verdict rather than the share
 

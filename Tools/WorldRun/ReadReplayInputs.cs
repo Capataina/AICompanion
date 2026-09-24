@@ -28,7 +28,9 @@ internal static class ReadReplayInputs
     /// <summary>One entity slot's change: the fields that moved, or null for a slot the tick found empty.</summary>
     internal readonly record struct SlotChange(int Slot, IReadOnlyDictionary<string, string>? Fields);
 
-    internal readonly record struct TileEdit(int X, int Y, string State);
+    /// <summary>A tile as an edit left it. <c>Announced</c> is false for a neighbour the game reframed without announcing,
+    /// which the reproduction writes and does not announce, because the play's edit log never heard of it.</summary>
+    internal readonly record struct TileEdit(int X, int Y, string State, bool Announced);
 
     internal sealed record Frame(
         ulong Tick,
@@ -41,6 +43,8 @@ internal static class ReadReplayInputs
         IReadOnlyList<SlotChange> Items,
         IReadOnlyList<TileEdit> WorldEdits,
         ulong? LightSeed,
+        /// <summary>`left,top:hash` of the tiles around the body, on the ticks the recorder took one, else null.</summary>
+        string? Terrain,
         string Clock,
         string? Random,
         string? RandomEnd,
@@ -166,6 +170,7 @@ internal static class ReadReplayInputs
             Slots(parts["item"]),
             Edits(parts["edits"]),
             parts["light"] == "-" ? null : ulong.Parse(parts["light"], CultureInfo.InvariantCulture),
+            parts.GetValueOrDefault("terrain"),
             parts["clock"],
             parts.GetValueOrDefault("rand"),
             parts.GetValueOrDefault("rand-end"),
@@ -211,7 +216,8 @@ internal static class ReadReplayInputs
         foreach (string entry in text.Split('|'))
         {
             string[] parts = entry.Split(',');
-            edits.Add(new TileEdit(int.Parse(parts[0], CultureInfo.InvariantCulture), int.Parse(parts[1], CultureInfo.InvariantCulture), parts[2]));
+            edits.Add(new TileEdit(int.Parse(parts[0], CultureInfo.InvariantCulture), int.Parse(parts[1], CultureInfo.InvariantCulture), parts[2],
+                parts.Length < 4 || parts[3] == "a"));
         }
         return edits;
     }

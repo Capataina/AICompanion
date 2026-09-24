@@ -63,6 +63,9 @@ public static class ReplayInputs
     public static readonly Field<NPC>[] NpcFields =
     {
         new("t", n => I(n.type), (n, v) => { int type = ParseInt(v); if (!n.active || n.type != type) n.SetDefaults(type); }),
+        // The entity's own idea of its slot, recorded rather than assumed: the census names a target by it, and an entity
+        // the engine spawned through a path that never set it carries whatever the slot's last occupant left.
+        new("wh", n => I(n.whoAmI), (n, v) => n.whoAmI = ParseInt(v)),
         new("x", n => F(n.position.X), (n, v) => n.position.X = ParseFloat(v)),
         new("y", n => F(n.position.Y), (n, v) => n.position.Y = ParseFloat(v)),
         new("vx", n => F(n.velocity.X), (n, v) => n.velocity.X = ParseFloat(v)),
@@ -110,6 +113,9 @@ public static class ReplayInputs
     public static readonly Field<Item>[] ItemFields =
     {
         new("t", i => I(i.type), (i, v) => { int type = ParseInt(v); if (!i.active || i.type != type) i.SetDefaults(type); }),
+        // A drop's census target is `item:{whoAmI}`, and a drop the engine spawned outside the ordinary path can carry a
+        // `whoAmI` that is not its slot: measured 24 September 2026, the course bound a mined dirt drop lying in slot 5 as `item:0`.
+        new("wh", i => I(i.whoAmI), (i, v) => i.whoAmI = ParseInt(v)),
         new("st", i => I(i.stack), (i, v) => i.stack = ParseInt(v)),
         new("x", i => F(i.position.X), (i, v) => i.position.X = ParseFloat(v)),
         new("y", i => F(i.position.Y), (i, v) => i.position.Y = ParseFloat(v)),
@@ -187,8 +193,21 @@ public static class ReplayInputs
     private static string[]? lastWorld;
     private static string lastInventory = "";
     private static string lastGear = "";
-    private static readonly List<Point> worldEdits = new();
+    /// <summary>The world's edits since the last companion tick, in announcement order and with repeats, because each
+    /// announcement moves the edit log's revision and a replay must move it as many times; and after them, marked as not
+    /// announced, the eight neighbours of each, because the game reframes a broken tile's neighbours without announcing
+    /// them and a frame is a shape to the terrain reader (a platform's top, a tree's trunk).</summary>
+    private static readonly List<(Point Tile, bool Announced)> worldEdits = new();
     private static readonly HashSet<Point> worldEditsSeen = new();
+    /// <summary>
+    /// Each tile within <see cref="ReframeRadius"/> of an announced edit, as it stood when the edit was announced, so the
+    /// next tick can write down every one the game changed. The game frames an unframed tile the first time a neighbour's
+    /// framing reaches it, and a world read straight from its file is full of them: measured 24 September 2026 on a
+    /// seeded soak, a dirt tile two columns from a broken one went from an unset frame to 18,18 with nothing announced,
+    /// and a replay that wrote only the broken tile's eight neighbours disagreed with the play's terrain on the next edit.
+    /// </summary>
+    private static readonly Dictionary<Point, string> tilesBeforeEdits = new();
+    private const int ReframeRadius = 3;
     private static readonly List<Point> companionEdits = new();
     private static readonly HashSet<Point> companionEditsSeen = new();
     private static string pendingInputs = "";
@@ -220,7 +239,7 @@ public static class ReplayInputs
     {
         sessionOpen = true;
         lastNpc.Clear(); lastItem.Clear(); lastPlayer = null; lastWorld = null; lastInventory = ""; lastGear = "";
-        worldEdits.Clear(); worldEditsSeen.Clear(); companionEdits.Clear(); companionEditsSeen.Clear();
+        worldEdits.Clear(); worldEditsSeen.Clear(); tilesBeforeEdits.Clear(); companionEdits.Clear(); companionEditsSeen.Clear();
         pendingInputs = "";
         recordingThisTick = false;
         LinesWritten = 0;
@@ -243,7 +262,17 @@ public static class ReplayInputs
     {
         var tile = new Point(x, y);
         if (insideCompanionTick) { if (companionEditsSeen.Add(tile)) companionEdits.Add(tile); }
-        else if (worldEditsSeen.Add(tile)) worldEdits.Add(tile);
+        else
+        {
+            worldEdits.Add((tile, true));
+            worldEditsSeen.Add(tile);
+            for (int dy = -ReframeRadius; dy <= ReframeRadius; dy++)
+            for (int dx = -ReframeRadius; dx <= ReframeRadius; dx++)
+            {
+                var near = new Point(x + dx, y + dy);
+                if (!tilesBeforeEdits.ContainsKey(near)) tilesBeforeEdits[near] = DescribeTile(near.X, near.Y);
+            }
+        }
     }
 
     /// <summary>The top of the companion's tick: write down the world it is about to observe.</summary>
@@ -289,17 +318,36 @@ public static class ReplayInputs
         }
 
         line.Append(";edits=");
+        int announced = worldEdits.Count;
+        for (int index = 0; index < announced; index++)
+            for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                var neighbour = new Point(worldEdits[index].Tile.X + dx, worldEdits[index].Tile.Y + dy);
+                if (worldEditsSeen.Add(neighbour)) worldEdits.Add((neighbour, false));
+            }
+        foreach ((Point near, string before) in tilesBeforeEdits)
+            if (!worldEditsSeen.Contains(near) && DescribeTile(near.X, near.Y) != before)
+            {
+                worldEditsSeen.Add(near);
+                worldEdits.Add((near, false));
+            }
+        tilesBeforeEdits.Clear();
         for (int index = 0; index < worldEdits.Count; index++)
         {
             if (index > 0) line.Append('|');
-            Point tile = worldEdits[index];
-            line.Append(I(tile.X)).Append(',').Append(I(tile.Y)).Append(',').Append(DescribeTile(tile.X, tile.Y));
+            (Point tile, bool wasAnnounced) = worldEdits[index];
+            line.Append(I(tile.X)).Append(',').Append(I(tile.Y)).Append(',').Append(DescribeTile(tile.X, tile.Y))
+                .Append(',').Append(wasAnnounced ? 'a' : 'n');
         }
         worldEdits.Clear();
         worldEditsSeen.Clear();
 
         line.Append(";light=").Append(ReadLightScannerSeed() is { } seed ? seed.ToString(Invariant) : "-");
-
+        // Every sixtieth tick, and on any tick the world was edited, a digest of the tiles around the body, so a replay
+        // can say its terrain is not the play's rather than leave that to be inferred from a decision that drifted.
+        if (Main.GameUpdateCount % TerrainDigestEveryTicks == 0 || announced > 0)
+            line.Append(";terrain=").Append(DescribeTerrainAround(body.Center));
         randomObjectAtStart = Main.rand;
         randomReadable = ReadRandom(Main.rand, randomAtStart);
         pendingInputs = line.ToString();
@@ -378,22 +426,20 @@ public static class ReplayInputs
 
     // ---- the apply half: harness-only ----
 
-    /// <summary>Harness-only: put an NPC into <paramref name="slot"/> exactly as recorded.</summary>
-    public static void ApplyNpc(NPC npc, int slot, IReadOnlyDictionary<string, string> values)
+    /// <summary>Harness-only: make an NPC slot hold exactly what was recorded, its own `whoAmI` included.</summary>
+    public static void ApplyNpc(NPC npc, IReadOnlyDictionary<string, string> values)
     {
         foreach (var field in NpcFields)
             if (values.TryGetValue(field.Key, out string? value)) field.Write(npc, value);
         npc.active = true;
-        npc.whoAmI = slot;
     }
 
-    /// <summary>Harness-only: put a dropped item into <paramref name="slot"/> exactly as recorded.</summary>
-    public static void ApplyItem(Item item, int slot, IReadOnlyDictionary<string, string> values)
+    /// <summary>Harness-only: make an item slot hold exactly what was recorded, its own `whoAmI` included.</summary>
+    public static void ApplyItem(Item item, IReadOnlyDictionary<string, string> values)
     {
         foreach (var field in ItemFields)
             if (values.TryGetValue(field.Key, out string? value)) field.Write(item, value);
         item.active = true;
-        item.whoAmI = slot;
     }
 
     /// <summary>Harness-only: the player as recorded, his inventory and the companion's gear with him.</summary>
@@ -420,8 +466,11 @@ public static class ReplayInputs
         Tile tile = Main.tile[x, y];
         tile.TileType = (ushort)ParseInt(parts[0]);
         tile.HasTile = ParseBool(parts[1]);
-        tile.Slope = (Terraria.ID.SlopeType)ParseInt(parts[2]);
-        tile.IsHalfBlock = ParseBool(parts[3]);
+        // One write of the block type rather than `Slope` then `IsHalfBlock`: each setter writes the whole block type, so
+        // the second would erase the first on a sloped tile. Half blocks and slopes are exclusive in the game's own enum.
+        var slope = (Terraria.ID.SlopeType)ParseInt(parts[2]);
+        tile.BlockType = ParseBool(parts[3]) ? Terraria.ID.BlockType.HalfBlock
+            : slope == Terraria.ID.SlopeType.Solid ? Terraria.ID.BlockType.Solid : (Terraria.ID.BlockType)((int)slope + 1);
         tile.IsActuated = ParseBool(parts[4]);
         tile.WallType = (ushort)ParseInt(parts[5]);
         tile.LiquidAmount = (byte)ParseInt(parts[6]);
@@ -431,6 +480,41 @@ public static class ReplayInputs
     }
 
     /// <summary>A tile's shape, material, wall, liquid and frame, ten dot-separated values.</summary>
+    /// <summary>How often a tick carries a terrain digest when nothing was edited: once a second of play.</summary>
+    public const int TerrainDigestEveryTicks = 60;
+
+    /// <summary>The window a terrain digest covers, in tiles either side of the body: wider than the reach flood's usual
+    /// working radius near the body and small enough to cost well under a millisecond once a second.</summary>
+    public const int TerrainDigestHalfWidth = 40, TerrainDigestHalfHeight = 30;
+
+    /// <summary>
+    /// `left,top:hash` — an FNV hash over every tile in the window around <paramref name="centre"/>, of the same ten values
+    /// <see cref="DescribeTile"/> writes. The window's corner is written with it, so a replay hashes exactly the tiles the
+    /// play hashed whatever its own body is doing.
+    /// </summary>
+    public static string DescribeTerrainAround(Vector2 centre)
+    {
+        int left = (int)(centre.X / 16f) - TerrainDigestHalfWidth, top = (int)(centre.Y / 16f) - TerrainDigestHalfHeight;
+        return $"{left},{top}:{HashTerrain(left, top)}";
+    }
+
+    /// <summary>The digest of the window whose top-left tile is (<paramref name="left"/>, <paramref name="top"/>).</summary>
+    public static string HashTerrain(int left, int top)
+    {
+        uint hash = 2166136261;
+        void Mix(int value) { unchecked { hash ^= (uint)value; hash *= 16777619; } }
+        for (int y = top; y < top + TerrainDigestHalfHeight * 2; y++)
+        for (int x = left; x < left + TerrainDigestHalfWidth * 2; x++)
+        {
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) { Mix(-1); continue; }
+            Tile tile = Main.tile[x, y];
+            Mix(tile.TileType); Mix(tile.HasTile ? 1 : 0); Mix((int)tile.Slope); Mix(tile.IsHalfBlock ? 1 : 0);
+            Mix(tile.IsActuated ? 1 : 0); Mix(tile.WallType); Mix(tile.LiquidAmount); Mix(tile.LiquidType);
+            Mix(tile.TileFrameX); Mix(tile.TileFrameY);
+        }
+        return hash.ToString("x8", Invariant);
+    }
+
     public static string DescribeTile(int x, int y)
     {
         if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return "0.0.0.0.0.0.0.0.0.0";
