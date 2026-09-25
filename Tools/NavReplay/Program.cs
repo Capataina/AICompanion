@@ -79,7 +79,10 @@ if (args.Length == 1 && args[0] == "--self-test")
             killedBy: "a reflection about the wrong column, an unpadded short row, or a dropped glyph flip")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "a cut scenario says in its own header why its window was cut, without moving what the header already meant",
             VerifyTheCutReasonRidesInTheHeader.Run,
-            killedBy: "a reason written ahead of the provenance instead of after it, so free text holding the word goal is read as the goal");
+            killedBy: "a reason written ahead of the provenance instead of after it, so free text holding the word goal is read as the goal")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "the swept test skips unread only tiles the body's radius can never reach",
+            VerifySweptClearSkipsOnlyFarTiles.Run,
+            killedBy: "a prefilter margin below the tile's half-diagonal, or a projection that forgets to clamp to the segment's ends");
 
 if (args.Length >= 3 && args[0] == "--extract-scenario" && int.TryParse(args[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int tick))
 {

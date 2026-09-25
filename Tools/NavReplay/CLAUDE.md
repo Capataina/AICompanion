@@ -25,6 +25,7 @@ NavReplay/
 ├─ VerifyMirrorExactness.cs      the reflection transform proved an involution over the committed corpus and a flood proved symmetric
 ├─ MirrorScenarioWorlds.cs       a block reflected left to right: tiles, glyph pairs, the actors, the trail and the orb's centre
 ├─ VerifyTheCutReasonRidesInTheHeader.cs a reason written ahead of every parsed header key, requiring the mirror to read it unmoved
+├─ VerifySweptClearSkipsOnlyFarTiles.cs  the swept test's unread tiles checked against the exact distance over seeded segments
 ├─ ExtractScenarioFromCapture.cs a recorded tick's terrain cut out of a capture into a committed-format scenario, with an optional `--reason` appended after every key
 └─ ReconstructTerrainWindow.cs   the terrain around a recorded moment rebuilt from the capture's snapshots; compiled into ../SessionReport too
 ```

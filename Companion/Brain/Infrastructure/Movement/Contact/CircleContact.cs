@@ -22,8 +22,8 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 /// <para>What is a wall to the circle is decided by <see cref="Solid"/>: a full block, a half block
 /// and every slope are solid, because the owner ruled that slopes are full tiles to this body; a
 /// platform is passable; a closed door is a solid tile until the door interaction opens it. Liquid
-/// is not a wall here at all — it is a wall to the planner and a hurt to the motor — so a body
-/// knocked into water is pushed out of nothing and simply takes the damage.</para>
+/// is not a wall here or anywhere else: every liquid is air to this body, to the planner as much as
+/// to the contact, and it neither hurts nor slows it.</para>
 /// </summary>
 public static class CircleContact
 {
@@ -203,9 +203,26 @@ public static class CircleContact
         int y0 = (int)MathF.Floor(minY / 16f), y1 = (int)MathF.Floor(maxY / 16f);
         for (int y = y0; y <= y1; y++)
             for (int x = x0; x <= x1; x++)
-                if (wall(world, x, y) && SegmentDistanceSquaredToTile(x, y, from, to) < Radius * Radius)
+                if (MayReachSegment(x, y, from, to) && wall(world, x, y) && SegmentDistanceSquaredToTile(x, y, from, to) < Radius * Radius)
                     return false;
         return true;
+    }
+
+    /// <summary>
+    /// A cheap necessary condition for a tile to lie within the radius of a segment: its centre within
+    /// the radius plus the tile's half-diagonal (8√2 ≈ 11.31 px, rounded up to 12 so float error cannot
+    /// cut a tile the exact test would keep). A long diagonal chord's bounding box is mostly tiles far
+    /// from the line; the smoother tests chords up to 48 corners long, and reading every tile of their
+    /// boxes was most of what a travel query cost on the 25 September 2026 capture's replay. The exact
+    /// test still decides every tile this passes, in the same order, so the first wall found is the same.
+    /// </summary>
+    internal static bool MayReachSegment(int tx, int ty, Vector2 a, Vector2 b)
+    {
+        const float Reach = Radius + 12f;
+        Vector2 centre = new(tx * 16f + 8f, ty * 16f + 8f), ab = b - a;
+        float lengthSquared = ab.LengthSquared();
+        float t = lengthSquared <= 1e-6f ? 0f : Math.Clamp(Vector2.Dot(centre - a, ab) / lengthSquared, 0f, 1f);
+        return Vector2.DistanceSquared(centre, a + ab * t) < Reach * Reach;
     }
 
     public static bool SweptClear(ITileWorld world, Vector2 from, Vector2 to)
@@ -224,7 +241,7 @@ public static class CircleContact
     /// the rectangle, otherwise the least of the distances from the segment to the four edges,
     /// which is the standard segment-to-segment distance taken four times.
     /// </summary>
-    private static float SegmentDistanceSquaredToTile(int tx, int ty, Vector2 a, Vector2 b)
+    internal static float SegmentDistanceSquaredToTile(int tx, int ty, Vector2 a, Vector2 b)
     {
         float left = tx * 16f, top = ty * 16f, right = left + 16f, bottom = top + 16f;
         if (SegmentEntersRectangle(a, b, left, top, right, bottom)) return 0f;
