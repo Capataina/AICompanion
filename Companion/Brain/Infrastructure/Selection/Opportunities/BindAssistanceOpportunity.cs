@@ -109,7 +109,7 @@ public sealed class AssistanceOpportunityBinder : IOpportunityBinder
 
         DecisionFact target = facts.Read(targetKey);
         if (target.Evidence != FactEvidence.Observed) return Refuse("assistance-target-unresolved");
-        site = JsonSerializer.Deserialize<AssistanceOpportunityFact>(state.Read(targetKey, facts).Text!);
+        site = DiscoverAssistanceOpportunities.ParseSite(state.Read(targetKey, facts).Text!);
         if (site == null) return Refuse("assistance-fact-unreadable");
         if (site.Domain != Domain || site.Target != opportunity.Key.Target || site.Generation != opportunity.Key.Generation
             || site.Purpose != opportunity.Key.Purpose)
@@ -213,7 +213,7 @@ public sealed class AssistanceOpportunityBinder : IOpportunityBinder
             // bound to vanished" needs to know whether the world changed or the ranking did.
             return new(OpportunityAdmission.Unresolved,
                 WithheldSites(facts) > 0 ? "assistance-target-not-yet-ranked" : "assistance-target-not-observed", true);
-        var site = JsonSerializer.Deserialize<AssistanceOpportunityFact>(fact.Value.Text!);
+        var site = DiscoverAssistanceOpportunities.ParseSite(fact.Value.Text!);
         if (site == null || site.Admission != "usable" || site.Amount <= 0)
             return new(OpportunityAdmission.KnownUnusable, "assistance-target-no-longer-usable", true);
         // A moved drop is the same opportunity with new evidence, and its pose is part of the binding,

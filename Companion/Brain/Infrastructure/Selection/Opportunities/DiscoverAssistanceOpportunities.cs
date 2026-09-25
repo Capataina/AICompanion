@@ -48,6 +48,23 @@ public sealed class DiscoverAssistanceOpportunities : IOpportunitySource
     };
 
     /// <summary>
+    /// A captured site's record, parsed once per text instance. The capture hands back the same string for a
+    /// site whose record held still, and discovery re-reads every site whenever the heading reorders them, so
+    /// the same text was parsed again on every decision — the light domain's discovery allocated 181 KB a tick
+    /// on the 25 September 2026 capture's replay. The table is keyed by reference, so an equal text in another
+    /// instance simply parses, and the record is immutable, so sharing it is sharing a value.
+    /// </summary>
+    internal static AssistanceOpportunityFact? ParseSite(string text)
+    {
+        if (parsedSites.TryGetValue(text, out AssistanceOpportunityFact? parsed)) return parsed;
+        parsed = JsonSerializer.Deserialize<AssistanceOpportunityFact>(text);
+        if (parsed != null) parsedSites.AddOrUpdate(text, parsed);
+        return parsed;
+    }
+
+    private static readonly ConditionalWeakTable<string, AssistanceOpportunityFact> parsedSites = new();
+
+    /// <summary>
     /// One captured site as an opportunity, with the manifest of the two facts it rests on: the domain's coverage
     /// and the site itself. Discovery builds every candidate through this, and the course's acceptance of in-passing
     /// work builds its one candidate through it too, so the two cannot disagree about what a site offers.
@@ -58,7 +75,7 @@ public sealed class DiscoverAssistanceOpportunities : IOpportunitySource
         var reader = facts.Track();
         reader.Read(coverageKey);
         DecisionFact observed = reader.Read(site);
-        AssistanceOpportunityFact? value = JsonSerializer.Deserialize<AssistanceOpportunityFact>(observed.Value.Text!);
+        AssistanceOpportunityFact? value = ParseSite(observed.Value.Text!);
         if (value == null || value.Domain != domain || value.Target != site.Identity || value.Generation != site.Generation)
             throw new InvalidOperationException("Captured assistance fact did not retain its identity.");
         OpportunityAdmission admission = value.Admission switch
