@@ -94,6 +94,7 @@ public sealed class CaptureAssistanceOpportunities
     private readonly ObserveItemGenerations itemGenerations = new();
     private long version;
     private readonly Dictionary<FactKey, (string Text, long Version)> factVersions = new();
+    private readonly Dictionary<FactKey, (AssistanceOpportunityFact Value, string Text)> serialised = new();
     private DecisionWorkCursor drops = new();
     private sealed record FrozenDrop(Item Value, long Generation, bool ReplacementObserved);
     /// <summary>
@@ -108,8 +109,17 @@ public sealed class CaptureAssistanceOpportunities
     /// newly-occupied spacing neighbourhood re-ask on the next sweep.
     /// </summary>
     private readonly Dictionary<Point, bool> placementStep = new();
-    private readonly List<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>> lightSwept = new();
+    private readonly Dictionary<Point, (double X, double Y)?> workingPoses = new();
+    private object? workingPoseWorld;
+    private (int X, int Y) workingPoseReach;
+    private readonly List<RankCensusSitesByWorth.Candidate<LightSiteDraft>> lightSwept = new();
     private int placementStepRevision;
+
+    private static void ForgetTilesOutside<TValue>(Dictionary<Point, TValue> byTile, Rectangle area)
+    {
+        foreach (Point tile in byTile.Keys)
+            if (!area.Contains(tile)) byTile.Remove(tile);
+    }
 
     private FrozenDrop[]? frozenDrops;
     private readonly List<AssistanceOpportunityFact> capturedDrops = new();
@@ -133,7 +143,7 @@ public sealed class CaptureAssistanceOpportunities
     private static readonly int DropsSection = Diagnostics.BrainSections.Register("drops");
     private static readonly int LightSection = Diagnostics.BrainSections.Register("light");
 
-    public void ResetWorld() { itemGenerations.Reset(); factVersions.Clear(); frozenDrops = null; capturedDrops.Clear(); drops = new(); dropCensusRevision = 0; version = 0; }
+    public void ResetWorld() { placementStep.Clear(); workingPoses.Clear(); itemGenerations.Reset(); factVersions.Clear(); serialised.Clear(); frozenDrops = null; capturedDrops.Clear(); drops = new(); dropCensusRevision = 0; version = 0; }
 
     /// <summary>Resumable native drop capture. The cursor advances only after a concrete item was
     /// observed, so a borrowed-budget cut reports partial coverage rather than an empty census.
@@ -298,9 +308,21 @@ public sealed class CaptureAssistanceOpportunities
         // still change an answer inside it; the sensitive region is the window grown by that reach.
         Rectangle sensitive = area;
         sensitive.Inflate(CompanionTorches.SpacingTiles, CompanionTorches.SpacingTiles);
+        // Both per-tile answers are dropped for a tile that left the window before the edit check runs,
+        // since the check below only looks inside this capture's window and a tile outside it could miss
+        // the edit that changed its answer; kept, it would come back stale when the window returned.
+        ForgetTilesOutside(placementStep, area);
+        ForgetTilesOutside(workingPoses, area);
+        if (!ReferenceEquals(MovementQueries.World, workingPoseWorld) || FindToolAccess.Reach != workingPoseReach)
+            workingPoses.Clear();
+        workingPoseWorld = MovementQueries.World;
+        workingPoseReach = FindToolAccess.Reach;
         if (TerrainChanges.Edits.ChangedSince(placementStepRevision, (x, y) => sensitive.Contains(x, y))
             != TerrainEditVerdict.Unchanged)
+        {
             placementStep.Clear();
+            workingPoses.Clear();
+        }
         placementStepRevision = TerrainChanges.Revision;
         // The whole area is swept, so the census is complete for the area it names — but only if that
         // area is a place. In colour mode the window is intersected with the engine's own processed
@@ -316,7 +338,7 @@ public sealed class CaptureAssistanceOpportunities
         // Reused rather than allocated, because a list grown from empty to a window's worth of placeable
         // tiles on every capture was 7.4% of the brain thread in regrowth alone on the same replay; nothing
         // keeps a reference to it past `PublishLightSites`.
-        List<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>> swept = lightSwept;
+        List<RankCensusSitesByWorth.Candidate<LightSiteDraft>> swept = lightSwept;
         swept.Clear();
         // A census publishes opportunities, not tiles.
         //
@@ -367,8 +389,7 @@ public sealed class CaptureAssistanceOpportunities
                 // below, and gets it then: the scan is a 5x5 contact test, it ran for every placeable
                 // tile in the window, and it was 11.4% of the brain thread on the 22 September capture's
                 // replay (profiled 23 September 2026) for poses of which at most 196 are ever published.
-                var contact = reading.IsDark ? WorkingPose(point) : null;
-                // The placer's own step is asked last, and only of a site every cheaper test has already
+                var contact = reading.IsDark ? RememberedWorkingPose(point) : null;                // The placer's own step is asked last, and only of a site every cheaper test has already
                 // admitted, because it is by far the most expensive question here — it scans an
                 // eight-tile neighbourhood per call — and it can only ever downgrade an answer, never
                 // rescue one. Asking it before the light reading spent that scan on tiles refused for
@@ -389,8 +410,7 @@ public sealed class CaptureAssistanceOpportunities
                     : placementStep.TryGetValue(point, out bool remembered) ? remembered
                     : !LimitPlanningWork.IsActive || LimitPlanningWork.Current.TrySpend("torch-placement-step")
                         ? placementStep[point] = RecommendTorchPlacement.Accepts(point, torchToPlace, context.Companion.StandIn.Player)
-                        : null;
-                string admission = !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "unknown" : "unusable"
+                        : null;                string admission = !reading.IsDark ? reading.Light == LightSense.PlacementLight.Unread ? "unknown" : "unusable"
                     : contact == null ? "unusable"
                     : reach == ReachVerdict.NotYet ? "unknown" : reach == ReachVerdict.Unreachable ? "unusable"
                     : stepAnswer == null ? "unknown" : stepAnswer == false ? "unusable" : "usable";
@@ -399,8 +419,6 @@ public sealed class CaptureAssistanceOpportunities
                     : reach == ReachVerdict.NotYet ? "reach-not-yet" : reach == ReachVerdict.Unreachable ? "reach-unreachable"
                     : stepAnswer == null ? "placement-step-not-yet-asked"
                     : stepAnswer == false ? "the-placement-step-refuses-this-tile" : "observed-persistent-darkness";
-                var value = new AssistanceOpportunityFact("light-target", OpportunityPurposes.Light, $"tile:{x},{y}", 0, x * 16 + 8, y * 16 + 8,
-                    reading.IsDark ? 1 : 0, reading.IsDark ? 1 : 0, admission, reason, $"light={reading.Light};brightness={reading.Brightness:R};coverage={coverage.Area}", contact);
                 // Ranked by darkness rather than by `Amount`, because a light site's `Amount` is the
                 // binary `IsDark` the need arithmetic wants — every usable site scores exactly 1, so a
                 // top-K by Amount would be the same arbitrary prefix that tile-identity order already
@@ -418,20 +436,25 @@ public sealed class CaptureAssistanceOpportunities
                 // change the published set under a flying companion and retire admissions on ticks when
                 // nothing about the world moved.
                 double dx = x - heading.X, dy = y - heading.Y;
-                swept.Add(new(point, tier, 1 - reading.Brightness, dx * dx + dy * dy, value));
+                swept.Add(new(point, tier, 1 - reading.Brightness, dx * dx + dy * dy, new LightSiteDraft(point, reading, admission, reason, contact)));
             }
         // The limit is the window's own arithmetic rather than a number: two torches must be more than
         // the placer's spacing apart in both axes, so a window this wide can never usefully hold more
         // than this many of them however dark it is, and publishing past that is spending the decision's
         // budget on answers no placement could take.
-        (List<AssistanceOpportunityFact> published, int withheld) = PublishLightSites(swept, work, workingOn);
-        foreach (AssistanceOpportunityFact site in published)
+        (List<LightSiteDraft> published, int withheld) = PublishLightSites(swept, work, workingOn);        string coveredArea = coverage.Area.ToString();
+        foreach (LightSiteDraft site in published)
         {
             // The pose a tile that is not dark skipped in the sweep, computed now that it survived the cut,
             // from the same world in the same tick — so the published fact is the one the eager scan built.
-            AssistanceOpportunityFact complete = site;
-            if (site.Amount == 0 && WorkingPose(new Point((int)site.X / 16, (int)site.Y / 16)) is { } pose)
-                complete = site with { ContactX = pose.X, ContactY = pose.Y };
+            // The fact and its strings are built here rather than in the sweep, for the same reason: a
+            // record and two interpolated strings per swept tile, of which at most the bound are ever
+            // published, was a quarter of this census's cost on the 25 September 2026 capture's replay.
+            (double X, double Y)? contact = site.Reading.IsDark ? site.Contact : RememberedWorkingPose(site.Tile);
+            int x = site.Tile.X, y = site.Tile.Y;
+            var complete = new AssistanceOpportunityFact("light-target", OpportunityPurposes.Light, LightTarget(site.Tile), 0, x * 16 + 8, y * 16 + 8,
+                site.Reading.IsDark ? 1 : 0, site.Reading.IsDark ? 1 : 0, site.Admission, site.Reason,
+                $"light={site.Reading.Light};brightness={site.Reading.Brightness:R};coverage={coveredArea}", contact);
             facts.Add(Fact("light-target", complete.Target, 0, complete));
         }
         facts.Add(Coverage("light-coverage", area, area.Width > 0 && area.Height > 0, withheld));
@@ -457,11 +480,53 @@ public sealed class CaptureAssistanceOpportunities
     /// pinned past it. This is the call `CaptureLighting` makes, so a row driving it drives the bound,
     /// the rank and the pin as one thing rather than re-deciding any of them for itself.
     /// </summary>
-    public static (List<AssistanceOpportunityFact> Published, int Withheld) PublishLightSites(
-        IReadOnlyList<RankCensusSitesByWorth.Candidate<AssistanceOpportunityFact>> swept, int workTiles, string? workingOn)
-        => RankCensusSitesByWorth.PublishTheBest(swept,
+    public static (List<T> Published, int Withheld) PublishLightSites<T>(
+        IReadOnlyList<RankCensusSitesByWorth.Candidate<T>> swept, int workTiles, string? workingOn)
+    {
+        // The pin is matched by tile rather than by comparing each site's target string, because the sweep
+        // no longer builds that string for a site the cut drops. `LightTile` accepts only the exact text
+        // `LightTarget` writes, so this keeps precisely the sites the string comparison kept.
+        Point? pin = LightTile(workingOn);
+        return RankCensusSitesByWorth.PublishTheBest(swept,
             RankCensusSitesByWorth.MostSitesAWindowCanHold(workTiles, CompanionTorches.SpacingTiles),
-            site => site.Target == workingOn);
+            candidate => pin is { } tile && candidate.Tile == tile);
+    }
+
+    /// <summary>A light site's opportunity target, and the one place its text is written.</summary>
+    public static string LightTarget(Point tile) => $"tile:{tile.X},{tile.Y}";
+
+    /// <summary>The tile a light target names, or null for anything <see cref="LightTarget"/> did not write.</summary>
+    public static Point? LightTile(string? target)
+    {
+        if (target == null || !target.StartsWith("tile:", StringComparison.Ordinal)) return null;
+        int comma = target.IndexOf(',', 5);
+        if (comma < 0 || !int.TryParse(target.AsSpan(5, comma - 5), out int x) || !int.TryParse(target.AsSpan(comma + 1), out int y))
+            return null;
+        var tile = new Point(x, y);
+        return LightTarget(tile) == target ? tile : null;
+    }
+
+    /// <summary>What the sweep learned about one placeable tile, held until the cut decides whether it is
+    /// published; only a published one becomes a fact with its strings.</summary>
+    private readonly record struct LightSiteDraft(Point Tile, LightSense.PlacementReading Reading, string Admission, string Reason, (double X, double Y)? Contact);
+
+    /// <summary>
+    /// <see cref="WorkingPose"/>, answered once per tile until the terrain it read changes.
+    ///
+    /// The pose is a pure function of the tiles within three of the site — the 5x5 hover candidates, the
+    /// circle's radius around each and the swing's line to a face — and of the player's tile reach, so
+    /// the cache is cleared on exactly what can move it: an edit inside the sensitive window, a change of
+    /// reach, a different tile world, or a new world. An entry is only kept while its tile stays inside
+    /// the swept window, because an edit is checked against the window of the capture that sees it and a
+    /// tile that left the window could otherwise miss the edit that changed its answer. This is the edit
+    /// record every retained route search and the reach flood already trust; it was 0.5 ms of every
+    /// capture late in the 25 September 2026 play, recomputing a few hundred unchanged dark tiles' poses.
+    /// </summary>
+    private (double X, double Y)? RememberedWorkingPose(Point tile)
+    {
+        if (workingPoses.TryGetValue(tile, out (double X, double Y)? remembered)) return remembered;
+        return workingPoses[tile] = WorkingPose(tile);
+    }
 
     /// <summary>
     /// Where the body must hover to work a tile, which is not the tile.
@@ -542,7 +607,11 @@ public sealed class CaptureAssistanceOpportunities
     private DecisionFact Fact(string kind, string identity, long generation, AssistanceOpportunityFact value)
     {
         var key = new FactKey(kind, identity, generation);
-        string text = JsonSerializer.Serialize(value);
+        // An equal record serialises to the same text, so the JSON is written only when the value moved.
+        // Every published site was re-serialised on every capture, and on the 25 September 2026 capture's
+        // replay that was most of what the light census spent after its sweep; most sites hold still.
+        string text = serialised.TryGetValue(key, out var last) && last.Value == value ? last.Text : JsonSerializer.Serialize(value);
+        serialised[key] = (value, text);
         long current = factVersions.TryGetValue(key, out var prior) && prior.Text == text ? prior.Version : ++version;
         factVersions[key] = (text, current);
         return new(key, current, new FactValue(Amount: value.Amount, X: value.X, Y: value.Y, Text: text), FactEvidence.Observed);

@@ -1,8 +1,8 @@
 #nullable enable
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
-using System.Linq;
 using Microsoft.Xna.Framework;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
@@ -94,19 +94,49 @@ public static class RankCensusSitesByWorth
     /// domain's fact count allows for hysteresis rather than treating the bound as a ceiling.
     /// </summary>
     public static (List<T> Published, int Withheld) PublishTheBest<T>(
-        IReadOnlyList<Candidate<T>> swept, int limit, Func<T, bool> keep)
+        IReadOnlyList<Candidate<T>> swept, int limit, Func<Candidate<T>, bool> keep)
     {
         if (swept.Count == 0) return (new List<T>(), 0);
-        var pinned = new List<T>();
-        var rest = new List<Candidate<T>>(swept.Count);
-        foreach (Candidate<T> candidate in swept)
-            if (keep(candidate.Site)) pinned.Add(candidate.Site); else rest.Add(candidate);
-        var published = pinned.Concat(rest
-            .OrderBy(c => c.Tier).ThenBy(c => c.Cost).ThenByDescending(c => c.Worth)
-            .ThenBy(c => c.Tile.X).ThenBy(c => c.Tile.Y)
-            .Take(Math.Max(0, limit))
-            .Select(c => c.Site)).ToList();
+        var published = new List<T>();
+        // An unstable sort gives exactly the order the stable LINQ chain it replaced gave, because the last
+        // two keys are the tile's own coordinates and a census sweeps each tile once, so no two candidates
+        // ever compare equal. The chain and the copies around it were a quarter of the light census's cost
+        // on the 25 September 2026 capture's replay.
+        //
+        // Only the ranking keys are sorted, in a pooled array, each pointing back at its candidate in the
+        // sweep. A candidate carries its whole site, and copying the unpinned ones into a list of their own
+        // was a hundred kilobytes a capture at a thousand candidates — past the large-object threshold, so
+        // every capture put a fresh array on the heap the collector only reclaims in a full collection.
+        RankKey[] keys = ArrayPool<RankKey>.Shared.Rent(swept.Count);
+        try
+        {
+            int ranked = 0;
+            for (int i = 0; i < swept.Count; i++)
+            {
+                Candidate<T> candidate = swept[i];
+                if (keep(candidate)) published.Add(candidate.Site);
+                else keys[ranked++] = new RankKey(candidate.Tier, candidate.Cost, candidate.Worth, candidate.Tile.X, candidate.Tile.Y, i);
+            }
+            keys.AsSpan(0, ranked).Sort(new ByRank());
+            for (int i = 0; i < Math.Min(ranked, Math.Max(0, limit)); i++) published.Add(swept[keys[i].Index].Site);
+        }
+        finally { ArrayPool<RankKey>.Shared.Return(keys); }
         return (published, swept.Count - published.Count);
+    }
+
+    private readonly record struct RankKey(int Tier, double Cost, double Worth, int X, int Y, int Index);
+
+    private readonly struct ByRank : IComparer<RankKey>
+    {
+        public int Compare(RankKey a, RankKey b)
+        {
+            int order = a.Tier.CompareTo(b.Tier);
+            if (order == 0) order = a.Cost.CompareTo(b.Cost);
+            if (order == 0) order = b.Worth.CompareTo(a.Worth);
+            if (order == 0) order = a.X.CompareTo(b.X);
+            if (order == 0) order = a.Y.CompareTo(b.Y);
+            return order;
+        }
     }
 
     /// <summary>

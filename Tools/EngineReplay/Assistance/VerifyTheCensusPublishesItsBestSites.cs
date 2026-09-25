@@ -153,7 +153,7 @@ internal static class VerifyTheCensusPublishesItsBestSites
         Require(!unbound.Contains("10,10"),
             "premise: the site this row pins must be one the cut would otherwise drop, or the row proves nothing");
         (List<string> published, int withheld) = RankCensusSitesByWorth.PublishTheBest(
-            swept, 2, site => site == "10,10");
+            swept, 2, candidate => candidate.Site == "10,10");
         Require(published.Contains("10,10"),
             $"the site the course is bound to was cut by rank alone, so the next observation retires an "
                 + $"admission the world still supports; published [{string.Join(" ", published)}]");
