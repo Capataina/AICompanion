@@ -46,7 +46,15 @@ public sealed class ClearanceField
     {
         chunks.Clear();
         checkedAt.Clear();
+        last = null;
     }
+
+    // The chunk served last, and the key, identity and revision it was served under. Consecutive reads land
+    // in one chunk far more often than not — the four tiles around a corner, and the eight neighbours a search
+    // prices from one node — and each read otherwise costs two dictionary lookups before the revision compare
+    // that decides it. Only `Fetch` and `Invalidate` change a chunk or its checked revision, `Fetch` records
+    // this after every serve, and `Invalidate` clears it, so a hit returns exactly what the full path would.
+    private (int X, int Y, ITileWorld Identity, int Revision, Chunk Chunk)? last;
 
     /// <summary>Clearance of one tile: zero for a wall, otherwise the distance to the nearest wall tile's centre, capped.</summary>
     public float At(ITileWorld world, int x, int y)
@@ -62,6 +70,19 @@ public sealed class ClearanceField
             MathF.Min(At(world, corner.X - 1, corner.Y), At(world, corner.X, corner.Y)));
 
     private Chunk Fetch(ITileWorld world, int cx, int cy)
+    {
+        if (last is { } hit && hit.X == cx && hit.Y == cy && ReferenceEquals(hit.Identity, world.CacheIdentity) && hit.Revision == world.Revision)
+        {
+            NoteServed(world, hit.Chunk);
+            return hit.Chunk;
+        }
+        Chunk served = FetchThroughTheStore(world, cx, cy);
+        last = checkedAt.TryGetValue((cx, cy), out int checkedRevision) && checkedRevision == world.Revision
+            ? (cx, cy, world.CacheIdentity, checkedRevision, served) : null;
+        return served;
+    }
+
+    private Chunk FetchThroughTheStore(ITileWorld world, int cx, int cy)
     {
         var key = (cx, cy);
         // A chunk's distances can read the chunk and a margin of MaxTiles round it: a wall that far outside
