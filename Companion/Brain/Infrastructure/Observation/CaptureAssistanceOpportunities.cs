@@ -515,12 +515,19 @@ public sealed class CaptureAssistanceOpportunities
     ///
     /// The pose is a pure function of the tiles within three of the site — the 5x5 hover candidates, the
     /// circle's radius around each and the swing's line to a face — and of the player's tile reach, so
-    /// the cache is cleared on exactly what can move it: an edit inside the sensitive window, a change of
-    /// reach, a different tile world, or a new world. An entry is only kept while its tile stays inside
-    /// the swept window, because an edit is checked against the window of the capture that sees it and a
-    /// tile that left the window could otherwise miss the edit that changed its answer. This is the edit
-    /// record every retained route search and the reach flood already trust; it was 0.5 ms of every
-    /// capture late in the 25 September 2026 play, recomputing a few hundred unchanged dark tiles' poses.
+    /// the cache is cleared on what the terrain record can see move it: an announced edit inside the
+    /// sensitive window, a change of reach, a different tile world, or a new world. An entry is only kept
+    /// while its tile stays inside the swept window, because an edit is checked against the window of the
+    /// capture that sees it and a tile that left the window could otherwise miss the edit that changed its
+    /// answer. It was 0.5 ms of every capture late in the 25 September 2026 play, recomputing a few hundred
+    /// unchanged dark tiles' poses.
+    ///
+    /// **It is blind to exactly what that record is blind to, and so it is not lossless there.** Sand that
+    /// falls clears its tile through <c>ClearTile</c> and lands through <c>PlaceTile</c>, neither of which
+    /// announces (`TerrariaIntegration/TrackTerrainChanges.cs` hooks the placement and destruction hooks and
+    /// the doors), so a pose inside newly landed sand is served until the next announced edit nearby, and
+    /// travel then refuses it as overlapping terrain. The reach flood and the clearance field share the same
+    /// blindness; the fix is announcing those edits, once, in the tracker.
     /// </summary>
     private (double X, double Y)? RememberedWorkingPose(Point tile)
     {

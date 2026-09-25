@@ -10,6 +10,7 @@ using live::AICompanion.Companion.Brain.Activities;
 using live::AICompanion.Companion.Brain.Activities.Combat;
 using live::AICompanion.Companion.Brain.Infrastructure.Position;
 using live::AICompanion.Companion.Brain.Infrastructure.Selection;
+using live::AICompanion.Companion.Brain.Infrastructure.Selection.Computation;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
 using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 
@@ -39,7 +40,211 @@ internal static class VerifyADecisionInFlightKeepsTheFight
     {
         int red = 0;
         red += Row("a decision spanning three ticks does not exit the fight it found", TheFightSurvivesADecision);
+        red += Row("a decision in flight after work holds the body instead of returning it to the player", WorkHoldsThePlaceWhileDeciding);
+        red += Row("a decision begun after the allowance ran out waits for its censuses instead of settling on nothing", AStarvedDecisionWaitsForItsCensuses);
+        red += Row("a committed fight is not released because the player walked away from it", AFightOutlastsThePlayerWalkingAway);
         return red;
+    }
+
+    /// <summary>
+    /// A fight the player walks away from is finished, by the owner's ruling of 25 September 2026. Until then a
+    /// committed plan was released once its stand's gap beyond the player's region passed twice what it was admitted
+    /// at, so a player walking on ended the fight rather than the fight ending. The scene commits a fight beside a
+    /// standing player, then walks him away far enough to have crossed that line, keeping the zombie inside the
+    /// work radius so nothing else has a reason to end it.
+    /// </summary>
+    /// <summary>Whether the plan committed now has its current stand past the line the retired release used: a gap
+    /// beyond the player's region of more than twice the gap it was admitted at, plus half the region's smaller
+    /// half-size.</summary>
+    private static bool PastTheOldLine(ActionContext ctx)
+    {
+        var plan = ctx.Companion.Combat.Planner.Committed;
+        if (plan == null) return false;
+        var region = ctx.Senses.Intent.Region;
+        Vector2 stand = plan.Current((int)ctx.Senses.Tick).Stand.Stand;
+        return region.GapBeyond(stand) > 2f * plan.Validity.AdmittedCompanyGap + MathF.Min(region.HalfSize.X, region.HalfSize.Y) / 2f;
+    }
+
+    private static void AFightOutlastsThePlayerWalkingAway()
+    {
+        Vector2 screen = Main.screenPosition;
+        try
+        {
+            ActionContext ctx = Scene();
+            ctx.Npc.Bottom = ctx.Player.Bottom + new Vector2(-120f, 0f);
+            Main.npc[30].Bottom = ctx.Npc.Bottom + new Vector2(260f, -150f);
+            ctx.Senses.Update(ctx.Npc, ctx.Player);
+            for (int tick = 0; tick < 60 && ctx.Companion.Combat.Planner.Committed == null; tick++) Tick(ctx);
+            var planner = ctx.Companion.Combat.Planner;
+            Require(planner.Committed != null,
+                $"premise: no fight was committed beside the player; decision={ctx.Companion.Brain.Course.Last.Reason}");
+
+            int companyReleases = 0, beyondTheLine = 0;
+            for (int tick = 0; tick < 80; tick++)
+            {
+                // Walking left, away from the fight on his right, at a brisk pace; the screen follows him as the game's does.
+                ctx.Player.velocity = new Vector2(-6f, 0f);
+                ctx.Player.position.X -= 6f;
+                Main.screenPosition = ctx.Player.Center - new Vector2(Main.screenWidth, Main.screenHeight) / 2f;
+                Tick(ctx);
+                if (planner.LastInvalidation == "company-gap-doubled") companyReleases++;
+                if (PastTheOldLine(ctx)) beyondTheLine++;
+            }
+
+            // The scene the old release was measured firing in: the player standing 750 px from a fight, where it ended
+            // the committed plan every few ticks.
+            ActionContext far = Scene();
+            for (int tick = 0; tick < 120; tick++)
+            {
+                Tick(far);
+                if (far.Companion.Combat.Planner.LastInvalidation == "company-gap-doubled") companyReleases++;
+                if (PastTheOldLine(far)) beyondTheLine++;
+            }
+            Require(beyondTheLine > 0,
+                "premise: no committed plan's stand ever sat past the old release line on any tick, so the row is vacuous");
+            Require(companyReleases == 0,
+                $"a committed fight was released for its distance from the player on {companyReleases} tick(s); a fight he "
+                + "walks away from is finished, not dropped");
+            Console.WriteLine($"  a committed stand sat past the old release line on {beyondTheLine} tick(s) across both scenes; "
+                + "no plan was released for the player's distance");
+        }
+        finally
+        {
+            Main.screenPosition = screen;
+            Main.npc[30].active = false;
+            Main.npc[30].life = 0;
+        }
+    }
+
+    /// <summary>
+    /// A decision that starts after the tick's allowance is spent must not settle on a catalogue discovery never
+    /// read for its observation.
+    ///
+    /// That start is the ordinary case under the game's clock, because every activity prepares before the course
+    /// decides. On the replay of the 25 September 2026 capture a zombie died at tick 2463, combat committed a plan
+    /// on the next one in the same tick, and the decision that started beside it found the clock already spent:
+    /// discovery asked no source, combat's candidates had just been retired with the dead target, its coverage still
+    /// read complete from an earlier pass, and the search settled on the empty order with the fight standing ready.
+    /// A fresh course owner is driven directly here so the only catalogue it could hold is the one this decision
+    /// discovers: the first call is handed a spent allowance, the second a whole one.
+    /// </summary>
+    private static void AStarvedDecisionWaitsForItsCensuses()
+    {
+        Vector2 screen = Main.screenPosition;
+        try
+        {
+            ActionContext ctx = Scene();
+            Brain brain = ctx.Companion.Brain;
+            var fight = brain.Actions.OfType<FightEnemies>().Single();
+            for (int tick = 0; tick < 60 && ctx.Companion.Combat.Planner.Committed == null; tick++) Tick(ctx);
+            int uses = fight.LastSearch?.Front.Sum(plan => plan.Segments.Sum(segment => segment.Uses.Length)) ?? 0;
+            Require(uses > 0,
+                $"premise: combat's search must hold a front with uses for the course to discover; front={fight.LastSearch?.Front.Count ?? 0}");
+
+            var owner = new DecideCourseEachTick();
+            // Each allowance is made the standing one, because the course's travel borrows the ambient allowance and
+            // refuses a second one passed in beside it.
+            CourseDecision starved, next;
+            var spent = new DecisionWorkBudget(double.PositiveInfinity, 0, () => 0, 1);
+            using (live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Own(spent))
+                starved = owner.Decide(ctx, ctx.Companion.Combat, fight.LastSearch, spent);
+            Require(!starved.Settled,
+                $"premise: a decision handed a spent allowance cannot have finished; reason={starved.Reason}");
+            var whole = new DecisionWorkBudget(double.PositiveInfinity, long.MaxValue, () => 0, 1);
+            using (live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Own(whole))
+                next = owner.Decide(ctx, ctx.Companion.Combat, fight.LastSearch, whole);
+            string leaders = string.Join(", ", owner.LastLeaders.Keys);
+            Require(!(next.Settled && next.Binding == null),
+                $"a decision begun on a spent allowance settled as {next.Reason} with no step while combat's front held "
+                + $"{uses} use(s); leaders priced: {(leaders.Length == 0 ? "none" : leaders)}");
+            Require(next.Activity == "combat" && next.Binding != null,
+                $"with the whole allowance the decision should have bound the fight its censuses found; "
+                + $"got {next.Activity}/{next.Reason}, leaders priced: {(leaders.Length == 0 ? "none" : leaders)}");
+            Console.WriteLine($"  a decision begun on a spent allowance stayed in flight ({starved.Reason}), then bound "
+                + $"{next.Activity} once its censuses answered; leaders priced: {leaders}");
+        }
+        finally
+        {
+            Main.screenPosition = screen;
+            Main.npc[30].active = false;
+            Main.npc[30].life = 0;
+        }
+    }
+
+    /// <summary>
+    /// The allowance at which combat's own search is starved and offers nothing, so a released plan leaves no
+    /// continuation. Measured 22 September 2026 as the bottom of this scene's ladder: at a hundred operations
+    /// combat offers no plan at all. The row asserts that premise rather than trusting the number.
+    /// </summary>
+    private const long StarvedAllowance = 100;
+
+    /// <summary>
+    /// A decision that has not settled is not a decision that found nothing to do, and the owner ruled on
+    /// 25 September 2026 that keeping company is what the companion does only then. A body that was working
+    /// when the decision began therefore holds where it is; one that was not keeps the player company as
+    /// before. Both arms run in the same scene so the difference is the previous tick and nothing else.
+    /// </summary>
+    private static void WorkHoldsThePlaceWhileDeciding()
+    {
+        Vector2 screen = Main.screenPosition;
+        long allowance = Brain.PlanningOperationAllowance;
+        try
+        {
+            // The arm that was not working: a fresh companion, starved from its first tick, has decided nothing.
+            ActionContext idle = Scene();
+            Brain.PlanningOperationAllowance = StarvedAllowance;
+            Tick(idle);
+            CourseDecision first = idle.Companion.Brain.Course.Last;
+            Require(!first.Settled,
+                $"premise: a starved first decision must still be in flight; reason={first.Reason}");
+            Require(idle.Companion.Brain.LastRequest.Kind == RequestKind.WithPlayer,
+                $"a companion that had done nothing yet asked for {idle.Companion.Brain.LastRequest.Kind} while deciding "
+                + $"(reason={first.Reason}); with nothing done there is nothing to hold, so it keeps the player company");
+            Brain.PlanningOperationAllowance = allowance;
+
+            // The arm that was working: a committed fight, then plan and course both released under a starved allowance.
+            ActionContext ctx = Scene();
+            Brain brain = ctx.Companion.Brain;
+            for (int tick = 0; tick < 60 && ctx.Companion.Combat.Planner.Committed == null; tick++) Tick(ctx);
+            Require(ctx.Companion.Combat.Planner.Committed != null && brain.Course.Last.Activity == "combat",
+                $"premise: the body must be fighting before the decision starts; activity={brain.Course.Last.Activity}, "
+                + $"reason={brain.Course.Last.Reason}");
+            Vector2 before = ctx.Npc.Center;
+
+            Brain.PlanningOperationAllowance = StarvedAllowance;
+            ctx.Companion.Combat.Planner.Release("the fixture ends the fight's plan");
+            ReleaseTheCourse(ctx);
+            int deciding = 0, held = 0;
+            string other = "";
+            for (int tick = 0; tick < 3; tick++)
+            {
+                Tick(ctx);
+                CourseDecision decision = brain.Course.Last;
+                if (decision.Settled) continue;
+                deciding++;
+                Require(brain.Fighting?.Continuation == null,
+                    $"premise: combat re-committed under a starved allowance, so the tick has a fight to hold; "
+                    + $"plan={ctx.Companion.Combat.Planner.Committed?.Id}");
+                if (brain.LastRequest.Kind == RequestKind.Hold) held++;
+                else if (other.Length == 0) other = $"{decision.Activity}/{brain.LastRequest.Kind}/{decision.Reason}";
+            }
+            Require(deciding == 3,
+                $"premise: the starved allowance must hold the decision open for three ticks; unsettled={deciding}/3, "
+                + $"last reason={brain.Course.Last.Reason}");
+            Require(held == 3,
+                $"a decision in flight right after a fight asked for {other} on {3 - held} of 3 ticks instead of holding, "
+                + "which flies the body back to the player between two jobs");
+            Console.WriteLine($"  starved at {StarvedAllowance} operations: a fresh companion keeps company while deciding; "
+                + $"after its fight's plan and course were released the body held on 3/3 deciding ticks "
+                + $"(from {before.X:0},{before.Y:0})");
+        }
+        finally
+        {
+            Brain.PlanningOperationAllowance = allowance;
+            Main.screenPosition = screen;
+            Main.npc[30].active = false;
+            Main.npc[30].life = 0;
+        }
     }
 
     private static int Row(string name, Action test)

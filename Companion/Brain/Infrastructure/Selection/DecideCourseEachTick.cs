@@ -137,6 +137,13 @@ public sealed class DecideCourseEachTick
     // can cost more than a tick's leftover allowance.
     private SearchCourseOrders? deciding;
     private DecisionFactSnapshot? decidingFacts;
+    // The observation a decision was frozen on while discovery has not yet asked every source about it. The
+    // search begins only once it has; until then the tick is a decision in flight like any other.
+    private DecisionFactSnapshot? discoveringFacts;
+    // Where the body was when that observation was frozen. The model owner is built on the same tick, because it
+    // binds itself to the tick, the terrain revision and the captured motion current at construction and refuses
+    // an enemy captured at any other tick; a search that begins later must still price from the frozen moment.
+    private CoursePoint discoveringBody;
     private CourseComparisonEpisode? decidingEpisode;
     private RetainCourseModelQueries? models;
 
@@ -289,6 +296,7 @@ public sealed class DecideCourseEachTick
             models?.Abandon();
             deciding = null; models = null; decidingFacts = null; decidingEpisode = null;
         }
+        discoveringFacts = null;
         if (Course.Current != null) Course.Release(reason);
     }
 
@@ -407,6 +415,19 @@ public sealed class DecideCourseEachTick
             // the guard that would catch this if the line below were ever removed.
             models?.Abandon();
             deciding = null; models = null; decidingFacts = null; decidingEpisode = null;
+            discoveringFacts = null;
+        }
+
+        // A decision still discovering keeps the observation it was frozen on, the same way a searching one
+        // does below, and begins its search the tick every source has answered for it.
+        if (discoveringFacts != null)
+        {
+            using (BrainSections.Enter(DiscoverySection))
+                discovery.Continue(discoveringFacts, budget, PinnedSteps());
+            if (!discovery.EverySourceSlicedSinceMark) return Deciding(context);
+            DecisionFactSnapshot frozen = discoveringFacts;
+            discoveringFacts = null;
+            return BeginSearch(context, frozen, budget);
         }
 
         // A decision in flight keeps its own frozen observation, and this is the single most important
@@ -484,8 +505,34 @@ public sealed class DecideCourseEachTick
         // Nothing usable is retained, so a decision starts here. Discovery runs first because the search
         // can only order sites that have been found, and its pinned set keeps whatever the course still
         // holds discoverable even if its source has moved past it.
+        //
+        // A search over a catalogue discovery never refreshed against this observation would order last
+        // observation's work and call the result complete: every source's coverage outlives the pass that
+        // wrote it, and a candidate whose evidence left the world has already been retired. So a decision
+        // that starts after the tick's allowance is spent — the ordinary case under the game's clock, because
+        // every activity prepares first — waits in flight until each source has examined something, which is
+        // the third value this tree keeps for an unanswered search rather than a proven absence.
+        discovery.MarkObservation();
+        models = new RetainCourseModelQueries(facts, MovementQueries.World,
+            capabilities.CapabilityRevision, ModelQueueCapacity);
+        discoveringBody = new CoursePoint(context.Npc.Center.X, context.Npc.Center.Y);
         using (BrainSections.Enter(DiscoverySection))
-            discovery.Continue(facts, budget, Course.Current?.Projection.Steps.Select(step => step.Opportunity) ?? Array.Empty<OpportunityKey>());
+            discovery.Continue(facts, budget, PinnedSteps());
+        if (!discovery.EverySourceSlicedSinceMark)
+        {
+            discoveringFacts = facts;
+            return Deciding(context);
+        }
+        return BeginSearch(context, facts, budget);
+    }
+
+    private IEnumerable<OpportunityKey> PinnedSteps()
+        => Course.Current?.Projection.Steps.Select(step => step.Opportunity) ?? Array.Empty<OpportunityKey>();
+
+    /// <summary>Freezes the catalogue discovery holds for <paramref name="facts"/> and starts the order search over
+    /// it, settling in this tick if the allowance lets it.</summary>
+    private CourseDecision BeginSearch(in ActionContext context, DecisionFactSnapshot facts, DecisionWorkBudget budget)
+    {
         admitted = null;
         IReadOnlyList<Opportunity> candidates = WithoutRefusedByPerformer(context, discovery.Candidates);
 
@@ -493,9 +540,9 @@ public sealed class DecideCourseEachTick
         var episode = EpisodeFor(context, ++episodes, facts.WorldEpoch, candidates.SelectMany(candidate => candidate.Needs),
             censusComplete: discovery.Coverage.All(coverage => coverage.Exhausted));
 
-        models = new RetainCourseModelQueries(facts, MovementQueries.World,
-            capabilities.CapabilityRevision, ModelQueueCapacity);
-        var body = new CoursePoint(context.Npc.Center.X, context.Npc.Center.Y);
+        RetainCourseModelQueries decisionModels = models
+            ?? throw new InvalidOperationException("A search began without the model owner frozen with its observation.");
+        CoursePoint body = discoveringBody;
         var projector = new BindCourseOrder(facts, episode, candidates, binder,
             new ProjectedCourseState(body, facts),
             // The reunion pose is the player's own region centre rather than his feet, because that is
@@ -510,7 +557,7 @@ public sealed class DecideCourseEachTick
         // The owner drives the search rather than the other way round: it answers whatever models the
         // search asked for, extends the frozen catalogue with the answers, and lets the search resume on
         // the extended observation. A search suspended on a model nobody answers never advances.
-        Advance(search, models, budget);
+        Advance(search, decisionModels, budget);
         LastSearch = (search.EvaluatedOrders, search.RejectedOrders, search.Exhausted);
         LastRefusals = search.Refusals;
         LastStructuralRefusals = WithWithheld(search.StructuralRefusals);
@@ -691,8 +738,8 @@ public sealed class DecideCourseEachTick
     /// Combat is the only domain that has a continuation to offer, and that is a property of the domains
     /// rather than a special case: it is the one whose opportunities are a tactical search it has already
     /// run, so the next thing to do is standing there in a committed plan. A tile job's next step is a
-    /// course step and comes back the moment the decision settles. Everything else keeps the player
-    /// company, which is what it would be doing anyway.
+    /// course step and comes back the moment the decision settles. A body that was working holds where it
+    /// is until then, and one that was already keeping the player company goes on doing so.
     ///
     /// The tick stays unsettled, so nothing here advances the decision identity and nothing here can
     /// start recovery flight (<c>RecoverDistantCompanion.ReunionRequested</c> reads the flag).
@@ -701,8 +748,25 @@ public sealed class DecideCourseEachTick
     {
         if (context.Companion.Brain.Fighting?.Continuation is { } continuation)
             return Trace(Last = new("combat", null, "deciding-holds-the-fight", Settled: false, continuation));
+        // A body that was working when the decision began holds where it is until the decision settles,
+        // rather than flying back to the player between two jobs. The owner ruled on 25 September 2026 that
+        // keeping company is what the companion does only when there is nothing else to do, and a decision in
+        // flight has not found that yet: on the replay of that evening's capture the deciding tick sent the
+        // body home for 32 and 38 ticks after a fight plan the world invalidated, with hostiles still there,
+        // and each time it then had to fly back out. Keeping company's activity still carries the tick, because
+        // no other performer has a step to work; only where the body goes differs, and a companion that was
+        // already keeping company keeps doing so.
+        if (WasWorking(Last))
+            return Trace(Last = new("keep-company", null, DecidingHoldsThePlace, Settled: false, PositionRequest.Hold));
         return Companionship("deciding", settled: false);
     }
+
+    private const string DecidingHoldsThePlace = "deciding-holds-the-place";
+
+    /// <summary>Whether the tick before this one had the body doing work — a bound step, a held fight, or an earlier
+    /// tick of this same hold — as opposed to keeping company or having decided nothing yet.</summary>
+    private static bool WasWorking(CourseDecision last)
+        => last.Reason == DecidingHoldsThePlace || (last.Activity.Length > 0 && last.Activity != "keep-company");
 
     /// <summary>
     /// The end of one decision: take the best order the search found, or admit it found none.

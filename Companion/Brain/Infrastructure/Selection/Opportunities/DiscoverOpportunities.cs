@@ -20,6 +20,9 @@ public sealed class DiscoverOpportunities
     private int next;
     private long epoch = -1;
     private readonly int[] sections;
+    // Which sources have examined anything since the observation was last marked. A decision may not order
+    // a catalogue a source was never asked about, and this is how it can tell.
+    private readonly bool[] slicedSinceMark;
     private static readonly int RetireSection = Diagnostics.BrainSections.Register("retire");
     private static readonly int PinSection = Diagnostics.BrainSections.Register("pin");
     private static readonly int StoreSection = Diagnostics.BrainSections.Register("store");
@@ -29,6 +32,7 @@ public sealed class DiscoverOpportunities
         if (this.sources.Select(s => s.Name).Distinct(StringComparer.Ordinal).Count() != this.sources.Length)
             throw new ArgumentException("Opportunity sources need unique stable names.", nameof(sources));
         cursors = this.sources.Select(_ => new DecisionWorkCursor()).ToArray();
+        slicedSinceMark = new bool[this.sources.Length];
         // One profiler section per census, named for its domain, so `decide.course.discovery.light-target` is where
         // a dark cave's cost shows rather than inside one number for every census.
         sections = this.sources.Select(source => Diagnostics.BrainSections.Register(source.Name)).ToArray();
@@ -50,6 +54,23 @@ public sealed class DiscoverOpportunities
     public IReadOnlyList<OpportunityCoverage> Coverage => Array.AsReadOnly(coverage.Values.OrderBy(c => c.Source).ToArray());
     public int NextSource => next;
 
+    /// <summary>
+    /// Starts counting which sources have examined anything against a new observation.
+    ///
+    /// A source's coverage and its stored candidates outlive the observation they were read from, so a
+    /// source this call never reaches still reports the last pass it finished — "complete, nothing here" —
+    /// about a world that has since changed. Measured on the replay of the 25 September 2026 capture: a
+    /// zombie died at tick 2463, combat committed a plan on the next one in the same tick, and the decision
+    /// that started beside it began after the tick's clock had run out, so discovery visited no source at
+    /// all. Combat's candidates had just been retired with the dead target, its coverage still read complete,
+    /// and the search settled on the empty order with a fight standing ready — three decisions running.
+    /// </summary>
+    public void MarkObservation() => Array.Clear(slicedSinceMark);
+
+    /// <summary>Whether every source has examined something since <see cref="MarkObservation"/>, so its
+    /// candidates and coverage describe the marked observation rather than an earlier one.</summary>
+    public bool EverySourceSlicedSinceMark => Array.TrueForAll(slicedSinceMark, sliced => sliced);
+
     public void Continue(DecisionFactSnapshot facts, DecisionWorkBudget budget, IEnumerable<OpportunityKey> pinned)
     {
         HashSet<OpportunityKey> pins = Retire(facts, pinned);
@@ -62,7 +83,14 @@ public sealed class DiscoverOpportunities
             int index = next;
             next = (next + 1) % sources.Length;
             OpportunitySlice result;
+            long offsetBefore = cursors[index].Offset;
             using (Diagnostics.BrainSections.Enter(sections[index])) result = sources[index].Continue(facts, cursors[index], budget);
+            // A slice counts unless the allowance cut it before it examined anything: that source has been asked
+            // nothing about this observation. One that returned uncut has answered for it even with its cursor
+            // standing still — the gathering sources read a census the observation captured, and with none
+            // ready they return without advancing, which is their answer rather than a refusal to give one.
+            if (!result.Coverage.BudgetCut || cursors[index].Exhausted || cursors[index].Offset != offsetBefore)
+                slicedSinceMark[index] = true;
             // The slice's own coverage, carrying forward the evictions this domain has suffered. A source
             // reports what it examined and cannot know what the store then threw away, so overwriting the
             // row wholesale reset the eviction count to zero on every slice — which made the one number

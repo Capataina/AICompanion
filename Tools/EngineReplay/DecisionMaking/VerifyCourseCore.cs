@@ -121,6 +121,35 @@ internal static class VerifyCourseCore
         AICompanion.Tools.Ledger.EmitLedgerRows.Detail(detail);
     }
 
+    /// <summary>
+    /// Being away from the player prices no work, by the owner's ruling of 25 September 2026. Two courses doing the
+    /// same job at the same time, one of them far from him for its whole length, must total the same and carry the
+    /// same bounds: the gap is still integrated and reported as <see cref="CourseValue.Companionship"/>, and enters
+    /// nothing a decision compares. The work-first key alone cannot witness this, because it only separates work from
+    /// idleness; a gap charged into the total would still rank a near job above an identical far one.
+    /// </summary>
+    private static void DistancePricesNoWork()
+    {
+        var zombie = new NeedKey(NeedKind.HostileLife, "npc:5", 3);
+        var episode = new CourseComparisonEpisode(2, 1, 100,
+            new[] { new UsefulNeed(zombie, 40, 40, 1) }, true, 0, "fixture");
+        CourseProjection Job(long id, double gap)
+            => new(new[] { Binding(id, new[] { new PredictedEffect(id + 100, zombie, 20, 40, 40, 40,
+                    EstimateStatus.NativeBound, Array.Empty<long>(), Array.Empty<EffectDelta>(), DependencyManifest.Empty) }) },
+                Array.Empty<PredictedHarm>(),
+                new[] { new CompanionshipInterval(0, 30, gap, gap, EstimateStatus.ModelBound, new(0, 2), new(0, 2)) }, 30, true);
+        CourseValue near = CompareCourseOutcomes.Evaluate(Job(1, 0), episode);
+        CourseValue far = CompareCourseOutcomes.Evaluate(Job(2, 1), episode);
+        Require(far.Companionship > near.Companionship,
+            $"premise: the far job must report more companionship cost than the near one, or the row compares nothing; "
+            + $"near {near.Companionship}, far {far.Companionship}");
+        Close(far.Total.Nominal, near.Total.Nominal,
+            $"a job {far.Companionship:0.0000} further from the player totals differently from the same job beside him, "
+            + "so distance from the player is pricing work again");
+        Close(far.Total.Lower, near.Total.Lower, "distance from the player moved the lower bound of an otherwise identical job");
+        Close(far.Total.Upper, near.Total.Upper, "distance from the player moved the upper bound of an otherwise identical job");
+    }
+
     private static void Require(bool condition, string reason)
     { if (!condition) throw new InvalidOperationException(reason); }
     private static void Close(double actual, double expected, string reason)
@@ -134,6 +163,7 @@ internal static class VerifyCourseCore
         + RunOneRow.Case("G03 companionship integral uses dimensionless units", GapUnits)
         + RunOneRow.Case("G07 uncertain challengers wait for semantic boundaries", BoundaryRetention)
         + RunOneRow.Case("G13 doing nothing cannot win an encounter by having nothing to lose", SurvivalIsBetweenFights)
+        + RunOneRow.Case("distance from the player prices no work", DistancePricesNoWork)
         + RunOneRow.Case("G08 changed facts dirty only dependent descendants", SpatialDependencies)
         + RunOneRow.Case("G08 refreshed reads preserve descendants and reject cycles atomically", DependencyRefresh)
         + RunOneRow.Case("G08 receipts allocate physical amount once", ReceiptConservation)

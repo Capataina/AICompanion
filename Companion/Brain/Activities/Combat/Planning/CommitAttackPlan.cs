@@ -18,8 +18,7 @@ namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 /// The one committed attack plan per companion. It stays committed while all of these hold: its current
 /// segment's stand still has a reachable verdict and its allowance admission still describes it; every body
 /// it targets is still alive, or was killed by the plan; a new hostile or a real urgency jump (not a
-/// pixel of creep) has not appeared; the intent region has not moved so far that the plan's
-/// company gap doubled; and the hands have made progress — a planned use fired or a planned hit landed —
+/// pixel of creep) has not appeared; and the hands have made progress — a planned use fired or a planned hit landed —
 /// within the stall window. A plan is never replaced merely because a rival scores higher on one rescore,
 /// which is the walker's lesson that a destination is kept by membership rather than by a bonus.
 /// </summary>
