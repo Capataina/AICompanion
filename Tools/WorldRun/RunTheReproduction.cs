@@ -20,6 +20,7 @@ using AICompanion.Tools.Ledger;
 /// </summary>
 internal static class RunTheReproduction
 {
+
     public const string VerdictCase = "a world-run capture reproduces its own decisions at every tick";
     public const string ShareCase = "ticks a capture reproduces from its own recorded inputs";
 
@@ -27,6 +28,7 @@ internal static class RunTheReproduction
     {
         string? world = WorldRunEntry.Value(args, "--world=");
         string? reproduce = WorldRunEntry.Value(args, "--reproduce=");
+        ReproduceTheCapture.KnowledgeFrom = WorldRunEntry.Value(args, "--knowledge-from=");
         int ticks = WorldRunEntry.Value(args, "--ticks=") is { } text ? int.Parse(text, CultureInfo.InvariantCulture) : 0;
         var dropped = ParseDropped(WorldRunEntry.Value(args, "--drop-input="));
         bool printEach = args.Contains("--print-reproduction");

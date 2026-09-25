@@ -119,11 +119,19 @@ internal static class ReproduceTheCapture
         return null;
     }
 
+    /// <summary>A player save (`.tplr`) whose weapon knowledge is installed after the companion is attached, because a
+    /// played capture begins from the belief its save loaded and records only a digest of it. `--knowledge-from=`.</summary>
+    public static string? KnowledgeFrom;
+
     public static Result Run(ReadReplayInputs.Record record, int maxTicks, DroppedInput dropped, string? recordTo, bool printEach, int seed,
         Mode mode = Mode.Strict, bool stopAtFirstDivergence = false)
     {
         IReadOnlyList<ReadReplayInputs.Frame> frames = record.Frames;
         if (maxTicks > 0 && frames.Count > maxTicks) frames = frames.Take(maxTicks).ToList();
+        bool inventoryWithoutPrefixes = frames.Any(frame => !string.IsNullOrEmpty(frame.Inventory)
+            && frame.Inventory.Split('/').Any(entry => entry.Split(':').Length == 3));
+        if (inventoryWithoutPrefixes)
+            Console.WriteLine("INVENTORY the record's inventory carries no item prefixes (recorded before schema 0.51.0), so the decision digest is compared without its inventory fingerprint");
         ReadReplayInputs.Frame opening = frames[0];
 
         // What the recording pass did before its first tick, in its order: the census cleared, every random source
@@ -146,6 +154,9 @@ internal static class ReproduceTheCapture
         string inventory = opening.Inventory ?? "", gear = opening.Gear ?? "", bag = opening.Bag ?? "";
         Inputs.ApplyPlayer(livePlayer, player, inventory, gear);
         Inputs.ApplyBag(companion, bag);
+        // After the attach, because attaching forgets everything learned; the first frame's digest check then says
+        // whether this was the belief the play began from.
+        if (KnowledgeFrom != null) Console.WriteLine("KNOWLEDGE " + LoadTheSavedKnowledge.Import(KnowledgeFrom));
         companion.NPC.position = opening.Companion.Position;
         companion.NPC.velocity = opening.Companion.Velocity;
         companion.NPC.life = opening.Companion.Life;
@@ -342,7 +353,10 @@ internal static class ReproduceTheCapture
                     disagreements.Add($"companion's edits: the play made [{recordedEdits}] and this tick [{edits}]");
                 }
 
-                if (decision != frame.Decision) disagreements.Add("decision");
+                // A capture whose inventory entries carry no prefix cannot put back the prefixes the digest's inventory
+                // fingerprint hashes, so its last field is compared only when the record holds what it is made of.
+                if (inventoryWithoutPrefixes ? WithoutInventoryFingerprint(decision) != WithoutInventoryFingerprint(frame.Decision) : decision != frame.Decision)
+                    disagreements.Add("decision");
 
                 PrepareTheHeadlessEngine.AdvanceTheNativeBody(companion);
 
@@ -389,6 +403,13 @@ internal static class ReproduceTheCapture
 
     private static int Asked(string tape)
         => tape.Length == 0 ? 0 : tape.Split('.').Sum(part => int.Parse(part, CultureInfo.InvariantCulture));
+
+    /// <summary>A decision digest with the inventory fingerprint that ends it (`transfers:bag:inventory`) removed.</summary>
+    private static string WithoutInventoryFingerprint(string digest)
+    {
+        int colon = digest.LastIndexOf(':');
+        return colon < 0 ? digest : digest[..colon];
+    }
 
     private static string Pose(Vector2 position, Vector2 velocity, int life)
         => string.Create(CultureInfo.InvariantCulture, $"{position.X:R},{position.Y:R} v {velocity.X:R},{velocity.Y:R} life {life}");
