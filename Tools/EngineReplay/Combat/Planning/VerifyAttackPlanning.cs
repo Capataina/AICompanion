@@ -56,19 +56,17 @@ internal static class VerifyAttackPlanning
     }
 
     /// <summary>
-    /// P1: a slime behind a travelling player is fought from inside his predicted region. The body starts
-    /// with the slime behind the player, so the near-slime stand wins on time to first damage and the
-    /// in-region stand pays travel; company gap is what sends the committed stand forward. The slime's
-    /// life is planted high so neither stand kills it and damage-per-second cannot decide — a normal
-    /// slime dies sooner from the near stand and the faster kill wins on damage whatever company says.
-    /// The second weapon slot is empty so both stands price the same bow: with the knife in hand the
-    /// near stand wins on the weapon, which is a different decision than the row is about. The hands are
-    /// planted on a late cooldown so both stands fire once at nearly the same tick: damage-per-second is
-    /// duration-normalised, so stands firing at different ticks can never tie on damage, and the row is
-    /// about company, not about which tick the hands were ready on.
-    /// Dropping the company gap objective — the file-8 mutation — must send it back to the slime.
+    /// P1: a slime behind a travelling player is fought where the slime is, not from inside his region. The
+    /// body starts beside the slime, behind the player, so the near stand wins on time to first damage. Until
+    /// 25 September 2026 the row asserted the opposite — a company-gap objective sent the stand forward into
+    /// the region — and the owner ruled then that combat is never charged for distance from the player, so the
+    /// property this row holds is that nothing pulls a fight toward him any more. The slime's life is planted
+    /// high so neither stand kills it, the second slot is empty so both stands price the same bow, and the
+    /// hands are on a late cooldown so both fire at nearly the same tick: all three keep the comparison about
+    /// where the fight happens rather than about damage, weapon or readiness. Putting a company term back
+    /// into the plan's outcome or weights reddens it.
     /// </summary>
-    public static int CompanyFightsFromInsideThePredictedRegion()
+    public static int AFightBehindATravellingPlayerIsTakenWhereTheEnemyIs()
     {
         var companion = VerifyCompanionLifecycle.Create();
         Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear.Slots[1] = new Item();
@@ -130,17 +128,9 @@ internal static class VerifyAttackPlanning
             _ => true, weights, combat.NextPlanId++, ref budget);
         Require(result.Plan != null, "the company scene offers nothing: " + result.Reason);
         Vector2 stand = result.Plan.Segments[0].Stand.Stand;
-        Require(region.Contains(stand), $"the committed stand must stay inside the predicted region; got {stand} against centre {region.Centre} half {region.HalfSize}");
-        CombatWeights noCompany = weights with { CompanyGap = 0f };
-        Budget mutationBudget = FixtureBudget();
-        SearchPlans.SearchResult mutated = SearchPlans.SearchDepthOne(ctx, combat, companion.Brain.Positioner,
-            _ => true, noCompany, combat.NextPlanId++, ref mutationBudget);
-        Require(mutated.Plan != null, "the company-gap-less search offers nothing: " + mutated.Reason);
-        Vector2 back = mutated.Plan.Segments[0].Stand.Stand;
-        Require(!region.Contains(back), $"dropping the company gap must send the stand back to the slime; stayed inside at {back}");
-        float liveGap = region.GapBeyond(stand);
-        float mutatedGap = region.GapBeyond(back);
-        Console.WriteLine($"attack planning: company holds {stand} inside the region (gap {liveGap:0}, value {result.Plan.Weighted:0.00}); without the gap objective it falls back to {back} (gap {mutatedGap:0}, value {mutated.Plan.Weighted:0.00})");
+        Require(!region.Contains(stand), $"the fight was pulled into the player's region, away from the slime, at {stand} against centre {region.Centre} half {region.HalfSize}; distance from the player is priced into combat again");
+        Require(result.Plan.Outcome.CompanyGap == 0f, $"a plan carries a company gap of {result.Plan.Outcome.CompanyGap}, so combat is charging for distance from the player again");
+        EmitLedgerRows.Detail($"  the fight behind a travelling player is taken at {stand}, {region.GapBeyond(stand):0} px outside his region (value {result.Plan.Weighted:0.00})");
         return 0;
     }
 
@@ -549,12 +539,21 @@ internal static class VerifyAttackPlanning
             + "w" + p.Weighted.ToString("0.00")));
         string p5deep = result.DeeperAssessed == null ? "" : string.Join(",", System.Linq.Enumerable.Select(result.DeeperAssessed, d =>
             d.Proposal.Reason + ":" + Vector2.Distance(d.Proposal.Stand, boss.Center).ToString("0") + "/" + d.Verdict.Reach));
-        Require(result.Plan.Segments.Length == 2,
-            $"the committed plan must be far then close; got {result.Plan.Segments.Length} segment(s) {result.Plan.Segments[0].Stand.Reason} at {result.Plan.Segments[0].Stand.Stand} front {p5front} candidates {result.CandidatesEvaluated} deeper {p5deep}");
+        string p5plan = string.Join(" > ", System.Linq.Enumerable.Select(result.Plan.Segments, s =>
+            s.Stand.Reason + "@" + Vector2.Distance(s.Stand.Stand, boss.Center).ToString("0") + "px t" + s.ArriveTick + "-" + s.EndTick));
+        Require(result.Plan.Segments.Length >= 2,
+            $"the committed plan must be far then close; got {result.Plan.Segments.Length} segment(s) {p5plan} front {p5front} candidates {result.CandidatesEvaluated} deeper {p5deep}");
         float firstDist = Vector2.Distance(result.Plan.Segments[0].Stand.Stand, boss.Center);
-        float secondDist = Vector2.Distance(result.Plan.Segments[1].Stand.Stand, boss.Center);
+        float secondDist = Vector2.Distance(result.Plan.Segments[^1].Stand.Stand, boss.Center);
+        string p5kills = result.Plan.TargetKillTicks == null ? "none" : string.Join(",", System.Linq.Enumerable.Select(result.Plan.TargetKillTicks, k => k.Slot + "@t" + k.Tick));
+        EmitLedgerRows.Detail("  goons then boss plan: " + p5plan + "; kills " + p5kills);
         Require(firstDist > 300f, $"the first segment must stand off while goons live; {firstDist:0}px from the boss");
-        Require(secondDist < 250f, $"the second segment must close after; {secondDist:0}px from the boss");
+        // Closes, rather than closes inside 250 px. Until 25 September 2026 the plan flew to a ranged stand and
+        // then closed to shotgun range; with the company gap out of combat's pricing (the owner's ruling) it fires
+        // from where it is at once and then flies in to about 275 px and holds, which the old 250 px line was
+        // drawn around the other plan to refuse. What the row is about is the order — off while the goons live,
+        // in after — so it asserts a real closing of at least 200 px rather than a distance one plan happened to use.
+        Require(secondDist < firstDist - 200f, $"the last segment must close on the boss; {firstDist:0}px then {secondDist:0}px");
 
         CombatWeights singleWeights = WeighCombatObjectives.ForSenses(ctx);
         Budget singleBudget = FixtureBudget();

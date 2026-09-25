@@ -364,7 +364,6 @@ public static class SearchAttackPlans
                     lastUseTicks = Math.Max(1, attack.UseTicks);
                 }
             List<int> starts = DelayedStarts(node, arrivalAbs, horizonEnd, options?.ArrivalStartsOnly ?? false);
-            float gap = JointCompanyGap(ctx, prefix, departAbs, proposal.Stand, arrivalAbs, tick, horizon);
             int handsAtArrival = Math.Max(0, lastFireAbs + lastUseTicks - arrivalAbs);
             Dictionary<int, int>? throwsAtArrival = AfterUses(StartingThrows(combat.Weapons), node.Pairs, arrivalAbs);
             SimmedStand simmed = SimulateStand(ctx, combat, rolled, evalTargets, alive, proposal, muzzle,
@@ -389,7 +388,7 @@ public static class SearchAttackPlans
                 if (piece == null)
                     continue;
                 EvaluateAttackOutcomes.Valuation whole = EvaluateAttackOutcomes.Combine(prefixAt, piece.Value,
-                    evalTargets, gap, startAbs - tick);
+                    evalTargets, 0f, startAbs - tick);
                 var segments = new AttackSegment[prefix.Segments.Length + 1];
                 for (int i = 0; i < prefix.Segments.Length; i++)
                     segments[i] = prefix.Segments[i];
@@ -697,7 +696,11 @@ public static class SearchAttackPlans
         int travel = (int)MathF.Min(verdict.TravelTicks, horizon - 1);
         Vector2 muzzle = CompanionCombat.MuzzleAt(proposal.Stand);
         CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
-        float gap = IntegrateCompanyGap(ctx, proposal.Stand, travel, horizon);
+        // No company gap: by the owner's ruling of 25 September 2026 a fight is never charged for the time the orb
+        // spends away from the player, so no stand is priced below another, or dominated by it, for being further
+        // from him. On the play that prompted the ruling, the three stands nearest the zombies below the player
+        // were each dropped as `dominated:company-gap`, and the one kept arrived too late to land a hit.
+        const float gap = 0f;
         Dictionary<int, int>? throws = StartingThrows(combat.Weapons);
         SimmedStand simmed = SimulateStand(ctx, combat, enemies, evalTargets, targets, proposal, muzzle, travel,
             Math.Max(0, combat.CooldownTicks - travel), horizon, world, ref budget, throws);
@@ -933,72 +936,4 @@ public static class SearchAttackPlans
         return next;
     }
 
-    /// <summary>
-    /// The company gap the segment pays: the region carried forward over the horizon by its own velocity,
-    /// the body travelling the straight line then holding the stand, each sample's pixel gap in units of the
-    /// region's size, integrated over the horizon. A plan that fights from inside the region pays nothing.
-    /// </summary>
-    private static float IntegrateCompanyGap(in ActionContext ctx, Vector2 stand, int travel, int horizon)
-    {
-        PlayerIntentRegion region = ctx.Senses.Intent.Region;
-        float size = Math.Max(1f, 2f * Math.Max(region.HalfSize.X, region.HalfSize.Y));
-        float total = 0f;
-        const int step = 30;
-        for (int t = 0; t < horizon; t += step)
-        {
-            var carried = region with { Centre = region.Centre + region.Velocity * t };
-            Vector2 body = t < travel && travel > 0
-                ? Vector2.Lerp(ctx.Npc.Center, stand, (float)t / travel)
-                : stand;
-            total += carried.GapBeyond(body) / size * Math.Min(step, horizon - t);
-        }
-        return total / Math.Max(1, horizon);
-    }
-
-    /// <summary>
-    /// The joint company gap over a multi-segment path: the body flies each leg and holds each stand to
-    /// its departure, sampled like the single segment. One integral for the whole plan, so the combination
-    /// prices company once rather than per piece.
-    /// </summary>
-    private static float JointCompanyGap(in ActionContext ctx, AttackPlan prefix, int prefixDepartAbs,
-        Vector2 stand, int arrivalAbs, int tick, int horizon)
-    {
-        var legs = new List<(int Tick, Vector2 Pos)> { (tick, ctx.Npc.Center) };
-        AttackSegment[] segs = prefix.Segments;
-        for (int i = 0; i < segs.Length - 1; i++)
-        {
-            legs.Add((segs[i].ArriveTick, segs[i].Stand.Stand));
-            legs.Add((segs[i].EndTick, segs[i].Stand.Stand));
-        }
-        legs.Add((segs[^1].ArriveTick, segs[^1].Stand.Stand));
-        legs.Add((prefixDepartAbs, segs[^1].Stand.Stand));
-        legs.Add((arrivalAbs, stand));
-        PlayerIntentRegion region = ctx.Senses.Intent.Region;
-        float size = Math.Max(1f, 2f * Math.Max(region.HalfSize.X, region.HalfSize.Y));
-        float total = 0f;
-        const int step = 30;
-        for (int t = 0; t < horizon; t += step)
-        {
-            var carried = region with { Centre = region.Centre + region.Velocity * t };
-            total += carried.GapBeyond(PosAt(legs, tick + t)) / size * Math.Min(step, horizon - t);
-        }
-        return total / Math.Max(1, horizon);
-    }
-
-    private static Vector2 PosAt(List<(int Tick, Vector2 Pos)> legs, int at)
-    {
-        (int Tick, Vector2 Pos) prev = legs[0];
-        if (at <= prev.Tick)
-            return prev.Pos;
-        for (int i = 1; i < legs.Count; i++)
-        {
-            (int Tick, Vector2 Pos) next = legs[i];
-            if (at <= next.Tick)
-                return next.Tick <= prev.Tick
-                    ? next.Pos
-                    : Vector2.Lerp(prev.Pos, next.Pos, (float)(at - prev.Tick) / (next.Tick - prev.Tick));
-            prev = next;
-        }
-        return legs[^1].Pos;
-    }
 }

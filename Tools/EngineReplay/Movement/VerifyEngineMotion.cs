@@ -242,7 +242,7 @@ internal static class VerifyEngineMotion
         ("pass-through is predicted through a wall", VerifyFlightLaws.PassThroughIsPredictedThroughAWall),
         ("a splitting shot's children are predicted by trigger and count", VerifyFlightLaws.SplittingShotsChildrenArePredictedByTriggerAndCount),
         ("a dominated plan never survives the front, whatever the weights", VerifyAttackPlanning.ADominatedPlanNeverSurvivesTheFront),
-        ("company fights from inside the predicted region", VerifyAttackPlanning.CompanyFightsFromInsideThePredictedRegion),
+        ("a fight behind a travelling player is taken where the enemy is", VerifyAttackPlanning.AFightBehindATravellingPlayerIsTakenWhereTheEnemyIs),
         ("range follows the weapon against one lone target", VerifyAttackPlanning.RangeFollowsTheWeaponAgainstOneLoneTarget),
         ("a spread weapon closes at full life and holds range at low life", VerifyAttackPlanning.SpreadClosesAtFullLifeAndHoldsRangeAtLowLife),
         ("two in a line are fought from the line, nearer first", VerifyAttackPlanning.TwoInALineAreFoughtFromTheLineNearerFirst),

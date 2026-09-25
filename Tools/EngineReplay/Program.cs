@@ -69,7 +69,7 @@ if (args.Contains("--combat-activity"))
         + RunOneRow.Case("hunting-off migration", () => VerifyCombatActivity.HuntingOffMigration());
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
 int AttackPlanning() =>
-    RunOneRow.Case("company fights from inside the predicted region", () => VerifyAttackPlanning.CompanyFightsFromInsideThePredictedRegion())
+    RunOneRow.Case("a fight behind a travelling player is taken where the enemy is", () => VerifyAttackPlanning.AFightBehindATravellingPlayerIsTakenWhereTheEnemyIs())
         + RunOneRow.Case("range follows the weapon against one lone target", () => VerifyAttackPlanning.RangeFollowsTheWeaponAgainstOneLoneTarget())
         + RunOneRow.Case("a spread weapon closes at full life and holds range at low life", () => VerifyAttackPlanning.SpreadClosesAtFullLifeAndHoldsRangeAtLowLife())
         + RunOneRow.Case("two in a line are fought from the line, nearer first", () => VerifyAttackPlanning.TwoInALineAreFoughtFromTheLineNearerFirst())

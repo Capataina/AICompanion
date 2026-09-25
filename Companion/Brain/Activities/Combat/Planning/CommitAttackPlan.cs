@@ -296,15 +296,10 @@ public sealed class CommitAttackPlan
             }
         }
 
-        // The intent region has not moved so far that the plan's company gap doubled.
-        PlayerIntentRegion region = ctx.Senses.Intent.Region;
-        float gapNow = region.GapBeyond(segment.Stand.Stand);
-        float slack = MathF.Min(region.HalfSize.X, region.HalfSize.Y) / 2f;
-        if (gapNow > 2f * plan.Validity.AdmittedCompanyGap + slack)
-        {
-            reason = "company-gap-doubled";
-            return false;
-        }
+        // No release for the player walking away from the stand: a fight is never charged for its distance from
+        // him (the owner's ruling of 25 September 2026), so there is no priced gap for his walking to make stale,
+        // and a fight he walks away from is finished rather than dropped. `AdmittedCompanyGap` is still recorded,
+        // for the combat snapshot, and decides nothing.
 
         // The hands made progress within the stall window. The clock runs from the segment's start rather
         // than the search: the travel the plan ordained is the plan working, and a far stand would otherwise

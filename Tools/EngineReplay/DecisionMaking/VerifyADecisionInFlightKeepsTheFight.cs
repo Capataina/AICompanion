@@ -68,6 +68,7 @@ internal static class VerifyADecisionInFlightKeepsTheFight
                     + $"offered={fight.OfferedPlan?.Id.ToString() ?? "none"}; eligibility={fight.Eligibility}/{fight.EligibilityReason}");
 
             Brain.PlanningOperationAllowance = cap;
+            ReleaseTheCourse(ctx);
             int decidingTicks = 0, keptTheFight = 0, fired = 0;
             string firstOtherActivity = "";
             for (int tick = 0; tick < 3; tick++)
@@ -90,9 +91,8 @@ internal static class VerifyADecisionInFlightKeepsTheFight
                 + $"{(firstOtherActivity.Length == 0 ? "no continuation" : firstOtherActivity)} instead of combat/FireFrom, "
                 + $"which exits combat and releases its plan: invalidation={ctx.Companion.Combat.Planner.LastInvalidation}, "
                 + $"course release={brain.Course.Course.ReleaseReason}");
-            // Not "the same plan id survived": combat legitimately releases and re-commits for its own
-            // reasons in this scene — the player is 750 px away, so `company-gap-doubled` fires on its
-            // own schedule and is the stance deciding, which is exactly what it is allowed to do. What a
+            // Not "the same plan id survived": combat may release and re-commit for its own reasons, which
+            // is the stance deciding and exactly what it is allowed to do. What a
             // deciding tick must never be is the *cause*, and `activity-exited` is the one release reason
             // that can only come from the tick selecting something else. The ninety-tick window below
             // counts that pairing properly; here it is enough that three deciding ticks left a plan.
@@ -147,6 +147,16 @@ internal static class VerifyADecisionInFlightKeepsTheFight
     }
 
     /// <summary>
+    /// Releases the held course, the way downing does, so the next tick starts a decision beside a fight that is
+    /// still committed. Until 25 September 2026 the scene reached that state on its own: combat released its
+    /// plan with `company-gap-doubled` every few ticks because the player stands 750 px away, and each release
+    /// started a decision. That release went with the owner's ruling that a fight is never charged for its
+    /// distance from the player, and the fight then holds its course on every tick, so the state the row is
+    /// about has to be put there rather than waited for.
+    /// </summary>
+    private static void ReleaseTheCourse(ActionContext ctx) => ctx.Companion.Brain.Course.Interrupt("the fixture puts a decision in flight");
+
+    /// <summary>
     /// The operation allowance this scene needs, measured rather than written down.
     ///
     /// The window is narrow and it is narrow for a structural reason: every activity's `Prepare` runs
@@ -175,6 +185,7 @@ internal static class VerifyADecisionInFlightKeepsTheFight
                 var fight = ctx.Companion.Brain.Actions.OfType<FightEnemies>().Single();
                 for (int tick = 0; tick < 60 && ctx.Companion.Combat.Planner.Committed == null; tick++) Tick(ctx);
                 Brain.PlanningOperationAllowance = cap;
+                ReleaseTheCourse(ctx);
                 int unsettled = 0, offering = 0;
                 for (int tick = 0; tick < 3; tick++)
                 {

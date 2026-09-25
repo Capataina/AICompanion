@@ -181,7 +181,7 @@ public static class CompareCourseOutcomes
     {
         double useful = 0, lower = 0, upper = 0, harm = 0, selfHarm = 0, gap = 0;
         bool takesHostileLife = false;
-        double harmLower = 0, harmUpper = 0, gapLower = 0, gapUpper = 0;
+        double harmLower = 0, harmUpper = 0;
         double selfLower = 0, selfUpper = 0;
         bool selfBounded = true;
         var unknowns = new List<string>();
@@ -246,21 +246,14 @@ public static class CompareCourseOutcomes
             double fraction = interval.StartTick >= origin ? 0 : (origin - interval.StartTick) / (interval.EndTick - interval.StartTick);
             double start = Math.Max(0, interval.StartTick - origin), end = interval.EndTick - origin;
             double Interpolate(double left, double right) => left + fraction * (right - left);
-            double cost = GapIntegral(start, end, Interpolate(interval.GapAtStart, interval.GapAtEnd), interval.GapAtEnd, timeScale);
-            gap += cost;
-            if (interval.Evidence == EstimateStatus.NativeBound && interval.StartGapRange == null && interval.EndGapRange == null)
-            { gapLower += cost; gapUpper += cost; }
-            else if (interval.Evidence is EstimateStatus.ModelBound or EstimateStatus.NativeBound
-                && interval.StartGapRange is { } startGap && startGap.Contains(interval.GapAtStart)
-                && interval.EndGapRange is { } endGap && endGap.Contains(interval.GapAtEnd))
-            {
-                gapLower += GapIntegral(start, end, Interpolate(startGap.Lower, endGap.Lower), endGap.Lower, timeScale);
-                gapUpper += GapIntegral(start, end, Interpolate(startGap.Upper, endGap.Upper), endGap.Upper, timeScale);
-            }
-            else
-                unknowns.Add("companionship-uncertain");
+            gap += GapIntegral(start, end, Interpolate(interval.GapAtStart, interval.GapAtEnd), interval.GapAtEnd, timeScale);
         }
-        if (!course.ReunionProven) unknowns.Add("reunion-unresolved");
+        // The gap is measured and reported, and it is no part of what a course is worth: by the owner's ruling of
+        // 25 September 2026, keeping the player company is what the companion does when there is nothing else to
+        // do, never a rival that work has to outbid. So neither the gap, nor its uncertainty, nor whether a
+        // reunion is proven enters the total, its bounds or its unknowns. The ruling came from a play where three
+        // zombies below the player were declined because every fight was charged for the time the orb would
+        // spend away from him, and the empty course, charged nothing, won.
         if (course.TailUnresolved)
         {
             unknowns.Add("tail-unresolved");
@@ -270,10 +263,10 @@ public static class CompareCourseOutcomes
         }
         if (course.TailNominal != 0) unknowns.Add("tail-has-no-bounds");
         if (!double.IsFinite(course.TailNominal)) throw new ArgumentException("A nominal tail must be finite, with unknown evidence separate.");
-        double total = useful - harm - gap + course.TailNominal;
+        double total = useful - harm + course.TailNominal;
         var estimate = unknowns.Count == 0
-            ? new OutcomeEstimate(total, lower - harmUpper - gapUpper,
-                upper - harmLower - gapLower, EstimateStatus.ModelBound)
+            ? new OutcomeEstimate(total, lower - harmUpper,
+                upper - harmLower, EstimateStatus.ModelBound)
             : OutcomeEstimate.Unknown(total);
         return new(estimate, useful, harm, gap, selfHarm, course.ReunionTick,
             course.ReunionProven, Array.AsReadOnly(unknowns.ToArray()), selfBounded
@@ -334,12 +327,17 @@ public static class CompareCourseOutcomes
     /// </summary>
     public static int NominalOrder(CourseValue left, CourseValue right, bool encounter)
     {
+        // Work before anything else, by the owner's ruling of 25 September 2026: a course that does something
+        // useful beats one that does nothing, whatever the rest of either is worth, so keeping the player company
+        // is chosen only when no course does any work. Among courses that work, everything below still decides —
+        // usefulness, how soon it lands and the harm it costs — so a torch beside the player still beats a fight
+        // fifteen seconds away.
+        bool leftWorks = left.UsefulEffects > 0, rightWorks = right.UsefulEffects > 0;
+        if (leftWorks != rightWorks) return leftWorks ? 1 : -1;
         int order = encounter && left.TakesHostileLife && right.TakesHostileLife
             ? right.CompanionHarm.CompareTo(left.CompanionHarm) : 0;
         if (order == 0) order = left.Total.Nominal.CompareTo(right.Total.Nominal);
         if (order == 0) order = right.Harm.CompareTo(left.Harm);
-        if (order == 0 && left.ReunionProven && right.ReunionProven)
-            order = right.ReunionTick.CompareTo(left.ReunionTick);
         return order;
     }
 }
