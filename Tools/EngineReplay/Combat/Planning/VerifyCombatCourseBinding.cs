@@ -28,7 +28,7 @@ internal static class VerifyCombatCourseBinding
         var use = new CombatCourseFacts.Use(useId, 7, 0, 0, 12, 3, 0, 9, 2, 32, 32, 64, 32, 1, 0, 15, 20, 12, 4);
         DecisionFact Fact(FactKey key, long version, object value, double amount = 0)
             => new(key, version, new FactValue(amount, Text: JsonSerializer.Serialize(value)), FactEvidence.Observed);
-        var snapshot = new DecisionFactSnapshot(44, 8, 15, 1, 0, new[]
+        var snapshot = new DecisionFactSnapshot(44, 8, 15, 1, 0, WithFront(new[]
         {
             Fact(CombatCourseFacts.TargetKey(12, 3), 3, target, 40),
             Fact(CombatCourseFacts.WeaponKey(0), 9, weapon),
@@ -38,7 +38,7 @@ internal static class VerifyCombatCourseBinding
                 new CapturedCourseTravel(new CoursePoint(32, 32), default, new CoursePoint(32, 32), new CoursePoint(3, 1), 0,
                     OpportunityAdmission.KnownUsable, "local", Array.Empty<CoursePoint>(), 1,
                     new[] { new TimedCoursePose(0, new(32, 32), new(3, 1)) }))
-        });
+        }));
         var source = new CombatOpportunitySource();
         var budget = new DecisionWorkBudget(double.PositiveInfinity, 1, () => 0, 1);
         var slice = source.Continue(snapshot, new DecisionWorkCursor(), budget);
@@ -73,7 +73,7 @@ internal static class VerifyCombatCourseBinding
             "The binder did not preserve the simulator's per-use target damage as a nominal effect: "
             + $"{claimed.Evidence} {claimed.Amount} at tick {claimed.NominalTick} over {claimed.EarliestTick}..{claimed.LatestTick}.");
         Require(bound.Binding.Dependencies.Reads.Select(read => read.Key).SequenceEqual(new[]
-            { CombatCourseFacts.ManaCapacityKey(), CombatCourseFacts.TargetKey(12, 3), CombatCourseFacts.UseKey(useId), CombatCourseFacts.WeaponKey(0),
+            { CombatCourseFacts.ManaCapacityKey(), CombatCourseFacts.FrontKey(12, 3), CombatCourseFacts.TargetKey(12, 3), CombatCourseFacts.UseKey(useId), CombatCourseFacts.WeaponKey(0),
               ReadCourseTravel.Key(new CoursePoint(32, 32), default, new CoursePoint(32, 32)) }.OrderBy(key => key)),
             "The binding omitted a captured input dependency.");
         Require(state.TryApply(bound.Binding, new System.Collections.Generic.Dictionary<string, double>(), out _),
@@ -83,7 +83,7 @@ internal static class VerifyCombatCourseBinding
         Require(dependent.Binding == null && dependent.Reason == "combat-target-successor-unresolved",
             "a later shot treated the old observed target as the outcome of an uncertain earlier hit");
         var unsupported = use with { ExpectedTargetDamage = 0 };
-        var unsupportedSnapshot = new DecisionFactSnapshot(45, 8, 16, 2, 0, new[]
+        var unsupportedSnapshot = new DecisionFactSnapshot(45, 8, 16, 2, 0, WithFront(new[]
         {
             Fact(CombatCourseFacts.TargetKey(12, 3), 3, target, 40), Fact(CombatCourseFacts.WeaponKey(0), 9, weapon),
             new DecisionFact(CombatCourseFacts.ManaCapacityKey(), 1, new FactValue(30), FactEvidence.Observed),
@@ -92,12 +92,18 @@ internal static class VerifyCombatCourseBinding
                 new CapturedCourseTravel(new CoursePoint(32, 32), default, new CoursePoint(32, 32), default, 0,
                     OpportunityAdmission.KnownUsable, "local", Array.Empty<CoursePoint>(), 1,
                     new[] { new TimedCoursePose(0, new(32, 32), default) }))
-        });
+        }));
         var unresolved = new BindOpportunity(new IOpportunityBinder[] { new CombatOpportunityBinder() }).Bind(slice.Examined[0],
             new ProjectedCourseState(new CoursePoint(32, 32)), unsupportedSnapshot, new DecisionWorkCursor(),
             new DecisionWorkBudget(double.PositiveInfinity, 2, () => 0, 1));
         Require(unresolved.Binding == null && unresolved.Admission == OpportunityAdmission.Unresolved
-            && unresolved.Reason == "no-use-with-captured-travel-and-target-impact", "An unforecast use published a zero-damage combat effect.");
+            && unresolved.Reason == CombatOpportunityBinder.NoDamagingUse, "An unforecast use published a zero-damage combat effect.");
+        Require(!CombatCourseFacts.Front(unsupportedSnapshot.Facts).Any(),
+            "a use that lands nothing on its own target published front evidence for it");
+        var unsupportedSlice = new CombatOpportunitySource().Continue(unsupportedSnapshot, new DecisionWorkCursor(),
+            new DecisionWorkBudget(double.PositiveInfinity, 8, () => 0, 1));
+        Require(unsupportedSlice.Examined.Count == 0,
+            "the census admitted a target whose only use lands nothing on it, which its own binder refuses");
         return 0;
     }
 
@@ -225,7 +231,7 @@ internal static class VerifyCombatCourseBinding
                     OpportunityAdmission.KnownUsable, "local", Array.Empty<CoursePoint>(), 1,
                     new[] { new TimedCoursePose(0, new(32, 32), new(3, 1)) }))
         }.Concat(shots.Select(shot => Fact(CombatCourseFacts.UseKey(shot.Id), 7, shot)));
-        var snapshot = new DecisionFactSnapshot(46, 8, 15, 1, 0, facts);
+        var snapshot = new DecisionFactSnapshot(46, 8, 15, 1, 0, WithFront(facts.ToArray()));
         var slice = new CombatOpportunitySource().Continue(snapshot, new DecisionWorkCursor(),
             new DecisionWorkBudget(double.PositiveInfinity, 8, () => 0, 1));
         Require(slice.Examined.Count == 1,
@@ -236,6 +242,9 @@ internal static class VerifyCombatCourseBinding
         Require(bound.Binding != null, $"premise: the front must bind at all; {bound.Reason}");
         return bound.Binding!;
     }
+
+    /// <summary>A hand-built snapshot with the front evidence the live capture adds, built by the capture's own function.</summary>
+    private static DecisionFact[] WithFront(DecisionFact[] facts) => facts.Concat(CombatCourseFacts.Front(facts)).ToArray();
 
     private static void Require(bool condition, string message)
     {

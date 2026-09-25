@@ -52,18 +52,7 @@ public sealed class DiscoverOpportunities
 
     public void Continue(DecisionFactSnapshot facts, DecisionWorkBudget budget, IEnumerable<OpportunityKey> pinned)
     {
-        if (epoch != facts.WorldEpoch)
-        {
-            epoch = facts.WorldEpoch; candidates.Clear(); storage.Clear(); coverage.Clear(); next = 0;
-            foreach (var cursor in cursors) cursor.Bind(epoch, "world-epoch");
-        }
-        HashSet<OpportunityKey> pins;
-        using (Diagnostics.BrainSections.Enter(PinSection))
-        {
-            pins = pinned.ToHashSet();
-            foreach (var key in candidates.Keys) storage.Pin(key, pins.Contains(key));
-        }
-        using (Diagnostics.BrainSections.Enter(RetireSection)) RetireAdmissionsThisObservationCannotSupport(facts, pins);
+        HashSet<OpportunityKey> pins = Retire(facts, pinned);
         if (sources.Length == 0 || budget.Exhausted) return;
         for (int visited = 0; visited < sources.Length; visited++)
         {
@@ -127,6 +116,31 @@ public sealed class DiscoverOpportunities
     /// outcome that would put the defect back, because the candidates it had not reached yet would go
     /// on claiming an evidence the decision does not hold.
     /// </summary>
+    /// <summary>
+    /// Pins what the course still holds and retires every admission <paramref name="facts"/> cannot support, without
+    /// examining any source. The owner calls it on every freshly captured observation — a tick that carries a retained
+    /// course included — and <see cref="Continue"/> calls it before discovery, so the store is always an account of the
+    /// observation in hand. Before 25 September 2026 it ran only when a decision began, so on every tick a course was
+    /// carried the store still held admissions the world had withdrawn, and the census counts the recorder writes from
+    /// it (`course-admitted:combat`) described an older observation than the row they sat on.
+    /// </summary>
+    public HashSet<OpportunityKey> Retire(DecisionFactSnapshot facts, IEnumerable<OpportunityKey> pinned)
+    {
+        if (epoch != facts.WorldEpoch)
+        {
+            epoch = facts.WorldEpoch; candidates.Clear(); storage.Clear(); coverage.Clear(); next = 0;
+            foreach (var cursor in cursors) cursor.Bind(epoch, "world-epoch");
+        }
+        HashSet<OpportunityKey> pins;
+        using (Diagnostics.BrainSections.Enter(PinSection))
+        {
+            pins = pinned.ToHashSet();
+            foreach (var key in candidates.Keys) storage.Pin(key, pins.Contains(key));
+        }
+        using (Diagnostics.BrainSections.Enter(RetireSection)) RetireAdmissionsThisObservationCannotSupport(facts, pins);
+        return pins;
+    }
+
     private void RetireAdmissionsThisObservationCannotSupport(DecisionFactSnapshot facts, HashSet<OpportunityKey> pins)
     {
         List<OpportunityKey>? retired = null;

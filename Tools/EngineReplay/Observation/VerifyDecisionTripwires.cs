@@ -64,7 +64,7 @@ internal static class VerifyDecisionTripwires
         // This is the brain declining work it priced, which is not a contradiction.
         AuditDecisionContracts.Reset();
         Audit(100, 1, Decision("course-published", "keep-company", settled: true, steps: 0, facts: 60,
-                ("no-use-with-captured-travel-and-target-impact", 12)),
+                ("combat-stand-unusable", 12)),
             Inputs(Admitted(("combat", 3)), Target("combat-target", "8000001", observed: false)));
         Require(Count("census-admitted-binder-refused") == 0,
             $"a refusal that is not about the target's evidence must not be named as a contradiction; counts={Counts()}");
@@ -95,11 +95,21 @@ internal static class VerifyDecisionTripwires
         AuditDecisionContracts.Reset();
         Audit(200, 1, Decision("published-course-holds-no-step", "keep-company", settled: true, steps: 0, facts: 60,
                 ("target-capture-missing", 12), ("assistance-target-unresolved", 16),
-                ("no-use-with-captured-travel-and-target-impact", 1)),
+                ("combat-stand-unusable", 1)),
             Inputs(Admitted(("combat", 3), ("collect-target", 4)),
                 Target("combat-target", "8000001", observed: false), Target("collect-target", "7", observed: false)));
         Require(Count("empty-course-beside-usable-work") == 0,
             $"a third refusal reason beside the not-observed pair must keep the empty-course rule quiet; counts={Counts()}");
+
+        // The 25 September 2026 play's own state: a combat census admitting targets while every order built on them was
+        // refused because no captured use landed damage on its target. Until that day this was read as a preference and
+        // nothing fired; the census now admits only on the binder's own predicate, so the two disagreeing is named.
+        AuditDecisionContracts.Reset();
+        Audit(200, 1, Decision("published-course-holds-no-step", "keep-company", settled: true, steps: 0, facts: 60,
+                (AuditDecisionContracts.CombatAdmittedWithoutDamage, 6)),
+            Inputs(Admitted(("combat", 2)), Target("combat-target", "8000001", observed: true)));
+        Require(Count("empty-course-beside-usable-work") == 1,
+            $"an empty course beside a combat census whose every order had no damaging use must be named; counts={Counts()}");
 
         // A decision still running has not published anything, so it cannot have published an empty course.
         AuditDecisionContracts.Reset();
@@ -167,7 +177,7 @@ internal static class VerifyDecisionTripwires
         // reason still means the search threw work away for a reason the objective may hold.
         AuditDecisionContracts.Reset();
         Audit(200, 1, Structural(Decision("published-course-holds-no-step", "keep-company", settled: true, steps: 0, facts: 60,
-                    ("target-capture-missing", 12), ("no-use-with-captured-travel-and-target-impact", 1)),
+                    ("target-capture-missing", 12), ("combat-stand-unusable", 1)),
                 ("step-purpose-has-no-executor", 2)),
             Inputs(Admitted(("combat", 3), ("pot-target", 2)), Target("combat-target", "8000001", observed: false)));
         Require(Count("empty-course-beside-usable-work") == 0,
@@ -634,6 +644,7 @@ internal static class VerifyDecisionTripwires
         {
             ("Companion/Brain/Activities/Combat/CombatCourseOpportunity.cs", AuditDecisionContracts.CombatNotObserved),
             ("Companion/Brain/Infrastructure/Selection/Opportunities/BindAssistanceOpportunity.cs", AuditDecisionContracts.AssistanceNotObserved),
+            ("Companion/Brain/Activities/Combat/CombatCourseOpportunity.cs", AuditDecisionContracts.CombatAdmittedWithoutDamage),
         };
         foreach ((string path, string literal) in pins)
         {

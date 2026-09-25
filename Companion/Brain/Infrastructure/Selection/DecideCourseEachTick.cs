@@ -436,6 +436,11 @@ public sealed class DecideCourseEachTick
         using (BrainSections.Enter(SnapshotSection)) facts = observation.Capture(context, combat, plans, budget);
         Course.ObserveEpoch(facts.WorldEpoch);
         Course.RetireReceiptsThrough(facts.ReceiptWatermark);
+        // The store is brought to this observation on every tick that captured one, a retained one included, so
+        // nothing read from it — the recorder's census counts, the inspector, the next decision — describes a world
+        // this observation has withdrawn. Discovery below repeats it at no cost when a decision starts.
+        using (BrainSections.Enter(DiscoverySection))
+            discovery.Retire(facts, Course.Current?.Projection.Steps.Select(step => step.Opportunity) ?? Array.Empty<OpportunityKey>());
 
         // A retained course is kept while the step it is about to perform is still usable. This is the
         // whole retention property, and it is checked every tick against a freshly frozen observation

@@ -20,6 +20,36 @@ public static class CombatCourseFacts
     public static FactKey WeaponKey(int slot)=>new("combat-weapon",slot.ToString(CultureInfo.InvariantCulture));
     public static FactKey ManaCapacityKey()=>new("capacity","combat-mana");
     public static FactKey UseKey(string id)=>new("combat-use",id);
+    /// <summary>Present exactly while the captured front holds a use that forecasts damage landing on this target.</summary>
+    public static FactKey FrontKey(int slot,int generation)=>new("combat-front",slot.ToString(CultureInfo.InvariantCulture),generation);
+    /// <summary>The one predicate the census admits on and the binder binds on: a use whose own forecast lands damage on
+    /// the target it is filed under. A use aimed at one body whose simulated hits all land on another is not a use against
+    /// its target, whatever else it does.</summary>
+    public static bool Damages(Use use)=>float.IsFinite(use.ExpectedTargetDamage)&&use.ExpectedTargetDamage>0&&use.TargetImpactTicks>0;
+    /// <summary>
+    /// One <see cref="FrontKey"/> fact per target some captured use damages, built from the use facts themselves so a
+    /// snapshot assembled anywhere — the live capture or a fixture — carries the same evidence for the same uses.
+    ///
+    /// It exists because a combat admission rests on a use and used to name the target as its evidence. Combat re-searches
+    /// every tick and its front moves between targets, so an opportunity admitted against last tick's front stayed in the
+    /// store for as long as its hostile lived, and the binder then found no use against it in the snapshot it read. Measured
+    /// on the 25 September 2026 play replayed headlessly: the binder asked to bind target 9 held uses only for target 8, to
+    /// bind target 4 held uses only for target 11, and 282 refusals held no use at all — 3,432 orders refused
+    /// `no-use-with-target-impact` against 23 refused for an unreachable stand, which is the three zombies below the tree
+    /// trunk that the companion never went for, and much of the late-session cost of pricing orders that could not bind.
+    /// </summary>
+    public static IEnumerable<DecisionFact> Front(IEnumerable<DecisionFact> useFacts) {
+        var damaged=new SortedDictionary<FactKey,(int Count,double Damage)>();
+        foreach(DecisionFact fact in useFacts) {
+            if(fact.Key.Kind!="combat-use"||fact.Evidence!=FactEvidence.Observed) continue;
+            var use=Read<Use>(fact); if(use==null||!Damages(use)) continue;
+            FactKey key=FrontKey(use.TargetSlot,use.TargetGeneration);
+            damaged[key]=damaged.TryGetValue(key,out var sum)?(sum.Count+1,sum.Damage+use.ExpectedTargetDamage):(1,use.ExpectedTargetDamage);
+        }
+        // Versioned by the generation alone: which uses make up the front churns every search, and a version that moved with
+        // them would dirty every manifest that read this fact on a tick where nothing a binding depends on had changed.
+        foreach(var (key,sum) in damaged) yield return new(key,key.Generation,new FactValue(sum.Damage,Text:sum.Count.ToString(CultureInfo.InvariantCulture)),FactEvidence.Observed);
+    }
     public static string ToolId(int slot,int item,int prefix)=>$"weapon:{slot}:{item}:{prefix}";
     /// <summary>
     /// A use is identified by the shot it is, not by the search that found it.
@@ -70,6 +100,7 @@ public static class CombatCourseFacts
         CompanionGear gear=ctx.Player.GetModPlayer<CompanionPlayer>().Gear; IReadOnlyList<CompanionWeapon> weapons=combat.Weapons;
         for(int slot=0;slot<weapons.Count;slot++) { Item item=gear[(GearSlot)slot]; CompanionWeapon w=weapons[slot]; var value=new Weapon(slot,w.ItemType,item.prefix,w.UseTime,w.ManaCost,item.damage,item.shoot,item.shootSpeed,item.useStyle); FactKey key=WeaponKey(slot); facts[key]=new(key,Version(value),new FactValue(Text:JsonSerializer.Serialize(value)),FactEvidence.Observed); }
         foreach(AttackPlan plan in search?.Front??Array.Empty<AttackPlan>()) CapturePlan(plan,weapons,gear,facts);
+        foreach(DecisionFact front in Front(facts.Values.ToArray())) facts[front.Key]=front;
         return facts.Values.OrderBy(f=>f.Key).ToArray();
     }
     private static void CapturePlan(AttackPlan plan,IReadOnlyList<CompanionWeapon> weapons,CompanionGear gear,Dictionary<FactKey,DecisionFact> facts) {
@@ -100,10 +131,20 @@ public sealed class CombatOpportunitySource:IOpportunitySource
     public OpportunitySlice Continue(DecisionFactSnapshot facts,DecisionWorkCursor cursor,DecisionWorkBudget budget) {
         cursor.Bind(facts.WorldEpoch,"combat-world-epoch"); DecisionFact[] uses=facts.Facts.Where(f=>f.Key.Kind=="combat-use").OrderBy(f=>f.Key).ToArray();
         var examined=new List<Opportunity>();
-        while(cursor.Offset<uses.Length) { if(!budget.TrySpend("combat-opportunity-census")) break; int index=(int)cursor.Offset; DecisionFact useFact=uses[cursor.Offset];cursor.Advance(); var use=CombatCourseFacts.Read<CombatCourseFacts.Use>(useFact); if(use==null||uses.Take(index).Select(CombatCourseFacts.Read<CombatCourseFacts.Use>).Any(previous=>previous?.TargetSlot==use.TargetSlot&&previous.TargetGeneration==use.TargetGeneration)) continue;
+        // The targets already offered, rebuilt from the uses before the cursor so a resumed slice skips them as a whole pass
+        // would. This replaced a re-read of every earlier use's JSON for each use, which was quadratic in the front's size.
+        var offered=new HashSet<(int Slot,int Generation)>();
+        for(int earlier=0;earlier<cursor.Offset&&earlier<uses.Length;earlier++)
+            if(CombatCourseFacts.Read<CombatCourseFacts.Use>(uses[earlier]) is { } seen&&CombatCourseFacts.Damages(seen)) offered.Add((seen.TargetSlot,seen.TargetGeneration));
+        while(cursor.Offset<uses.Length) { if(!budget.TrySpend("combat-opportunity-census")) break; DecisionFact useFact=uses[cursor.Offset];cursor.Advance(); var use=CombatCourseFacts.Read<CombatCourseFacts.Use>(useFact);
+            // A use that lands nothing on its own target is no evidence of a fight against that target: the binder would
+            // refuse every order built on it, so the census does not admit it (the binder's predicate, `Damages`, shared).
+            if(use==null||!CombatCourseFacts.Damages(use)||!offered.Add((use.TargetSlot,use.TargetGeneration))) continue;
             FactKey targetKey=CombatCourseFacts.TargetKey(use.TargetSlot,use.TargetGeneration); bool known=facts.TryRead(targetKey,out DecisionFact target)&&target.Evidence==FactEvidence.Observed;
             var need=new UsefulNeed(new NeedKey(NeedKind.HostileLife,use.TargetSlot.ToString(CultureInfo.InvariantCulture),use.TargetGeneration),known?Math.Max(0,target.Value.Amount):0,known?Math.Max(1,target.Value.Amount):1,1);
-            examined.Add(new Opportunity(new OpportunityKey(Name,OpportunityPurposes.Fire,CombatCourseFacts.OpportunityTarget(use.TargetSlot),use.TargetGeneration),known?target.Version:use.TargetGeneration,new CoursePoint(use.StandX,use.StandY),known?OpportunityAdmission.KnownUsable:OpportunityAdmission.Unresolved,known?"captured-target-front":"target-capture-missing",new[]{need},new[]{CombatCourseFacts.Method},DependencyManifest.Empty,targetKey));
+            // The evidence is the front, not the hostile: the admission rests on the front holding a damaging use against
+            // this target, and the front moves between targets every search while the hostile lives on.
+            examined.Add(new Opportunity(new OpportunityKey(Name,OpportunityPurposes.Fire,CombatCourseFacts.OpportunityTarget(use.TargetSlot),use.TargetGeneration),known?target.Version:use.TargetGeneration,new CoursePoint(use.StandX,use.StandY),known?OpportunityAdmission.KnownUsable:OpportunityAdmission.Unresolved,known?"captured-target-front":"target-capture-missing",new[]{need},new[]{CombatCourseFacts.Method},DependencyManifest.Empty,CombatCourseFacts.FrontKey(use.TargetSlot,use.TargetGeneration)));
         }
         if(cursor.Offset>=uses.Length)cursor.Complete(); return new(examined,new(Name,facts.WorldEpoch,cursor.Offset,uses.Length,cursor.Exhausted,budget.Cut,"captured-combat-use-front"));
     }
@@ -111,34 +152,51 @@ public sealed class CombatOpportunitySource:IOpportunitySource
 
 public sealed class CombatOpportunityBinder:IOpportunityBinder
 {
+    /// <summary>No captured use against the target forecasts damage landing on it.</summary>
+    public const string NoDamagingUse="combat-no-use-with-target-impact";
+    /// <summary>A damaging use exists, and the flight to its stand was asked and came back unresolved.</summary>
+    public const string TravelUnresolved="combat-travel-unresolved";
+    /// <summary>A damaging use exists, and the flight to every such stand was answered as not usable.</summary>
+    public const string StandUnusable="combat-stand-unusable";
     public string Domain=>CombatCourseFacts.Domain;
     public BindingResult Bind(Opportunity opportunity,ProjectedCourseState state,TrackedFactReader facts,DecisionWorkCursor cursor,DecisionWorkBudget budget) {
         if(!TryTarget(opportunity.Key,out int slot,out int generation))return new(null,OpportunityAdmission.KnownUnusable,"opportunity-identity-invalid",false);
         FactKey targetKey=CombatCourseFacts.TargetKey(slot,generation);
         if(state.HasUnresolvedChange(targetKey)) return new(null,OpportunityAdmission.Unresolved,"combat-target-successor-unresolved",false);
+        // The admission's evidence, read first as the retirement sweep reads it: no damaging use against this target in the
+        // front this snapshot holds is a refusal before any use is walked.
+        if(facts.Read(CombatCourseFacts.FrontKey(slot,generation)).Evidence!=FactEvidence.Observed) return new(null,OpportunityAdmission.Unresolved,NoDamagingUse,false);
         DecisionFact observed=facts.Read(targetKey); var target=CombatCourseFacts.Read<CombatCourseFacts.Target>(state.Read(targetKey,facts));
         if(target==null||observed.Evidence!=FactEvidence.Observed)return new(null,OpportunityAdmission.Unresolved,"target-capture-missing",false);
         if(target.Generation!=generation||target.Life<=0)return new(null,OpportunityAdmission.KnownUnusable,"captured-target-changed",false);
         DecisionFact[] uses=facts.Facts.Where(f=>f.Key.Kind=="combat-use").OrderBy(f=>f.Key).ToArray();
         cursor.Bind(facts.SnapshotId ^ opportunity.Key.GetHashCode(), "combat-bind-use-census");
+        // Which of the three ways a target's uses can all fail, kept apart so the refusal names the one that happened.
+        // Until 25 September 2026 all three were one string, `no-use-with-captured-travel-and-target-impact`, and a play
+        // refused 17,784 orders under it with no way to say whether the shots did nothing, the flight was unanswered, or
+        // the stand could not be reached.
+        bool anyDamagingUse=false, anyTravelUnresolved=false, anyStandUnusable=false;
         while(cursor.Offset<uses.Length) {
             if(!budget.TrySpend("combat-opportunity-bind-use")) return new(null,OpportunityAdmission.Unresolved,"budget-cut",true);
             DecisionFact raw=uses[cursor.Offset];
             var planned=CombatCourseFacts.Read<CombatCourseFacts.Use>(facts.Read(raw.Key));
-            if(planned==null||planned.TargetSlot!=slot||planned.TargetGeneration!=generation
-                ||!float.IsFinite(planned.ExpectedTargetDamage)||planned.ExpectedTargetDamage<=0||planned.TargetImpactTicks<=0) { cursor.Advance(); continue; }
+            if(planned==null||planned.TargetSlot!=slot||planned.TargetGeneration!=generation||!CombatCourseFacts.Damages(planned)) { cursor.Advance(); continue; }
+            anyDamagingUse=true;
             var capturedTravel=ReadCourseTravel.Read(state,new CoursePoint(planned.StandX,planned.StandY),facts);
             if(capturedTravel==null) {
                 var request=new CourseTravelRequest(state.Pose,state.Velocity,new(planned.StandX,planned.StandY));
                 if(facts.Read(request.Key).Evidence==FactEvidence.Missing)
                     return new(null,OpportunityAdmission.Unresolved,"combat-travel-pending",true,new[]{request});
+                anyTravelUnresolved=true;
             }
+            else if(capturedTravel.Admission!=OpportunityAdmission.KnownUsable) anyStandUnusable=true;
             cursor.Advance();
             if(capturedTravel==null||capturedTravel.Admission!=OpportunityAdmission.KnownUsable) continue;
             return BindUse(opportunity,state,facts,targetKey,target,planned,capturedTravel,slot,generation);
         }
         cursor.Complete();
-        return new(null,OpportunityAdmission.Unresolved,"no-use-with-captured-travel-and-target-impact",false);
+        return new(null,OpportunityAdmission.Unresolved,
+            !anyDamagingUse?NoDamagingUse:anyTravelUnresolved?TravelUnresolved:StandUnusable,false);
     }
 
     private static BindingResult BindUse(Opportunity opportunity, ProjectedCourseState state, TrackedFactReader facts,

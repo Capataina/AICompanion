@@ -160,6 +160,12 @@ public static class AuditDecisionContracts
     /// is this folder's own trap about a diagnostic reading a producer that moved.</summary>
     public const string CombatNotObserved = "target-capture-missing";
     public const string AssistanceNotObserved = "assistance-target-unresolved";
+    /// <summary>The binder finding no captured use that lands damage on a target the census admitted. Since 25 September
+    /// 2026 the census admits a combat target only on the front fact that says such a use exists, so this refusal beside a
+    /// usable census is the two readers disagreeing, the same kind of contradiction as the pair above. Until then it was
+    /// emitted under a catch-all string this audit read as a preference, and a play refused 17,784 orders under it with no
+    /// contract firing. Pinned against its producer beside the other two.</summary>
+    public const string CombatAdmittedWithoutDamage = "combat-no-use-with-target-impact";
 
     private const int CoalesceTicks = 60;
     /// <summary>How many fact keys the last-observed map remembers. A session's live targets are a
@@ -696,7 +702,8 @@ public static class AuditDecisionContracts
     private static bool AllNotObserved(Dictionary<string, long> refusals)
     {
         foreach (var refusal in refusals)
-            if (refusal.Value > 0 && refusal.Key != CombatNotObserved && refusal.Key != AssistanceNotObserved) return false;
+            if (refusal.Value > 0 && refusal.Key != CombatNotObserved && refusal.Key != AssistanceNotObserved
+                && refusal.Key != CombatAdmittedWithoutDamage) return false;
         return true;
     }
 
