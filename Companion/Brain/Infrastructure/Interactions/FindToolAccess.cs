@@ -48,6 +48,15 @@ public static class FindToolAccess
     /// </summary>
     public static Reachability.Reach Approach(Point tile, Vector2 fromCentre, ReachSense reach, out Vector2 hover)
     {
+        // A tile with no exposed face is out of every swing's reach, because `InReach` needs a line to an open
+        // face and there is none; the scan below would refuse every cell and answer No. Answered first, since
+        // an ore vein is mostly tiles sealed in rock and the census asks this of each one: the cell scan for a
+        // sealed tile was most of what the ore census's re-answer cost on the 25 September 2026 capture's replay.
+        if (!HasExposedFace(tile))
+        {
+            hover = default;
+            return Reachability.Reach.No;
+        }
         // Tool access at the actual pose needs no route to a representative node. Requiring one can
         // reject usable reach or move the body out of a working pose.
         if (InReach(fromCentre, tile))
@@ -108,6 +117,18 @@ public static class FindToolAccess
         Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
         return System.MathF.Abs(centre.X - tileCentre.X) <= reachX * 16f + 8f
             && System.MathF.Abs(centre.Y - tileCentre.Y) <= reachY * 16f + 8f;
+    }
+
+    /// <summary>Whether any face of the tile opens onto a free in-world tile: the precondition of
+    /// <see cref="HasLineToExposedFace"/>, asked with the same two tests and no line.</summary>
+    private static bool HasExposedFace(Point tile)
+    {
+        foreach (Point side in new[] { new Point(-1, 0), new Point(1, 0), new Point(0, -1), new Point(0, 1) })
+        {
+            Point face = tile + side;
+            if (WorldGen.InWorld(face.X, face.Y, 5) && !WorldGen.SolidTile(face.X, face.Y)) return true;
+        }
+        return false;
     }
 
     private static bool HasLineToExposedFace(Vector2 eye, Point tile)

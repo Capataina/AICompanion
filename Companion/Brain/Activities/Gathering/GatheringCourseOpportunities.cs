@@ -40,6 +40,7 @@ public sealed class CaptureGatheringOpportunities
     private sealed record Seen(int Material, long Generation);
     private readonly Dictionary<string, Seen> seen = new(StringComparer.Ordinal);
     private readonly Dictionary<FactKey, DecisionFact> factCache = new();
+    private readonly Dictionary<FactKey, (GatheringOpportunityFact Value, string Text)> serialised = new();
     private HashSet<string> visibleLastCapture = new(StringComparer.Ordinal);
     private readonly HashSet<string> visibleThisCapture = new(StringComparer.Ordinal);
     /// <summary><paramref name="Tiles"/> and <paramref name="VeinComplete"/> are the flood this site came from,
@@ -128,7 +129,7 @@ public sealed class CaptureGatheringOpportunities
 
     public void ResetWorld()
     {
-        seen.Clear(); factCache.Clear(); visibleLastCapture.Clear(); visibleThisCapture.Clear(); observedOres.Clear(); oreVisited.Clear(); oreArea = null;
+        seen.Clear(); factCache.Clear(); serialised.Clear(); visibleLastCapture.Clear(); visibleThisCapture.Clear(); observedOres.Clear(); oreVisited.Clear(); oreArea = null;
         oreOffset = 0; oreReanswer = 0; oreReanswerKeys = null; oreBlockPaidThrough = 0; oreHeld = default;
         nextGeneration = 0; version = 0; lastPlayerOreType = -1;
         trees.ResetWorld();
@@ -316,23 +317,27 @@ public sealed class CaptureGatheringOpportunities
         long generation, Point[] tiles, bool veinComplete, bool replacementGap)
     {
         var miner = context.Companion.Miner;
-        var approaches = new List<(Point Tile, Reachability.Reach Reach, Vector2 Pose)>();
-        foreach (Point tile in tiles)
+        // The first tile with a proven approach, else the first whose approach is not yet known, else none.
+        // Tracked by index and flag, never by a default tuple: `Reach.Yes` is the enum's zero, so a default
+        // read as "nothing found" *reads as Yes*, and until 23 September 2026 a vein with no proven approach
+        // skipped the Unknown fallback and was published as `approach-unreachable` — a proven refusal —
+        // whenever its tiles were merely not yet reached by the flood. The re-answer on a new flood hid it by
+        // correcting the fact once the flood finished; mining's own private search, which answered Unknown
+        // correctly, hid it from every whole-brain scene until that search was deleted.
+        //
+        // The loop stops at the first Yes, because nothing after it can be chosen and `Approach` is a pure
+        // read of the reach sense. It used to rank every tile of the vein, up to four hundred, on every
+        // re-answer — and a re-answer runs whenever the body moves a tile.
+        int chosen = -1;
+        Reachability.Reach reach = Reachability.Reach.No;
+        Vector2 stand = default;
+        for (int i = 0; i < tiles.Length; i++)
         {
-            Reachability.Reach approach = FindToolAccess.Approach(tile, context.Npc.Center, context.Senses.Reach, out Vector2 pose);
-            approaches.Add((tile, approach, pose));
+            Reachability.Reach approach = FindToolAccess.Approach(tiles[i], context.Npc.Center, context.Senses.Reach, out Vector2 pose);
+            if (approach == Reachability.Reach.Yes) { chosen = i; reach = approach; stand = pose; break; }
+            if (approach == Reachability.Reach.Unknown && reach != Reachability.Reach.Unknown) { chosen = i; reach = approach; stand = pose; }
         }
-        // Found by index, never by FirstOrDefault. `Reach.Yes` is the enum's zero, so the default tuple a
-        // FirstOrDefault returns when nothing matches *reads as Yes*: until 23 September 2026 a vein with no
-        // proven approach skipped the Unknown fallback below it and was published as `approach-unreachable` — a
-        // proven refusal — whenever its tiles were merely not yet reached by the flood. The re-answer on a new
-        // flood hid it by correcting the fact once the flood finished; mining's own private search, which
-        // answered Unknown correctly, hid it from every whole-brain scene until that search was deleted.
-        int chosen = approaches.FindIndex(candidate => candidate.Reach == Reachability.Reach.Yes);
-        if (chosen < 0) chosen = approaches.FindIndex(candidate => candidate.Reach == Reachability.Reach.Unknown);
-        Point target = chosen < 0 ? tiles[0] : approaches[chosen].Tile;
-        Reachability.Reach reach = chosen < 0 ? Reachability.Reach.No : approaches[chosen].Reach;
-        Vector2 stand = chosen < 0 ? default : approaches[chosen].Pose;
+        Point target = chosen < 0 ? tiles[0] : tiles[chosen];
         bool listed = WorkPolicies.MinesOre(material);
         bool policyEnabled = WorkPolicies.Mining != WorkPolicy.Disabled;
         // Mimic helps with the ore the player is mining, while he is mining it: his contact is live and the
@@ -467,7 +472,10 @@ public sealed class CaptureGatheringOpportunities
     private DecisionFact Fact(GatheringOpportunityFact value, FactEvidence evidence = FactEvidence.Observed)
     {
         FactKey key = new(value.Domain, value.Target, value.Generation);
-        FactValue factValue = new(value.RemainingAmount, value.TileX * 16 + 8, value.TileY * 16 + 8, JsonSerializer.Serialize(value));
+        // An equal record serialises to the same text, so a site whose value held still reuses its JSON.
+        string text = serialised.TryGetValue(key, out var last) && last.Value == value ? last.Text : JsonSerializer.Serialize(value);
+        serialised[key] = (value, text);
+        FactValue factValue = new(value.RemainingAmount, value.TileX * 16 + 8, value.TileY * 16 + 8, text);
         if (factCache.TryGetValue(key, out DecisionFact? prior) && prior.Value == factValue && prior.Evidence == evidence) return prior;
         return factCache[key] = new DecisionFact(key, ++version, factValue, evidence);
     }
