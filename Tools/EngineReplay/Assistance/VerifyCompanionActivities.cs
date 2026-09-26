@@ -151,7 +151,9 @@ internal static class VerifyCompanionActivities
 
     private static void ContinuingTargetsKeepTheirIdentity()
     {
-        var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
+        // 300 tiles wide: the targets below sit a hundred tiles past the player, which the usual hundred-tile world cannot hold
+        // since the work radius became a fixed 1600 px on 26 September 2026.
+        var (_, ctx) = VerifyOreWork.SetUpWide(Policy.Opportunistic, TileID.Copper, 300, new Point(25, 59));
         // The work radius is measured to the player's intent region, so a fixture that moves the player
         // directly must let the sense see the move or it is measuring against where he used to be. A
         // still player carries no lead, so a refreshed region sits exactly on his feet and the
@@ -616,28 +618,23 @@ internal static class VerifyCompanionActivities
 
     private static void ComfortableFollowingHasNoRegroupPressure()
     {
-        foreach (var mode in Enum.GetValues<live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode>())
-        {
-            Preferences.Current.DistanceMode = mode;
-            var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-            Main.tile[25, 59].ClearEverything();
-            ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(192 * Preferences.Current.FollowComfortScale - 1, 0);
-            Require(Collision.CanHitLine(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height, ctx.Player.position, ctx.Player.width, ctx.Player.height),
-                "comfortable-follow fixture must have a clear local connection");
-            // Being with the player is being inside his region, with no rest to stand out first, so one observation is the
-            // whole premise. Restated on 15 September 2026: the row used to stand the body still for a rescore, because
-            // following then read as satisfied only after a settled streak.
-            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
-            // The observation, not a comparison. This called `Choose` when the family chooser owned the
-            // tick and regroup urgency was computed inside it; the observation moved to
-            // `ObserveCompanionship`, which the live tick calls directly, so the row drives the thing it
-            // is actually about rather than a decision procedure that no longer runs.
-            ctx.Companion.Brain.Companionship.Observe(ctx);
-            Require(ctx.Companion.Brain.Companionship.RegroupUrgency == 0,
-                $"{mode} comfortable following must not request regrouping; inside={ctx.Companion.Brain.Senses.Intent.Inside} gap={ctx.Companion.Brain.Senses.Intent.Region.GapBeyond(ctx.Npc.Center)}");
-        }
-        Preferences.Current.DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode.Standard;
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
+        Main.tile[25, 59].ClearEverything();
+        ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(192 - 1, 0);
+        Require(Collision.CanHitLine(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height, ctx.Player.position, ctx.Player.width, ctx.Player.height),
+            "comfortable-follow fixture must have a clear local connection");
+        // Being with the player is being inside his region, with no rest to stand out first, so one observation is the
+        // whole premise. Restated on 15 September 2026: the row used to stand the body still for a rescore, because
+        // following then read as satisfied only after a settled streak.
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
+        // The observation, not a comparison. This called `Choose` when the family chooser owned the
+        // tick and regroup urgency was computed inside it; the observation moved to
+        // `ObserveCompanionship`, which the live tick calls directly, so the row drives the thing it
+        // is actually about rather than a decision procedure that no longer runs.
+        ctx.Companion.Brain.Companionship.Observe(ctx);
+        Require(ctx.Companion.Brain.Companionship.RegroupUrgency == 0,
+            $"comfortable following must not request regrouping; inside={ctx.Companion.Brain.Senses.Intent.Inside} gap={ctx.Companion.Brain.Senses.Intent.Region.GapBeyond(ctx.Npc.Center)}");
     }
 
     private static void ConsecutiveJobsEarnTheirOwnAllowance()

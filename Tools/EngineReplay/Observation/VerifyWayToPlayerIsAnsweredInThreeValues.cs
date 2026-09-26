@@ -5,14 +5,12 @@ using AICompanion.Tools.Ledger;
 
 using ClearanceField = live::AICompanion.Companion.Brain.Infrastructure.Movement.ClearanceField;
 using CornerGraph = live::AICompanion.Companion.Brain.Infrastructure.Movement.CornerGraph;
-using DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode;
 using FreeSpaceSearch = live::AICompanion.Companion.Brain.Infrastructure.Movement.FreeSpaceSearch;
 using ITileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.ITileWorld;
 using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 using Navigator = live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator;
 using PlayerIntentRegionSense = live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegionSense;
-using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 using ReachVerdict = live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict;
 using TextTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.TextTileWorld;
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
@@ -43,8 +41,6 @@ internal static class VerifyWayToPlayerIsAnsweredInThreeValues
 
     public static int Run()
     {
-        var preferences = Preferences.Current;
-        DistanceMode held = preferences.DistanceMode;
         bool lifted = LimitPlanningWork.Unbounded;
         ITileWorld? previous = null;
         try { previous = MovementQueries.World; } catch (InvalidOperationException) { }
@@ -57,15 +53,13 @@ internal static class VerifyWayToPlayerIsAnsweredInThreeValues
         try
         {
             LimitPlanningWork.Unbounded = true;
-            Each("a standing player", () => { preferences.DistanceMode = DistanceMode.Free; AStandingPlayersFloodIsResumedUntilAnswered(); });
-            Each("a sealed wall", () => { preferences.DistanceMode = DistanceMode.Standard; ABodyBehindASealedWallIsNeverReadReachable(); });
-            Each("a walking player", () => { preferences.DistanceMode = DistanceMode.Standard; AWalkingPlayerIsNeverReadCutOff(); });
-            preferences.DistanceMode = DistanceMode.Free;
+            Each("a standing player", AStandingPlayersFloodIsResumedUntilAnswered);
+            Each("a sealed wall", ABodyBehindASealedWallIsNeverReadReachable);
+            Each("a walking player", AWalkingPlayerIsNeverReadCutOff);
             MeasureTheCostUnderProductionAllowances();
         }
         finally
         {
-            preferences.DistanceMode = held;
             LimitPlanningWork.End();
             LimitPlanningWork.Unbounded = lifted;
             FreeSpaceSearch.WorldOverride = null;
@@ -120,7 +114,10 @@ internal static class VerifyWayToPlayerIsAnsweredInThreeValues
     private static void AStandingPlayersFloodIsResumedUntilAnswered()
     {
         var world = Plug(300, 120);
-        var sense = new PlayerIntentRegionSense();
+        // A slice of 400 corners rather than the game's 1500: since the distances were fixed on 26 September 2026 the region is
+        // the unscaled follow comfort, under a thousand corners in open air, so one game-sized slice always finishes it and there
+        // is nothing to resume. In the game the millisecond budget is what splits it; here the count stands in for that clock.
+        var sense = new PlayerIntentRegionSense { FloodSliceExpansions = 400 };
         Vector2 player = new(150 * 16 + 8, 60 * 16), body = player + new Vector2(-64f, -40f);
         // Held, not walking: since the reshape the lead chases the held key rather than the observed
         // pace, so a standing player with no held direction reads no lead and no growth, and the base
@@ -131,8 +128,8 @@ internal static class VerifyWayToPlayerIsAnsweredInThreeValues
         for (int tick = 0; tick < 600; tick++)
             sense.Update(body, player, Vector2.Zero, false, false, 60, held);
         int corners = CornersInRegion(world, sense, player);
-        int slices = (int)MathF.Ceiling(corners / (float)Weights.PlayerSideFloodExpansions);
-        Require(slices >= 2, $"premise: the region must hold more corners than one slice closes, or nothing is unfinished; {corners} corners against {Weights.PlayerSideFloodExpansions}");
+        int slices = (int)MathF.Ceiling(corners / (float)sense.FloodSliceExpansions);
+        Require(slices >= 2, $"premise: the region must hold more corners than one slice closes, or nothing is unfinished; {corners} corners against {sense.FloodSliceExpansions}");
         var verdicts = new List<ReachVerdict>();
         for (int tick = 0; tick < 20; tick++)
         {
@@ -193,7 +190,7 @@ internal static class VerifyWayToPlayerIsAnsweredInThreeValues
     }
 
     /// <summary>
-    /// The flood's cost per tick under the live deadline, for a player walking at a running pace in the largest distance mode: the
+    /// The flood's cost per tick under the live deadline, for a player walking at a running pace: the
     /// sense as built, and a reconstruction of the first build — a fresh flood run to exhaustion in one call whenever the player's
     /// corner or the snapped region changed — timed on the same ticks under the same deadline.
     /// </summary>
@@ -252,7 +249,7 @@ internal static class VerifyWayToPlayerIsAnsweredInThreeValues
         EmitLedgerRows.Measure(Instrument, Suite, name + ": 90th percentile tick, ms, as built", P(now, 0.9), "ms", "down", mode, timed);
         EmitLedgerRows.Measure(Instrument, Suite, name + ": worst tick, ms, rebuilt to exhaustion", before.Max(), "ms", "down", mode, timed);
         EmitLedgerRows.Measure(Instrument, Suite, name + ": 90th percentile tick, ms, rebuilt to exhaustion", P(before, 0.9), "ms", "down", mode, timed);
-        Console.WriteLine($"MEASURE way to the player cost, walking 6 px/tick on Free under the live deadline: as built worst {now.Max():0.00} ms, p90 {P(now, 0.9):0.00} ms, median {P(now, 0.5):0.00} ms; "
+        Console.WriteLine($"MEASURE way to the player cost, walking 6 px/tick under the live deadline: as built worst {now.Max():0.00} ms, p90 {P(now, 0.9):0.00} ms, median {P(now, 0.5):0.00} ms; "
             + $"rebuilt to exhaustion worst {before.Max():0.00} ms, p90 {P(before, 0.9):0.00} ms, median {P(before, 0.5):0.00} ms, rebuilt on {rebuilds} of 600 ticks, stopped short of exhaustion on {stoppedShort}");
     }
 

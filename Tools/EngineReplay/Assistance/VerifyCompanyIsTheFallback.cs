@@ -101,13 +101,16 @@ internal static class VerifyCompanyIsTheFallback
     }
 
     /// <summary>
-    /// The same slime on the floor, starting just past the new-job radius from the player — at the edge of a 1920-wide screen
+    /// The same slime on the floor, starting just past the new-job radius from the player — at the edge of a 3840-wide screen
     /// with hunting's margin — and moving away at a slime's hopping pace for 150 ticks. It is never a job to take: hunting must
-    /// not be chosen on any tick.
+    /// not be chosen on any tick. The screen is 4K because the radius is 100 tiles since 26 September 2026, and on a 1920-wide
+    /// screen a slime just past it is already outside hunting's on-screen rectangle, which would refuse it for the wrong reason.
     /// </summary>
     private static void AFarRecedingSlimeIsLeft()
     {
         var (companion, player, ctx) = Scene();
+        Main.screenWidth = 3840;
+        Main.screenHeight = 2160;
         float start = Preferences.Current.NewActivityRadius + 16f;
         NPC slime = Slime(new Vector2(player.Center.X + start, player.Bottom.Y));
         int hunting = 0;

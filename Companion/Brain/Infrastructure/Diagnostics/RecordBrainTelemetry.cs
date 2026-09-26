@@ -216,7 +216,11 @@ public sealed class BrainTelemetry : ModSystem
     // world edits are coalesced per tile with their announcement count (`a3`) under a bound on the tiles they snapshot;
     // and the decision digest gains what the hand released and what the bag took. The `# closing=` line gains
     // `replay-refused`. It is a version because a reader of 0.49.0 lines compares a different digest and cannot see a gap.
-    private const string Schema = "0.50.0";
+    //
+    // 0.51.0 moves no column and only removes: the `character` configuration line loses `distance_mode`, because the
+    // Close/Standard/Free preference went by the owner's ruling of 26 September 2026 and the distances are fixed. A reader
+    // replaying an older capture ignores the field; its value no longer changes anything the brain does.
+    private const string Schema = "0.51.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -332,18 +336,18 @@ public sealed class BrainTelemetry : ModSystem
     /// allocating, because a preference changed from the profile card mid-session changes what the companion does.
     /// </summary>
     private readonly record struct RecordedConfiguration(Activities.WorkPolicy Mining, Activities.WorkPolicy Chopping, bool Combat, bool PotBreaking,
-        bool TorchPlacement, PlayerIntegration.CompanionDistanceMode DistanceMode, bool Inspector, bool RecordTelemetry)
+        bool TorchPlacement, bool Inspector, bool RecordTelemetry)
     {
         public static RecordedConfiguration Current()
         {
             var preferences = PlayerIntegration.CompanionPreferences.Current;
             var switches = DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current;
             return new(preferences.Mining, preferences.Chopping, preferences.Combat, preferences.PotBreaking, preferences.TorchPlacement,
-                preferences.DistanceMode, switches.EnableBrainInspector, switches.RecordTelemetry);
+                switches.EnableBrainInspector, switches.RecordTelemetry);
         }
 
         public string Describe()
-            => $"character;mining={Mining};chopping={Chopping};combat={Flag(Combat)};pot_breaking={Flag(PotBreaking)};torch_placement={Flag(TorchPlacement)};distance_mode={DistanceMode};inspector={Flag(Inspector)};record_telemetry={Flag(RecordTelemetry)}";
+            => $"character;mining={Mining};chopping={Chopping};combat={Flag(Combat)};pot_breaking={Flag(PotBreaking)};torch_placement={Flag(TorchPlacement)};inspector={Flag(Inspector)};record_telemetry={Flag(RecordTelemetry)}";
 
         private static string Flag(bool value) => value ? "true" : "false";
     }

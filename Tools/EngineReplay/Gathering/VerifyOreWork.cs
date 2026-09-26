@@ -134,13 +134,19 @@ internal static class VerifyOreWork
         // holds the key the way a walking player does. Two seconds of walking fill 71% of the 92 px clamp, about 66 px, so the
         // ore at 800 sits about 866 px from the heading, inside the radius, and at 1000 it sits about 1066 px away, outside,
         // with the same sixty-odd margin the veto at 720 used to have. The gradient scenes sit inside at 400, 480, 576 and 800.
-        // The table above was measured at the old radius and is kept for its shape.
-        const int VetoSeparation = 1000;
+        // The table above was measured at the old radius and is kept for its shape. Since 26 September 2026 the radius is a
+        // fixed 1600 px, so the veto moved to 1570: inside the census window, which is swept around the player, and about
+        // 1636 px from the heading the allowance is measured from, so seen and refused rather than never looked at. 1700 put
+        // the ore outside the window too, and the row then passed nothing. The world is 300 tiles wide because the player
+        // stands past the usual hundred.
+        const int VetoSeparation = 1570;
         foreach (int separation in new[] { 400, 480, 576, 800, VetoSeparation })
         foreach (bool nearlyDone in new[] { false, true })
         {
             Point ore = new(25, 89);
-            var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+            var (_, ctx) = separation == VetoSeparation
+                ? SetUpWide(WorkPolicy.Opportunistic, TileID.Copper, 300, ore)
+                : SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
             var brain = ctx.Companion.Brain;
             var workClock = new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock();
             workClock.OnWorldLoad();
@@ -1696,12 +1702,20 @@ internal static class VerifyOreWork
     internal static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point ore, Point? playerHit)
         => SetUp(policy, tileType, new[] { ore }, playerHit);
 
-    private static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point[] ore, Point? playerHit)
+    /// <summary>
+    /// The same scene in a world wider than the usual hundred tiles, for a row that needs the player further from the ore
+    /// than the continuation allowance, which at 125 tiles no longer fits inside a hundred.
+    /// </summary>
+    internal static (MineOre Action, ActionContext Context) SetUpWide(WorkPolicy policy, ushort tileType, int worldWidth, params Point[] ore)
+        => SetUp(policy, tileType, ore, null, worldWidth);
+
+    private static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point[] ore, Point? playerHit, int worldWidth = 100)
     {
-        Main.maxTilesX = Main.maxTilesY = 100;
+        Main.maxTilesX = worldWidth;
+        Main.maxTilesY = 100;
         Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), BindingFlags.Instance
             | BindingFlags.Public | BindingFlags.NonPublic, null,
-            new object[] { (ushort)100, (ushort)100 }, null)!;
+            new object[] { (ushort)worldWidth, (ushort)100 }, null)!;
         WorkPolicies.Mining = policy;
         var companion = VerifyCompanionLifecycle.Create();
         Main.gameMenu = false;
@@ -1726,7 +1740,7 @@ internal static class VerifyOreWork
         companion.NPC.position = new Vector2(20 * 16, floorRow * 16 - companion.NPC.height);
         Player.tileRangeX = Player.tileRangeY = 5;
         Main.tileSolid[TileID.Dirt] = true;
-        for (int x = 5; x < 95; x++)
+        for (int x = 5; x < worldWidth - 5; x++)
         {
             Tile floor = Main.tile[x, floorRow];
             floor.ClearEverything();

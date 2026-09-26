@@ -71,7 +71,7 @@ internal static class VerifyCourtesy
         // Restated on 15 September 2026: "with the player" was six tiles, the old follow spot's distance from his feet. A companion
         // moving about his whole region is up to its grown half-width from him by design, so that is the bound.
         float regionReach = live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion
-            .BaseHalfSize(live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.FollowComfortScale).X
+            .BaseHalfSize().X
             * (1f + live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionGrowthCap);
         Require(block.EndDistanceToPlayer <= regionReach,
             $"moving aside must stay with the player rather than wander off; within {regionReach:0} px; block {block}");

@@ -542,8 +542,10 @@ internal static class VerifyCombatPurpose
     // "the visible one must be examined", and at seventy-five the companion itself was outside the radius.
     // Since 15 September 2026 the radius is sixty-two and a half tiles and the orb flies three times the player's
     // speed, so no start inside the radius prices a wait past the window; this start is kept as the scene beyond the
-    // radius, which is what its row now asserts.
-    private const int PursuitFarStart = PursuitNearStart - 66;
+    // radius, which is what its row now asserts. Since 26 September 2026 the radius is a fixed hundred tiles, so the far
+    // start is 112 behind the near one, which puts the companion 116 tiles from the player: outside the work radius and
+    // still inside the 125 at which the flight home would take the body instead.
+    private const int PursuitFarStart = PursuitNearStart - 112;
 
     private readonly record struct PursuitScene(int Pursuit, bool SolvesFromHere, float Travel, float Weighted,
         float HiddenDanger, float HiddenPlayerUrgency, string Evidence);
@@ -669,8 +671,8 @@ internal static class VerifyCombatPurpose
             $"the middle row must be a priced wait inside the evaluation window, not a second truncation; wait={middleDangerous.Travel}, value={middleDangerous.Weighted}");
         // The costly row used to price a wait longer than the whole evaluation window, so that an enemy behind
         // a long walk was worth nothing now. That case no longer exists in play and the row no longer tests it: on
-        // 15 September 2026 the owner put the orb at three times the player's speed and the new-job radius at 1000 px, and
-        // the longest reposition that radius admits is priced well inside the window at that speed. What the far start
+        // 15 September 2026 the owner put the orb at three times the player's speed and the new-job radius at 1000 px (a
+        // fixed 1600 px since 26 September), and the longest reposition that radius admits is priced well inside the window at that speed. What the far start
         // witnesses now is the radius itself: the same dangerous enemy, far enough away, is not examined or pursued.
         Require(costlyDangerous.Pursuit != HiddenSlot && costlyDangerous.Evidence.Contains("activity-allowance", StringComparison.Ordinal),
             $"costly: the same dangerous enemy beyond the new-job radius must not be examined or pursued; pursuit={costlyDangerous.Pursuit}, {costlyDangerous.Evidence}");

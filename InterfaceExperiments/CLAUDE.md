@@ -28,7 +28,7 @@ The native card explicitly identifies guarding and survival as automatic. The in
 
 ## The other decisions the mockup encodes
 
-The original mock uses named distance stops. Native controls use Close/Standard/Free profiles, which scale following comfort, activity acquisition and recovery distance together. There is no remote mission mode.
+The original mock uses named distance stops. The native card has no distance control: the Close/Standard/Free profiles it once had were removed on 26 September 2026, and the distances are fixed at 100 tiles for work and 125 for the flight home. There is no remote mission mode.
 
 **The overview has no action line.** It used to carry the companion's current action with its reason ("Mining · copper vein 12 tiles below · opportunistic"), as the answer to a player unable to tell a working companion from a stuck one. On 15 September 2026 the owner removed it with everything else the card said that it did not need at a glance, and the three bars grew to fill the strip. What the companion is doing is not on the card now; the in-game overlay is where it can be read, and if the working-or-stuck question comes back in play, the answer should arrive as a shape or a state rather than as that sentence.
 

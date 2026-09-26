@@ -227,10 +227,9 @@ internal static class VerifyResponsiveFollowing
     /// gives the region's edge its width.</summary>
     private static FollowPlayerObjective ObjectiveAt(Vector2 centre, Vector2 anchor, bool inside = false)
     {
-        float scale = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
         var region = new live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion(centre,
-            new Vector2(live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowHorizontalComfort * scale,
-                live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort * scale),
+            new Vector2(live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowHorizontalComfort,
+                live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort),
             Vector2.Zero, IsTravelling: false);
         return new FollowPlayerObjective(region, anchor, inside);
     }

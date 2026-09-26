@@ -23,7 +23,7 @@ public readonly record struct ObservedCargoSlot(int Type, int Prefix, int Stack,
 
 /// <summary>Frozen policy values, including copies of mining-list membership rather than a live list reference.</summary>
 public readonly record struct ObservedPolicyCapabilities(WorkPolicy Mining, WorkPolicy Chopping, bool Combat,
-    bool PotBreaking, bool TorchPlacement, CompanionDistanceMode DistanceMode, MiningListMode MiningListMode,
+    bool PotBreaking, bool TorchPlacement, MiningListMode MiningListMode,
     int MiningListRevision, System.Collections.Generic.IReadOnlyList<int> KnownOres,
     System.Collections.Generic.IReadOnlyList<int> MarkedOres);
 
@@ -102,10 +102,10 @@ public sealed class ObserveDecisionCapabilities
 
     private readonly record struct CargoContent(int Type, int Prefix, int Stack, int MaxStack);
     private readonly record struct PolicyContent(WorkPolicy Mining, WorkPolicy Chopping, bool Combat,
-        bool PotBreaking, bool TorchPlacement, CompanionDistanceMode DistanceMode, object MiningList, int Revision)
+        bool PotBreaking, bool TorchPlacement, object MiningList, int Revision)
     {
         public static PolicyContent From(CompanionPreferences preferences) => new(preferences.Mining, preferences.Chopping,
-            preferences.Combat, preferences.PotBreaking, preferences.TorchPlacement, preferences.DistanceMode,
+            preferences.Combat, preferences.PotBreaking, preferences.TorchPlacement,
             preferences.MiningList, preferences.MiningList.Revision);
     }
 
@@ -131,7 +131,7 @@ public sealed class ObserveDecisionCapabilities
     {
         var list = preferences.MiningList.Snapshot();
         return new(preferences.Mining, preferences.Chopping, preferences.Combat, preferences.PotBreaking, preferences.TorchPlacement,
-            preferences.DistanceMode, list.Mode, list.Revision, System.Array.AsReadOnly(list.Known), System.Array.AsReadOnly(list.Marked));
+            list.Mode, list.Revision, System.Array.AsReadOnly(list.Known), System.Array.AsReadOnly(list.Marked));
     }
 
     private static bool SameCargo(CargoContent[] a, CargoContent[] b)

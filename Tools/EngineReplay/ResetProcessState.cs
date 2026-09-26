@@ -239,7 +239,7 @@ internal static class ResetProcessState
         VerifyUsefulAssistance.ForgetEngineLight();
 
         // The player's own choices are a process-wide singleton — both work policies, combat, pot
-        // breaking, torch placement, the distance mode and the mining list — and until now they were
+        // breaking, torch placement and the mining list — and until now they were
         // the one reachable static no case put back. A fresh instance *is* a fresh process's value by
         // construction, because every default lives on the property initialisers, so this cannot drift
         // from what the game starts with the way a list of assignments here would.

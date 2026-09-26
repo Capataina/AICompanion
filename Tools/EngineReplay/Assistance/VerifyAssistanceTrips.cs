@@ -263,6 +263,14 @@ internal static class VerifyAssistanceTrips
         {
             string last = $"{brain.LastRequest.Kind}@{brain.LastRequest.Anchor}/owner={brain.ControlGrants.Last?.AppliedOwner}";
             VerifyOreWork.AdvanceBrain(ctx);
+            // The premise the row always leaned on and never said: the course's first pick is the lighting trip. Only
+            // lighting and keeping company are registered here, so a pot trip the course picks first has no performer and
+            // the scene stalls. Measured on 26 September 2026 the two were within 0.0007 of each other before the distances
+            // were fixed (lighting 0.7741, the pot's own trip 0.7734) and the pot leads after (0.7180 against 0.6796), so the
+            // row had been passing on a tie; this makes a flip read as what it is rather than as a torch never placed.
+            if (tick == 0 && potBreaking)
+                Require(brain.Course.Last.Activity == "place-torches",
+                    $"premise: the lighting trip must be the course's first pick, or nothing is passed on the way; picked {brain.Course.Last.Activity} for {brain.Course.Last.Binding?.Opportunity}");
             decideMax = Math.Max(decideMax, brain.DecideMs);
             finaliseMax = Math.Max(finaliseMax, brain.FinaliseMs);
             if (brokenAt < 0 && footprint.Any(t => !Main.tile[t.X, t.Y].HasTile))

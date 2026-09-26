@@ -78,14 +78,14 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
             Math.Clamp(point.Y, Centre.Y - room.Y, Centre.Y + room.Y));
     }
 
-    /// <summary>The half-size with no lead: the follow comfort, scaled by the player's distance preference and by the base scale.</summary>
-    public static Vector2 BaseHalfSize(float comfortScale)
-        => new Vector2(Weights.FollowHorizontalComfort, Weights.FollowVerticalComfort) * comfortScale * Weights.IntentRegionBaseScale;
+    /// <summary>The half-size with no lead: the follow comfort times the base scale.</summary>
+    public static Vector2 BaseHalfSize()
+        => new Vector2(Weights.FollowHorizontalComfort, Weights.FollowVerticalComfort) * Weights.IntentRegionBaseScale;
 
     /// <summary>
     /// How far the player's centre sits below the box's centre: two thirds of the half-height, which puts him at the centre of
     /// the bottom third, unless the box is too short for that to leave him inside by the slack, when he sits as low as the
-    /// slack allows. The second case is the Close distance mode, where a third of the half-height is under the slack.
+    /// slack allows.
     /// </summary>
     public static float PlayerBelowCentre(Vector2 halfSize, float slack)
         => MathF.Min(halfSize.Y * 2f / 3f, MathF.Max(0f, halfSize.Y - slack));
@@ -112,12 +112,12 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
     /// grown box allows it to lead on that axis, the larger of the two axes' shares; the lead is then clamped against the
     /// limits of the box it actually is. So at the clamp the box is fully grown and the player sits on a third-line
     /// horizontally, or at the top or bottom edge less the slack vertically, and short of the clamp the clamp does not bind.
-    /// Where the base is itself smaller than the slack allows for — the Close mode's upward allowance — the clamp can bind a
-    /// little before full growth, and the player stays inside regardless, which is the property; growth is the preference.
+    /// Where the base is itself smaller than the slack allows for, the clamp can bind a little before full growth, and the
+    /// player stays inside regardless, which is the property; growth is the preference.
     /// </summary>
-    public static PlayerIntentRegion Around(Vector2 playerCentre, Vector2 lead, float comfortScale, bool travelling, float slack)
+    public static PlayerIntentRegion Around(Vector2 playerCentre, Vector2 lead, bool travelling, float slack)
     {
-        Vector2 baseHalf = BaseHalfSize(comfortScale);
+        Vector2 baseHalf = BaseHalfSize();
         var full = LeadLimits(baseHalf * (1f + Weights.IntentRegionGrowthCap), slack);
         float across = full.Across > 0f ? MathF.Abs(lead.X) / full.Across : 0f;
         float vertical = lead.Y < 0f ? (full.Up > 0f ? -lead.Y / full.Up : 0f) : (full.Down > 0f ? lead.Y / full.Down : 0f);
@@ -155,6 +155,12 @@ public readonly record struct PlayerIntentRegions(PlayerIntentRegion Admission, 
 /// </summary>
 public sealed class PlayerIntentRegionSense
 {
+    /// <summary>
+    /// How many corners the way-to-the-player flood may close in one tick. The game never changes it; a headless scene lowers it
+    /// because the region is now smaller than one slice by count, so without the seam the resume path could be reached only
+    /// through the millisecond budget, which a deterministic row cannot hold.
+    /// </summary>
+    public int FloodSliceExpansions { get; set; } = Weights.PlayerSideFloodExpansions;
     public PlayerIntentRegion Region { get; private set; }
     /// <summary>The forward-led region used to admit new work.</summary>
     public PlayerIntentRegion Admission => Region;
@@ -305,7 +311,7 @@ public sealed class PlayerIntentRegionSense
             {
                 // Its own slice rather than the tick's whole allowance: this runs inside the senses, ahead of the positioner and the
                 // navigator that share the same deadline, and a flood allowed to run until the deadline spends their share first.
-                growing.Advance(Weights.PlayerSideFloodExpansions, Weights.PlayerSideFloodMilliseconds);
+                growing.Advance(FloodSliceExpansions, Weights.PlayerSideFloodMilliseconds);
                 if (growing.Finished)
                 {
                     side = growing;
@@ -359,7 +365,6 @@ public sealed class PlayerIntentRegionSense
             held.X,
             held.Y != 0f ? held.Y : intent.Y);
         bool led = drive.LengthSquared() > 0f || travelling;
-        float scale = PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
         float slack = Movement.Navigator.SettleRadius;
         Vector2 previousLead = Region.Lead;
         if (dead || samples <= 1)
@@ -369,19 +374,19 @@ public sealed class PlayerIntentRegionSense
             Vector2 wanted = new(
                 held.X != 0f ? held.X * 100000f : 0f,
                 held.Y != 0f ? held.Y * 100000f : 0f);
-            Vector2 pose = PlayerIntentRegion.Around(playerCentre, wanted, scale, led, slack).Lead;
+            Vector2 pose = PlayerIntentRegion.Around(playerCentre, wanted, led, slack).Lead;
             lead += (pose - lead) / MathF.Max(1f, Weights.IntentRegionFilterTicks);
             lead.Y += intent.Y * Weights.IntentRegionVerticalTravelGain;
-            lead = PlayerIntentRegion.Around(playerCentre, lead, scale, led, slack).Lead;
+            lead = PlayerIntentRegion.Around(playerCentre, lead, led, slack).Lead;
         }
         // The slack is the settle radius, the room every destination inside the region reserves, so the player's own
         // position is always a place the companion could be and count as inside.
-        Region = PlayerIntentRegion.Around(playerCentre, lead, scale, led, slack) with
+        Region = PlayerIntentRegion.Around(playerCentre, lead, led, slack) with
         {
             Velocity = drive + (hasRegion ? Region.Lead - previousLead : Vector2.Zero),
         };
-        BaseRestingHalfSize = PlayerIntentRegion.BaseHalfSize(scale);
-        PlayerIntentRegion local = PlayerIntentRegion.Around(playerCentre, Vector2.Zero, scale, false, slack) with
+        BaseRestingHalfSize = PlayerIntentRegion.BaseHalfSize();
+        PlayerIntentRegion local = PlayerIntentRegion.Around(playerCentre, Vector2.Zero, false, slack) with
         {
             Velocity = Vector2.Zero,
         };

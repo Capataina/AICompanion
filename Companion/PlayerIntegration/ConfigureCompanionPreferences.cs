@@ -7,14 +7,6 @@ using AICompanion.Companion.Brain.Activities;
 
 namespace AICompanion.Companion.PlayerIntegration;
 
-/// <summary>The spacing the player wants while the companion is doing ordinary work.</summary>
-public enum CompanionDistanceMode
-{
-    Close,
-    Standard,
-    Free,
-}
-
 /// <summary>
 /// Per-character choices for optional companion work.  The static entry point deliberately
 /// follows the active <see cref="CompanionPlayer"/> instance: gameplay has existing static
@@ -31,13 +23,15 @@ public sealed class CompanionPreferences
     public bool Combat { get; set; } = true;
     public bool PotBreaking { get; set; } = true;
     public bool TorchPlacement { get; set; } = true;
-    public CompanionDistanceMode DistanceMode { get; set; } = CompanionDistanceMode.Standard;
     /// <summary>Which ores this character has held, which carry a mark, and whether a mark means skip or only.</summary>
     public CompanionMiningList MiningList { get; set; } = new();
 
-    public float NewActivityRadius => Weights.FollowWorkRadius * (DistanceMode == CompanionDistanceMode.Close ? .5f : DistanceFactor);
-    public float RecoveryRadius => Weights.FollowRecoveryDistance * DistanceFactor;
-    public float ActiveActivityRadius => Weights.FollowWorkRadius * DistanceFactor * Weights.ActivityContinuationFactor;
+    // The distances are fixed rather than a preference, by the owner's ruling of 26 September 2026: the Close, Standard
+    // and Free following distance went, and an older save's "distanceMode" key is ignored rather than migrated. They stay
+    // properties here because every reader already asks this object, and a later preference would come back through it.
+    public float NewActivityRadius => Weights.FollowWorkRadius;
+    public float RecoveryRadius => Weights.FollowRecoveryDistance;
+    public float ActiveActivityRadius => Weights.FollowWorkRadius * Weights.ActivityContinuationFactor;
     /// <summary>
     /// How far, in tiles, a work census must scan around the player's heading for its answer to mean
     /// anything: exactly the radius <c>CompanionAction.AllowsTarget</c> admits a *new* target within,
@@ -50,19 +44,6 @@ public sealed class CompanionPreferences
     /// here, so the census window is the whole of what the companion can see.
     /// </summary>
     public int WorkCensusRadiusTiles => (int)MathF.Ceiling(NewActivityRadius / 16f);
-    public float FollowComfortScale => DistanceMode switch
-    {
-        CompanionDistanceMode.Close => .75f,
-        CompanionDistanceMode.Free => 1.5f,
-        _ => 1f,
-    };
-
-    private float DistanceFactor => DistanceMode switch
-    {
-        CompanionDistanceMode.Close => .75f,
-        CompanionDistanceMode.Free => 1.5f,
-        _ => 1f,
-    };
 
     public void Save(TagCompound tag)
     {
@@ -73,7 +54,6 @@ public sealed class CompanionPreferences
         tag["combat"] = (byte)(Combat ? 1 : 0);
         tag["potBreaking"] = (byte)(PotBreaking ? 1 : 0);
         tag["torchPlacement"] = (byte)(TorchPlacement ? 1 : 0);
-        tag["distanceMode"] = (int)DistanceMode;
         tag["miningList"] = MiningList.Save();
     }
 
@@ -85,7 +65,6 @@ public sealed class CompanionPreferences
         preferences.Combat = tag.ContainsKey("combat") ? ReadBool(tag, "combat", true) : ReadBool(tag, "hunting", true);
         preferences.PotBreaking = ReadBool(tag, "potBreaking", true);
         preferences.TorchPlacement = ReadBool(tag, "torchPlacement", true);
-        preferences.DistanceMode = ReadEnum(tag, "distanceMode", CompanionDistanceMode.Standard);
         preferences.MiningList = tag.ContainsKey("miningList") ? CompanionMiningList.Load(tag.GetCompound("miningList")) : new CompanionMiningList();
         return preferences;
     }

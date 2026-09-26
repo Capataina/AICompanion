@@ -134,22 +134,18 @@ internal static class VerifyWorkAccounting
     /// </summary>
     private static void WorkCancelledByRangeLeavesPartialWorkAndOreInPlace()
     {
-        // An active job keeps a wider allowance than a new one (the recovery radius times the continuation factor), and
-        // under the standard distance mode that is wider than this hundred-tile world can separate player from ore. The
-        // close mode's allowance is not, so the fixture uses it with the vein near one edge and the player at the other.
-        var preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current;
-        var mode = preferences.DistanceMode;
-        preferences.DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode.Close;
-        try { CancelByRange(preferences.ActiveActivityRadius); }
-        finally { preferences.DistanceMode = mode; }
+        // An active job keeps a wider allowance than a new one (the work radius times the continuation factor, 125 tiles),
+        // which no hundred-tile world can separate player from ore by, so this scene is 300 tiles wide: the vein near the
+        // left, the player walking off to the far right.
+        CancelByRange(live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius);
     }
 
     private static void CancelByRange(float activeRadius)
     {
         // The vein sits right of SetUp's starting column so its native line probe sees the first ore's left face, and both
-        // bodies then start beside it, because the close mode's allowance for a new job is narrower still.
+        // bodies then start beside it.
         Point[] vein = { new(85, 59), new(86, 59), new(87, 59) };
-        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, vein);
+        var (_, ctx) = VerifyOreWork.SetUpWide(WorkPolicy.Opportunistic, TileID.Copper, 300, vein);
         ctx.Player.Bottom = new Vector2(80 * 16, 60 * 16);
         ctx.Npc.Bottom = new Vector2(80 * 16 + 8, 60 * 16);
         var mine = ctx.Companion.Brain.Actions.OfType<MineOre>().Single();
@@ -158,7 +154,7 @@ internal static class VerifyWorkAccounting
         Require(vein.Count(p => !Main.tile[p.X, p.Y].HasTile) == 1 && mine.JobId > 0,
             $"the cancellation fixture needs exactly one tile removed by a live job; removed={vein.Count(p => !Main.tile[p.X, p.Y].HasTile)} job={mine.JobId}");
         int job = mine.JobId;
-        ctx.Player.Bottom = new Vector2(6 * 16, 60 * 16);
+        ctx.Player.Bottom = new Vector2(290 * 16, 60 * 16);
         Require(vein.All(p => Vector2.Distance(p.ToWorldCoordinates(), ctx.Player.Bottom) > activeRadius),
             $"the remaining ore must lie outside the active job's allowance of {activeRadius} px, or nothing is cancelled");
         long strikes = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;

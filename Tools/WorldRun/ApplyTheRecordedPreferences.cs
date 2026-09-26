@@ -1,7 +1,6 @@
 extern alias live;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
-using DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode;
 
 /// <summary>
 /// The companion's settings, taken from the session being replayed rather than from this process's
@@ -48,8 +47,8 @@ internal static class ApplyTheRecordedPreferences
         if (Flag(fields, "combat") is { } combat) applied.Combat = combat;
         if (Flag(fields, "pot_breaking") is { } pots) applied.PotBreaking = pots;
         if (Flag(fields, "torch_placement") is { } torches) applied.TorchPlacement = torches;
-        if (fields.TryGetValue("distance_mode", out string? distance) && Enum.TryParse(distance, out DistanceMode mode))
-            applied.DistanceMode = mode;
+        // A capture before schema 0.51.0 carries `distance_mode`, and it is read by nobody: the distances are fixed now,
+        // so a replay of an older session runs at today's distances whatever that session was set to.
         // A fresh instance rather than a list of assignments onto the standing one, for the reason
         // the engine suite's own reset gives: every default lives on the property initialisers, so
         // assigning the fields this file happens to know about would leave the rest holding whatever
@@ -64,7 +63,7 @@ internal static class ApplyTheRecordedPreferences
 
     private static string Describe(Preferences preferences)
         => $"mining={preferences.Mining};chopping={preferences.Chopping};combat={preferences.Combat};"
-        + $"pot_breaking={preferences.PotBreaking};torch_placement={preferences.TorchPlacement};distance_mode={preferences.DistanceMode}";
+        + $"pot_breaking={preferences.PotBreaking};torch_placement={preferences.TorchPlacement}";
 
     private static WorkPolicy? Policy(IReadOnlyDictionary<string, string> fields, string name)
         => fields.TryGetValue(name, out string? value) && Enum.TryParse(value, out WorkPolicy policy) ? policy : null;

@@ -88,7 +88,9 @@ public static class Weights
     public const int ReachFloodExpansions = 1500;
     // How many corners, and how many milliseconds, the intent sense's way-to-the-player flood may spend in one brain tick. It runs
     // inside the senses, ahead of the positioner and the navigator on the same shared deadline, so it has its own slice and resumes
-    // on later ticks; its flood is unpriced and bounded by the player's grown region, a few thousand corners in open air.
+    // on later ticks; its flood is unpriced and bounded by the player's grown region. That region is under a thousand corners
+    // even in open air (946 measured on 26 September 2026, once the Free distance mode's 1.5x box went), so the count never
+    // binds today and it is the milliseconds that split a flood across ticks.
     public const int PlayerSideFloodExpansions = 1500;
     public const double PlayerSideFloodMilliseconds = 1d;
     /// <summary>
@@ -231,15 +233,16 @@ public static class Weights
     // value, which is the one case the player is actually worse off without the torch.
     public const float LightBaseValue = .40f;
     public const float LightPlayerUnlitFactor = 1.4f;
-    // How far a new job may sit from the player. Kept independent of fly-home so raising recovery
-    // does not silently enlarge every work allowance past the worlds the fixtures fit in. A started job keeps
-    // this times ActivityContinuationFactor. Lowered on 15 September 2026 (the owner's ruling after the second orb
-    // play: the companion was doing too much too far from the player), with the continuation factor unchanged.
-    public const float FollowWorkRadius = 1000f;
-    // Recovery is a following fallback, not a traversal available to route search or mastery.
-    // 100 tiles: room to hunt and work nearby without the far-follow flight cutting it short, and lowered from 120
-    // with the work radius so that the companion stays closer.
-    public const float FollowRecoveryDistance = 1600f;
+    // How far a new job may sit from the player: 100 tiles, by the owner's ruling of 26 September 2026, which also
+    // removed the Close/Standard/Free preference that used to scale it. Kept independent of fly-home so raising recovery
+    // does not silently enlarge every work allowance past the worlds the fixtures fit in. A started job keeps this
+    // times ActivityContinuationFactor, which at these two values is exactly fly-home. Every census window is this
+    // radius in tiles, so raising it widens what the brain scans every tick by the square of the ratio; it was 1000
+    // (62.5 tiles) from 15 September 2026 until this ruling.
+    public const float FollowWorkRadius = 1600f;
+    // Recovery is a following fallback, not a traversal available to route search or mastery. 125 tiles, by the same
+    // ruling: past this the companion drops what it is doing and flies home through terrain, the pet-style catch-up.
+    public const float FollowRecoveryDistance = 2000f;
     public const float FollowRecoveryArrival = 80f;
     public const float FollowRecoverySpeed = 12f;
     public const float FollowRecoveryAcceleration = 0.45f;

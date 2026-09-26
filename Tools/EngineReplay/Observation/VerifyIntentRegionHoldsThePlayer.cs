@@ -7,8 +7,6 @@ using InferPlayerActivity = live::AICompanion.Companion.Brain.Infrastructure.Obs
 using Navigator = live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator;
 using PlayerIntentRegion = live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion;
 using PlayerIntentRegionSense = live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegionSense;
-using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
-using DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode;
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
@@ -25,10 +23,10 @@ using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weigh
 /// containment is a property of the geometry for every lead the filter can produce, so the track is the realistic input and
 /// not the only one — the sweep below is the rest.</para>
 ///
-/// <para>The geometry rows run on all three distance modes, because the Close mode's box is too short for the bottom third
-/// to leave the player inside by the slack, and a row that ran only on Standard would pass a placement that fails there.
-/// The expected base size and growth cap are written as the follow comfort and 1.15 here, rather than read from the scale
-/// constants, so a change to those constants is a red row and not a silent one.</para>
+/// <para>The expected base size and growth cap are written as the follow comfort and 1.15 here, rather than read from the
+/// scale constants, so a change to those constants is a red row and not a silent one. The geometry ran on three distance
+/// modes until the owner removed them on 26 September 2026; the short-box branch below stays because the property it
+/// guards — the player inside by the slack however short the box — is the geometry's, not a mode's.</para>
 /// </summary>
 internal static class VerifyIntentRegionHoldsThePlayer
 {
@@ -36,8 +34,6 @@ internal static class VerifyIntentRegionHoldsThePlayer
 
     public static int Run()
     {
-        var preferences = Preferences.Current;
-        DistanceMode held = preferences.DistanceMode;
         // Each half runs whatever the other did and every failure is reported together, because an abort on the first throw
         // lets a geometry failure hide whether the replay still holds, which is exactly what a mutation of the clamp needs to see.
         var failures = new List<string>();
@@ -46,65 +42,56 @@ internal static class VerifyIntentRegionHoldsThePlayer
             try { check(); }
             catch (InvalidOperationException e) { failures.Add($"{half}: {e.Message}"); }
         }
-        try
-        {
-            foreach (DistanceMode mode in new[] { DistanceMode.Close, DistanceMode.Standard, DistanceMode.Free })
-                Each($"geometry on {mode}", () => { preferences.DistanceMode = mode; Geometry(mode); });
-            // The capture was recorded on Standard: its first row's region is the unscaled follow comfort.
-            Each("replay", () => { preferences.DistanceMode = DistanceMode.Standard; Replay(); });
-            Each("held direction", HeldDirectionSlidesTheBox);
-            Each("vertical travel", VerticalTravelMovesTheBox);
-        }
-        finally
-        {
-            preferences.DistanceMode = held;
-        }
+        Each("geometry", Geometry);
+        Each("replay", Replay);
+        Each("held direction", HeldDirectionSlidesTheBox);
+        Each("vertical travel", VerticalTravelMovesTheBox);
         if (failures.Count > 0) throw new InvalidOperationException(string.Join(" | ", failures));
-        Console.WriteLine("intent region: the geometry holds on every distance mode, a held direction still slides the box, a one-tile drop is a nudge and a long fall still fills the clamp, and the recorded player is inside his region on every row");
+        Console.WriteLine("intent region: the geometry holds, a held direction still slides the box, a one-tile drop is a nudge and a long fall still fills the clamp, and the recorded player is inside his region on every row");
         return 0;
     }
 
-    private static void Geometry(DistanceMode mode)
+    private static void Geometry()
     {
+        const string Where = "geometry";
         float slack = Navigator.SettleRadius;
-        float scale = Preferences.Current.FollowComfortScale;
-        Vector2 expectedBase = new Vector2(Weights.FollowHorizontalComfort, Weights.FollowVerticalComfort) * scale;
+        Vector2 expectedBase = new Vector2(Weights.FollowHorizontalComfort, Weights.FollowVerticalComfort);
         Vector2 player = new(8000f, 4000f);
-        Require(Weights.IntentRegionBaseScale == 1f, $"{mode}: the region is the follow comfort, not a scaled-up box; scale {Weights.IntentRegionBaseScale}");
-        Require(MathF.Abs(Weights.IntentRegionGrowthCap - 0.15f) < 0.001f, $"{mode}: growth cap is fifteen percent; {Weights.IntentRegionGrowthCap}");
+        Require(Weights.IntentRegionBaseScale == 1f, $"{Where}: the region is the follow comfort, not a scaled-up box; scale {Weights.IntentRegionBaseScale}");
+        Require(MathF.Abs(Weights.IntentRegionGrowthCap - 0.15f) < 0.001f, $"{Where}: growth cap is fifteen percent; {Weights.IntentRegionGrowthCap}");
 
-        var still = PlayerIntentRegion.Around(player, Vector2.Zero, scale, false, slack);
+        var still = PlayerIntentRegion.Around(player, Vector2.Zero,false, slack);
         float below = player.Y - still.Centre.Y;
-        Require(Near(still.HalfSize, expectedBase), $"{mode}: at zero lead the half-size must be the follow comfort; {still.HalfSize} against {expectedBase}");
-        Require(MathF.Abs(player.X - still.Centre.X) < 0.01f, $"{mode}: at zero lead the box must be centred on the player horizontally; centre {still.Centre} player {player}");
+        Require(Near(still.HalfSize, expectedBase), $"{Where}: at zero lead the half-size must be the follow comfort; {still.HalfSize} against {expectedBase}");
+        Require(MathF.Abs(player.X - still.Centre.X) < 0.01f, $"{Where}: at zero lead the box must be centred on the player horizontally; centre {still.Centre} player {player}");
         bool thirdFits = still.HalfSize.Y / 3f >= slack;
         float expectedBelow = thirdFits ? still.HalfSize.Y * 2f / 3f : still.HalfSize.Y - slack;
         Require(MathF.Abs(below - expectedBelow) < 0.01f, thirdFits
-            ? $"{mode}: at zero lead the player's centre must be at the centre of the bottom third, {expectedBelow:0.00} px below the box's centre; it is {below:0.00}"
-            : $"{mode}: where a third of the half-height is under the slack the player must sit as low as the slack allows, {expectedBelow:0.00} px below; it is {below:0.00}");
-        Require(Holds(still, player, slack), $"{mode}: at zero lead the player must be inside by the slack; {Describe(still, player)}");
+            ? $"{Where}: at zero lead the player's centre must be at the centre of the bottom third, {expectedBelow:0.00} px below the box's centre; it is {below:0.00}"
+            : $"{Where}: where a third of the half-height is under the slack the player must sit as low as the slack allows, {expectedBelow:0.00} px below; it is {below:0.00}");
+        Require(Holds(still, player, slack), $"{Where}: at zero lead the player must be inside by the slack; {Describe(still, player)}");
 
         foreach (Vector2 direction in new[] { new Vector2(1, 0), new Vector2(-1, 0), new Vector2(0, 1), new Vector2(0, -1),
                      new Vector2(1, 1), new Vector2(-1, 1), new Vector2(1, -1), new Vector2(-1, -1) })
         {
-            var full = PlayerIntentRegion.Around(player, direction * 100000f, scale, true, slack);
+            var full = PlayerIntentRegion.Around(player, direction * 100000f,true, slack);
             var grownLimits = PlayerIntentRegion.LeadLimits(expectedBase * 1.15f, slack);
             bool canLead = (direction.X != 0f && grownLimits.Across > 0f)
                 || (direction.Y > 0f && grownLimits.Down > 0f)
                 || (direction.Y < 0f && grownLimits.Up > 0f);
             if (canLead)
-                Require(Near(full.HalfSize, expectedBase * 1.15f), $"{mode} {direction}: at the clamp the half-size must be 1.15 times the comfort; {full.HalfSize} against {expectedBase * 1.15f}");
+                Require(Near(full.HalfSize, expectedBase * 1.15f), $"{Where} {direction}: at the clamp the half-size must be 1.15 times the comfort; {full.HalfSize} against {expectedBase * 1.15f}");
             Vector2 offset = player - full.Centre;
             if (direction.X != 0f)
                 Require(MathF.Abs(MathF.Abs(offset.X) - full.HalfSize.X / 3f) < 0.01f,
-                    $"{mode} {direction}: at the clamp the player must be at a third-line, not the side edge; {Describe(full, player)}");
+                    $"{Where} {direction}: at the clamp the player must be at a third-line, not the side edge; {Describe(full, player)}");
             if (direction.Y > 0f)
                 Require(MathF.Abs(offset.Y + (full.HalfSize.Y - slack)) < 0.01f,
-                    $"{mode} {direction}: led downward to the clamp the player must be at the region's top edge less the slack; {Describe(full, player)}");
+                    $"{Where} {direction}: led downward to the clamp the player must be at the region's top edge less the slack; {Describe(full, player)}");
             if (direction.Y < 0f && full.HalfSize.Y / 3f >= slack)
                 Require(MathF.Abs(offset.Y - (full.HalfSize.Y - slack)) < 0.01f,
-                    $"{mode} {direction}: led upward to the clamp the player must be at the region's bottom edge less the slack; {Describe(full, player)}");
-            Require(Holds(full, player, slack), $"{mode} {direction}: at the clamp the player must be inside by the slack; {Describe(full, player)}");
+                    $"{Where} {direction}: led upward to the clamp the player must be at the region's bottom edge less the slack; {Describe(full, player)}");
+            Require(Holds(full, player, slack), $"{Where} {direction}: at the clamp the player must be inside by the slack; {Describe(full, player)}");
         }
 
         // Every lead the filter could produce, in every direction: containment everywhere, and on the modes whose box is tall
@@ -116,15 +103,15 @@ internal static class VerifyIntentRegionHoldsThePlayer
             for (float length = 0f; length <= 2000f; length += 10f)
             {
                 Vector2 lead = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * length;
-                var region = PlayerIntentRegion.Around(player, lead, scale, true, slack);
+                var region = PlayerIntentRegion.Around(player, lead,true, slack);
                 checkedLeads++;
-                Require(Holds(region, player, slack), $"{mode}: lead {lead} must leave the player inside by the slack; {Describe(region, player)}");
+                Require(Holds(region, player, slack), $"{Where}: lead {lead} must leave the player inside by the slack; {Describe(region, player)}");
                 bool grown = Near(region.HalfSize, expectedBase * 1.15f);
                 if (thirdFits && !grown)
-                    Require(Near(region.Lead, lead), $"{mode}: a lead short of full growth must not be clamped; asked {lead}, applied {region.Lead}, half-size {region.HalfSize}");
+                    Require(Near(region.Lead, lead), $"{Where}: a lead short of full growth must not be clamped; asked {lead}, applied {region.Lead}, half-size {region.HalfSize}");
             }
         }
-        Console.WriteLine($"intent region geometry on {mode}: base {expectedBase}, player {below:0.0} px below the centre at zero lead, {checkedLeads} leads held");
+        Console.WriteLine($"intent region geometry on {Where}: base {expectedBase}, player {below:0.0} px below the centre at zero lead, {checkedLeads} leads held");
     }
 
     /// <summary>
