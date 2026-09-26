@@ -484,7 +484,7 @@ public sealed class DecideCourseEachTick
         // the dangerous world shows no rise at all — and a tuned constant of that kind is exactly what
         // makes two similar situations behave differently for reasons nobody can see later. The honest
         // mechanism is opportunistic replacement, which needs the incumbent reprojected from the current
-        // observation so two futures can be compared, and that is `AIC-439`'s territory rather than a
+        // observation so two futures can be compared, and that is `AIC-480`'s territory rather than a
         // number. Protection urgency still reaches the comparison at every decision, through the
         // episode's own discount on non-combat needs.
         if (NextStep(out StepBinding? held) && held != null)
