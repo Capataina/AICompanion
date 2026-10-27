@@ -15,5 +15,8 @@ Historical Evidence/
 │                owner-request, interpretation and outcome reconstruction
 ├─ Diagnostic Instruments, Contradictions and Open Questions.md
 │                instrument origins, reversals and Q9–16 historical closure
+├─ Observed Behaviour and Assessment Limits.md
+│                the README's play-by-play account, four-column table and assessment
+│                limits until 27 Oct 2026; each section keeps its maintenance rules
 └─ Archived Brain Proposals/ earlier 01–04 arguments preserved as resources
 ```
