@@ -22,6 +22,10 @@ A press is a click until the pointer travels past a small threshold: released be
 
 Two icons used to flank the bars, the activity family on the left and the activity on the right, with tooltips naming them, dimmed while shared safety or recovery paused the work, and a "Stuck" label under the notch while movement made no progress. They went with the ruling above, along with the name, the readings and the hover text that explained mana and experience. Their information is not lost from the game: `../ProfileCard/DrawCompanionStatus.Describe` still composes the activity, its target, its reason, a stall and a downing from the brain's evidence, and the inspector draws the rest; the card simply stops showing it as a sentence, by a later ruling of the same day. Proposing any of them back onto the HUD is re-proposing something the owner removed.
 
+## Design register: shared with the card
+
+The notch and the card are one register, one palette and one set of shapes, recorded once in `../ProfileCard/CLAUDE.md` under "Design register". This file's colour names (`Body`, `Border`, `Track`, `Healthy`, `Hurt`, `Downed`, `Mana`, `Experience`) are listed there with their jobs.
+
 ## Verification
 
 `../../Tools/EngineReplay/Lifecycle/VerifyCompanionHud.cs` draws three notches on one sheet at every render viewport (docked and healthy, free and healthy, free and downed) through the real layer method, and requires the base size at the UI scale, even padding and equal gaps from `Bars`, each bar's fill read back off the pixels against a pinned fraction, the mana blue and experience gold, every pixel inside the body and outside the bars to be body colour and the band under each notch to be untouched background, and no coloured health fill while downed. It then drives the input: a click opens the real card, a drag past the screen corner frees the notch on screen without opening the card, and right-click docks it.

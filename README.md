@@ -59,7 +59,7 @@ Games populated by AI that plays like people, and companions that play beside yo
 
 - **It mirrors your maximum life, defence and mana**, so a life crystal for you is one for it.
 - **It earns experience** from its own kills and work in full and from yours at half, on a curve that needs the same kills per level in any world.
-- **A mastery tree** of stat, speed and immunity upgrades bought with points, laid out as a symmetric wheel of four lanes (Combat, Movement, Survival, Gathering). No node ever switches a behaviour on or off.
+- **A mastery tree** of stat and speed upgrades bought with points, laid out as a symmetric wheel of four lanes (Combat, Movement, Survival, Gathering). No node ever switches a behaviour on or off.
 
 ### The interface: a status notch and a profile card in the game's own look
 
@@ -75,7 +75,7 @@ Games populated by AI that plays like people, and companions that play beside yo
 - **Its choices are its own.** It picks what to do from what is around it; you never issue orders.
 - **Keeping you company is what it does only when there is nothing else worth doing**, never a job that competes with real work.
 - **Strength comes from you, the tree and the gear you hand over**, never from gear it owns.
-- **A mastery node never gates a behaviour.** Nodes change numbers, speed and immunities; a behaviour is available or it is not.
+- **A mastery node never gates a behaviour.** Nodes change numbers and speed, never a capability (every liquid is harmless to it from the start); a behaviour is available or it is not.
 - **Weak beats boss-killing.** A companion that solos a boss removes you from the game; a slightly under-tuned one is a friend who needs you.
 - **Progression still comes from playing Terraria.**
 

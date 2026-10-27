@@ -11,7 +11,7 @@ Assets/
 
 ## Status — 15 September 2026: agreed in discussion, not yet recorded as a decision
 
-Everything below the rig section was worked out with the owner on 15 September 2026 and he agreed to it, but he asked to keep discussing before it is recorded as a decision. When it settles: the art direction goes into Slate's Design field (`design.structure.surfaces` still says how a sheet becomes in-game drawing has not been worked out), the play behaviours (flashlight, downed fall, self-revival, the effects setting) go into README's Expected Behaviour and its Behaviour-By-Behaviour rows, and this section is rewritten as the settled rule rather than a record of a conversation.
+Everything below the rig section was worked out with the owner on 15 September 2026 and he agreed to it, but he asked to keep discussing before it is recorded as a decision. When it settles: the art direction goes into the design register in `Companion/ProfileCard/CLAUDE.md` and a Decisions entry in the root `CLAUDE.md` (the register still says the orb is drawn with a placeholder until its own art exists), the play behaviours (flashlight, downed fall, self-revival, the effects setting) go into README's story and its Behaviour By Behaviour rows, and this section is rewritten as the settled rule rather than a record of a conversation.
 
 ## The sheets cannot be drawn in the game at their own detail
 

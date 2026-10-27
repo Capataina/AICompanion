@@ -1,6 +1,6 @@
 # AICompanion — “Multi... Player?”
 
-This singleplayer tModLoader mod makes an NPC companion that behaves as a second presence in Terraria: it keeps roughly with the player, fights, collects nearby drops, helps with work already underway, and lights dark places. It is deliberately neither a second player nor a pet. **Since the night of 14 September 2026 its body is a flying orb**, twenty pixels across, that plans over free space and is handed two weapons, a pickaxe and an axe by the player; the player-shaped walking body, its tile-graph route search and its authored weapon kit were retired that night after six negative captures whose every defect was a route the planner proved and the body then did not perform (the Slate Record carries the decision and what lost). The companion's *mechanisms* are a closed set rather than calls into real item use — it fires a handed weapon's projectile itself, swings a handed sword in its own arc, drills with a handed pickaxe's power — so each is reliable and written explicitly; the *items* those mechanisms read are open, any weapon or tool whose use is aiming and releasing.
+This singleplayer tModLoader mod makes an NPC companion that behaves as a second presence in Terraria: it keeps roughly with the player, fights, collects nearby drops, helps with work already underway, and lights dark places. It is deliberately neither a second player nor a pet. **Since the night of 14 September 2026 its body is a flying orb**, twenty pixels across, that plans over free space and is handed two weapons, a pickaxe and an axe by the player; the player-shaped walking body, its tile-graph route search and its authored weapon kit were retired that night after six negative captures whose every defect was a route the planner proved and the body then did not perform (Decisions below, 2026-09-14, carries the decision and what lost). The companion's *mechanisms* are a closed set rather than calls into real item use — it fires a handed weapon's projectile itself, swings a handed sword in its own arc, drills with a handed pickaxe's power — so each is reliable and written explicitly; the *items* those mechanisms read are open, any weapon or tool whose use is aiming and releasing.
 
 The lanes that built that body landed on 15 September 2026 (`806a998` the body and its navigation, `c94c797` the gear, the notch and the mastery wheel on main between them), and every folder guide describes the orb. Its description at the level of the product is README's How it works, and at the level of the machinery read from source the section below, "The system in place"; at the depth of a walkthrough it is `Companion/Brain/Infrastructure/Movement/CLAUDE.md` for the body and its navigation, `Companion/Inventory/CLAUDE.md` for the four slots and `Companion/Brain/Infrastructure/Interactions/Firing/CLAUDE.md` for what the hands do with them.
 
@@ -241,6 +241,11 @@ Per character: mining and chopping each Off, Mimic or Auto, and torch placement,
 - Reuse a decompiled Terraria path when it is not gated on the local player. The mod reads game item numbers but never runs companion abilities through `Player.ItemCheck`; a handed weapon or tool is read for its facts and used by the companion's own mechanisms, and an item those mechanisms cannot express is refused by its slot.
 - A decision evaluates every option it has and learns from what its own actions did, never a hand-written proxy for the question. The owner ruled this on 15 September 2026 about weapon and target choice and said it holds for every system from here on: a firing spot is priced by the best attack every handed weapon could make from there, not by the weapon chosen last; how a weapon flies, shoves and hurts each enemy type is learned from its own hits; and interactions between weapons, such as one applying a debuff the other exploits, are to be learned the same way rather than written as rules. A factor that stands in for a quantity the brain could compute is a defect waiting for the case where the two disagree.
 - Four slots and no more: two weapons, a pickaxe and an axe. No armour, no accessories, no ammo slot; ammo is free, mana mirrors the player's and tires magic rather than stopping it.
+- Never give it orders: no command queue, no "go here" click, no target painting. Toggles that say what kinds of work it may do are fine; telling it what to do next is not. The request arrives disguised as fixing a frustration.
+- Never send it anywhere: no missions, expeditions or base guarding. The request arrives disguised as convenience, and distant work lacks the player's enemy-spawning context anyway.
+- Never let it solo a boss. Any balance change that does breaks "weak beats boss-killing"; the request arrives disguised as a balance pass.
+- Never a second inventory to manage. The bag is cargo the player empties through the game's own chest buttons; sorting, filtering and loadouts were built in mockups and removed.
+- A wanted behaviour becomes a README table row first, then a scene, in the same sitting, in the words a player would use and with no system named; the README's Expected column never names a mechanism, so it survives any rewrite of the system beneath it.
 
 ## README's story and behaviour table are kept by these rules
 
@@ -428,6 +433,8 @@ A red is a stop whatever the reruns show: a case that fails once and then passes
 
 Read a playtest with `sh Tools/build.sh session-report` then `dotnet Tools/SessionReport/bin/Debug/net8.0/SessionReport.dll Telemetry` — never `dotnet run --project`, which fails on this machine with "an error occurred trying to start process" because `Directory.Build.rsp` turns apphost generation off for `dotnet build` only and `dotnet run`'s launch honours command-line properties alone; replay and world-window procedures live in their respective tool folders. `Telemetry/` is gitignored, so a fresh clone has nothing to read until a playtest writes one.
 
+**There is no GitHub CI workflow, and every layer of `just test` runs only on a machine with the game installed.** The mod's project imports `../tModLoader.targets` and the instruments compile against the installed tModLoader's assemblies (even the game-free NavReplay references the install's FNA), with `DYLD_LIBRARY_PATH` into the Steam install for EngineReplay's native fixtures, so a hosted runner has nothing to build against. A workflow becomes possible only if a pure-logic test project that references no game assembly is split out.
+
 ## Traps
 
 - **The shell build says "Build succeeded" in under two seconds.** That is real; check the DLL timestamp before trusting it. `Tools/verify.sh` already checks this for you — it refuses a DLL older than any source file feeding it — so the trap bites hardest when building by hand.
@@ -458,6 +465,78 @@ Read a playtest with `sh Tools/build.sh session-report` then `dotnet Tools/Sessi
 - **The mod's version in `build.txt` moves with the work and is not a release signal.** Nothing here has shipped to anyone.
 - **A number in any of these folder files is either a fact of the world or a dated measurement.** The behaviour tunables are the `Weights` class in `Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs` — the class and the file are not named the same thing, which is worth knowing before searching for `Weights.cs`, because there is no such file. A threshold quoted in prose anywhere else is a documentation defect rather than the current value.
 
+
+## Decisions: what was chosen, what lost, and what would reopen it
+
+The project's earlier record held about a hundred and twenty entries, most of them about the retired walking body, its route search and its authored weapon kit; those are superseded as a class by the 2026-09-14 orb decision and live in git history. Every decision still binding the code follows, each as date · question · chosen · rejected · because · revives if, where it has them.
+
+- 2026-09-07 · Second Player slot or an NPC? · An NPC with its own closed ability set. · Rejected: a Player slot, which won physics, item use and boss targeting for free. · Because an upgradeable companion stopped needing player item use, and a Player slot drags in everything a player is.
+- 2026-09-07 · Name? · "Multi... Player?" on the mod browser, AICompanion internally. · Known cost: "multiplayer" as a search term belongs to real multiplayer mods, so the description carries "companion" and "AI".
+- 2026-09-07 · Singleplayer or multiplayer? · Singleplayer only, `Main.LocalPlayer` everywhere. · Rejected: multiplayer. · Because an AI agent's decisions would need syncing across clients for little gain.
+- 2026-09-07 · Can it die? · Never; at zero health it is downed and revived by standing beside it, or it rises on its own.
+- 2026-09-07 · What is it for? · Cutting grind, never killing bosses; it must never do a meaningful fraction of a boss's health. · Revives if: never; it is the tuning constraint for every weapon.
+- 2026-09-07 · Whose are its attacks? · Its projectiles are spawned owned by the local player, so kills, drops and on-hit effects behave as the player's.
+- 2026-09-08 · Does it teleport? · Never in ordinary play; recovery flight past the leash is continuous and visible.
+- 2026-09-08 · Does it go on missions or grind for the player? · No; sending it anywhere was abandoned the same evening it was designed. · Because the grinding is the game, and distant work lacks the player's spawning context. · Revives if the game gave a distant companion the player's enemy-spawning context.
+- 2026-09-08 · Enemy aggro per enemy or through a stand-in? · A live player stand-in that exists only inside hostile AI calls. · Rejected: per-enemy hooks.
+- 2026-09-10 · How does it get home when far away? · Visible flight back, through terrain, entered only from ordinary following. · Rejected: building temporary platforms; teleport rescue.
+- 2026-09-10 · Which work policies exist? · Mining and chopping each Off, Mimic or Auto, saved per character on the profile card.
+- 2026-09-11 · What may it change about the world? · A closed set: break ore, trees and pots; place torches; open doors. · Rejected: digging to reach targets, opening chests, planting. · Revives if: never; each was deleted rather than parked.
+- 2026-09-11 · How is the README written? · A target story with no system language, a behaviour table whose Expected column names no mechanism, every section with its own maintenance rules (the rules now live in "README's story and behaviour table are kept by these rules" above). · Because the first draft smuggled solutions into the requirements.
+- 2026-09-11 · Is the behaviour table scored? · No; the Aligned and Cause-confidence columns were removed. · Because a percentage conflated system completeness with how far off a behaviour looks, and one constant moved commitment from 55.5 to 22.3 ticks per choice.
+- 2026-09-14 · Body and offence? · A flying orb that uses the gear it is handed; the walking body, its tile-graph route search and the authored twenty-weapon kit are retired. · Rejected: the walker, after six negative play captures whose every defect was a route the planner proved and the body then failed to perform; an authored kit, a week of work per class and an endless balance argument. · Revives if flying proves unfun in play, not merely different, or handed gear proves unusable across the mods players run.
+- 2026-09-14 · Where does strength come from? · Mirrored player life, defence and mana; the mastery tree; four handed slots. · Rejected: equipment on the companion beyond the four slots.
+- 2026-09-14 · Where does experience come from? · Its own completed actions; amended on 2026-09-15 so the player's own kills and work earn it half.
+- 2026-09-14 · What does the tether mean? · Direction as well as distance: the space around the player leans the way they travel; it never chooses a destination of its own beyond the player's vicinity.
+- 2026-09-14 · Commitment and unfinished searches? · Commitment lives in the executor, not the chooser, and an unfinished search is never an answer.
+- 2026-09-15 · Liquids? · Every liquid is air to the orb from the start. · Rejected: liquid immunity as a mastery unlock. · Because a capability an upgrade switches on must be tested with and without it after every later brain change.
+- 2026-09-15 · What may mastery do? · Never change how the companion behaves or moves, and never switch a capability on; costs points only, never materials; one flat tree; circles have five levels, diamonds three. · Rejected: nested trees ("a tad bit too overpowered"); material costs.
+- 2026-09-15 · Torches? · The companion's own; placing one never uses one up, and a handed torch only picks the kind.
+- 2026-09-15 · How are weapon, target, stand and aim chosen? · As one decision over every handed weapon in every scenario, kept apart as Pareto values and learned from the companion's own shots; the same holds for every system. · Rejected: hard-coded proxies such as "use the last weapon".
+- 2026-09-15 · Hunting and guarding? · One Combat activity, and weapons fire only while Combat is the running job.
+- 2026-09-15 · The notch? · Three bars (health, mana, experience) and no icons; the family and activity symbols were cancelled.
+- 2026-09-18 · How is a fight spaced? · As the stand Combat commits, with every park preferring six tiles of air from terrain and enemies as a cost, not a wall. · Rejected: a survival takeover; another vector term.
+- 2026-09-19 to 21 · Which brain? · The retained course: bounded ordered sequences of concrete opportunities priced by forecast consequences, the bound step supplying the body's destination; the live tick switched in `0bb2c8a`. · Rejected: the per-tick family chooser multiplying considerations, deleted on 2026-09-22.
+- 2026-09-21 · Harm to the player is priced in the objective, with threats that keep hitting priced through the game's own immunity windows, read from the decompiled engine rather than remembered.
+- 2026-09-21 · A search window is derived from the rule that admits its results; a budget unit prices the kind of work, not the area swept.
+- 2026-09-22 · A census publishes a bounded, ranked count of what a decision could use, and must keep any site a course is bound to (hysteresis). · Because the frozen observation grew from 150 facts to about 1,600 in thirty-three seconds of play.
+- 2026-09-22 · A purpose no activity performs never becomes a course step; a pot is broken only in passing, folded into collecting on 2026-09-23.
+- 2026-09-22 · Survival-first is a rule between feasible fights, never a term an idle course can win on.
+- 2026-09-22 · The answer to a brain that finds work and refuses it is an instrument before a fix. · Rejected: optional modules; a rollback to the family chooser.
+- 2026-09-22 · The hour-long endurance soak is not run. · Because length was never the missing variable, the scene was.
+- 2026-09-24 · Timings are judged against the run they came from, never against a fixed budget. · Rejected: a fixed 2 ms median, 4 ms p99 budget.
+- 2026-09-25 · Keeping company is what the companion does only when nothing else is usable, and the companionship gap leaves every price; an order with useful work ranks above one with none before anything else is compared. · Because in play it kept the player company while three zombies stood below.
+- 2026-09-26 · Following distance? · Fixed: new work within 100 tiles of the player, flight home past 125. · Rejected: the Close / Standard / Free setting.
+- 2026-10-01 · A spoken voice through a hosted voice service? · No, though considered.
+
+## Glossary: the private vocabulary
+
+- **The designer, the owner**: the author, whose play captures and rulings decide behaviour.
+- **Course, bound step**: the retained ordered sequence of jobs, and the step of it currently being carried out.
+- **Domain**: a kind of opportunity the course discovers (ore, trees, drops, dark air, shots).
+- **Census**: a domain's bounded, ranked publication of opportunities.
+- **Intent region**: the box carried ahead of the player's feet; every "how far from the player" question measures to it.
+- **God's View**: the pre-play verification kit (engine fixtures, captured corpus, whole-world run) behind `just test`.
+- **World run, play measures**: the instrument that replays a recorded play's scene through a saved world and grades it.
+- **AIC-N**: a card id from the project's former tracker, cited across these files and in commit bodies as history. A card that was still open became a GitHub issue whose body ends in `<!-- source-key: AIC-N -->`, so `gh issue list -R Capataina/AICompanion --state all --search "AIC-N in:body"` finds it; a closed card's account is in the commit that closed it, `git log --grep AIC-N`.
+- **Walker**: the retired player-shaped body; any proposal that needs the body to stand is "the walker back".
+
+## Risks: what bites, and the trigger that makes it bite
+
+- **Acceptance is still open.** The course brain has been played once; the repaired tree waits for its second play. Trigger: treating the headless suite's green as the companion being good company.
+- **Liquids as air have visible side effects.** Water enemies can chase the orb in water, and an orb inside lava is drawn under it and hidden. Trigger: play near water or lava.
+- **Combat balance.** Combat may be too eager (leaving a vein for a distant slime) or too shy. Trigger: the first plays with two handed weapons; undoable by scale.
+- **Mastery combat nodes are not wired.** Levelling a piercing or extra-projectile node changes nothing yet. Trigger: the first play that tries them; expected, not a defect.
+- **The clearance cost can refuse a one-tile-crack vein or a wall torch.** Trigger: a cave test, before anyone files a missed ore as a mining defect.
+- **Tick counts overstate decisions.** Trigger: counting ticks in a telemetry file for a subsystem that re-decides on a slower cadence.
+- **Corpus counts overstate independence.** Trigger: several corpus windows from one session sharing nearly the same coordinates.
+- **Modded weapons are unexercised.** The slot's refusal of custom-firing modded items has never met a modded game.
+
+Questions the record leaves open, each a design question rather than a defect: how strong mastery should make the companion and how fast it should earn it (never strong enough to take a boss alone, never useless); whether an arc learned from the orb's own shots aims well enough for handed gear to be its whole offence; how the companion is drawn and what a downed companion looks like (direction: one simple symmetrical disc from the concept sheet with a gentle loop); whether stepping off a predicted corridor and then throwing at a clump still wins when the Eye of Cthulhu dives rather than cruises; and opportunistic replacement mid-course, which is unbuilt, so a better course is never weighed while the running one is valid.
+
+## Planned work
+
+Open work is this repository's GitHub issues, `gh issue list -R Capataina/AICompanion`, and the private board, `gh project item-list 4 --owner @me --query 'repo:Capataina/AICompanion is:open'`.
 
 ## Current state — 2026-09-26
 
